@@ -37,24 +37,35 @@ export default function Home() {
       </div>
 
       {/* Header */}
-      <header className="relative z-10 border-b border-white/10">
-        <nav className="container mx-auto px-6 py-4 flex items-center justify-between">
-          <div className="pixel-serif-logo text-white text-2xl font-bold">
-            C<span className="pixel-serif-logo" style={{ fontSize: '2em' }}>0</span>MPUTE
-          </div>
+      <header className="relative z-10">
+        <div className="absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-black via-black/60 via-black/30 to-transparent pointer-events-none"></div>
+        <nav className="container mx-auto px-6 py-4 flex items-center justify-between relative z-10">
+        <div className="pixel-serif-logo text-white text-2xl font-bold flex items-center">
+          C<span className="pixel-serif-logo" style={{ fontSize: '2em', display: 'inline-block', verticalAlign: 'baseline', lineHeight: '1', marginTop: '-0.35em' }}>0</span>MPUTE
+        </div>
           <div className="flex items-center gap-6">
             <a href="#about" className="pixel-sans text-white/80 hover:text-white transition-colors">About</a>
             <a href="#how-it-works" className="pixel-sans text-white/80 hover:text-white transition-colors">How It Works</a>
-            <a href="#join" className="pixel-sans text-white/80 hover:text-white transition-colors">Join</a>
+            <>
+              <style dangerouslySetInnerHTML={{__html: `
+                a.login-link:not(:hover)::before {
+                  transition-delay: 299ms;
+                }
+                a.login-link:not(:hover)::after {
+                  transition-delay: 0ms;
+                }
+              `}} />
+              <a href="#login" className="login-link pixel-serif text-white hover:text-white transition-colors relative before:absolute before:bottom-0 before:left-0 before:h-0.5 before:bg-white before:w-0 before:transition-all before:duration-300 hover:before:w-[42%] after:absolute after:bottom-0 after:left-[58%] after:h-0.5 after:bg-white after:w-0 after:transition-all after:duration-300 after:delay-[299ms] hover:after:w-[42%]">Login</a>
+            </>
           </div>
         </nav>
       </header>
 
       {/* Hero Section */}
-      <section className="relative z-10 flex flex-col items-center justify-center min-h-screen px-6 py-12">
+      <section className="relative z-10 flex flex-col items-center justify-center min-h-[calc(100vh-80px)] px-6 py-12">
         <div className="text-center space-y-6 max-w-5xl">
           <div className="pixel-serif-wrapper">
-            <h1 className="pixel-serif text-white text-7xl md:text-8xl lg:text-[12rem] font-bold leading-none tracking-tight">
+            <h1 className="pixel-serif text-white text-5xl md:text-6xl lg:text-7xl font-bold leading-none tracking-tight">
               C<span className="pixel-serif-logo" style={{ fontSize: '2em' }}>0</span>MPUTE
             </h1>
           </div>
