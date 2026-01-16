@@ -407,6 +407,55 @@ const PixelBlast = ({
       const quad = new THREE.Mesh(quadGeom, material);
       scene.add(quad);
       const clock = new THREE.Clock();
+      const randomFloat = () => {
+        if (typeof window !== 'undefined' && window.crypto?.getRandomValues) {
+          const u32 = new Uint32Array(1);
+          window.crypto.getRandomValues(u32);
+          return u32[0] / 0xffffffff;
+        }
+        return Math.random();
+      };
+      const timeOffset = randomFloat() * 1000;
+      let composer;
+      let touch;
+      let liquidEffect;
+      
+      // Set up liquid and noise effects before defining setSize
+      if (liquid) {
+        touch = createTouchTexture();
+        touch.radiusScale = liquidRadius;
+        composer = new EffectComposer(renderer);
+        const renderPass = new RenderPass(scene, camera);
+        liquidEffect = createLiquidEffect(touch.texture, {
+          strength: liquidStrength,
+          freq: liquidWobbleSpeed
+        });
+        const effectPass = new EffectPass(camera, liquidEffect);
+        effectPass.renderToScreen = true;
+        composer.addPass(renderPass);
+        composer.addPass(effectPass);
+      }
+      if (noiseAmount > 0) {
+        if (!composer) {
+          composer = new EffectComposer(renderer);
+          composer.addPass(new RenderPass(scene, camera));
+        }
+        const noiseEffect = new Effect(
+          'NoiseEffect',
+          `uniform float uTime; uniform float uAmount; float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7))) * 43758.5453);} void mainUv(inout vec2 uv){} void mainImage(const in vec4 inputColor,const in vec2 uv,out vec4 outputColor){ float n=hash(floor(uv*vec2(1920.0,1080.0))+floor(uTime*60.0)); float g=(n-0.5)*uAmount; outputColor=inputColor+vec4(vec3(g),0.0);} `,
+          {
+            uniforms: new Map([
+              ['uTime', new THREE.Uniform(0)],
+              ['uAmount', new THREE.Uniform(noiseAmount)]
+            ])
+          }
+        );
+        const noisePass = new EffectPass(camera, noiseEffect);
+        noisePass.renderToScreen = true;
+        if (composer && composer.passes.length > 0) composer.passes.forEach(p => (p.renderToScreen = false));
+        composer.addPass(noisePass);
+      }
+      
       const setSize = () => {
         const rect = container.getBoundingClientRect();
         const w = rect.width || container.clientWidth || (typeof window !== 'undefined' ? window.innerWidth : 1920);
@@ -426,18 +475,6 @@ const PixelBlast = ({
       requestAnimationFrame(() => {
         setSize();
       });
-      const randomFloat = () => {
-        if (typeof window !== 'undefined' && window.crypto?.getRandomValues) {
-          const u32 = new Uint32Array(1);
-          window.crypto.getRandomValues(u32);
-          return u32[0] / 0xffffffff;
-        }
-        return Math.random();
-      };
-      const timeOffset = randomFloat() * 1000;
-      let composer;
-      let touch;
-      let liquidEffect;
       if (liquid) {
         touch = createTouchTexture();
         touch.radiusScale = liquidRadius;

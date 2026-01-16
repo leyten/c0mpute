@@ -13,6 +13,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
+      <head>
+        <link rel="stylesheet" href="https://use.typekit.net/kwe2dpm.css" />
+      </head>
       <body>{children}</body>
     </html>
   );
