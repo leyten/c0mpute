@@ -2,6 +2,10 @@
 
 import { useState } from 'react';
 import PixelBlast from '@/components/PixelBlast';
+import OrchestratorFlow from '@/components/OrchestratorFlow';
+import PrivateVisual from '@/components/PrivateVisual';
+import BrowserVisual from '@/components/BrowserVisual';
+import EarningsVisual from '@/components/EarningsVisual';
 
 export default function Home() {
   const [prompt, setPrompt] = useState('');
@@ -30,8 +34,8 @@ export default function Home() {
             
             {/* Center: Navigation */}
             <div className="flex items-center gap-8">
-              <a href="#about" className="pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide">About</a>
-              <a href="#how-it-works" className="pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide">How It Works</a>
+              <a href="#user" className="pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide">User</a>
+              <a href="#worker" className="pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide">Worker</a>
             </div>
             
             {/* Right: Login */}
@@ -119,50 +123,62 @@ export default function Home() {
       <section className="bg-black py-24">
         <div className="max-w-6xl mx-auto px-6">
           {/* Bento Grid */}
-          <div className="grid grid-cols-4 grid-rows-2 gap-4 h-[600px]">
-            {/* Cell 1 - Large left cell (2x2) */}
-            <div className="col-span-2 row-span-2 border border-white/10 bg-white/[0.02] p-8 flex flex-col justify-between hover:bg-white/[0.04] transition-colors">
-              <div>
-                <span className="pixel-sans text-white/40 text-xs tracking-[0.2em] uppercase">01</span>
-                <h3 className="pixel-serif text-white text-2xl md:text-3xl mt-4">
-                  Decentralized Computing
-                </h3>
-                <p className="pixel-sans text-white/60 text-sm mt-4 leading-relaxed">
-                  Harness the collective power of distributed nodes. Your compute, your network.
-                </p>
+          <div className="grid grid-cols-5 grid-rows-2 gap-4 h-[750px]">
+            {/* Row 1: Large + Small */}
+            {/* Cell 1 - People Powered (large) */}
+            <div className="col-span-3 border border-white/10 bg-white/[0.02] p-8 flex flex-col hover:bg-white/[0.04] transition-colors overflow-hidden">
+              <h3 className="pixel-serif text-white text-2xl md:text-3xl">
+                People-Powered AI
+              </h3>
+              <p className="pixel-sans text-white/50 text-sm mt-3">
+                No data centers. No corporations. Just people around the world sharing compute to power AI for everyone.
+              </p>
+              {/* Orchestrator Flow Animation */}
+              <div className="flex-1 flex items-center justify-center mt-4">
+                <OrchestratorFlow />
               </div>
             </div>
             
-            {/* Cell 2 - Top right (2x1) */}
-            <div className="col-span-2 border border-white/10 bg-white/[0.02] p-6 flex flex-col justify-between hover:bg-white/[0.04] transition-colors">
-              <span className="pixel-sans text-white/40 text-xs tracking-[0.2em] uppercase">02</span>
-              <div>
-                <h3 className="pixel-serif text-white text-xl mt-2">
-                  AI-Native
-                </h3>
-                <p className="pixel-sans text-white/60 text-sm mt-2 leading-relaxed">
-                  Built from the ground up for machine learning workloads.
-                </p>
+            {/* Cell 2 - Privacy (small) */}
+            <div className="col-span-2 border border-white/10 bg-white/[0.02] p-6 flex flex-col hover:bg-white/[0.04] transition-colors overflow-hidden">
+              <h3 className="pixel-serif text-white text-xl">
+                Private by Design
+              </h3>
+              <p className="pixel-sans text-white/50 text-sm mt-2">
+                Your prompts are encrypted. Nobody sees what you ask.
+              </p>
+              {/* Privacy Visual */}
+              <div className="flex-1 flex items-center justify-center mt-4">
+                <PrivateVisual />
               </div>
             </div>
             
-            {/* Cell 3 - Bottom middle (1x1) */}
-            <div className="col-span-1 border border-white/10 bg-white/[0.02] p-6 flex flex-col justify-between hover:bg-white/[0.04] transition-colors">
-              <span className="pixel-sans text-white/40 text-xs tracking-[0.2em] uppercase">03</span>
-              <div>
-                <h3 className="pixel-serif text-white text-lg">
-                  Open Source
-                </h3>
+            {/* Row 2: Small + Large */}
+            {/* Cell 3 - Browser (small) */}
+            <div className="col-span-2 border border-white/10 bg-white/[0.02] p-6 flex flex-col hover:bg-white/[0.04] transition-colors overflow-hidden">
+              <h3 className="pixel-serif text-white text-xl">
+                In-Browser
+              </h3>
+              <p className="pixel-sans text-white/50 text-sm mt-2">
+                No downloads. Just open and go.
+              </p>
+              {/* Browser Visual */}
+              <div className="flex-1 flex items-center justify-center mt-4">
+                <BrowserVisual />
               </div>
             </div>
             
-            {/* Cell 4 - Bottom right (1x1) */}
-            <div className="col-span-1 border border-white/10 bg-white/[0.02] p-6 flex flex-col justify-between hover:bg-white/[0.04] transition-colors">
-              <span className="pixel-sans text-white/40 text-xs tracking-[0.2em] uppercase">04</span>
-              <div>
-                <h3 className="pixel-serif text-white text-lg">
-                  Zero Trust
-                </h3>
+            {/* Cell 4 - Get Paid (large) */}
+            <div className="col-span-3 border border-white/10 bg-white/[0.02] p-8 flex flex-col hover:bg-white/[0.04] transition-colors overflow-hidden">
+              <h3 className="pixel-serif text-white text-2xl md:text-3xl">
+                Get Paid for Your Compute
+              </h3>
+              <p className="pixel-sans text-white/50 text-sm mt-3">
+                Get paid in $SOL for your computing power. Passive income just by keeping a tab open.
+              </p>
+              {/* Earnings Visual */}
+              <div className="flex-1 flex items-center justify-center mt-4">
+                <EarningsVisual />
               </div>
             </div>
           </div>
