@@ -149,6 +149,7 @@ uniform float uRippleSpeed;
 uniform float uRippleThickness;
 uniform float uRippleIntensity;
 uniform float uEdgeFade;
+uniform float uCenterSparsity;
 
 uniform int   uShapeType;
 const int SHAPE_SQUARE   = 0;
@@ -249,6 +250,16 @@ void main(){
 
   float feed = base + (uDensity - 0.5) * 0.3;
 
+  // Reduce density in center based on distance from center
+  if (uCenterSparsity > 0.0) {
+    vec2 norm = gl_FragCoord.xy / uResolution;
+    vec2 center = vec2(0.5, 0.5);
+    float distFromCenter = length(norm - center);
+    // Invert: closer to center = lower feed value = fewer pixels
+    float centerReduction = (1.0 - smoothstep(0.0, 0.4, distFromCenter)) * uCenterSparsity;
+    feed -= centerReduction;
+  }
+
   float speed     = uRippleSpeed;
   float thickness = uRippleThickness;
   const float dampT     = 1.0;
@@ -325,6 +336,7 @@ const PixelBlast = ({
   speed = 0.5,
   transparent = true,
   edgeFade = 0.5,
+  centerSparsity = 0,
   noiseAmount = 0
 }) => {
   const containerRef = useRef(null);
@@ -390,7 +402,8 @@ const PixelBlast = ({
         uRippleSpeed: { value: rippleSpeed },
         uRippleThickness: { value: rippleThickness },
         uRippleIntensity: { value: rippleIntensityScale },
-        uEdgeFade: { value: edgeFade }
+        uEdgeFade: { value: edgeFade },
+        uCenterSparsity: { value: centerSparsity }
       };
       const scene = new THREE.Scene();
       const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
@@ -593,6 +606,7 @@ const PixelBlast = ({
       t.uniforms.uRippleThickness.value = rippleThickness;
       t.uniforms.uRippleSpeed.value = rippleSpeed;
       t.uniforms.uEdgeFade.value = edgeFade;
+      t.uniforms.uCenterSparsity.value = centerSparsity;
       if (transparent) t.renderer.setClearAlpha(0);
       else t.renderer.setClearColor(0x000000, 1);
       if (t.liquidEffect) {
@@ -630,6 +644,7 @@ const PixelBlast = ({
     rippleSpeed,
     pixelSizeJitter,
     edgeFade,
+    centerSparsity,
     transparent,
     liquidStrength,
     liquidRadius,
