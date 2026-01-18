@@ -10,6 +10,15 @@ import EarningsVisual from '@/components/EarningsVisual';
 export default function Home() {
   const [prompt, setPrompt] = useState('');
   const [menuOpen, setMenuOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  
+  const TOKEN_CA = 'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX'; // Replace with actual CA
+  
+  const copyCA = () => {
+    navigator.clipboard.writeText(TOKEN_CA);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -193,7 +202,7 @@ export default function Home() {
                 Get Paid for Your Compute
               </h3>
               <p className="pixel-sans text-white/50 text-sm mt-2">
-                Get paid in $SOL for your computing power. Passive income just by keeping a tab open.
+                Get paid in <span className="dollar">$</span>SOL for your computing power. Passive income just by keeping a tab open.
               </p>
             </div>
           </div>
@@ -250,13 +259,79 @@ export default function Home() {
                 Get Paid for Your Compute
               </h3>
               <p className="pixel-sans text-white/50 text-sm mt-3">
-                Get paid in $SOL for your computing power. Passive income just by keeping a tab open.
+                Get paid in <span className="dollar">$</span>SOL for your computing power. Passive income just by keeping a tab open.
               </p>
               {/* Earnings Visual */}
               <div className="flex-1 flex items-center justify-center mt-4">
                 <EarningsVisual />
               </div>
             </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Economic Model Section */}
+      <section className="bg-black py-16 md:py-24 border-t border-white/5">
+        <div className="max-w-6xl mx-auto px-4 md:px-6">
+          
+          {/* Section Header */}
+          <div className="text-center mb-12 md:mb-16">
+            <h2 className="pixel-serif text-white text-3xl md:text-4xl lg:text-5xl">
+              The <span className="dollar">$</span>ZERO Token
+            </h2>
+            <p className="pixel-sans text-white/50 text-sm md:text-base mt-4 max-w-2xl mx-auto">
+              Hold <span className="dollar">$</span>ZERO to use c0mpute. Transaction fees fund the workers who power the total compute.
+            </p>
+          </div>
+
+
+          {/* Three Steps */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 md:gap-8">
+            {/* Step 1 */}
+            <div className="border border-white/10 bg-white/[0.02] p-6 md:p-8">
+              <div className="flex items-center gap-3 mb-4">
+                <span className="pixel-serif text-white/30 text-3xl md:text-4xl">01</span>
+              </div>
+              <h3 className="pixel-serif text-white text-lg md:text-xl mb-3">
+                Hold <span className="dollar">$</span>ZERO to Use
+              </h3>
+              <p className="pixel-sans text-white/50 text-sm leading-relaxed">
+                Buy and hold the <span className="dollar">$</span>ZERO token to access c0mpute. Your tokens are your membership to decentralized AI.
+              </p>
+            </div>
+            
+            {/* Step 2 */}
+            <div className="border border-white/10 bg-white/[0.02] p-6 md:p-8">
+              <div className="flex items-center gap-3 mb-4">
+                <span className="pixel-serif text-white/30 text-3xl md:text-4xl">02</span>
+              </div>
+              <h3 className="pixel-serif text-white text-lg md:text-xl mb-3">
+                Trading Generates Fees
+              </h3>
+              <p className="pixel-sans text-white/50 text-sm leading-relaxed">
+                Every buy and sell of <span className="dollar">$</span>ZERO generates transaction fees in <span className="dollar">$</span>SOL. These fees flow into the worker reward pool.
+              </p>
+            </div>
+            
+            {/* Step 3 */}
+            <div className="border border-white/10 bg-white/[0.02] p-6 md:p-8">
+              <div className="flex items-center gap-3 mb-4">
+                <span className="pixel-serif text-white/30 text-3xl md:text-4xl">03</span>
+              </div>
+              <h3 className="pixel-serif text-white text-lg md:text-xl mb-3">
+                Workers Earn <span className="dollar">$</span>SOL
+              </h3>
+              <p className="pixel-sans text-white/50 text-sm leading-relaxed">
+                Contributors who provide compute get paid from the fee pool in <span className="dollar">$</span>SOL. More trading activity = more rewards.
+              </p>
+            </div>
+          </div>
+
+          {/* Bottom Note */}
+          <div className="mt-12 md:mt-16 text-center">
+            <p className="pixel-sans text-white/30 text-xs md:text-sm max-w-xl mx-auto">
+              Token trading funds the network. AI for the people, by the people.
+            </p>
           </div>
         </div>
       </section>

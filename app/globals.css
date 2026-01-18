@@ -226,6 +226,12 @@
   font-feature-settings: normal;
 }
 
+/* Dollar sign with system font fallback */
+.dollar {
+  font-family: 'Courier New', 'Monaco', monospace;
+  font-weight: 400;
+}
+
 /* Section header sticky behavior */
 .section-header {
   backdrop-filter: blur(8px);
