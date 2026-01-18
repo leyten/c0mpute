@@ -251,3 +251,148 @@
 .section-wrapper {
   position: relative;
 }
+
+/* Privy Modal CSS Overrides - match c0mpute style */
+:root {
+  /* No rounded corners */
+  --privy-border-radius-sm: 0px !important;
+  --privy-border-radius-md: 0px !important;
+  --privy-border-radius-lg: 0px !important;
+  --privy-border-radius-full: 0px !important;
+  
+  /* Black background */
+  --privy-color-background: #000000 !important;
+  --privy-color-background-2: #0a0a0a !important;
+  --privy-color-background-3: #111111 !important;
+  
+  /* White/gray text */
+  --privy-color-foreground: #ffffff !important;
+  --privy-color-foreground-2: #e0e0e0 !important;
+  --privy-color-foreground-3: #a0a0a0 !important;
+  --privy-color-foreground-4: #666666 !important;
+  --privy-color-foreground-accent: #ffffff !important;
+  
+  /* White accent */
+  --privy-color-accent: #ffffff !important;
+  --privy-color-accent-light: rgba(255, 255, 255, 0.2) !important;
+  --privy-color-accent-lightest: rgba(255, 255, 255, 0.1) !important;
+  --privy-color-accent-dark: #cccccc !important;
+  --privy-color-accent-darkest: #999999 !important;
+  
+  /* Status colors */
+  --privy-color-success: #22c55e !important;
+  --privy-color-error: #ef4444 !important;
+  --privy-color-error-light: rgba(239, 68, 68, 0.2) !important;
+}
+
+/* Force no rounded corners on ALL Privy elements */
+#privy-dialog,
+#privy-dialog *,
+#privy-modal-content,
+#privy-modal-content *,
+[id^="privy"],
+[id^="privy"] *,
+[class*="privy"],
+[class*="privy"] *,
+[data-privy],
+[data-privy] *,
+div[role="dialog"],
+div[role="dialog"] * {
+  border-radius: 0 !important;
+  -webkit-border-radius: 0 !important;
+  -moz-border-radius: 0 !important;
+}
+
+/* Force our pixel font on Privy modal */
+#privy-dialog,
+#privy-modal-content,
+[id^="privy"],
+[class*="privy"],
+[data-privy],
+div[role="dialog"] {
+  font-family: "argent-pixel-cf", 'Courier New', monospace !important;
+}
+
+/* Style Privy headers with our pixel font */
+#privy-dialog h1,
+#privy-dialog h2,
+#privy-dialog h3,
+#privy-modal-content h1,
+#privy-modal-content h2,
+#privy-modal-content h3,
+[id^="privy"] h1,
+[id^="privy"] h2,
+[id^="privy"] h3,
+[class*="privy"] h1,
+[class*="privy"] h2,
+[class*="privy"] h3,
+div[role="dialog"] h1,
+div[role="dialog"] h2,
+div[role="dialog"] h3 {
+  font-family: "argent-pixel-cf", sans-serif !important;
+  letter-spacing: 0.05em !important;
+  font-smooth: never !important;
+  -webkit-font-smoothing: none !important;
+  -moz-osx-font-smoothing: unset !important;
+  text-rendering: optimizeSpeed !important;
+  color: #ffffff !important;
+}
+
+/* Style buttons with no rounded corners */
+#privy-dialog button,
+#privy-modal-content button,
+[id^="privy"] button,
+[class*="privy"] button,
+div[role="dialog"] button {
+  border-radius: 0 !important;
+  font-family: "argent-pixel-cf", 'Courier New', monospace !important;
+}
+
+/* Target the modal container itself */
+div[role="dialog"][aria-modal="true"] {
+  border-radius: 0 !important;
+}
+
+div[role="dialog"][aria-modal="true"] > div {
+  border-radius: 0 !important;
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+}
+
+/* Add border to Privy modal */
+#privy-dialog > div,
+#privy-modal-content,
+[id^="privy"] > div:first-child,
+[class*="PrivyModal"],
+[class*="privy-modal"],
+[class*="Modal"] {
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+}
+
+/* Remove border from Privy footer/branding area */
+a[href*="privy.io"] {
+  border: none !important;
+  box-shadow: none !important;
+}
+
+
+/* Make all login option buttons same width */
+div[role="dialog"] button,
+#privy-dialog button,
+#privy-modal-content button,
+[id^="privy"] button,
+[class*="privy"] button {
+  width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+}
+
+/* Fix Twitter/social login button to match wallet buttons */
+div[role="dialog"] button[class*="social"],
+div[role="dialog"] button[class*="Social"],
+div[role="dialog"] button[class*="twitter"],
+div[role="dialog"] button[class*="Twitter"],
+div[role="dialog"] button[data-testid*="social"],
+div[role="dialog"] button[data-testid*="twitter"] {
+  width: 100% !important;
+  max-width: 100% !important;
+}

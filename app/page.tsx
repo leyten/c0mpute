@@ -6,11 +6,22 @@ import OrchestratorFlow from '@/components/OrchestratorFlow';
 import PrivateVisual from '@/components/PrivateVisual';
 import BrowserVisual from '@/components/BrowserVisual';
 import EarningsVisual from '@/components/EarningsVisual';
+import { useAuth } from '@/hooks/useAuth';
 
 export default function Home() {
   const [prompt, setPrompt] = useState('');
   const [menuOpen, setMenuOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  
+  const { isLoading, isAuthenticated, login, logout, displayName, xUsername, walletAddress } = useAuth();
+  
+  // Display: prefer X handle, fallback to wallet address
+  const userDisplay = xUsername 
+    ? `@${xUsername}` 
+    : walletAddress 
+      ? `${walletAddress.slice(0, 4)}...${walletAddress.slice(-4)}`
+      : 'User';
   
   const TOKEN_CA = 'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX'; // Replace with actual CA
   
@@ -48,13 +59,67 @@ export default function Home() {
               <a href="#worker" className="pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide">Worker</a>
             </div>
             
-            {/* Right: Login (desktop) + Hamburger (mobile) */}
+            {/* Right: X + Login (desktop) + Hamburger (mobile) */}
             <div className="flex-1 flex items-center justify-end gap-3">
+              {/* X (Twitter) Link */}
               <a 
-                href="#login" 
-                className="pixel-serif-logo text-sm px-3 md:px-4 py-2 border border-white/20 text-white">
-                Login
+                href="https://x.com/c0mpute" 
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-white/70 hover:text-white transition-colors p-2"
+                aria-label="Follow us on X"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+                </svg>
               </a>
+              
+              {isLoading ? (
+                <div className="pixel-serif-logo text-sm px-3 md:px-4 py-2 border border-white/20 text-white/50">
+                  ...
+                </div>
+              ) : isAuthenticated ? (
+                <div className="relative">
+                  <button 
+                    onClick={() => setUserMenuOpen(!userMenuOpen)}
+                    className="pixel-serif-logo text-sm px-3 md:px-4 py-2 border border-white/20 text-white hover:bg-white/5 transition-colors flex items-center gap-2">
+                    {userDisplay}
+                    <svg 
+                      width="10" 
+                      height="10" 
+                      viewBox="0 0 10 10" 
+                      fill="currentColor"
+                      className={`transition-transform ${userMenuOpen ? 'rotate-180' : ''}`}
+                    >
+                      <path d="M5 7L1 3h8L5 7z" />
+                    </svg>
+                  </button>
+                  
+                  {/* User Dropdown Menu */}
+                  {userMenuOpen && (
+                    <div className="absolute right-0 top-full mt-1 bg-black border border-white/20 min-w-[150px] z-50">
+                      <button
+                        onClick={() => { setUserMenuOpen(false); /* TODO: Open settings */ }}
+                        className="pixel-sans text-sm w-full px-4 py-3 text-left text-white/70 hover:text-white hover:bg-white/5 transition-colors"
+                      >
+                        Settings
+                      </button>
+                      <button
+                        onClick={() => { logout(); setUserMenuOpen(false); }}
+                        className="pixel-sans text-sm w-full px-4 py-3 text-left text-white/70 hover:text-white hover:bg-white/5 transition-colors border-t border-white/10"
+                      >
+                        Logout
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <button 
+                  onClick={() => login()}
+                  className="pixel-serif-logo text-sm px-3 md:px-4 py-2 border border-white/20 text-white hover:bg-white/5 transition-colors">
+                  Login
+                </button>
+              )}
               
               {/* Hamburger Menu Button - Mobile only */}
               <button
@@ -86,6 +151,47 @@ export default function Home() {
               >
                 Worker
               </a>
+              <a 
+                href="https://x.com/c0mpute" 
+                target="_blank"
+                rel="noopener noreferrer"
+                className="pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide flex items-center gap-2"
+                onClick={() => setMenuOpen(false)}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+                </svg>
+                Follow on X
+              </a>
+              
+              {/* Auth section in mobile menu */}
+              <div className="border-t border-white/10 pt-4 mt-2">
+                {isAuthenticated ? (
+                  <>
+                    <div className="pixel-sans text-white/50 text-xs mb-2">Logged in as</div>
+                    <div className="pixel-sans text-white text-sm mb-4">{userDisplay}</div>
+                    <button 
+                      onClick={() => { setMenuOpen(false); /* TODO: Open settings */ }}
+                      className="pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide block mb-3"
+                    >
+                      Settings
+                    </button>
+                    <button 
+                      onClick={() => { logout(); setMenuOpen(false); }}
+                      className="pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide block"
+                    >
+                      Logout
+                    </button>
+                  </>
+                ) : (
+                  <button 
+                    onClick={() => { login(); setMenuOpen(false); }}
+                    className="pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide"
+                  >
+                    Login
+                  </button>
+                )}
+              </div>
             </div>
           )}
         </div>
@@ -105,7 +211,7 @@ export default function Home() {
             speed={0.05}
             transparent={true}
             edgeFade={0.15}
-            centerSparsity={0.4}
+            centerSparsity={1.5}
             className=""
             style={{ 
               width: '100%', 
@@ -128,7 +234,7 @@ export default function Home() {
                 </h1>
               </div>
               <p className="pixel-sans text-white/90 text-sm md:text-lg lg:text-xl max-w-2xl mx-auto px-4">
-                A decentralized AI built from the collective compute of its users.
+                AI powered by people, not data centers.
               </p>
             </div>
 
@@ -156,6 +262,29 @@ export default function Home() {
                 </button>
               </div>
             </form>
+
+            <p className="pixel-sans text-white/50 text-xs md:text-sm max-w-xl mx-auto px-4 mt-6">
+              A decentralized network where anyone can share compute and earn, while users get private, censorship-free AI.
+            </p>
+          </div>
+        </div>
+        
+        {/* Scroll indicator */}
+        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-10">
+          <div 
+            className="flex flex-col items-center gap-2 cursor-pointer group" 
+            onClick={() => window.scrollBy({ top: window.innerHeight * 0.8, behavior: 'smooth' })}
+          >
+            <span className="pixel-sans text-white/70 group-hover:text-white text-xs tracking-widest uppercase transition-colors">Scroll</span>
+            <svg 
+              width="16" 
+              height="16" 
+              viewBox="0 0 16 16" 
+              fill="none" 
+              className="text-white/70 group-hover:text-white transition-colors"
+            >
+              <path d="M8 2v12M3 9l5 5 5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="square" />
+            </svg>
           </div>
         </div>
       </section>
@@ -230,7 +359,7 @@ export default function Home() {
                 Private by Design
               </h3>
               <p className="pixel-sans text-white/50 text-sm mt-2">
-                Your prompts are encrypted. Nobody sees what you ask.
+                Your prompts are encrypted.<br />Nobody sees what you ask.
               </p>
               {/* Privacy Visual */}
               <div className="flex-1 flex items-center justify-center mt-4">
@@ -296,7 +425,7 @@ export default function Home() {
                 Hold <span className="dollar">$</span>ZERO to Use
               </h3>
               <p className="pixel-sans text-white/50 text-sm leading-relaxed">
-                Buy and hold the <span className="dollar">$</span>ZERO token to access c0mpute. Your tokens are your membership to decentralized AI.
+                Buy and hold the <span className="dollar">$</span>ZERO token <br />to access c0mpute. Your tokens are your membership to decentralized AI.
               </p>
             </div>
             
@@ -309,7 +438,7 @@ export default function Home() {
                 Trading Generates Fees
               </h3>
               <p className="pixel-sans text-white/50 text-sm leading-relaxed">
-                Every buy and sell of <span className="dollar">$</span>ZERO generates transaction fees in <span className="dollar">$</span>SOL. These fees flow into the worker reward pool.
+                Every buy and sell of <span className="dollar">$</span>ZERO generates transaction fees <br />in <span className="dollar">$</span>SOL. These fees flow into the worker reward pool.
               </p>
             </div>
             
