@@ -1,0 +1,5 @@
+[phases.install]
+cmds = ["npm install"]
+
+[start]
+cmd = "npm run start:server"
