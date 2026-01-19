@@ -50,7 +50,7 @@ function filterDisclaimers(text: string): string {
 
 export default function UserPage() {
   const router = useRouter();
-  const { isLoading: authLoading, isAuthenticated, user } = useAuth();
+  const { isLoading: authLoading, isAuthenticated, user, login } = useAuth();
   
   // Socket
   const {
@@ -330,10 +330,30 @@ export default function UserPage() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [sendMessage]);
 
-  // Redirect if not authenticated
+  // Show login prompt if not authenticated
   if (!authLoading && !isAuthenticated) {
-    router.push('/');
-    return null;
+    return (
+      <div className="h-screen bg-black flex items-center justify-center">
+        <div className="text-center border border-white/10 bg-white/[0.02] p-8 max-w-md mx-4">
+          <div className="pixel-serif text-white text-4xl mb-4">🔒</div>
+          <h1 className="pixel-serif text-white text-2xl mb-3">Login Required</h1>
+          <p className="pixel-sans text-white/50 text-sm mb-6">
+            You need to log in to access the chat. Connect with Privy to continue.
+          </p>
+          <button
+            onClick={() => login()}
+            className="pixel-sans text-sm px-8 py-3 bg-white text-black hover:bg-white/90 transition-colors"
+          >
+            Login with Privy
+          </button>
+          <div className="mt-4">
+            <a href="/" className="pixel-sans text-white/30 text-xs hover:text-white/50 transition-colors">
+              ← Back to home
+            </a>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   // Format date for chat list
