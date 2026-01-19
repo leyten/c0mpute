@@ -28,10 +28,10 @@ export default function PrivyProvider({ children }: { children: React.ReactNode 
           walletList: ['detected_solana_wallets'],
         },
         
-        // Embedded wallet configuration for Solana
+        // Embedded wallet configuration for Solana - disabled auto-creation
         embeddedWallets: {
           solana: {
-            createOnLogin: 'users-without-wallets',
+            createOnLogin: 'off',
           },
         },
 

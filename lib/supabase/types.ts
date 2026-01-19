@@ -13,3 +13,24 @@ export interface Profile {
   created_at: string;
   updated_at: string;
 }
+
+export interface Chat {
+  id: string;
+  privy_id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Message {
+  id: string;
+  chat_id: string;
+  role: 'system' | 'user' | 'assistant';
+  content: string;
+  job_id: string | null;
+  created_at: string;
+}
+
+export interface ChatWithMessages extends Chat {
+  messages: Message[];
+}

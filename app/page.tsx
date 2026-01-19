@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import PixelBlast from '@/components/PixelBlast';
 import OrchestratorFlow from '@/components/OrchestratorFlow';
 import PrivateVisual from '@/components/PrivateVisual';
@@ -13,6 +13,18 @@ export default function Home() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [hasScrolled, setHasScrolled] = useState(false);
+  
+  // Hide scroll indicator after user scrolls
+  useEffect(() => {
+    const handleScroll = () => {
+      if (window.scrollY > 50) {
+        setHasScrolled(true);
+      }
+    };
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
   
   const { isLoading, isAuthenticated, login, logout, displayName, xUsername, walletAddress } = useAuth();
   
@@ -55,8 +67,8 @@ export default function Home() {
             
             {/* Center: Navigation - Hidden on mobile */}
             <div className="hidden md:flex items-center gap-8">
-              <a href="#user" className="pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide">User</a>
-              <a href="#worker" className="pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide">Worker</a>
+              <a href="/user" className="pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide">User</a>
+              <a href="/worker" className="pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide">Worker</a>
             </div>
             
             {/* Right: X + Login (desktop) + Hamburger (mobile) */}
@@ -98,12 +110,13 @@ export default function Home() {
                   {/* User Dropdown Menu */}
                   {userMenuOpen && (
                     <div className="absolute right-0 top-full mt-1 bg-black border border-white/20 min-w-[150px] z-50">
-                      <button
-                        onClick={() => { setUserMenuOpen(false); /* TODO: Open settings */ }}
-                        className="pixel-sans text-sm w-full px-4 py-3 text-left text-white/70 hover:text-white hover:bg-white/5 transition-colors"
+                      <a
+                        href="/settings"
+                        onClick={() => setUserMenuOpen(false)}
+                        className="pixel-sans text-sm w-full px-4 py-3 text-left text-white/70 hover:text-white hover:bg-white/5 transition-colors block"
                       >
                         Settings
-                      </button>
+                      </a>
                       <button
                         onClick={() => { logout(); setUserMenuOpen(false); }}
                         className="pixel-sans text-sm w-full px-4 py-3 text-left text-white/70 hover:text-white hover:bg-white/5 transition-colors border-t border-white/10"
@@ -138,14 +151,14 @@ export default function Home() {
           {menuOpen && (
             <div className="md:hidden bg-black/95 border border-white/10 border-t-0 px-4 py-4 flex flex-col gap-4">
               <a 
-                href="#user" 
+                href="/user" 
                 className="pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide"
                 onClick={() => setMenuOpen(false)}
               >
                 User
               </a>
               <a 
-                href="#worker" 
+                href="/worker" 
                 className="pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide"
                 onClick={() => setMenuOpen(false)}
               >
@@ -170,12 +183,13 @@ export default function Home() {
                   <>
                     <div className="pixel-sans text-white/50 text-xs mb-2">Logged in as</div>
                     <div className="pixel-sans text-white text-sm mb-4">{userDisplay}</div>
-                    <button 
-                      onClick={() => { setMenuOpen(false); /* TODO: Open settings */ }}
+                    <a 
+                      href="/settings"
+                      onClick={() => setMenuOpen(false)}
                       className="pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide block mb-3"
                     >
                       Settings
-                    </button>
+                    </a>
                     <button 
                       onClick={() => { logout(); setMenuOpen(false); }}
                       className="pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide block"
@@ -270,7 +284,7 @@ export default function Home() {
         </div>
         
         {/* Scroll indicator */}
-        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-10">
+        <div className={`absolute bottom-8 left-1/2 -translate-x-1/2 z-10 transition-opacity duration-500 ${hasScrolled ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
           <div 
             className="flex flex-col items-center gap-2 cursor-pointer group" 
             onClick={() => window.scrollBy({ top: window.innerHeight * 0.8, behavior: 'smooth' })}

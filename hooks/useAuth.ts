@@ -1,6 +1,6 @@
 'use client';
 
-import { usePrivy } from '@privy-io/react-auth';
+import { usePrivy, useLinkAccount } from '@privy-io/react-auth';
 import { useState, useEffect, useCallback } from 'react';
 import { Profile } from '@/lib/supabase/types';
 
@@ -22,14 +22,24 @@ interface UseAuthReturn {
   refreshBalance: () => Promise<{ balance: number; cached: boolean } | null>;
   toggleWorkerMode: () => Promise<void>;
   
+  // Linking actions
+  linkWallet: () => void;
+  linkTwitter: () => void;
+  unlinkWallet: (address: string) => Promise<void>;
+  unlinkTwitter: (subject: string) => Promise<void>;
+  deleteAccount: () => Promise<boolean>;
+  
   // Helpers
   displayName: string | null;
   walletAddress: string | null;
   xUsername: string | null;
+  hasWallet: boolean;
+  hasTwitter: boolean;
 }
 
 export function useAuth(): UseAuthReturn {
-  const { ready, authenticated, user, login, logout: privyLogout } = usePrivy();
+  const { ready, authenticated, user, login, logout: privyLogout, unlinkWallet: privyUnlinkWallet, unlinkTwitter: privyUnlinkTwitter } = usePrivy();
+  const { linkWallet, linkTwitter } = useLinkAccount();
   
   const [profile, setProfile] = useState<Profile | null>(null);
   const [profileLoading, setProfileLoading] = useState(false);
@@ -121,6 +131,53 @@ export function useAuth(): UseAuthReturn {
     setProfile(null);
   }, [privyLogout]);
 
+  // Unlink wallet
+  const unlinkWallet = useCallback(async (address: string) => {
+    try {
+      await privyUnlinkWallet(address);
+      // Refresh profile after unlinking
+      setTimeout(() => refreshProfile(), 500);
+    } catch (error) {
+      console.error('Error unlinking wallet:', error);
+      throw error;
+    }
+  }, [privyUnlinkWallet, refreshProfile]);
+
+  // Unlink Twitter
+  const unlinkTwitter = useCallback(async (subject: string) => {
+    try {
+      await privyUnlinkTwitter(subject);
+      // Refresh profile after unlinking
+      setTimeout(() => refreshProfile(), 500);
+    } catch (error) {
+      console.error('Error unlinking Twitter:', error);
+      throw error;
+    }
+  }, [privyUnlinkTwitter, refreshProfile]);
+
+  // Delete account
+  const deleteAccount = useCallback(async (): Promise<boolean> => {
+    if (!user?.id) return false;
+    
+    try {
+      const response = await fetch('/api/profile/delete', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ privyId: user.id }),
+      });
+      
+      if (response.ok) {
+        await privyLogout();
+        setProfile(null);
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('Error deleting account:', error);
+      return false;
+    }
+  }, [user?.id, privyLogout]);
+
   // Sync user to database and fetch profile when authenticated
   useEffect(() => {
     const syncAndFetchProfile = async () => {
@@ -159,6 +216,8 @@ export function useAuth(): UseAuthReturn {
   // Derived values
   const walletAddress = user?.wallet?.address || profile?.wallet_address || null;
   const xUsername = user?.twitter?.username || profile?.x_username || null;
+  const hasWallet = !!user?.wallet?.address;
+  const hasTwitter = !!user?.twitter?.username;
   
   const displayName = xUsername 
     ? `@${xUsername}` 
@@ -184,9 +243,18 @@ export function useAuth(): UseAuthReturn {
     refreshBalance,
     toggleWorkerMode,
     
+    // Linking actions
+    linkWallet,
+    linkTwitter,
+    unlinkWallet,
+    unlinkTwitter,
+    deleteAccount,
+    
     // Helpers
     displayName,
     walletAddress,
     xUsername,
+    hasWallet,
+    hasTwitter,
   };
 }

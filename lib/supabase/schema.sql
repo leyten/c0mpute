@@ -76,3 +76,12 @@ BEGIN
   RETURN result;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- =============================================
+-- MIGRATION: Drop chats and messages tables
+-- (Chat history is now stored locally in browser)
+-- =============================================
+
+-- Run this to clean up old tables:
+-- DROP TABLE IF EXISTS messages;
+-- DROP TABLE IF EXISTS chats;
