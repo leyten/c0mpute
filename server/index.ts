@@ -3,7 +3,8 @@ import { Server } from 'socket.io';
 import { Orchestrator } from '../lib/orchestrator/orchestrator';
 import { ServerToClientEvents, ClientToServerEvents } from '../lib/orchestrator/types';
 
-const PORT = process.env.SOCKET_PORT || 3001;
+// Railway uses PORT, fallback to SOCKET_PORT for local dev
+const PORT = process.env.PORT || process.env.SOCKET_PORT || 3001;
 
 // Create HTTP server
 const httpServer = createServer((req, res) => {
@@ -20,8 +21,11 @@ const httpServer = createServer((req, res) => {
 // Create Socket.IO server
 const io = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
   cors: {
-    origin: process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000',
+    origin: process.env.ALLOWED_ORIGINS 
+      ? process.env.ALLOWED_ORIGINS.split(',') 
+      : ['http://localhost:3000', 'https://c0mpute.vercel.app'],
     methods: ['GET', 'POST'],
+    credentials: true,
   },
 });
 
