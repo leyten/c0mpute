@@ -23,7 +23,7 @@ const io = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
   cors: {
     origin: process.env.ALLOWED_ORIGINS 
       ? process.env.ALLOWED_ORIGINS.split(',') 
-      : ['http://localhost:3000', 'https://c0mpute.vercel.app'],
+      : ['http://localhost:3000', 'https://c0mpute.ai', 'https://www.c0mpute.ai'],
     methods: ['GET', 'POST'],
     credentials: true,
   },
