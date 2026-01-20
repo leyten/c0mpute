@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import PixelBlast from '@/components/PixelBlast';
 import OrchestratorFlow from '@/components/OrchestratorFlow';
 import PrivateVisual from '@/components/PrivateVisual';
@@ -8,7 +9,11 @@ import BrowserVisual from '@/components/BrowserVisual';
 import EarningsVisual from '@/components/EarningsVisual';
 import { useAuth } from '@/hooks/useAuth';
 
+// Key for passing prompt to user page
+const PENDING_PROMPT_KEY = 'c0mpute_pending_prompt';
+
 export default function Home() {
+  const router = useRouter();
   const [prompt, setPrompt] = useState('');
   const [menuOpen, setMenuOpen] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -28,6 +33,17 @@ export default function Home() {
   
   const { isLoading, isAuthenticated, login, logout, displayName, xUsername, walletAddress } = useAuth();
   
+  // After auth loads, check if there's a pending prompt and user is now logged in
+  useEffect(() => {
+    if (!isLoading && isAuthenticated) {
+      const pendingPrompt = localStorage.getItem(PENDING_PROMPT_KEY);
+      if (pendingPrompt) {
+        // User is logged in and has a pending prompt - redirect to chat
+        router.push('/user');
+      }
+    }
+  }, [isLoading, isAuthenticated, router]);
+  
   // Display: prefer X handle, fallback to wallet address
   const userDisplay = xUsername 
     ? `@${xUsername}` 
@@ -45,10 +61,28 @@ export default function Home() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (prompt.trim()) {
-      // TODO: Handle prompt submission
-      console.log('Prompt submitted:', prompt);
-      setPrompt('');
+    console.log('[Homepage] handleSubmit called, prompt:', prompt);
+    console.log('[Homepage] isLoading:', isLoading, 'isAuthenticated:', isAuthenticated);
+    
+    if (!prompt.trim()) {
+      console.log('[Homepage] Empty prompt, returning');
+      return;
+    }
+    
+    // Store the prompt for the user page to pick up
+    localStorage.setItem(PENDING_PROMPT_KEY, prompt.trim());
+    console.log('[Homepage] Stored prompt in localStorage');
+    
+    if (isAuthenticated) {
+      // Already logged in - go straight to chat
+      console.log('[Homepage] User authenticated, redirecting to /user');
+      router.push('/user');
+    } else {
+      // Not logged in - trigger login flow
+      // After login completes, the useEffect above will detect the pending prompt and redirect
+      console.log('[Homepage] User not authenticated, calling login()');
+      login();
+      console.log('[Homepage] login() called');
     }
   };
 

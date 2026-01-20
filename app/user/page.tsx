@@ -15,9 +15,10 @@ const USER_MODELS = [
   { id: 'dolphin-2.6-mistral-7b-q4f16_1-MLC', name: 'Premium', tier: 'premium', description: 'Uncensored, higher quality' },
 ];
 
-// Local storage key for chats
+// Local storage keys
 const CHATS_STORAGE_KEY = 'c0mpute_chats';
 const SELECTED_MODEL_KEY = 'c0mpute_selected_model';
+const PENDING_PROMPT_KEY = 'c0mpute_pending_prompt';
 
 // Helper to load chats from localStorage
 function loadChatsFromStorage(): ChatWithMessages[] {
@@ -87,6 +88,7 @@ export default function UserPage() {
   const [isPremiumUser, setIsPremiumUser] = useState(false); // TODO: Check $ZERO holdings
   const [editingChatId, setEditingChatId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState('');
+  const [pendingPromptProcessed, setPendingPromptProcessed] = useState(false);
   
   // Load selected model from localStorage
   useEffect(() => {
@@ -357,6 +359,108 @@ export default function UserPage() {
   useEffect(() => {
       fetchChats();
   }, [fetchChats]);
+
+  // Handle pending prompt from homepage
+  useEffect(() => {
+    // Only process once, when everything is ready
+    if (
+      pendingPromptProcessed || 
+      !isConnected || 
+      loadingChats || 
+      !isAuthenticated ||
+      authLoading
+    ) {
+      return;
+    }
+    
+    const pendingPrompt = localStorage.getItem(PENDING_PROMPT_KEY);
+    if (!pendingPrompt) {
+      setPendingPromptProcessed(true);
+      return;
+    }
+    
+    // Clear the pending prompt immediately to prevent re-processing
+    localStorage.removeItem(PENDING_PROMPT_KEY);
+    setPendingPromptProcessed(true);
+    
+    // Create a new chat with the pending prompt
+    const now = new Date().toISOString();
+    const newChat: ChatWithMessages = {
+      id: `chat-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      privy_id: user?.id || 'local',
+      title: pendingPrompt.length > 50 ? pendingPrompt.substring(0, 47) + '...' : pendingPrompt,
+      created_at: now,
+      updated_at: now,
+      messages: [],
+    };
+    
+    // Add the new chat to storage and state
+    const updatedChats = [newChat, ...chats];
+    setChats(updatedChats);
+    saveChatsToStorage(updatedChats);
+    setActiveChat(newChat);
+    
+    // Set the input value and trigger send after a short delay
+    setInputValue(pendingPrompt);
+    
+    // Use a timeout to ensure state has settled before sending
+    setTimeout(() => {
+      // We need to manually trigger the send since inputValue won't be updated yet in sendMessage's closure
+      // Instead, we'll directly call the send logic here
+      if (pendingPrompt.length > MAX_INPUT_CHARS) {
+        setError(`Message too long. Maximum ${MAX_INPUT_CHARS} characters.`);
+        return;
+      }
+      
+      // Save user message
+      const message: Message = {
+        id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        chat_id: newChat.id,
+        role: 'user',
+        content: pendingPrompt,
+        job_id: null,
+        created_at: new Date().toISOString(),
+      };
+      
+      // Update chat with the message
+      const chatWithMessage: ChatWithMessages = {
+        ...newChat,
+        messages: [message],
+        updated_at: new Date().toISOString(),
+      };
+      
+      const chatsWithMessage = [chatWithMessage, ...chats];
+      setChats(chatsWithMessage);
+      saveChatsToStorage(chatsWithMessage);
+      setActiveChat(chatWithMessage);
+      
+      // Clear input and submit job
+      setInputValue('');
+      setChatState('queued');
+      setStreamingContent('');
+      
+      submitJob([{ role: 'user', content: pendingPrompt }])
+        .then((jobId) => {
+          currentJobIdRef.current = jobId;
+          setCurrentJobId(jobId);
+          console.log('[User] Pending prompt job submitted:', jobId);
+        })
+        .catch((err) => {
+          console.error('Error submitting pending prompt job:', err);
+          setChatState('error');
+          setError('Failed to submit job. Please try again.');
+        });
+    }, 100);
+  }, [
+    pendingPromptProcessed, 
+    isConnected, 
+    loadingChats, 
+    isAuthenticated, 
+    authLoading,
+    user?.id, 
+    chats, 
+    submitJob
+  ]);
 
   // Auto-focus input when chat is selected or created
   useEffect(() => {
