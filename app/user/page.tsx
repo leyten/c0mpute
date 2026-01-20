@@ -9,8 +9,15 @@ import { MAX_INPUT_CHARS } from '@/lib/orchestrator/types';
 
 type ChatState = 'idle' | 'queued' | 'streaming' | 'error';
 
+// Available models for users
+const USER_MODELS = [
+  { id: 'Qwen2.5-1.5B-Instruct-q4f16_1-MLC', name: 'Standard', tier: 'standard', description: 'Fast responses' },
+  { id: 'dolphin-2.6-mistral-7b-q4f16_1-MLC', name: 'Premium', tier: 'premium', description: 'Uncensored, higher quality' },
+];
+
 // Local storage key for chats
 const CHATS_STORAGE_KEY = 'c0mpute_chats';
+const SELECTED_MODEL_KEY = 'c0mpute_selected_model';
 
 // Helper to load chats from localStorage
 function loadChatsFromStorage(): ChatWithMessages[] {
@@ -76,6 +83,33 @@ export default function UserPage() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [inputValue, setInputValue] = useState('');
   const [loadingChats, setLoadingChats] = useState(true);
+  const [selectedModel, setSelectedModel] = useState(USER_MODELS[0].id);
+  const [isPremiumUser, setIsPremiumUser] = useState(false); // TODO: Check $ZERO holdings
+  const [editingChatId, setEditingChatId] = useState<string | null>(null);
+  const [editingTitle, setEditingTitle] = useState('');
+  
+  // Load selected model from localStorage
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem(SELECTED_MODEL_KEY);
+      if (stored && USER_MODELS.find(m => m.id === stored)) {
+        // Only restore premium model if user is premium
+        const model = USER_MODELS.find(m => m.id === stored);
+        if (model?.tier === 'premium' && !isPremiumUser) {
+          setSelectedModel(USER_MODELS[0].id);
+        } else {
+          setSelectedModel(stored);
+        }
+      }
+    }
+  }, [isPremiumUser]);
+  
+  // Save selected model to localStorage
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(SELECTED_MODEL_KEY, selectedModel);
+    }
+  }, [selectedModel]);
   
   // Refs
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -91,7 +125,7 @@ export default function UserPage() {
   const fetchChats = useCallback(() => {
     const storedChats = loadChatsFromStorage();
     setChats(storedChats);
-    setLoadingChats(false);
+      setLoadingChats(false);
   }, []);
 
   // Select a chat
@@ -99,8 +133,8 @@ export default function UserPage() {
     const chat = chats.find(c => c.id === chatId);
     if (chat) {
       setActiveChat(chat);
-      setTimeout(scrollToBottom, 100);
-    }
+        setTimeout(scrollToBottom, 100);
+      }
   }, [chats, scrollToBottom]);
 
   // Create new chat (locally)
@@ -119,9 +153,9 @@ export default function UserPage() {
     setChats(updatedChats);
     saveChatsToStorage(updatedChats);
     setActiveChat(newChat);
-    setInputValue('');
-    setChatState('idle');
-    setError(null);
+        setInputValue('');
+        setChatState('idle');
+        setError(null);
   }, [user?.id, chats]);
 
   // Delete chat (locally)
@@ -129,9 +163,26 @@ export default function UserPage() {
     const updatedChats = chats.filter(c => c.id !== chatId);
     setChats(updatedChats);
     saveChatsToStorage(updatedChats);
+        if (activeChat?.id === chatId) {
+          setActiveChat(null);
+        }
+  }, [chats, activeChat?.id]);
+
+  // Rename chat (locally)
+  const renameChat = useCallback((chatId: string, newTitle: string) => {
+    if (!newTitle.trim()) return;
+    const updatedChats = chats.map(chat => 
+      chat.id === chatId 
+        ? { ...chat, title: newTitle.trim(), updated_at: new Date().toISOString() }
+        : chat
+    );
+    setChats(updatedChats);
+    saveChatsToStorage(updatedChats);
     if (activeChat?.id === chatId) {
-      setActiveChat(null);
+      setActiveChat(prev => prev ? { ...prev, title: newTitle.trim() } : null);
     }
+    setEditingChatId(null);
+    setEditingTitle('');
   }, [chats, activeChat?.id]);
 
   // Save message to local chat
@@ -160,7 +211,7 @@ export default function UserPage() {
           // Update activeChat if it's the same chat
           setActiveChat(prev => prev?.id === chatId ? updatedChat : prev);
           return updatedChat;
-        }
+      }
         return chat;
       });
       saveChatsToStorage(updatedChats);
@@ -304,7 +355,7 @@ export default function UserPage() {
 
   // Load chats from localStorage on mount
   useEffect(() => {
-    fetchChats();
+      fetchChats();
   }, [fetchChats]);
 
   // Auto-focus input when chat is selected or created
@@ -389,8 +440,34 @@ export default function UserPage() {
           </div>
           
           <div className="flex items-center gap-4">
-            <div className={`pixel-sans text-xs flex items-center gap-2 ${isConnected ? 'text-green-400' : 'text-yellow-400'}`}>
-              <span className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-green-400' : 'bg-yellow-400'}`} />
+            {/* Model Switcher */}
+            <div className="flex items-center border border-white/10">
+              {USER_MODELS.map((model) => {
+                const isSelected = selectedModel === model.id;
+                const isLocked = model.tier === 'premium' && !isPremiumUser;
+                return (
+                  <button
+                    key={model.id}
+                    onClick={() => !isLocked && setSelectedModel(model.id)}
+                    disabled={isLocked}
+                    className={`pixel-sans text-xs px-3 py-1.5 transition-colors relative ${
+                      isSelected 
+                        ? 'bg-[#80a0c1]/20 text-[#80a0c1]' 
+                        : isLocked
+                        ? 'text-white/20 cursor-not-allowed'
+                        : 'text-white/50 hover:text-white/70 hover:bg-white/5'
+                    }`}
+                    title={isLocked ? 'Hold $ZERO to unlock premium' : model.description}
+                  >
+                    {model.name}
+                    {isLocked && <span className="ml-1">🔒</span>}
+                  </button>
+                );
+              })}
+            </div>
+            
+            <div className={`pixel-sans text-xs flex items-center gap-2 ${isConnected ? 'text-green-400' : 'text-[#80a0c1]'}`}>
+              <span className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-green-400' : 'bg-[#80a0c1]'}`} />
               {isConnected ? 'Connected' : 'Connecting...'}
             </div>
             <button 
@@ -407,12 +484,13 @@ export default function UserPage() {
         {/* Sidebar */}
         <aside className={`${sidebarOpen ? 'w-72' : 'w-0'} border-r border-white/10 bg-black/50 flex flex-col transition-all duration-300 overflow-hidden`}>
           {/* New Chat Button */}
-          <div className="p-3 border-b border-white/5">
+          <div className="py-2">
             <button
               onClick={createNewChat}
-              className="w-full pixel-sans text-sm py-2.5 border border-white/20 text-white hover:bg-white/5 transition-colors flex items-center justify-center gap-2"
+              className="w-full pixel-sans py-3 mx-2 px-3 border border-white/20 text-white hover:bg-white/5 transition-colors flex items-center justify-center gap-2 cursor-pointer"
+              style={{ width: 'calc(100% - 16px)' }}
             >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M12 5v14M5 12h14" />
               </svg>
               New Chat
@@ -423,40 +501,73 @@ export default function UserPage() {
           <div className="flex-1 overflow-y-auto">
             {loadingChats ? (
               <div className="p-4 text-center">
-                <span className="pixel-sans text-white/30 text-xs">Loading...</span>
+                <span className="pixel-sans text-white/30 text-sm">Loading...</span>
               </div>
             ) : chats.length === 0 ? (
               <div className="p-4 text-center">
-                <span className="pixel-sans text-white/30 text-xs">No chats yet</span>
+                <span className="pixel-sans text-white/30 text-sm">No chats yet</span>
               </div>
             ) : (
               <div className="py-2">
                 {chats.map((chat) => (
                   <div
                     key={chat.id}
-                    className={`group px-3 py-2 mx-2 mb-1 cursor-pointer transition-colors ${
+                    className={`group px-3 py-3 mx-2 mb-1 cursor-pointer transition-colors ${
                       activeChat?.id === chat.id 
                         ? 'bg-white/10 border border-white/20' 
-                        : 'hover:bg-white/5 border border-transparent'
+                        : 'bg-white/[0.02] hover:bg-white/10 border border-transparent'
                     }`}
-                    onClick={() => fetchChat(chat.id)}
+                    onClick={() => editingChatId !== chat.id && fetchChat(chat.id)}
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex-1 min-w-0">
-                        <p className="pixel-sans text-white text-sm truncate">{chat.title}</p>
-                        <p className="pixel-sans text-white/40 text-xs mt-0.5">{formatDate(chat.updated_at)}</p>
+                        {editingChatId === chat.id ? (
+                          <input
+                            type="text"
+                            value={editingTitle}
+                            onChange={(e) => setEditingTitle(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') renameChat(chat.id, editingTitle);
+                              if (e.key === 'Escape') { setEditingChatId(null); setEditingTitle(''); }
+                            }}
+                            onBlur={() => renameChat(chat.id, editingTitle)}
+                            autoFocus
+                            className="w-full bg-black/50 border border-white/20 px-2 py-1 pixel-sans text-white text-sm focus:outline-none focus:border-white/40"
+                            onClick={(e) => e.stopPropagation()}
+                          />
+                        ) : (
+                          <p className="pixel-sans text-white text-sm truncate">{chat.title}</p>
+                        )}
+                        <p className="pixel-sans text-white/40 text-xs mt-1">{formatDate(chat.updated_at)}</p>
                       </div>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          deleteChat(chat.id);
-                        }}
-                        className="opacity-0 group-hover:opacity-100 p-1 hover:bg-white/10 transition-all"
-                      >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-white/50 hover:text-red-400">
-                          <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2" />
-                        </svg>
-                      </button>
+                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        {/* Edit button */}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setEditingChatId(chat.id);
+                            setEditingTitle(chat.title);
+                          }}
+                          className="p-1.5 cursor-pointer transition-colors"
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-white/50 hover:text-[#80a0c1]">
+                            <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
+                            <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+                          </svg>
+                        </button>
+                        {/* Delete button */}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            deleteChat(chat.id);
+                          }}
+                          className="p-1.5 cursor-pointer transition-colors"
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-white/50 hover:text-red-400">
+                            <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2" />
+                          </svg>
+                        </button>
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -465,15 +576,15 @@ export default function UserPage() {
           </div>
           
           {/* Network Stats */}
-          <div className="p-3 border-t border-white/5 bg-white/[0.02]">
-            <div className="grid grid-cols-2 gap-2 text-center">
+          <div className="p-4 border-t border-white/5 bg-white/[0.02]">
+            <div className="grid grid-cols-2 gap-3 text-center">
               <div>
-                <div className="pixel-serif text-white text-lg">{networkStats?.workersOnline || 0}</div>
-                <div className="pixel-sans text-white/40 text-[10px]">Workers</div>
+                <div className="pixel-serif text-white text-xl">{networkStats?.workersOnline || 0}</div>
+                <div className="pixel-sans text-white/40 text-xs">Workers</div>
               </div>
               <div>
-                <div className="pixel-serif text-white text-lg">{networkStats?.jobsInQueue || 0}</div>
-                <div className="pixel-sans text-white/40 text-[10px]">In Queue</div>
+                <div className="pixel-serif text-white text-xl">{networkStats?.jobsInQueue || 0}</div>
+                <div className="pixel-sans text-white/40 text-xs">In Queue</div>
               </div>
             </div>
           </div>
@@ -485,11 +596,11 @@ export default function UserPage() {
             // Empty state
             <div className="flex-1 flex items-center justify-center">
               <div className="text-center">
-                <div className="pixel-serif text-white/20 text-6xl mb-4">?</div>
-                <p className="pixel-sans text-white/40 text-sm mb-4">Select a chat or start a new one</p>
+                <div className="pixel-serif text-white/20 text-7xl mb-6">?</div>
+                <p className="pixel-sans text-white/40 text-base mb-6">Select a chat or start a new one</p>
                 <button
                   onClick={createNewChat}
-                  className="pixel-sans text-sm px-6 py-2 bg-white text-black hover:bg-white/90 transition-colors"
+                  className="pixel-sans px-8 py-3 bg-white text-black hover:bg-white/90 transition-colors"
                 >
                   New Chat
                 </button>
@@ -504,7 +615,7 @@ export default function UserPage() {
               >
                 {activeChat.messages.length === 0 && chatState === 'idle' && (
                   <div className="flex items-center justify-center h-full">
-                    <p className="pixel-sans text-white/30 text-sm">Send a message to start the conversation</p>
+                    <p className="pixel-sans text-white/30 text-base">Send a message to start the conversation</p>
                   </div>
                 )}
                 
@@ -514,13 +625,13 @@ export default function UserPage() {
                     className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
                   >
                     <div
-                      className={`max-w-[80%] md:max-w-[60%] p-4 ${
+                      className={`max-w-[80%] md:max-w-[70%] p-5 ${
                         message.role === 'user'
                           ? 'bg-white/10 border border-white/20'
                           : 'bg-white/[0.02] border border-white/5'
                       }`}
                     >
-                      <p className="pixel-sans text-white text-sm whitespace-pre-wrap">{message.content}</p>
+                      <p className="pixel-sans text-white text-base leading-relaxed whitespace-pre-wrap">{message.content}</p>
                     </div>
                   </div>
                 ))}
@@ -528,10 +639,10 @@ export default function UserPage() {
                 {/* Streaming message */}
                 {streamingContent && (
                   <div className="flex justify-start">
-                    <div className="max-w-[80%] md:max-w-[60%] p-4 bg-white/[0.02] border border-white/5">
-                      <p className="pixel-sans text-white text-sm whitespace-pre-wrap">
+                    <div className="max-w-[80%] md:max-w-[70%] p-5 bg-white/[0.02] border border-white/5">
+                      <p className="pixel-sans text-white text-base leading-relaxed whitespace-pre-wrap">
                         {filterDisclaimers(streamingContent)}
-                        <span className="inline-block w-2 h-4 bg-white/50 ml-1 animate-pulse" />
+                        <span className="inline-block w-2 h-5 bg-white/50 ml-1 animate-pulse" />
                       </p>
                     </div>
                   </div>
@@ -540,11 +651,11 @@ export default function UserPage() {
                 {/* Queue position indicator with estimated wait time */}
                 {chatState === 'queued' && queuePosition !== null && queuePosition > 0 && (
                   <div className="flex justify-center">
-                    <div className="px-4 py-2 bg-yellow-500/10 border border-yellow-500/20">
-                      <p className="pixel-sans text-yellow-400 text-xs">
+                    <div className="px-5 py-3 bg-[#80a0c1]/10 border border-[#80a0c1]/20">
+                      <p className="pixel-sans text-[#80a0c1] text-sm">
                         You are #{queuePosition} in queue
                         {networkStats?.avgJobDurationMs && networkStats.avgJobDurationMs > 0 && (
-                          <span className="text-yellow-400/70 ml-2">
+                          <span className="text-[#80a0c1]/70 ml-2">
                             · ~{Math.ceil((queuePosition * networkStats.avgJobDurationMs) / 1000)}s wait
                           </span>
                         )}
@@ -569,14 +680,14 @@ export default function UserPage() {
                 {/* Error message */}
                 {error && (
                   <div className="flex justify-center">
-                    <div className="px-4 py-2 bg-red-500/10 border border-red-500/20">
-                      <p className="pixel-sans text-red-400 text-xs">{error}</p>
+                    <div className="px-5 py-3 bg-red-500/10 border border-red-500/20">
+                      <p className="pixel-sans text-red-400 text-sm">{error}</p>
                       <button
                         onClick={() => {
                           setError(null);
                           setChatState('idle');
                         }}
-                        className="pixel-sans text-red-400/70 text-xs underline mt-1"
+                        className="pixel-sans text-red-400/70 text-sm underline mt-1"
                       >
                         Dismiss
                       </button>
@@ -603,14 +714,14 @@ export default function UserPage() {
                         }}
                         placeholder={isConnected ? "Type your message..." : "Connecting to network..."}
                         disabled={chatState !== 'idle' || !isConnected}
-                        className="w-full bg-white/[0.02] border border-white/10 px-4 py-3 pixel-sans text-white text-sm placeholder:text-white/30 focus:outline-none focus:border-white/30 disabled:opacity-50 h-12"
+                        className="w-full bg-white/[0.02] border border-white/10 px-5 py-4 pixel-sans text-white text-base placeholder:text-white/30 focus:outline-none focus:border-white/30 disabled:opacity-50"
                       />
                       {/* Character counter */}
-                      <span className={`absolute top-1/2 -translate-y-1/2 right-3 pixel-sans text-[10px] ${
+                      <span className={`absolute top-1/2 -translate-y-1/2 right-4 pixel-sans text-xs ${
                         inputValue.length > MAX_INPUT_CHARS * 0.9 
                           ? 'text-red-400' 
                           : inputValue.length > MAX_INPUT_CHARS * 0.75 
-                            ? 'text-yellow-400' 
+                            ? 'text-[#80a0c1]' 
                             : 'text-white/30'
                       }`}>
                         {inputValue.length}/{MAX_INPUT_CHARS}
@@ -619,13 +730,13 @@ export default function UserPage() {
                     <button
                       onClick={sendMessage}
                       disabled={!inputValue.trim() || inputValue.length > MAX_INPUT_CHARS || chatState !== 'idle' || !isConnected}
-                      className="bg-black border border-white/10 px-4 h-12 flex items-center justify-center hover:bg-white/5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="bg-black border border-white/10 px-5 flex items-center justify-center hover:bg-white/5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                       aria-label="Send"
                     >
-                      <img src="/PixelSendIcon.png" alt="Send" width={20} height={20} />
+                      <img src="/PixelSendIcon.png" alt="Send" width={24} height={24} />
                     </button>
                   </div>
-                  <p className="pixel-sans text-white/20 text-xs mt-2 text-center">
+                  <p className="pixel-sans text-white/20 text-sm mt-2 text-center">
                     Press Enter to send
                   </p>
                 </div>
