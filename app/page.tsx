@@ -109,7 +109,7 @@ export default function Home() {
             <div className="flex-1 flex items-center justify-end gap-3">
               {/* X (Twitter) Link */}
               <a 
-                href="https://x.com/c0mpute" 
+                href="https://x.com/c0mputeAI" 
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-white/70 hover:text-white transition-colors p-2"
