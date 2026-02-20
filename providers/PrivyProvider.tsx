@@ -9,9 +9,16 @@ const solanaConnectors = toSolanaWalletConnectors({
 });
 
 export default function PrivyProvider({ children }: { children: React.ReactNode }) {
+  const appId = process.env.NEXT_PUBLIC_PRIVY_APP_ID;
+  
+  // During build/SSG or if app ID is missing, render children without Privy
+  if (!appId) {
+    return <>{children}</>;
+  }
+
   return (
     <Privy
-      appId={process.env.NEXT_PUBLIC_PRIVY_APP_ID!}
+      appId={appId}
       config={{
         // Login methods - Solana wallet only (enable 'twitter' in Privy Dashboard first)
         loginMethods: ['wallet', 'twitter'],

@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { upsertProfile } from '@/lib/db';
+import { incrementPromptsSent } from '@/lib/db';
 import { getAuthUserId } from '@/lib/privy-server';
 
 export async function POST(request: NextRequest) {
   try {
-    // Verify auth — only create/update own profile
+    // Verify auth — only increment for the authenticated user
     const authUserId = await getAuthUserId(request);
     if (!authUserId) {
       return NextResponse.json(
@@ -13,19 +13,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const body = await request.json();
-    const { wallet, twitter } = body;
+    incrementPromptsSent(authUserId);
 
-    const profile = upsertProfile({
-      privy_id: authUserId,
-      wallet_address: wallet || null,
-      x_username: twitter?.username || null,
-      x_id: twitter?.id || null,
-    });
-
-    return NextResponse.json({ success: true, profile });
+    return NextResponse.json({ success: true });
   } catch (error) {
-    console.error('Auth callback error:', error);
+    console.error('Increment prompts error:', error);
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }

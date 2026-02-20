@@ -1,42 +1,29 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerClient } from '@/lib/supabase/server';
+import { getProfileByPrivyId, updateProfile } from '@/lib/db';
+import { getAuthUserId } from '@/lib/privy-server';
 
 export async function GET(request: NextRequest) {
   try {
-    const { searchParams } = new URL(request.url);
-    const privyId = searchParams.get('privyId');
-
-    if (!privyId) {
+    // Verify auth — user can only access their own profile
+    const authUserId = await getAuthUserId(request);
+    if (!authUserId) {
       return NextResponse.json(
-        { error: 'Missing privyId parameter' },
-        { status: 400 }
+        { error: 'Authentication required' },
+        { status: 401 }
       );
     }
 
-    const supabase = createServerClient();
+    // Use the authenticated user's ID, not a query parameter
+    const profile = getProfileByPrivyId(authUserId);
 
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('privy_id', privyId)
-      .single();
-
-    if (error) {
-      if (error.code === 'PGRST116') {
-        // No profile found
-        return NextResponse.json(
-          { error: 'Profile not found' },
-          { status: 404 }
-        );
-      }
-      console.error('Supabase error:', error);
+    if (!profile) {
       return NextResponse.json(
-        { error: 'Failed to fetch profile' },
-        { status: 500 }
+        { error: 'Profile not found' },
+        { status: 404 }
       );
     }
 
-    return NextResponse.json({ profile: data });
+    return NextResponse.json({ profile });
   } catch (error) {
     console.error('Profile fetch error:', error);
     return NextResponse.json(
@@ -48,23 +35,24 @@ export async function GET(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   try {
-    const body = await request.json();
-    const { privyId, ...updates } = body;
-
-    if (!privyId) {
+    // Verify auth
+    const authUserId = await getAuthUserId(request);
+    if (!authUserId) {
       return NextResponse.json(
-        { error: 'Missing privyId' },
-        { status: 400 }
+        { error: 'Authentication required' },
+        { status: 401 }
       );
     }
+
+    const body = await request.json();
 
     // Only allow updating certain fields
     const allowedFields = ['is_worker'];
     const sanitizedUpdates: Record<string, unknown> = {};
     
     for (const field of allowedFields) {
-      if (field in updates) {
-        sanitizedUpdates[field] = updates[field];
+      if (field in body) {
+        sanitizedUpdates[field] = body[field];
       }
     }
 
@@ -75,24 +63,17 @@ export async function PATCH(request: NextRequest) {
       );
     }
 
-    const supabase = createServerClient();
+    // Use authenticated user's ID
+    const profile = updateProfile(authUserId, sanitizedUpdates);
 
-    const { data, error } = await supabase
-      .from('profiles')
-      .update(sanitizedUpdates)
-      .eq('privy_id', privyId)
-      .select()
-      .single();
-
-    if (error) {
-      console.error('Supabase error:', error);
+    if (!profile) {
       return NextResponse.json(
         { error: 'Failed to update profile' },
         { status: 500 }
       );
     }
 
-    return NextResponse.json({ profile: data });
+    return NextResponse.json({ profile });
   } catch (error) {
     console.error('Profile update error:', error);
     return NextResponse.json(

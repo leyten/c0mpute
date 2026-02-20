@@ -2,12 +2,33 @@ import { Server, Socket } from 'socket.io';
 import { v4 as uuidv4 } from 'uuid';
 import {
   WorkerInfo,
+  WorkerCapabilities,
   Job,
   ChatMessage,
   ServerToClientEvents,
   ClientToServerEvents,
   NetworkStats,
 } from './types';
+import { verifyPrivyToken } from '../privy-server';
+import { incrementPromptsSent } from '../db';
+// Dynamic imports for server-only modules (avoid Turbopack resolution)
+let shouldSearch: (msg: string, prev?: { role: string; content: string }[]) => boolean = () => false;
+let extractQuery: (msg: string, prev?: { role: string; content: string }[]) => string = (msg) => msg;
+let searchBrave: (query: string) => Promise<{title:string;url:string;description:string}[]> = async () => [];
+let formatSearchContext: (results: {title:string;url:string;description:string}[]) => string = () => '';
+
+// Load search modules at runtime (server-only, not during Next.js build)
+try {
+  const search = require('../search');
+  const searchServer = require('../search-server');
+  shouldSearch = search.shouldSearch;
+  extractQuery = search.extractQuery;
+  searchBrave = searchServer.braveSearch;
+  formatSearchContext = searchServer.formatSearchContext;
+  searchServer.loadBraveApiKey();
+} catch (e) {
+  console.warn('[Orchestrator] Search modules not available:', (e as Error).message);
+}
 
 export class Orchestrator {
   private io: Server<ClientToServerEvents, ServerToClientEvents>;
@@ -16,79 +37,70 @@ export class Orchestrator {
   private jobQueue: string[] = [];
   private totalJobsCompleted: number = 0;
   private totalTokensGenerated: number = 0;
-  private jobDurations: number[] = []; // Recent job durations for averaging
-  private readonly MAX_DURATION_SAMPLES = 50; // Keep last 50 job durations
+  private jobDurations: number[] = [];
+  private readonly MAX_DURATION_SAMPLES = 50;
 
   constructor(io: Server<ClientToServerEvents, ServerToClientEvents>) {
     this.io = io;
+
+    // Auth middleware — reject unauthenticated connections
+    this.io.use(async (socket, next) => {
+      const token = socket.handshake.auth?.token;
+      if (!token) {
+        return next(new Error('Authentication required'));
+      }
+      const userId = await verifyPrivyToken(token);
+      if (!userId) {
+        return next(new Error('Invalid authentication token'));
+      }
+      (socket as any).privyUserId = userId;
+      next();
+    });
+
     this.setupEventHandlers();
-    
-    // Broadcast stats every 5 seconds
     setInterval(() => this.broadcastStats(), 5000);
-    
-    // Clean up stale jobs every 10 seconds
     setInterval(() => this.cleanupStaleJobs(), 10000);
   }
 
-  // Periodic cleanup of stale jobs
   private cleanupStaleJobs() {
     const now = Date.now();
-    const JOB_TIMEOUT_MS = 60000; // 1 minute timeout for jobs
-    
-    // Clean up old jobs from queue
-    const beforeQueueLength = this.jobQueue.length;
+    const JOB_TIMEOUT_MS = 60000;
+
     this.jobQueue = this.jobQueue.filter(jobId => {
       const job = this.jobs.get(jobId);
       if (!job) return false;
-      
-      // Remove if user disconnected
       const userSocket = this.io.sockets.sockets.get(job.userSocketId);
       if (!userSocket) {
         console.log(`[Orchestrator] Cleanup: Removing job ${jobId} - user disconnected`);
         this.jobs.delete(jobId);
         return false;
       }
-      
-      // Remove if job is too old
       const jobAge = now - job.createdAt.getTime();
       if (jobAge > JOB_TIMEOUT_MS) {
-        console.log(`[Orchestrator] Cleanup: Removing job ${jobId} - timed out after ${Math.round(jobAge/1000)}s`);
+        console.log(`[Orchestrator] Cleanup: Removing job ${jobId} - timed out after ${Math.round(jobAge / 1000)}s`);
         userSocket.emit('job:error', { jobId, error: 'Job timed out' });
         this.jobs.delete(jobId);
         return false;
       }
-      
       return true;
     });
-    
-    // Also check processing jobs for timeout
+
     for (const [jobId, job] of this.jobs) {
       if (job.status === 'processing' && job.startedAt) {
         const processingTime = now - job.startedAt.getTime();
         if (processingTime > JOB_TIMEOUT_MS) {
           console.log(`[Orchestrator] Cleanup: Job ${jobId} timed out during processing`);
-          
-          // Notify user
           const userSocket = this.io.sockets.sockets.get(job.userSocketId);
           if (userSocket) {
             userSocket.emit('job:error', { jobId, error: 'Job timed out during processing' });
           }
-          
-          // Mark worker as idle again
           if (job.assignedWorker) {
             const worker = this.findWorkerById(job.assignedWorker);
-            if (worker) {
-              worker.status = 'idle';
-            }
+            if (worker) worker.status = 'idle';
           }
-          
           this.jobs.delete(jobId);
         }
       }
-    }
-    
-    if (beforeQueueLength !== this.jobQueue.length) {
-      this.broadcastStats();
     }
   }
 
@@ -97,101 +109,170 @@ export class Orchestrator {
       console.log(`[Orchestrator] Client connected: ${socket.id}`);
 
       // Worker registration
-      socket.on('worker:register', (data, callback) => {
-        const workerId = this.registerWorker(socket, data.model);
+      socket.on('worker:register', async (data, callback) => {
+        if (!data.authToken) {
+          callback({ error: 'Authentication required' });
+          return;
+        }
+        const privyUserId = await verifyPrivyToken(data.authToken);
+        if (!privyUserId) {
+          callback({ error: 'Invalid authentication token' });
+          return;
+        }
+        const tokPerSec = data.tokPerSec || 0;
+        const MIN_TOK_PER_SEC = 5;
+        if (tokPerSec < MIN_TOK_PER_SEC) {
+          callback({ error: `Your device is too slow (${tokPerSec.toFixed(1)} tok/s). Minimum required: ${MIN_TOK_PER_SEC} tok/s.` });
+          return;
+        }
+        const workerType = data.type || 'browser';
+        const capabilities: WorkerCapabilities = data.capabilities || {};
+        // Browser workers never have search capability
+        if (workerType === 'browser') {
+          capabilities.search = false;
+        }
+        const workerId = this.registerWorker(socket, data.model, privyUserId, tokPerSec, workerType, capabilities);
         if (workerId) {
           callback({ workerId });
           socket.emit('worker:registered', { workerId });
-          console.log(`[Orchestrator] Worker registered: ${workerId} (${data.model})`);
+          console.log(`[Orchestrator] Worker registered: ${workerId} (${data.model}) ${tokPerSec.toFixed(1)} tok/s type=${workerType} user=${privyUserId}`);
           this.broadcastStats();
         } else {
           callback({ error: 'Failed to register worker' });
         }
       });
 
-      // Worker unregistration
       socket.on('worker:unregister', () => {
         this.unregisterWorker(socket.id);
-        console.log(`[Orchestrator] Worker unregistered: ${socket.id}`);
         this.broadcastStats();
       });
 
-      // Job submission from user
-      socket.on('job:submit', (data, callback) => {
-        const job = this.submitJob(socket.id, data.messages);
+      // Job submission — with orchestrator-side web search
+      socket.on('job:submit', async (data, callback) => {
+        if (!data.authToken) {
+          callback({ error: 'Authentication required' });
+          return;
+        }
+        const privyUserId = await verifyPrivyToken(data.authToken);
+        if (!privyUserId) {
+          callback({ error: 'Invalid authentication token' });
+          return;
+        }
+
+        // Check if any search-capable workers are online
+        const hasSearchWorker = Array.from(this.workers.values()).some(
+          w => w.capabilities.search === true
+        );
+
+        // Check if web search would help (only if search-capable workers exist)
+        let searchContext: string | undefined;
+        let searchResults: { title: string; url: string; description: string }[] | undefined;
+        if (hasSearchWorker && data.messages && data.messages.length > 0) {
+          const lastMessage = data.messages[data.messages.length - 1].content;
+          const previousMessages = data.messages.slice(0, -1).map(m => ({ role: m.role, content: m.content }));
+          if (shouldSearch(lastMessage, previousMessages)) {
+            const searchQuery = extractQuery(lastMessage, previousMessages);
+            // Notify user that we're searching
+            socket.emit('job:searching', { jobId: 'pending' });
+            console.log(`[Orchestrator] Searching for: "${searchQuery.substring(0, 80)}..."`);
+            try {
+              const results = await searchBrave(searchQuery);
+              if (results.length > 0) {
+                searchContext = formatSearchContext(results);
+                searchResults = results;
+                console.log(`[Orchestrator] Search returned ${results.length} results`);
+              }
+            } catch (err) {
+              console.error('[Orchestrator] Search failed:', err);
+            }
+          }
+        }
+
+        const job = this.submitJob(socket.id, data.messages, data.model, privyUserId, searchContext, searchResults);
         if (job) {
           callback({ jobId: job.id });
-          console.log(`[Orchestrator] Job submitted: ${job.id}`);
+          console.log(`[Orchestrator] Job submitted: ${job.id} (model: ${data.model || 'any'}) user=${privyUserId}`);
           this.processQueue();
         } else {
           callback({ error: 'Failed to submit job' });
         }
       });
 
-      // Token stream from worker
+      // Token stream from worker — validate sender is the assigned worker
       socket.on('job:token', (data) => {
+        const job = this.jobs.get(data.jobId);
+        if (!job) return;
+        const worker = this.workers.get(socket.id);
+        if (!worker || worker.id !== job.assignedWorker) return;
         this.handleJobToken(data.jobId, data.token);
       });
 
-      // Job completion from worker
       socket.on('job:complete', (data) => {
+        const job = this.jobs.get(data.jobId);
+        if (!job) return;
+        const worker = this.workers.get(socket.id);
+        if (!worker || worker.id !== job.assignedWorker) return;
         this.handleJobComplete(data.jobId, data.response, data.tokensGenerated);
       });
 
-      // Job error from worker
       socket.on('job:error', (data) => {
+        const job = this.jobs.get(data.jobId);
+        if (!job) return;
+        const worker = this.workers.get(socket.id);
+        if (!worker || worker.id !== job.assignedWorker) return;
         this.handleJobError(data.jobId, data.error);
       });
 
-      // Handle disconnection
       socket.on('disconnect', () => {
         console.log(`[Orchestrator] Client disconnected: ${socket.id}`);
         this.unregisterWorker(socket.id);
-        this.cleanupUserJobs(socket.id); // Clean up any jobs from this user
+        this.cleanupUserJobs(socket.id);
         this.broadcastStats();
       });
     });
   }
 
-  // Clean up all jobs from a disconnected user
   private cleanupUserJobs(userSocketId: string) {
-    // Remove from queue
-    const beforeLength = this.jobQueue.length;
     this.jobQueue = this.jobQueue.filter(jobId => {
       const job = this.jobs.get(jobId);
       if (job && job.userSocketId === userSocketId) {
-        console.log(`[Orchestrator] Removing job ${jobId} - user ${userSocketId} disconnected`);
         this.jobs.delete(jobId);
         return false;
       }
       return true;
     });
-    
-    // Also mark any in-progress jobs as orphaned (they'll complete but response won't be sent)
+
     for (const [jobId, job] of this.jobs) {
       if (job.userSocketId === userSocketId && job.status === 'processing') {
-        console.log(`[Orchestrator] Job ${jobId} orphaned - user disconnected during processing`);
-        job.status = 'failed';
-        job.error = 'User disconnected';
+        if (job.assignedWorker) {
+          const workerSocketId = this.findWorkerSocketId(job.assignedWorker);
+          if (workerSocketId) {
+            const workerSocket = this.io.sockets.sockets.get(workerSocketId);
+            if (workerSocket) workerSocket.emit('job:cancel', { jobId });
+          }
+          const worker = this.findWorkerById(job.assignedWorker);
+          if (worker) worker.status = 'idle';
+        }
+        this.jobs.delete(jobId);
       }
-    }
-    
-    if (beforeLength !== this.jobQueue.length) {
-      console.log(`[Orchestrator] Cleaned ${beforeLength - this.jobQueue.length} jobs from queue`);
     }
   }
 
-  private registerWorker(socket: Socket, model: string): string | null {
+  private registerWorker(socket: Socket, model: string, privyUserId?: string, tokPerSec: number = 0, type: 'browser' | 'native' = 'browser', capabilities: WorkerCapabilities = {}): string | null {
     try {
       const workerId = uuidv4();
       const worker: WorkerInfo = {
         id: workerId,
         socketId: socket.id,
         model,
+        type,
+        capabilities,
         status: 'idle',
         connectedAt: new Date(),
         jobsCompleted: 0,
         tokensGenerated: 0,
+        tokPerSec,
+        privyUserId,
       };
       this.workers.set(socket.id, worker);
       return workerId;
@@ -204,19 +285,14 @@ export class Orchestrator {
   private unregisterWorker(socketId: string) {
     const worker = this.workers.get(socketId);
     if (worker) {
-      // If worker had an assigned job, requeue it (only if user is still connected)
       for (const [jobId, job] of this.jobs) {
         if (job.assignedWorker === worker.id && job.status === 'processing') {
-          // Check if user is still connected
           const userSocket = this.io.sockets.sockets.get(job.userSocketId);
           if (userSocket) {
             job.status = 'pending';
             job.assignedWorker = undefined;
-            this.jobQueue.unshift(jobId); // Add back to front of queue
-            console.log(`[Orchestrator] Job ${jobId} requeued due to worker disconnect`);
+            this.jobQueue.unshift(jobId);
           } else {
-            // User is gone, just delete the job
-            console.log(`[Orchestrator] Job ${jobId} deleted - worker and user both disconnected`);
             this.jobs.delete(jobId);
           }
         }
@@ -225,26 +301,35 @@ export class Orchestrator {
     }
   }
 
-  private submitJob(userSocketId: string, messages: ChatMessage[]): Job | null {
+  private submitJob(
+    userSocketId: string,
+    messages: ChatMessage[] | undefined,
+    model: string | undefined,
+    privyUserId: string,
+    searchContext?: string,
+    searchResults?: { title: string; url: string; description: string }[],
+  ): Job | null {
     try {
       const jobId = uuidv4();
       const job: Job = {
         id: jobId,
-        userId: userSocketId, // In production, use actual user ID
+        userId: userSocketId,
         userSocketId,
+        privyUserId,
         messages,
+        requestedModel: model,
         status: 'pending',
         createdAt: new Date(),
+        searchContext,
+        searchResults,
       };
       this.jobs.set(jobId, job);
       this.jobQueue.push(jobId);
-      
-      // Notify user of queue position
+
       const userSocket = this.io.sockets.sockets.get(userSocketId);
       if (userSocket) {
         userSocket.emit('queue:position', { position: this.jobQueue.length });
       }
-      
       return job;
     } catch (error) {
       console.error('[Orchestrator] Error submitting job:', error);
@@ -255,14 +340,11 @@ export class Orchestrator {
   private processQueue() {
     if (this.jobQueue.length === 0) return;
 
-    // Clean up stale jobs (user disconnected)
+    // Clean stale
     this.jobQueue = this.jobQueue.filter(jobId => {
       const job = this.jobs.get(jobId);
       if (!job) return false;
-      
-      const userSocket = this.io.sockets.sockets.get(job.userSocketId);
-      if (!userSocket) {
-        console.log(`[Orchestrator] Removing stale job ${jobId} - user disconnected`);
+      if (!this.io.sockets.sockets.get(job.userSocketId)) {
         this.jobs.delete(jobId);
         return false;
       }
@@ -271,68 +353,78 @@ export class Orchestrator {
 
     if (this.jobQueue.length === 0) return;
 
-    // Find an idle worker
+    let matchedJob: Job | null = null;
+    let matchedJobIndex = -1;
     let idleWorker: WorkerInfo | null = null;
     let workerSocketId: string | null = null;
 
-    for (const [socketId, worker] of this.workers) {
-      if (worker.status === 'idle') {
-        idleWorker = worker;
-        workerSocketId = socketId;
-        break;
+    for (let i = 0; i < this.jobQueue.length; i++) {
+      const j = this.jobs.get(this.jobQueue[i]);
+      if (!j) continue;
+      for (const [socketId, worker] of this.workers) {
+        if (worker.status === 'idle') {
+          if (!j.requestedModel || worker.model === j.requestedModel) {
+            // Jobs with search context require a search-capable worker
+            if (j.searchContext && !worker.capabilities.search) continue;
+            matchedJob = j;
+            matchedJobIndex = i;
+            idleWorker = worker;
+            workerSocketId = socketId;
+            break;
+          }
+        }
       }
+      if (matchedJob) break;
     }
 
-    if (!idleWorker || !workerSocketId) {
-      console.log('[Orchestrator] No idle workers available');
+    if (!matchedJob || !idleWorker || !workerSocketId || matchedJobIndex === -1) {
+      console.log('[Orchestrator] No matching idle workers available');
       return;
     }
 
-    // Get next job from queue
-    const jobId = this.jobQueue.shift();
-    if (!jobId) return;
-
-    const job = this.jobs.get(jobId);
-    if (!job) return;
-
-    // Assign job to worker
-    job.status = 'assigned';
+    this.jobQueue.splice(matchedJobIndex, 1);
+    const job = matchedJob;
+    job.status = 'processing';
     job.assignedWorker = idleWorker.id;
+    job.startedAt = new Date();
     idleWorker.status = 'busy';
 
-    // Send job to worker
     const workerSocket = this.io.sockets.sockets.get(workerSocketId);
     if (workerSocket) {
-      console.log(`[Orchestrator] Sending job:new event to worker socket ${workerSocketId}`);
-      workerSocket.emit('job:new', { jobId: job.id, messages: job.messages });
-      job.status = 'processing';
-      job.startedAt = new Date(); // Track when processing started
       console.log(`[Orchestrator] Job ${job.id} assigned to worker ${idleWorker.id}`);
 
-      // Notify user
       const userSocket = this.io.sockets.sockets.get(job.userSocketId);
       if (userSocket) {
         userSocket.emit('job:assigned', { jobId: job.id, workerId: idleWorker.id });
+        // Send search sources to user for display
+        if (job.searchResults && job.searchResults.length > 0) {
+          userSocket.emit('job:sources', { jobId: job.id, sources: job.searchResults });
+        }
       }
+
+      // If search context exists, inject it into the last user message
+      let messages = job.messages;
+      if (job.searchContext && messages && messages.length > 0) {
+        messages = [...messages];
+        const lastIdx = messages.length - 1;
+        messages[lastIdx] = {
+          ...messages[lastIdx],
+          content: `${job.searchContext}\n\nBased on the search results above, answer this: ${messages[lastIdx].content}\n\nIMPORTANT: Use NEW information from the search results. Do NOT repeat your previous answer.`,
+        };
+      }
+
+      workerSocket.emit('job:new', { jobId: job.id, messages });
     }
 
-    // Update queue positions for other users
     this.updateQueuePositions();
   }
 
   private handleJobToken(jobId: string, token: string) {
     const job = this.jobs.get(jobId);
-    if (!job) {
-      console.log(`[Orchestrator] Token for unknown job: ${jobId}`);
-      return;
-    }
-
-    // Forward token to user
+    if (!job) return;
     const userSocket = this.io.sockets.sockets.get(job.userSocketId);
     if (userSocket) {
       userSocket.emit('job:token', { jobId, token });
-    } else {
-      console.log(`[Orchestrator] Cannot forward token - user socket ${job.userSocketId} not found for job ${jobId}`);
     }
   }
 
@@ -344,17 +436,14 @@ export class Orchestrator {
     job.response = response;
     job.completedAt = new Date();
 
-    // Track job duration for averaging
     if (job.startedAt) {
       const duration = job.completedAt.getTime() - job.startedAt.getTime();
       this.jobDurations.push(duration);
-      // Keep only recent samples
       if (this.jobDurations.length > this.MAX_DURATION_SAMPLES) {
         this.jobDurations.shift();
       }
     }
 
-    // Update worker stats
     const worker = this.findWorkerById(job.assignedWorker!);
     if (worker) {
       worker.status = 'idle';
@@ -362,23 +451,23 @@ export class Orchestrator {
       worker.tokensGenerated += tokensGenerated;
     }
 
-    // Update global stats
     this.totalJobsCompleted++;
     this.totalTokensGenerated += tokensGenerated;
 
-    // Notify user
+    if (job.privyUserId) {
+      try { incrementPromptsSent(job.privyUserId); } catch (err) {
+        console.error('[Orchestrator] Failed to increment prompts_sent:', err);
+      }
+    }
+
     const userSocket = this.io.sockets.sockets.get(job.userSocketId);
     if (userSocket) {
       userSocket.emit('job:complete', { jobId, response });
     }
 
     console.log(`[Orchestrator] Job ${jobId} completed`);
-
-    // Small delay before processing next job to let worker fully reset
-    setTimeout(() => {
-      this.processQueue();
-    }, 100);
-    
+    this.jobs.delete(jobId);
+    setTimeout(() => this.processQueue(), 100);
     this.broadcastStats();
   }
 
@@ -389,31 +478,29 @@ export class Orchestrator {
     job.status = 'failed';
     job.error = error;
 
-    // Update worker status
     const worker = this.findWorkerById(job.assignedWorker!);
-    if (worker) {
-      worker.status = 'idle';
-    }
+    if (worker) worker.status = 'idle';
 
-    // Notify user
     const userSocket = this.io.sockets.sockets.get(job.userSocketId);
     if (userSocket) {
       userSocket.emit('job:error', { jobId, error });
     }
 
     console.log(`[Orchestrator] Job ${jobId} failed: ${error}`);
-
-    // Small delay before processing next job
-    setTimeout(() => {
-      this.processQueue();
-    }, 100);
+    this.jobs.delete(jobId);
+    setTimeout(() => this.processQueue(), 100);
   }
 
   private findWorkerById(workerId: string): WorkerInfo | null {
     for (const worker of this.workers.values()) {
-      if (worker.id === workerId) {
-        return worker;
-      }
+      if (worker.id === workerId) return worker;
+    }
+    return null;
+  }
+
+  private findWorkerSocketId(workerId: string): string | null {
+    for (const [socketId, worker] of this.workers) {
+      if (worker.id === workerId) return socketId;
     }
     return null;
   }
@@ -432,8 +519,7 @@ export class Orchestrator {
 
   private getAvgJobDuration(): number {
     if (this.jobDurations.length === 0) return 0;
-    const sum = this.jobDurations.reduce((a, b) => a + b, 0);
-    return Math.round(sum / this.jobDurations.length);
+    return Math.round(this.jobDurations.reduce((a, b) => a + b, 0) / this.jobDurations.length);
   }
 
   private broadcastStats() {
@@ -447,7 +533,6 @@ export class Orchestrator {
     this.io.emit('stats:update', stats);
   }
 
-  // Public getters for stats
   getStats(): NetworkStats {
     return {
       workersOnline: this.workers.size,

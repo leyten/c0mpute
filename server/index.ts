@@ -1,14 +1,31 @@
+import { readFileSync } from 'fs';
+import { resolve } from 'path';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import { Orchestrator } from '../lib/orchestrator/orchestrator';
 import { ServerToClientEvents, ClientToServerEvents } from '../lib/orchestrator/types';
 
-// Railway uses PORT, fallback to SOCKET_PORT for local dev
+// Load .env.local for Privy secrets (not auto-loaded by tsx)
+try {
+  const envFile = readFileSync(resolve(process.cwd(), '.env.local'), 'utf8');
+  for (const line of envFile.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const eqIdx = trimmed.indexOf('=');
+    if (eqIdx === -1) continue;
+    const key = trimmed.slice(0, eqIdx);
+    const value = trimmed.slice(eqIdx + 1);
+    if (key && !process.env[key]) {
+      process.env[key] = value;
+    }
+  }
+} catch {
+  console.warn('[Server] Could not load .env.local — relying on environment variables');
+}
+
 const PORT = process.env.PORT || process.env.SOCKET_PORT || 3001;
 
-// Create HTTP server
 const httpServer = createServer((req, res) => {
-  // Health check endpoint
   if (req.url === '/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ status: 'ok' }));
@@ -18,21 +35,18 @@ const httpServer = createServer((req, res) => {
   res.end();
 });
 
-// Create Socket.IO server
 const io = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
   cors: {
-    origin: process.env.ALLOWED_ORIGINS 
-      ? process.env.ALLOWED_ORIGINS.split(',') 
+    origin: process.env.ALLOWED_ORIGINS
+      ? process.env.ALLOWED_ORIGINS.split(',')
       : ['http://localhost:3000', 'https://c0mpute.ai', 'https://www.c0mpute.ai'],
     methods: ['GET', 'POST'],
     credentials: true,
   },
 });
 
-// Initialize orchestrator
 const orchestrator = new Orchestrator(io);
 
-// Start server
 httpServer.listen(PORT, () => {
   console.log(`
   ╔═══════════════════════════════════════════════════════════╗
@@ -46,7 +60,6 @@ httpServer.listen(PORT, () => {
   `);
 });
 
-// Graceful shutdown
 process.on('SIGTERM', () => {
   console.log('SIGTERM received, shutting down...');
   httpServer.close(() => {

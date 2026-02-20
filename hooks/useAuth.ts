@@ -2,7 +2,7 @@
 
 import { usePrivy, useLinkAccount } from '@privy-io/react-auth';
 import { useState, useEffect, useCallback } from 'react';
-import { Profile } from '@/lib/supabase/types';
+import { Profile } from '@/lib/types';
 
 interface UseAuthReturn {
   // Privy state
@@ -11,6 +11,7 @@ interface UseAuthReturn {
   user: ReturnType<typeof usePrivy>['user'];
   login: () => void;
   logout: () => Promise<void>;
+  getAccessToken: () => Promise<string | null>;
   
   // Profile state
   profile: Profile | null;
@@ -38,14 +39,25 @@ interface UseAuthReturn {
 }
 
 export function useAuth(): UseAuthReturn {
-  const { ready, authenticated, user, login, logout: privyLogout, unlinkWallet: privyUnlinkWallet, unlinkTwitter: privyUnlinkTwitter } = usePrivy();
+  const { ready, authenticated, user, login, logout: privyLogout, unlinkWallet: privyUnlinkWallet, unlinkTwitter: privyUnlinkTwitter, getAccessToken: privyGetAccessToken } = usePrivy();
   const { linkWallet, linkTwitter } = useLinkAccount();
   
   const [profile, setProfile] = useState<Profile | null>(null);
   const [profileLoading, setProfileLoading] = useState(false);
   const [profileError, setProfileError] = useState<string | null>(null);
 
-  // Fetch profile from Supabase
+  // Helper to get auth headers
+  const getAuthHeaders = useCallback(async (): Promise<Record<string, string>> => {
+    try {
+      const token = await privyGetAccessToken();
+      if (token) {
+        return { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
+      }
+    } catch {}
+    return { 'Content-Type': 'application/json' };
+  }, [privyGetAccessToken]);
+
+  // Fetch profile
   const refreshProfile = useCallback(async () => {
     if (!user?.id) {
       setProfile(null);
@@ -56,13 +68,13 @@ export function useAuth(): UseAuthReturn {
     setProfileError(null);
 
     try {
-      const response = await fetch(`/api/profile?privyId=${user.id}`);
+      const headers = await getAuthHeaders();
+      const response = await fetch('/api/profile', { headers });
       
       if (response.ok) {
         const data = await response.json();
         setProfile(data.profile);
       } else if (response.status === 404) {
-        // Profile doesn't exist yet, will be created on next login
         setProfile(null);
       } else {
         throw new Error('Failed to fetch profile');
@@ -73,17 +85,18 @@ export function useAuth(): UseAuthReturn {
     } finally {
       setProfileLoading(false);
     }
-  }, [user?.id]);
+  }, [user?.id, getAuthHeaders]);
 
   // Refresh $ZERO balance
   const refreshBalance = useCallback(async () => {
     if (!user?.id) return null;
 
     try {
+      const headers = await getAuthHeaders();
       const response = await fetch('/api/profile/refresh-balance', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ privyId: user.id }),
+        headers,
+        body: JSON.stringify({}),
       });
 
       if (response.ok) {
@@ -100,18 +113,18 @@ export function useAuth(): UseAuthReturn {
       console.error('Error refreshing balance:', error);
     }
     return null;
-  }, [user?.id]);
+  }, [user?.id, getAuthHeaders]);
 
   // Toggle worker mode
   const toggleWorkerMode = useCallback(async () => {
     if (!user?.id || !profile) return;
 
     try {
+      const headers = await getAuthHeaders();
       const response = await fetch('/api/profile', {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
-          privyId: user.id,
           is_worker: !profile.is_worker,
         }),
       });
@@ -123,7 +136,7 @@ export function useAuth(): UseAuthReturn {
     } catch (error) {
       console.error('Error toggling worker mode:', error);
     }
-  }, [user?.id, profile]);
+  }, [user?.id, profile, getAuthHeaders]);
 
   // Logout and clear profile
   const logout = useCallback(async () => {
@@ -160,10 +173,11 @@ export function useAuth(): UseAuthReturn {
     if (!user?.id) return false;
     
     try {
+      const headers = await getAuthHeaders();
       const response = await fetch('/api/profile/delete', {
         method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ privyId: user.id }),
+        headers,
+        body: JSON.stringify({}),
       });
       
       if (response.ok) {
@@ -176,7 +190,7 @@ export function useAuth(): UseAuthReturn {
       console.error('Error deleting account:', error);
       return false;
     }
-  }, [user?.id, privyLogout]);
+  }, [user?.id, privyLogout, getAuthHeaders]);
 
   // Sync user to database and fetch profile when authenticated
   useEffect(() => {
@@ -188,13 +202,13 @@ export function useAuth(): UseAuthReturn {
         return;
       }
 
-      // Sync user to Supabase
+      // Sync user to database
       try {
+        const headers = await getAuthHeaders();
         await fetch('/api/auth/callback', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers,
           body: JSON.stringify({
-            privyId: user.id,
             wallet: user.wallet?.address,
             twitter: user.twitter ? {
               username: user.twitter.username,
@@ -211,7 +225,7 @@ export function useAuth(): UseAuthReturn {
     };
 
     syncAndFetchProfile();
-  }, [ready, authenticated, user?.id, user?.wallet?.address, user?.twitter?.username, user?.twitter?.subject, refreshProfile]);
+  }, [ready, authenticated, user?.id, user?.wallet?.address, user?.twitter?.username, user?.twitter?.subject, refreshProfile, getAuthHeaders]);
 
   // Derived values
   const walletAddress = user?.wallet?.address || profile?.wallet_address || null;
@@ -232,6 +246,7 @@ export function useAuth(): UseAuthReturn {
     user,
     login,
     logout,
+    getAccessToken: privyGetAccessToken,
     
     // Profile state
     profile,

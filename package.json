@@ -14,10 +14,10 @@
   "dependencies": {
     "@mlc-ai/web-llm": "^0.2.80",
     "@privy-io/react-auth": "^3.11.0",
+    "@privy-io/server-auth": "^1.32.5",
     "@solana-program/memo": "^0.10.0",
     "@solana/kit": "^5.4.0",
-    "@supabase/ssr": "^0.8.0",
-    "@supabase/supabase-js": "^2.90.1",
+    "better-sqlite3": "^12.6.2",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "framer-motion": "^12.26.2",
@@ -34,6 +34,7 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.18",
+    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",

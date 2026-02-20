@@ -1,44 +1,35 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerClient } from '@/lib/supabase/server';
+import { getProfileByPrivyId, updateBalance } from '@/lib/db';
+import { getAuthUserId } from '@/lib/privy-server';
 
 const CACHE_DURATION_MS = 5 * 60 * 1000; // 5 minutes
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const { privyId } = body;
-
-    if (!privyId) {
+    // Verify auth — only refresh own balance
+    const authUserId = await getAuthUserId(request);
+    if (!authUserId) {
       return NextResponse.json(
-        { error: 'Missing privyId' },
-        { status: 400 }
+        { error: 'Authentication required' },
+        { status: 401 }
       );
     }
 
-    const supabase = createServerClient();
+    const profile = getProfileByPrivyId(authUserId) as Record<string, unknown> | null;
 
-    // Get current profile
-    const { data: profile, error: fetchError } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('privy_id', privyId)
-      .single();
-
-    if (fetchError || !profile) {
+    if (!profile) {
       return NextResponse.json(
         { error: 'Profile not found' },
         { status: 404 }
       );
     }
 
-    // Check if we need to refresh (cache expired or never fetched)
     const lastUpdated = profile.balance_updated_at 
-      ? new Date(profile.balance_updated_at).getTime() 
+      ? new Date(profile.balance_updated_at as string).getTime() 
       : 0;
     const now = Date.now();
     
     if (now - lastUpdated < CACHE_DURATION_MS) {
-      // Return cached balance
       return NextResponse.json({ 
         balance: profile.zero_balance,
         cached: true,
@@ -46,7 +37,6 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Need to fetch fresh balance
     if (!profile.wallet_address) {
       return NextResponse.json({ 
         balance: 0,
@@ -55,7 +45,6 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Fetch balance from Solana Tracker API
     const tokenAddress = process.env.NEXT_PUBLIC_ZERO_TOKEN_ADDRESS;
     
     if (!tokenAddress) {
@@ -68,8 +57,6 @@ export async function POST(request: NextRequest) {
     let newBalance = 0;
 
     try {
-      // Solana Tracker API to get all token balances in wallet
-      // API docs: https://docs.solanatracker.io/
       const apiKey = process.env.SOLANA_TRACKER_API_KEY;
       
       const response = await fetch(
@@ -82,7 +69,6 @@ export async function POST(request: NextRequest) {
       if (response.ok) {
         const data = await response.json();
         
-        // Find the $ZERO token in the tokens array by matching mint address
         const zeroToken = data.tokens?.find(
           (t: { token: { mint: string }; balance: number }) => 
             t.token.mint === tokenAddress
@@ -92,26 +78,13 @@ export async function POST(request: NextRequest) {
           newBalance = zeroToken.balance || 0;
         }
       } else {
-        // If API fails, try alternative method or return 0
         console.warn('Solana Tracker API failed:', response.status);
       }
     } catch (apiError) {
       console.error('Error fetching balance from Solana Tracker:', apiError);
-      // Continue with 0 balance if API fails
     }
 
-    // Update balance in database
-    const { error: updateError } = await supabase
-      .from('profiles')
-      .update({
-        zero_balance: newBalance,
-        balance_updated_at: new Date().toISOString(),
-      })
-      .eq('privy_id', privyId);
-
-    if (updateError) {
-      console.error('Failed to update balance:', updateError);
-    }
+    updateBalance(authUserId, newBalance);
 
     return NextResponse.json({ 
       balance: newBalance,

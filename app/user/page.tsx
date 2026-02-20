@@ -4,15 +4,32 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 import { useSocket } from '@/hooks/useSocket';
-import { Chat, Message, ChatWithMessages } from '@/lib/supabase/types';
+import { Chat, Message, ChatWithMessages } from '@/lib/types';
 import { MAX_INPUT_CHARS } from '@/lib/orchestrator/types';
+// E2E encryption removed for now — keeping it simple
+import { scanOutput, BLOCKED_MESSAGE } from '@/lib/safety';
+import { shouldSearch, extractQuery } from '@/lib/search';
+
+// Parse sources from response content (appended by worker as ---SOURCES---)
+function parseSourcesFromContent(content: string): { cleanContent: string; sources: { title: string; url: string; description: string }[] } {
+  const marker = '---SOURCES---';
+  const idx = content.indexOf(marker);
+  if (idx === -1) return { cleanContent: content, sources: [] };
+  const cleanContent = content.substring(0, idx).trimEnd();
+  try {
+    const sources = JSON.parse(content.substring(idx + marker.length).trim());
+    return { cleanContent, sources };
+  } catch {
+    return { cleanContent: content, sources: [] };
+  }
+}
 
 type ChatState = 'idle' | 'queued' | 'streaming' | 'error';
 
 // Available models for users
 const USER_MODELS = [
   { id: 'Qwen2.5-1.5B-Instruct-q4f16_1-MLC', name: 'Standard', tier: 'standard', description: 'Fast responses' },
-  { id: 'dolphin-2.6-mistral-7b-q4f16_1-MLC', name: 'Premium', tier: 'premium', description: 'Uncensored, higher quality' },
+  { id: 'dolphin-2.6-mistral-7b-q4f16_1-MLC', name: 'Premium', tier: 'standard', description: 'Uncensored, higher quality' }, // TODO: Change back to 'premium' after token launch
 ];
 
 // Local storage keys
@@ -58,19 +75,32 @@ function filterDisclaimers(text: string): string {
 
 export default function UserPage() {
   const router = useRouter();
-  const { isLoading: authLoading, isAuthenticated, user, login } = useAuth();
+  const { isLoading: authLoading, isAuthenticated, user, login, getAccessToken } = useAuth();
   
-  // Socket
+  // Fetch auth token for socket connection
+  const [socketAuthToken, setSocketAuthToken] = useState<string | null>(null);
+  useEffect(() => {
+    if (isAuthenticated) {
+      getAccessToken().then(t => {
+        if (t) setSocketAuthToken(t);
+      });
+    }
+  }, [isAuthenticated, getAccessToken]);
+
+  // Socket (waits for auth token)
   const {
     isConnected,
     networkStats,
     queuePosition,
     submitJob,
+    // sendEncryptedPayload removed
     setOnJobToken,
     setOnJobComplete,
     setOnJobError,
     setOnJobAssigned,
-  } = useSocket();
+    setOnJobSearching,
+    setOnJobSources,
+  } = useSocket(socketAuthToken);
   
   // Chat state - now storing full chats with messages locally
   const [chats, setChats] = useState<ChatWithMessages[]>([]);
@@ -89,6 +119,10 @@ export default function UserPage() {
   const [editingChatId, setEditingChatId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState('');
   const [pendingPromptProcessed, setPendingPromptProcessed] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
+  const [pendingSources, setPendingSources] = useState<{ title: string; url: string; description: string }[]>([]);
+  const pendingSourcesRef = useRef<{ title: string; url: string; description: string }[]>([]);
+  useEffect(() => { pendingSourcesRef.current = pendingSources; }, [pendingSources]);
   
   // Load selected model from localStorage
   useEffect(() => {
@@ -117,6 +151,7 @@ export default function UserPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const currentJobIdRef = useRef<string | null>(null);
+  // No E2E refs needed
 
   // Scroll to bottom of messages
   const scrollToBottom = useCallback(() => {
@@ -223,7 +258,7 @@ export default function UserPage() {
     return message;
   }, []);
 
-  // Send message
+  // Send message — with E2E encryption and auth
   const sendMessage = useCallback(async () => {
     if (!inputValue.trim() || !activeChat || chatState !== 'idle' || !isConnected) return;
     if (inputValue.length > MAX_INPUT_CHARS) {
@@ -235,7 +270,7 @@ export default function UserPage() {
     setInputValue('');
     setError(null);
     
-    // Save user message to local storage (this updates activeChat via setChats)
+    // Save user message to local storage
     const userMessage = saveMessage(activeChat.id, 'user', content);
     
     // Build messages for context (last 10 messages)
@@ -244,16 +279,28 @@ export default function UserPage() {
       content: m.content,
     }));
     
-    // Submit job to orchestrator
     setChatState('queued');
     setStreamingContent('');
     
     try {
-      const jobId = await submitJob(contextMessages);
-      // Update ref immediately (sync) before async state update
+      // Get auth token
+      const authToken = await getAccessToken();
+      if (!authToken) {
+        setChatState('error');
+        setError('Authentication expired. Please refresh and log in again.');
+        return;
+      }
+
+      const jobId = await submitJob({
+        messages: contextMessages,
+        model: selectedModel,
+        authToken,
+      });
+      
       currentJobIdRef.current = jobId;
       setCurrentJobId(jobId);
       console.log('[User] Job submitted:', jobId);
+      // prompts_sent is now tracked server-side by the orchestrator on job completion
     } catch (err) {
       console.error('Error submitting job:', err);
       setChatState('error');
@@ -261,29 +308,34 @@ export default function UserPage() {
     }
     
     setTimeout(scrollToBottom, 100);
-  }, [inputValue, activeChat, chatState, isConnected, submitJob, saveMessage, scrollToBottom]);
+  }, [inputValue, activeChat, chatState, isConnected, submitJob, saveMessage, scrollToBottom, getAccessToken, selectedModel]);
 
-  // Handle job token (streaming)
+  // Handle job token (streaming) — decrypt E2E + safety scan
   useEffect(() => {
-    // Stop tokens to filter out
     const STOP_TOKENS = ['<|im_end|>', '<|im_end', '<|im_start|>', '<|endoftext|>'];
     
-    setOnJobToken((jobId, token) => {
-      // Use ref for immediate access (avoids race condition with state)
+    setOnJobToken(async (jobId, token) => {
       if (jobId === currentJobIdRef.current) {
-        console.log('[User] Received token for job:', jobId, token);
         setChatState('streaming');
-        // Filter out stop tokens
+        setIsSearching(false);
+        
         let cleanToken = token;
+        // Filter stop tokens
         for (const stopToken of STOP_TOKENS) {
           cleanToken = cleanToken.replace(stopToken, '');
         }
         if (cleanToken) {
-          setStreamingContent(prev => prev + cleanToken);
+          setStreamingContent(prev => {
+            const updated = prev + cleanToken;
+            // Safety scan on accumulated content
+            const safety = scanOutput(updated);
+            if (!safety.safe) {
+              return BLOCKED_MESSAGE;
+            }
+            return updated;
+          });
           scrollToBottom();
         }
-      } else {
-        console.log('[User] Ignoring token for job:', jobId, '(current:', currentJobIdRef.current, ')');
       }
     });
     
@@ -292,43 +344,51 @@ export default function UserPage() {
 
   // Handle job assigned
   useEffect(() => {
-    setOnJobAssigned((jobId) => {
-      // Use ref for immediate access
+    setOnJobAssigned(async (jobId, _workerId) => {
       if (jobId === currentJobIdRef.current) {
         console.log('[User] Job assigned:', jobId);
         setChatState('streaming');
       }
     });
-    
     return () => setOnJobAssigned(null);
   }, [setOnJobAssigned]);
 
-  // Handle job complete
+  // Handle job complete — use accumulated streaming content (already decrypted)
   useEffect(() => {
-    const STOP_TOKENS = ['<|im_end|>', '<|im_end', '<|im_start|>', '<|endoftext|>'];
-    
-    setOnJobComplete((jobId, response) => {
-      // Use ref for immediate access
+    setOnJobComplete((jobId, _response) => {
       if (jobId === currentJobIdRef.current && activeChat) {
         console.log('[User] Job complete:', jobId);
-        // Clean response of stop tokens
-        let cleanResponse = response;
-        for (const stopToken of STOP_TOKENS) {
-          cleanResponse = cleanResponse.split(stopToken).join('');
-        }
-        cleanResponse = cleanResponse.trim();
         
-        // Filter out AI disclaimers
-        cleanResponse = filterDisclaimers(cleanResponse);
+        // Use the accumulated streaming content (already decrypted and safety-scanned)
+        setStreamingContent(prev => {
+          let finalContent = prev.trim();
+          if (!finalContent) {
+            // Fallback: if no streaming content, we might not have received tokens
+            finalContent = '[No response received]';
+          }
+          finalContent = filterDisclaimers(finalContent);
+          
+          // Final safety check
+          const safety = scanOutput(finalContent);
+          if (!safety.safe) {
+            finalContent = BLOCKED_MESSAGE;
+          }
+          
+          // Append sources to content so they persist in storage
+          const sources = pendingSourcesRef.current;
+          console.log('[User] Sources at completion:', sources.length, sources);
+          if (sources.length > 0) {
+            finalContent += `\n---SOURCES---${JSON.stringify(sources)}`;
+          }
+          console.log('[User] Saving with sources:', finalContent.includes('---SOURCES---'));
+          saveMessage(activeChat.id, 'assistant', finalContent, jobId);
+          return '';
+        });
         
-        // Save assistant message to local storage
-        saveMessage(activeChat.id, 'assistant', cleanResponse, jobId);
-        
-        setStreamingContent('');
         setChatState('idle');
-        // Clear ref immediately
         currentJobIdRef.current = null;
         setCurrentJobId(null);
+        setPendingSources([]);
         
         scrollToBottom();
       }
@@ -337,12 +397,32 @@ export default function UserPage() {
     return () => setOnJobComplete(null);
   }, [activeChat, setOnJobComplete, saveMessage, scrollToBottom]);
 
+  // Handle job:searching — show search indicator
+  useEffect(() => {
+    setOnJobSearching((_jobId: string) => {
+      setIsSearching(true);
+      // Auto-hide after 10s as safety net
+      setTimeout(() => setIsSearching(false), 10000);
+    });
+    return () => setOnJobSearching(null);
+  }, [setOnJobSearching]);
+
+  // Handle job:sources — store sources for the current response
+  useEffect(() => {
+    setOnJobSources((_jobId: string, sources: { title: string; url: string; description: string }[]) => {
+      pendingSourcesRef.current = sources;
+      setPendingSources(sources);
+    });
+    return () => setOnJobSources(null);
+  }, [setOnJobSources]);
+
   // Handle job error
   useEffect(() => {
     setOnJobError((jobId, errorMsg) => {
       // Use ref for immediate access
       if (jobId === currentJobIdRef.current) {
         console.log('[User] Job error:', jobId, errorMsg);
+        setIsSearching(false);
         setChatState('error');
         setError(errorMsg);
         setStreamingContent('');
@@ -439,7 +519,20 @@ export default function UserPage() {
       setChatState('queued');
       setStreamingContent('');
       
-      submitJob([{ role: 'user', content: pendingPrompt }])
+      // Get auth token for submission
+      getAccessToken().then(async (authToken) => {
+        if (!authToken) {
+          setChatState('error');
+          setError('Authentication required. Please log in.');
+          return Promise.reject(new Error('No auth token'));
+        }
+        // E2E disabled until debugged
+        return submitJob({
+          messages: [{ role: 'user', content: pendingPrompt }],
+          model: selectedModel,
+          authToken,
+        });
+      })
         .then((jobId) => {
           currentJobIdRef.current = jobId;
           setCurrentJobId(jobId);
@@ -459,7 +552,9 @@ export default function UserPage() {
     authLoading,
     user?.id, 
     chats, 
-    submitJob
+    submitJob,
+    getAccessToken,
+    selectedModel,
   ]);
 
   // Auto-focus input when chat is selected or created
@@ -723,22 +818,54 @@ export default function UserPage() {
                   </div>
                 )}
                 
-                {activeChat.messages.map((message) => (
-                  <div
-                    key={message.id}
-                    className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
-                  >
+                {activeChat.messages.map((message) => {
+                  const { cleanContent, sources } = message.role === 'assistant' 
+                    ? parseSourcesFromContent(message.content) 
+                    : { cleanContent: message.content, sources: [] };
+                  return (
                     <div
-                      className={`max-w-[80%] md:max-w-[70%] p-5 ${
-                        message.role === 'user'
-                          ? 'bg-white/10 border border-white/20'
-                          : 'bg-white/[0.02] border border-white/5'
-                      }`}
+                      key={message.id}
+                      className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
                     >
-                      <p className="pixel-sans text-white text-base leading-relaxed whitespace-pre-wrap">{message.content}</p>
+                      <div
+                        className={`max-w-[80%] md:max-w-[70%] p-5 ${
+                          message.role === 'user'
+                            ? 'bg-white/10 border border-white/20'
+                            : 'bg-white/[0.02] border border-white/5'
+                        }`}
+                      >
+                        <p className="pixel-sans text-white text-base leading-relaxed whitespace-pre-wrap">{cleanContent}</p>
+                        {sources.length > 0 && (
+                          <div className="mt-4 pt-3 border-t border-white/5">
+                            <div className="flex flex-wrap gap-2">
+                              {sources.map((s, i) => {
+                                const domain = (() => { try { return new URL(s.url).hostname.replace('www.', ''); } catch { return ''; } })();
+                                return (
+                                  <a
+                                    key={i}
+                                    href={s.url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="flex items-center gap-2 px-3 py-2 bg-white/[0.04] border border-white/10 hover:border-white/20 hover:bg-white/[0.08] transition-all max-w-[200px] group"
+                                  >
+                                    <img
+                                      src={`https://www.google.com/s2/favicons?domain=${domain}&sz=16`}
+                                      alt=""
+                                      width={14}
+                                      height={14}
+                                      className="flex-shrink-0 opacity-60 group-hover:opacity-100"
+                                    />
+                                    <span className="pixel-sans text-white/50 text-xs truncate group-hover:text-white/80">{s.title || domain}</span>
+                                  </a>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
                 
                 {/* Streaming message */}
                 {streamingContent && (
@@ -747,6 +874,44 @@ export default function UserPage() {
                       <p className="pixel-sans text-white text-base leading-relaxed whitespace-pre-wrap">
                         {filterDisclaimers(streamingContent)}
                         <span className="inline-block w-2 h-5 bg-white/50 ml-1 animate-pulse" />
+                      </p>
+                      {pendingSources.length > 0 && (
+                        <div className="mt-4 pt-3 border-t border-white/5">
+                          <div className="flex flex-wrap gap-2">
+                            {pendingSources.map((s, i) => {
+                              const domain = (() => { try { return new URL(s.url).hostname.replace('www.', ''); } catch { return ''; } })();
+                              return (
+                                <a
+                                  key={i}
+                                  href={s.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="flex items-center gap-2 px-3 py-2 bg-white/[0.04] border border-white/10 hover:border-white/20 hover:bg-white/[0.08] transition-all max-w-[200px] group"
+                                >
+                                  <img
+                                    src={`https://www.google.com/s2/favicons?domain=${domain}&sz=16`}
+                                    alt=""
+                                    width={14}
+                                    height={14}
+                                    className="flex-shrink-0 opacity-60 group-hover:opacity-100"
+                                  />
+                                  <span className="pixel-sans text-white/50 text-xs truncate group-hover:text-white/80">{s.title || domain}</span>
+                                </a>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+                
+                {/* Search indicator */}
+                {isSearching && (
+                  <div className="flex justify-center">
+                    <div className="px-4 py-2 bg-white/[0.03] border border-white/10">
+                      <p className="pixel-sans text-white/50 text-sm">
+                        Searching the web...
                       </p>
                     </div>
                   </div>

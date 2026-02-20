@@ -1,33 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerClient } from '@/lib/supabase/server';
+import { deleteProfile } from '@/lib/db';
+import { getAuthUserId } from '@/lib/privy-server';
 
 export async function DELETE(request: NextRequest) {
   try {
-    const body = await request.json();
-    const { privyId } = body;
-
-    if (!privyId) {
+    // Verify auth — only delete own account
+    const authUserId = await getAuthUserId(request);
+    if (!authUserId) {
       return NextResponse.json(
-        { error: 'Missing privyId' },
-        { status: 400 }
+        { error: 'Authentication required' },
+        { status: 401 }
       );
     }
 
-    const supabase = createServerClient();
-
-    // Delete the user's profile from the database
-    const { error } = await supabase
-      .from('profiles')
-      .delete()
-      .eq('privy_id', privyId);
-
-    if (error) {
-      console.error('Error deleting profile:', error);
-      return NextResponse.json(
-        { error: 'Failed to delete profile' },
-        { status: 500 }
-      );
-    }
+    deleteProfile(authUserId);
 
     return NextResponse.json({ message: 'Account deleted successfully' });
   } catch (error) {

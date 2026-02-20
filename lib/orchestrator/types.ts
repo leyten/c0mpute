@@ -1,12 +1,23 @@
+/** Capabilities a worker advertises during registration */
+export interface WorkerCapabilities {
+  search?: boolean;
+  uncensored?: boolean;
+  longContext?: boolean;
+}
+
 // Worker types
 export interface WorkerInfo {
   id: string;
   socketId: string;
   model: string;
+  type: 'browser' | 'native';
+  capabilities: WorkerCapabilities;
   status: 'idle' | 'busy';
   connectedAt: Date;
   jobsCompleted: number;
   tokensGenerated: number;
+  tokPerSec: number;
+  privyUserId?: string;
 }
 
 // Job types
@@ -14,14 +25,18 @@ export interface Job {
   id: string;
   userId: string;
   userSocketId: string;
-  messages: ChatMessage[];
+  privyUserId?: string;
+  messages?: ChatMessage[];
+  requestedModel?: string;
   status: 'pending' | 'assigned' | 'processing' | 'completed' | 'failed';
   assignedWorker?: string;
   createdAt: Date;
-  startedAt?: Date; // When job started processing
+  startedAt?: Date;
   completedAt?: Date;
   response?: string;
   error?: string;
+  searchContext?: string;
+  searchResults?: { title: string; url: string; description: string }[];
 }
 
 export interface ChatMessage {
@@ -31,27 +46,22 @@ export interface ChatMessage {
 
 // Socket event types
 export interface ServerToClientEvents {
-  // For users
+  'job:searching': (data: { jobId: string }) => void;
+  'job:sources': (data: { jobId: string; sources: { title: string; url: string; description: string }[] }) => void;
   'job:assigned': (data: { jobId: string; workerId: string }) => void;
   'job:token': (data: { jobId: string; token: string }) => void;
   'job:complete': (data: { jobId: string; response: string }) => void;
   'job:error': (data: { jobId: string; error: string }) => void;
   'queue:position': (data: { position: number }) => void;
-  
-  // For workers
-  'job:new': (data: { jobId: string; messages: ChatMessage[] }) => void;
+  'job:new': (data: { jobId: string; messages?: ChatMessage[]; searchContext?: string }) => void;
+  'job:cancel': (data: { jobId: string }) => void;
   'worker:registered': (data: { workerId: string }) => void;
-  
-  // General
   'stats:update': (data: NetworkStats) => void;
 }
 
 export interface ClientToServerEvents {
-  // From users
-  'job:submit': (data: { messages: ChatMessage[] }, callback: (response: { jobId: string } | { error: string }) => void) => void;
-  
-  // From workers
-  'worker:register': (data: { model: string }, callback: (response: { workerId: string } | { error: string }) => void) => void;
+  'job:submit': (data: { messages?: ChatMessage[]; model?: string; authToken?: string }, callback: (response: { jobId: string } | { error: string }) => void) => void;
+  'worker:register': (data: { model: string; authToken?: string; tokPerSec?: number; type?: 'browser' | 'native'; capabilities?: WorkerCapabilities }, callback: (response: { workerId: string } | { error: string }) => void) => void;
   'worker:unregister': () => void;
   'job:token': (data: { jobId: string; token: string }) => void;
   'job:complete': (data: { jobId: string; response: string; tokensGenerated: number }) => void;
@@ -63,9 +73,8 @@ export interface NetworkStats {
   jobsInQueue: number;
   jobsCompleted: number;
   tokensGenerated: number;
-  avgJobDurationMs: number; // Average job duration in milliseconds
+  avgJobDurationMs: number;
 }
 
-// Shared constants
 export const MAX_INPUT_CHARS = 2000;
 export const MAX_OUTPUT_TOKENS = 1024;

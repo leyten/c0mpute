@@ -14,49 +14,49 @@ interface UseSocketReturn {
   networkStats: NetworkStats | null;
   queuePosition: number | null;
   
-  // Worker methods
-  registerWorker: (model: string) => Promise<string>;
+  registerWorker: (model: string, authToken: string, tokPerSec?: number) => Promise<string>;
   unregisterWorker: () => void;
   sendToken: (jobId: string, token: string) => void;
   completeJob: (jobId: string, response: string, tokensGenerated: number) => void;
   failJob: (jobId: string, error: string) => void;
   
-  // User methods
-  submitJob: (messages: ChatMessage[]) => Promise<string>;
+  submitJob: (data: { messages?: ChatMessage[]; model?: string; authToken: string }) => Promise<string>;
   
-  // Event handlers (set by component)
-  onNewJob: ((jobId: string, messages: ChatMessage[]) => void) | null;
-  setOnNewJob: (handler: ((jobId: string, messages: ChatMessage[]) => void) | null) => void;
-  onJobToken: ((jobId: string, token: string) => void) | null;
+  setOnNewJob: (handler: ((jobId: string, messages?: ChatMessage[]) => void) | null) => void;
   setOnJobToken: (handler: ((jobId: string, token: string) => void) | null) => void;
-  onJobComplete: ((jobId: string, response: string) => void) | null;
   setOnJobComplete: (handler: ((jobId: string, response: string) => void) | null) => void;
-  onJobError: ((jobId: string, error: string) => void) | null;
   setOnJobError: (handler: ((jobId: string, error: string) => void) | null) => void;
-  onJobAssigned: ((jobId: string, workerId: string) => void) | null;
   setOnJobAssigned: (handler: ((jobId: string, workerId: string) => void) | null) => void;
+  setOnJobCancel: (handler: ((jobId: string) => void) | null) => void;
+  setOnJobSearching: (handler: ((jobId: string) => void) | null) => void;
+  setOnJobSources: (handler: ((jobId: string, sources: { title: string; url: string; description: string }[]) => void) | null) => void;
 }
 
-export function useSocket(): UseSocketReturn {
+export function useSocket(authToken?: string | null): UseSocketReturn {
   const socketRef = useRef<TypedSocket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [networkStats, setNetworkStats] = useState<NetworkStats | null>(null);
   const [queuePosition, setQueuePosition] = useState<number | null>(null);
   
-  // Event handler refs
-  const onNewJobRef = useRef<((jobId: string, messages: ChatMessage[]) => void) | null>(null);
+  const onNewJobRef = useRef<((jobId: string, messages?: ChatMessage[]) => void) | null>(null);
   const onJobTokenRef = useRef<((jobId: string, token: string) => void) | null>(null);
   const onJobCompleteRef = useRef<((jobId: string, response: string) => void) | null>(null);
   const onJobErrorRef = useRef<((jobId: string, error: string) => void) | null>(null);
   const onJobAssignedRef = useRef<((jobId: string, workerId: string) => void) | null>(null);
+  const onJobCancelRef = useRef<((jobId: string) => void) | null>(null);
+  const onJobSearchingRef = useRef<((jobId: string) => void) | null>(null);
+  const onJobSourcesRef = useRef<((jobId: string, sources: { title: string; url: string; description: string }[]) => void) | null>(null);
 
-  // Initialize socket connection
   useEffect(() => {
+    // Don't connect until we have an auth token
+    if (!authToken) return;
+
     const socket: TypedSocket = io(SOCKET_URL, {
       transports: ['websocket', 'polling'],
       reconnection: true,
       reconnectionAttempts: 5,
       reconnectionDelay: 1000,
+      auth: { token: authToken },
     });
 
     socket.on('connect', () => {
@@ -73,48 +73,38 @@ export function useSocket(): UseSocketReturn {
       console.error('[Socket] Connection error:', error.message);
     });
 
-    // Network stats updates
     socket.on('stats:update', (stats) => {
       setNetworkStats(stats);
     });
 
-    // Worker events
     socket.on('job:new', (data) => {
-      console.log('[Socket] Received job:new event:', data.jobId);
       if (onNewJobRef.current) {
-        console.log('[Socket] Calling job handler');
         onNewJobRef.current(data.jobId, data.messages);
-      } else {
-        console.log('[Socket] No job handler set!');
       }
     });
 
-    // User events
     socket.on('job:token', (data) => {
-      console.log('[Socket] Received job:token event:', data.jobId, data.token?.substring(0, 20));
       if (onJobTokenRef.current) {
         onJobTokenRef.current(data.jobId, data.token);
-      } else {
-        console.log('[Socket] No token handler set!');
       }
     });
 
     socket.on('job:complete', (data) => {
-      setQueuePosition(null); // Clear queue position on completion
+      setQueuePosition(null);
       if (onJobCompleteRef.current) {
         onJobCompleteRef.current(data.jobId, data.response);
       }
     });
 
     socket.on('job:error', (data) => {
-      setQueuePosition(null); // Clear queue position on error
+      setQueuePosition(null);
       if (onJobErrorRef.current) {
         onJobErrorRef.current(data.jobId, data.error);
       }
     });
 
     socket.on('job:assigned', (data) => {
-      setQueuePosition(0); // 0 means processing (no longer in queue)
+      setQueuePosition(0);
       if (onJobAssignedRef.current) {
         onJobAssignedRef.current(data.jobId, data.workerId);
       }
@@ -124,23 +114,39 @@ export function useSocket(): UseSocketReturn {
       setQueuePosition(data.position);
     });
 
+    socket.on('job:cancel', (data) => {
+      if (onJobCancelRef.current) {
+        onJobCancelRef.current(data.jobId);
+      }
+    });
+
+    socket.on('job:searching', (data) => {
+      if (onJobSearchingRef.current) {
+        onJobSearchingRef.current(data.jobId);
+      }
+    });
+
+    socket.on('job:sources', (data: { jobId: string; sources: { title: string; url: string; description: string }[] }) => {
+      if (onJobSourcesRef.current) {
+        onJobSourcesRef.current(data.jobId, data.sources);
+      }
+    });
+
     socketRef.current = socket;
 
     return () => {
       socket.disconnect();
       socketRef.current = null;
     };
-  }, []);
+  }, [authToken]);
 
-  // Worker: Register with orchestrator
-  const registerWorker = useCallback(async (model: string): Promise<string> => {
+  const registerWorker = useCallback(async (model: string, authToken: string, tokPerSec?: number): Promise<string> => {
     return new Promise((resolve, reject) => {
       if (!socketRef.current) {
         reject(new Error('Socket not connected'));
         return;
       }
-
-      socketRef.current.emit('worker:register', { model }, (response) => {
+      socketRef.current.emit('worker:register', { model, authToken, tokPerSec }, (response) => {
         if ('workerId' in response) {
           resolve(response.workerId);
         } else {
@@ -150,43 +156,33 @@ export function useSocket(): UseSocketReturn {
     });
   }, []);
 
-  // Worker: Unregister from orchestrator
   const unregisterWorker = useCallback(() => {
-    if (socketRef.current) {
-      socketRef.current.emit('worker:unregister');
-    }
+    if (socketRef.current) socketRef.current.emit('worker:unregister');
   }, []);
 
-  // Worker: Send token to user
   const sendToken = useCallback((jobId: string, token: string) => {
-    if (socketRef.current) {
-      socketRef.current.emit('job:token', { jobId, token });
-    }
+    if (socketRef.current) socketRef.current.emit('job:token', { jobId, token });
   }, []);
 
-  // Worker: Complete job
   const completeJob = useCallback((jobId: string, response: string, tokensGenerated: number) => {
-    if (socketRef.current) {
-      socketRef.current.emit('job:complete', { jobId, response, tokensGenerated });
-    }
+    if (socketRef.current) socketRef.current.emit('job:complete', { jobId, response, tokensGenerated });
   }, []);
 
-  // Worker: Fail job
   const failJob = useCallback((jobId: string, error: string) => {
-    if (socketRef.current) {
-      socketRef.current.emit('job:error', { jobId, error });
-    }
+    if (socketRef.current) socketRef.current.emit('job:error', { jobId, error });
   }, []);
 
-  // User: Submit job
-  const submitJob = useCallback(async (messages: ChatMessage[]): Promise<string> => {
+  const submitJob = useCallback(async (data: { messages?: ChatMessage[]; model?: string; authToken: string }): Promise<string> => {
     return new Promise((resolve, reject) => {
       if (!socketRef.current) {
         reject(new Error('Socket not connected'));
         return;
       }
-
-      socketRef.current.emit('job:submit', { messages }, (response) => {
+      socketRef.current.emit('job:submit', {
+        messages: data.messages,
+        model: data.model,
+        authToken: data.authToken,
+      }, (response) => {
         if ('jobId' in response) {
           resolve(response.jobId);
         } else {
@@ -196,53 +192,24 @@ export function useSocket(): UseSocketReturn {
     });
   }, []);
 
-  // Setters for event handlers
-  const setOnNewJob = useCallback((handler: ((jobId: string, messages: ChatMessage[]) => void) | null) => {
-    onNewJobRef.current = handler;
-  }, []);
-
-  const setOnJobToken = useCallback((handler: ((jobId: string, token: string) => void) | null) => {
-    onJobTokenRef.current = handler;
-  }, []);
-
-  const setOnJobComplete = useCallback((handler: ((jobId: string, response: string) => void) | null) => {
-    onJobCompleteRef.current = handler;
-  }, []);
-
-  const setOnJobError = useCallback((handler: ((jobId: string, error: string) => void) | null) => {
-    onJobErrorRef.current = handler;
-  }, []);
-
-  const setOnJobAssigned = useCallback((handler: ((jobId: string, workerId: string) => void) | null) => {
-    onJobAssignedRef.current = handler;
-  }, []);
-
   return {
     socket: socketRef.current,
     isConnected,
     networkStats,
     queuePosition,
-    
-    // Worker methods
     registerWorker,
     unregisterWorker,
     sendToken,
     completeJob,
     failJob,
-    
-    // User methods
     submitJob,
-    
-    // Event handlers
-    onNewJob: onNewJobRef.current,
-    setOnNewJob,
-    onJobToken: onJobTokenRef.current,
-    setOnJobToken,
-    onJobComplete: onJobCompleteRef.current,
-    setOnJobComplete,
-    onJobError: onJobErrorRef.current,
-    setOnJobError,
-    onJobAssigned: onJobAssignedRef.current,
-    setOnJobAssigned,
+    setOnNewJob: useCallback((handler: ((jobId: string, messages?: ChatMessage[]) => void) | null) => { onNewJobRef.current = handler; }, []),
+    setOnJobToken: useCallback((handler: ((jobId: string, token: string) => void) | null) => { onJobTokenRef.current = handler; }, []),
+    setOnJobComplete: useCallback((handler: ((jobId: string, response: string) => void) | null) => { onJobCompleteRef.current = handler; }, []),
+    setOnJobError: useCallback((handler: ((jobId: string, error: string) => void) | null) => { onJobErrorRef.current = handler; }, []),
+    setOnJobAssigned: useCallback((handler: ((jobId: string, workerId: string) => void) | null) => { onJobAssignedRef.current = handler; }, []),
+    setOnJobCancel: useCallback((handler: ((jobId: string) => void) | null) => { onJobCancelRef.current = handler; }, []),
+    setOnJobSearching: useCallback((handler: ((jobId: string) => void) | null) => { onJobSearchingRef.current = handler; }, []),
+    setOnJobSources: useCallback((handler: ((jobId: string, sources: { title: string; url: string; description: string }[]) => void) | null) => { onJobSourcesRef.current = handler; }, []),
   };
 }
