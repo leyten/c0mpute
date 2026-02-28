@@ -103,6 +103,13 @@ function buildMarkdownComponents(sources: { title: string; url: string; descript
   };
 }
 
+// Get model tier helper
+function getModelTier(modelId: string): string {
+  if (modelId === 'native-max') return 'max';
+  if (modelId.includes('dolphin')) return 'pro';
+  return 'free';
+}
+
 type ChatState = 'idle' | 'queued' | 'streaming' | 'error';
 
 // Available models for users
@@ -205,6 +212,28 @@ export default function UserPage() {
   const pendingSourcesRef = useRef<{ title: string; url: string; description: string }[]>([]);
   useEffect(() => { pendingSourcesRef.current = pendingSources; }, [pendingSources]);
   
+  // Credit system state
+  const [creditBalance, setCreditBalance] = useState<number>(0);
+  const [depositWallet, setDepositWallet] = useState<string | null>(null);
+  const [showTopUp, setShowTopUp] = useState(false);
+  const [checkingDeposit, setCheckingDeposit] = useState(false);
+  const [depositResult, setDepositResult] = useState<string | null>(null);
+  const [copiedDeposit, setCopiedDeposit] = useState(false);
+  
+  // Fetch credits on mount
+  useEffect(() => {
+    if (!isAuthenticated || !socketAuthToken) return;
+    fetch('/api/credits', { headers: { Authorization: `Bearer ${socketAuthToken}` } })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data) {
+          setCreditBalance(data.balance);
+          setDepositWallet(data.depositWallet);
+        }
+      })
+      .catch(() => {});
+  }, [isAuthenticated, socketAuthToken]);
+
   // Load selected model from localStorage
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -530,6 +559,10 @@ export default function UserPage() {
         // Clear ref immediately
         currentJobIdRef.current = null;
         setCurrentJobId(null);
+        // Auto-open top-up modal on insufficient credits
+        if (errorMsg && errorMsg.includes('Insufficient credits')) {
+          setShowTopUp(true);
+        }
       }
     });
     
@@ -759,6 +792,24 @@ export default function UserPage() {
                 );
               })}
             </div>
+            
+            {/* Credit Balance Pill */}
+            {(() => {
+              const tier = getModelTier(selectedModel);
+              if (tier === 'free') return null;
+              return (
+                <button
+                  onClick={() => setShowTopUp(true)}
+                  className={`pixel-sans text-xs px-3 py-1.5 rounded-lg border transition-colors ${
+                    creditBalance === 0
+                      ? 'border-amber-500/30 bg-amber-500/10 text-amber-400'
+                      : 'border-white/10 bg-white/[0.04] text-white/70 hover:bg-white/[0.08]'
+                  }`}
+                >
+                  💎 {creditBalance.toFixed(0)}
+                </button>
+              );
+            })()}
             
             <div className={`pixel-sans text-xs flex items-center gap-2 ${isConnected ? 'text-green-400' : 'text-[#80a0c1]'}`}>
               <span className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-green-400' : 'bg-[#80a0c1]'}`} />
@@ -1097,6 +1148,123 @@ export default function UserPage() {
           )}
         </main>
       </div>
+
+      {/* Top Up Modal */}
+      {showTopUp && (
+        <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setShowTopUp(false)}>
+          <div className="bg-black border border-white/10 rounded-2xl p-6 max-w-md w-full relative" onClick={e => e.stopPropagation()}>
+            {/* Close button */}
+            <button onClick={() => setShowTopUp(false)} className="absolute top-4 right-4 text-white/40 hover:text-white transition-colors">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+            </button>
+
+            <h2 className="pixel-serif text-white text-2xl mb-2">Top Up Credits</h2>
+            <p className="pixel-sans text-white/50 text-sm mb-6">Send <span className="dollar">$</span>ZERO tokens to your deposit wallet</p>
+
+            {/* Current Balance */}
+            <div className="flex items-center justify-between mb-4 p-3 bg-white/[0.04] border border-white/10 rounded-xl">
+              <span className="pixel-sans text-white/50 text-sm">Balance</span>
+              <span className="pixel-serif text-white text-xl">💎 {creditBalance.toFixed(0)}</span>
+            </div>
+
+            {/* Pricing */}
+            <div className="mb-4 p-3 bg-white/[0.02] border border-white/5 rounded-xl">
+              <div className="pixel-sans text-white/40 text-xs mb-2">Pricing</div>
+              <div className="flex justify-between pixel-sans text-sm">
+                <span className="text-white/60">Pro prompt</span>
+                <span className="text-white/80">10 credits</span>
+              </div>
+              <div className="flex justify-between pixel-sans text-sm mt-1">
+                <span className="text-white/60">Max prompt</span>
+                <span className="text-white/80">50 credits</span>
+              </div>
+            </div>
+
+            {/* Deposit Address */}
+            <div className="mb-4">
+              <div className="pixel-sans text-white/40 text-xs mb-2">Deposit Address</div>
+              <div className="flex items-center gap-2 bg-white/[0.04] border border-white/10 rounded-lg p-3">
+                <code className="font-mono text-[#80a0c1] text-sm flex-1 break-all">{depositWallet || 'Loading...'}</code>
+                <button
+                  onClick={() => {
+                    if (depositWallet) {
+                      navigator.clipboard.writeText(depositWallet);
+                      setCopiedDeposit(true);
+                      setTimeout(() => setCopiedDeposit(false), 2000);
+                    }
+                  }}
+                  className="pixel-sans text-xs px-3 py-1.5 rounded-lg border border-white/10 text-white/50 hover:text-white hover:bg-white/5 transition-colors flex-shrink-0"
+                >
+                  {copiedDeposit ? 'Copied!' : 'Copy'}
+                </button>
+              </div>
+            </div>
+
+            {/* Check Deposit Button */}
+            <button
+              onClick={async () => {
+                setCheckingDeposit(true);
+                setDepositResult(null);
+                try {
+                  const t = await getAccessToken();
+                  const res = await fetch('/api/credits/check-deposit', {
+                    method: 'POST',
+                    headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'check' }),
+                  });
+                  const data = await res.json();
+                  if (res.ok) {
+                    if (data.credited > 0) {
+                      setCreditBalance(data.newBalance);
+                      setDepositResult(`${data.credited} $ZERO credited!`);
+                    } else {
+                      setDepositResult(data.message || 'No new deposits found');
+                    }
+                  } else {
+                    setDepositResult(data.error || 'Check failed');
+                  }
+                } catch {
+                  setDepositResult('Failed to check deposits');
+                } finally {
+                  setCheckingDeposit(false);
+                }
+              }}
+              disabled={checkingDeposit}
+              className="w-full pixel-sans text-sm py-3 rounded-xl border border-[#80a0c1]/50 text-[#80a0c1] hover:bg-[#80a0c1]/10 transition-colors disabled:opacity-50"
+            >
+              {checkingDeposit ? 'Checking...' : 'Check for Deposit'}
+            </button>
+
+            {depositResult && (
+              <p className={`pixel-sans text-sm text-center mt-3 ${depositResult.includes('credited') ? 'text-green-400' : 'text-white/50'}`}>
+                {depositResult}
+              </p>
+            )}
+
+            {/* Dev add (non-production) */}
+            {process.env.NODE_ENV !== 'production' && (
+              <button
+                onClick={async () => {
+                  const t = await getAccessToken();
+                  const res = await fetch('/api/credits/check-deposit', {
+                    method: 'POST',
+                    headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'dev_add', amount: 100 }),
+                  });
+                  const data = await res.json();
+                  if (res.ok) {
+                    setCreditBalance(data.newBalance);
+                    setDepositResult('Dev: 100 credits added!');
+                  }
+                }}
+                className="w-full mt-2 pixel-sans text-xs py-2 rounded-xl border border-white/10 text-white/30 hover:text-white/50 transition-colors"
+              >
+                [DEV] Add 100 Credits
+              </button>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

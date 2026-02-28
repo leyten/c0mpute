@@ -8,6 +8,7 @@ import {
   getRecentEarnings,
   getPayoutHistory,
   requestPayout,
+  getProfileByPrivyId,
 } from '@/lib/db';
 
 export async function GET(req: NextRequest) {
@@ -53,9 +54,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
   }
 
-  const wallet = getWorkerWallet(privyId);
+  const profile = getProfileByPrivyId(privyId) as any;
+  const wallet = profile?.wallet_address;
   if (!wallet) {
-    return NextResponse.json({ error: 'No wallet set. Please set your SOL wallet first.' }, { status: 400 });
+    return NextResponse.json({ error: 'Connect a wallet in Settings first' }, { status: 400 });
   }
 
   const result = requestPayout(privyId);

@@ -27,6 +27,7 @@ export default function SettingsPage() {
     hasTwitter,
     linkWallet,
     linkTwitter,
+    unlinkWallet,
     deleteAccount,
     refreshProfile,
   } = useAuth();
@@ -107,7 +108,7 @@ export default function SettingsPage() {
       {/* Header */}
       <header className="fixed top-0 left-0 right-0 z-50 py-4">
         <div className="max-w-6xl mx-auto px-4 md:px-6">
-          <nav className="bg-black/80 backdrop-blur-sm border border-white/10 px-4 md:px-6 py-3 flex items-center justify-between">
+          <nav className="bg-black/80 backdrop-blur-sm border border-white/10 rounded-2xl px-4 md:px-6 py-3 flex items-center justify-between">
             {/* Left: Logo */}
             <div className="flex-1">
               <a href="/" className="pixel-serif-logo text-white text-lg md:text-xl font-bold flex items-center">
@@ -159,7 +160,7 @@ export default function SettingsPage() {
           {activeTab === 'profile' && (
             <div className="space-y-8">
               {/* Connected Accounts Section */}
-              <section className="border border-white/10 bg-white/[0.02] p-6">
+              <section className="border border-white/10 bg-white/[0.02] p-6 rounded-2xl">
                 <h2 className="pixel-serif text-white text-xl mb-6">Connected Accounts</h2>
                 
                 <div className="space-y-4">
@@ -213,7 +214,24 @@ export default function SettingsPage() {
                       </button>
                     )}
                     {hasWallet && !isEmbeddedWallet && (
-                      <div className="pixel-sans text-xs text-white/30">Connected</div>
+                      <div className="flex items-center gap-2">
+                        <span className="pixel-sans text-xs text-green-400">Connected</span>
+                        <button
+                          onClick={async () => {
+                            if (!walletAddress) return;
+                            if (!confirm('Disconnecting your wallet will prevent you from receiving worker payouts. Continue?')) return;
+                            try {
+                              await unlinkWallet(walletAddress);
+                              refreshProfile();
+                            } catch (err) {
+                              console.error('Failed to disconnect wallet:', err);
+                            }
+                          }}
+                          className="pixel-sans text-xs px-3 py-1.5 border border-red-500/30 text-red-400/70 hover:bg-red-500/10 rounded-xl transition-colors"
+                        >
+                          Disconnect
+                        </button>
+                      </div>
                     )}
                     {hasWallet && isEmbeddedWallet && (
                       <button
@@ -261,7 +279,7 @@ export default function SettingsPage() {
               </section>
 
               {/* Account Info Section */}
-              <section className="border border-white/10 bg-white/[0.02] p-6">
+              <section className="border border-white/10 bg-white/[0.02] p-6 rounded-2xl">
                 <h2 className="pixel-serif text-white text-xl mb-6">Account Info</h2>
                 
                 <div className="space-y-4">
@@ -304,7 +322,7 @@ export default function SettingsPage() {
               </section>
 
               {/* Danger Zone */}
-              <section className="border border-red-500/20 bg-red-500/[0.02] p-6">
+              <section className="border border-red-500/20 bg-red-500/[0.02] p-6 rounded-2xl">
                 <h2 className="pixel-serif text-red-400/80 text-xl mb-4">Danger Zone</h2>
                 <p className="pixel-sans text-white/50 text-sm mb-6">
                   Once you delete your account, there is no going back. This will permanently delete your profile and all associated data.

@@ -11,7 +11,7 @@ import {
   getModelTier,
 } from './types';
 import { verifyPrivyToken } from '../privy-server';
-import { incrementPromptsSent, verifyWorkerToken, recordCompletedJob, recordEarning } from '../db';
+import { incrementPromptsSent, verifyWorkerToken, recordCompletedJob, recordEarning, spendCredits, getCreditBalance, refundCredits } from '../db';
 // Dynamic imports for server-only modules (avoid Turbopack resolution)
 let shouldSearch: (msg: string, prev?: { role: string; content: string }[]) => boolean = () => false;
 let extractQuery: (msg: string, prev?: { role: string; content: string }[]) => string = (msg) => msg;
@@ -92,6 +92,13 @@ export class Orchestrator {
       const jobAge = now - job.createdAt.getTime();
       if (jobAge > JOB_TIMEOUT_MS) {
         userSocket.emit('job:error', { jobId, error: 'Job timed out' });
+        // Refund credits for timed-out queued jobs
+        if (job.privyUserId && job.requestedModel) {
+          const tier = getModelTier(job.requestedModel);
+          if (tier === 'pro' || tier === 'max') {
+            refundCredits(job.privyUserId, tier === 'max' ? 50 : 10, 'Job timed out in queue');
+          }
+        }
         this.jobs.delete(jobId);
         return false;
       }
@@ -105,6 +112,13 @@ export class Orchestrator {
           const userSocket = this.io.sockets.sockets.get(job.userSocketId);
           if (userSocket) {
             userSocket.emit('job:error', { jobId, error: 'Job timed out during processing' });
+          }
+          // Refund credits for timed-out processing jobs
+          if (job.privyUserId && job.requestedModel) {
+            const tier = getModelTier(job.requestedModel);
+            if (tier === 'pro' || tier === 'max') {
+              refundCredits(job.privyUserId, tier === 'max' ? 50 : 10, 'Job timed out during processing');
+            }
           }
           if (job.assignedWorker) {
             const worker = this.findWorkerById(job.assignedWorker);
@@ -192,6 +206,22 @@ export class Orchestrator {
         recentJobs.push(now);
         this.rateLimits.set(privyUserId, recentJobs);
 
+        // Credit check for Pro/Max tiers
+        const requestedTierForCredits = getModelTier(data.model);
+        if (requestedTierForCredits === 'pro' || requestedTierForCredits === 'max') {
+          const creditCost = requestedTierForCredits === 'max' ? 50 : 10;
+          const creditBalance = getCreditBalance(privyUserId);
+          if (creditBalance.balance < creditCost) {
+            callback({ error: `Insufficient credits. Need ${creditCost} credits, have ${creditBalance.balance.toFixed(0)}. Top up with $ZERO.` });
+            return;
+          }
+          const spent = spendCredits(privyUserId, creditCost, `${requestedTierForCredits} prompt`);
+          if (!spent) {
+            callback({ error: 'Failed to deduct credits. Try again.' });
+            return;
+          }
+        }
+
         // Only search for Max tier (native worker) jobs
         const requestedTier = getModelTier(data.model);
         const isMaxTier = requestedTier === 'max';
@@ -231,6 +261,11 @@ export class Orchestrator {
           console.log(`[Orchestrator] Job submitted: ${job.id} (model: ${data.model || 'any'}) user=${privyUserId}`);
           this.processQueue();
         } else {
+          // Refund credits if job submission failed
+          if (requestedTierForCredits === 'pro' || requestedTierForCredits === 'max') {
+            const creditCost = requestedTierForCredits === 'max' ? 50 : 10;
+            refundCredits(privyUserId, creditCost, 'Job submission failed');
+          }
           callback({ error: 'Failed to submit job' });
         }
       });

@@ -298,7 +298,7 @@ const NativeWorkerSection = ({ getAccessToken }: { getAccessToken: () => Promise
 
 export default function WorkerPage() {
   const router = useRouter();
-  const { isLoading: authLoading, isAuthenticated, login, getAccessToken } = useAuth();
+  const { isLoading: authLoading, isAuthenticated, login, getAccessToken, walletAddress, hasWallet } = useAuth();
   
   // Fetch auth token for socket connection
   const [socketAuthToken, setSocketAuthToken] = useState<string | null>(null);
@@ -1056,47 +1056,28 @@ export default function WorkerPage() {
 
               {/* Earnings Section */}
               <div className="mt-4 pt-4 border-t border-white/5">
-                {earnings && !earnings.wallet && !editingWallet ? (
-                  <div>
-                    <p className="pixel-sans text-white/50 text-sm mb-3">Set your SOL wallet to start earning</p>
-                    <div className="flex gap-2">
-                      <input
-                        type="text"
-                        value={walletInput}
-                        onChange={e => setWalletInput(e.target.value)}
-                        placeholder="Solana wallet address"
-                        className="flex-1 px-4 py-2.5 rounded-xl bg-white/[0.04] border border-white/10 text-white pixel-sans text-sm placeholder:text-white/20 focus:outline-none focus:border-[#80a0c1]/40"
-                      />
-                      <button
-                        disabled={walletSaving || !/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(walletInput)}
-                        onClick={async () => {
-                          setWalletSaving(true);
-                          setEarningsError(null);
-                          try {
-                            const t = await getAccessToken();
-                            const res = await fetch('/api/worker-wallet', {
-                              method: 'POST',
-                              headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' },
-                              body: JSON.stringify({ walletAddress: walletInput }),
-                            });
-                            if (res.ok) {
-                              setEarnings(prev => prev ? { ...prev, wallet: walletInput } : prev);
-                              setWalletInput('');
-                            } else {
-                              const d = await res.json();
-                              setEarningsError(d.error || 'Failed to save wallet');
-                            }
-                          } catch { setEarningsError('Failed to save wallet'); }
-                          finally { setWalletSaving(false); }
-                        }}
-                        className="px-5 py-2.5 rounded-xl bg-white text-black pixel-sans text-sm hover:bg-white/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {walletSaving ? '...' : 'Save'}
-                      </button>
+                {/* Payout Wallet */}
+                <div className="mb-4">
+                  {hasWallet ? (
+                    <div className="flex items-center gap-2">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-green-400">
+                        <path d="M20 6L9 17l-5-5" />
+                      </svg>
+                      <span className="pixel-sans text-white/50 text-xs">Payout wallet:</span>
+                      <span className="pixel-sans text-white/70 text-xs font-mono">
+                        {walletAddress?.slice(0, 4)}...{walletAddress?.slice(-4)}
+                      </span>
                     </div>
-                    {earningsError && <p className="pixel-sans text-red-400 text-xs mt-2">{earningsError}</p>}
-                  </div>
-                ) : earnings ? (
+                  ) : (
+                    <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl">
+                      <p className="pixel-sans text-amber-400/80 text-sm">
+                        <a href="/settings" className="underline hover:text-amber-300">Connect a wallet in Settings</a> to receive payouts
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                {earnings ? (
                   <div>
                     <div className="grid grid-cols-3 gap-4 mb-4">
                       <div className="text-center p-3 bg-white/[0.02] border border-white/5 rounded-xl">
@@ -1115,7 +1096,7 @@ export default function WorkerPage() {
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <button
-                          disabled={claimLoading || earnings.pendingBalance < 1.0}
+                          disabled={claimLoading || earnings.pendingBalance < 1.0 || !hasWallet}
                           onClick={async () => {
                             setClaimLoading(true);
                             setEarningsError(null);
@@ -1143,54 +1124,8 @@ export default function WorkerPage() {
                           <span className="pixel-sans text-white/30 text-xs">Min $1.00</span>
                         )}
                       </div>
-                      <div className="flex items-center gap-2">
-                        <span className="pixel-sans text-white/30 text-xs font-mono">
-                          {earnings.wallet ? `${earnings.wallet.slice(0, 4)}...${earnings.wallet.slice(-4)}` : ''}
-                        </span>
-                        <button
-                          onClick={() => { setEditingWallet(true); setWalletInput(earnings.wallet || ''); }}
-                          className="pixel-sans text-white/20 text-xs hover:text-white/40 transition-colors"
-                        >
-                          Change
-                        </button>
-                      </div>
                     </div>
                     {earningsError && <p className="pixel-sans text-red-400 text-xs mt-2">{earningsError}</p>}
-                    {editingWallet && (
-                      <div className="flex gap-2 mt-3">
-                        <input
-                          type="text"
-                          value={walletInput}
-                          onChange={e => setWalletInput(e.target.value)}
-                          placeholder="New wallet address"
-                          className="flex-1 px-3 py-2 rounded-lg bg-white/[0.04] border border-white/10 text-white pixel-sans text-xs placeholder:text-white/20 focus:outline-none focus:border-[#80a0c1]/40"
-                        />
-                        <button
-                          disabled={walletSaving || !/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(walletInput)}
-                          onClick={async () => {
-                            setWalletSaving(true);
-                            try {
-                              const t = await getAccessToken();
-                              const res = await fetch('/api/worker-wallet', {
-                                method: 'POST',
-                                headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ walletAddress: walletInput }),
-                              });
-                              if (res.ok) {
-                                setEarnings(prev => prev ? { ...prev, wallet: walletInput } : prev);
-                                setEditingWallet(false);
-                                setWalletInput('');
-                              }
-                            } catch {}
-                            finally { setWalletSaving(false); }
-                          }}
-                          className="px-4 py-2 rounded-lg bg-white text-black pixel-sans text-xs disabled:opacity-50"
-                        >
-                          Save
-                        </button>
-                        <button onClick={() => { setEditingWallet(false); setWalletInput(''); }} className="pixel-sans text-white/30 text-xs px-2">Cancel</button>
-                      </div>
-                    )}
                   </div>
                 ) : null}
               </div>

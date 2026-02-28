@@ -17,6 +17,7 @@
     "@privy-io/server-auth": "^1.32.5",
     "@solana-program/memo": "^0.10.0",
     "@solana/kit": "^5.4.0",
+    "@solana/spl-token": "^0.4.14",
     "@tailwindcss/typography": "^0.5.19",
     "better-sqlite3": "^12.6.2",
     "class-variance-authority": "^0.7.1",

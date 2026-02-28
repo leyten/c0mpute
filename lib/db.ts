@@ -301,7 +301,7 @@ export function getTotalEarnings(privyId: string): number {
   return row.total;
 }
 
-export function requestPayout(privyId: string): { payoutId: string; amountUsd: number } | null {
+export function requestPayout(privyId: string, walletAddress?: string): { payoutId: string; amountUsd: number } | null {
   ensureEarningsTables();
   const db = getDb();
 
@@ -309,7 +309,8 @@ export function requestPayout(privyId: string): { payoutId: string; amountUsd: n
   const txn = db.transaction(() => {
     const pending = getPendingBalance(privyId);
     if (pending < 1.0) return null;
-    const wallet = getWorkerWallet(privyId);
+    // Use provided wallet (from Privy profile) or fall back to legacy worker_wallets
+    const wallet = walletAddress || getWorkerWallet(privyId);
     if (!wallet) return null;
 
     // Check no pending_transfer payout exists (prevent spam)
@@ -430,4 +431,146 @@ export function revokeWorkerToken(tokenId: string, privyId: string): boolean {
     'UPDATE worker_tokens SET revoked = 1 WHERE id = ? AND privy_id = ?'
   ).run(tokenId, privyId);
   return result.changes > 0;
+}
+
+// ── User Credits ──
+
+function ensureCreditTables() {
+  const db = getDb();
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS user_credits (
+      privy_id TEXT PRIMARY KEY,
+      balance REAL DEFAULT 0,
+      total_deposited REAL DEFAULT 0,
+      total_spent REAL DEFAULT 0,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS credit_transactions (
+      id TEXT PRIMARY KEY,
+      privy_id TEXT NOT NULL,
+      type TEXT NOT NULL,
+      amount REAL NOT NULL,
+      description TEXT,
+      tx_hash TEXT,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_credit_tx_privy ON credit_transactions(privy_id);
+    CREATE INDEX IF NOT EXISTS idx_credit_tx_date ON credit_transactions(created_at);
+
+    CREATE TABLE IF NOT EXISTS deposit_wallets (
+      privy_id TEXT PRIMARY KEY,
+      public_key TEXT NOT NULL,
+      encrypted_secret TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+  `);
+}
+
+export function getOrCreateDepositWallet(privyId: string): string {
+  ensureCreditTables();
+  const db = getDb();
+  const existing = db.prepare('SELECT public_key FROM deposit_wallets WHERE privy_id = ?').get(privyId) as any;
+  if (existing) return existing.public_key;
+
+  const { Keypair } = require('@solana/web3.js');
+  const cryptoMod = require('crypto');
+  const keypair = Keypair.generate();
+  const publicKey = keypair.publicKey.toBase58();
+
+  const encKey: string | undefined = process.env.DEPOSIT_WALLET_KEY;
+  if (!encKey) {
+    throw new Error('[Credits] FATAL: DEPOSIT_WALLET_KEY not set. Cannot generate deposit wallets without encryption key.');
+  }
+  const iv = cryptoMod.randomBytes(16);
+  const cipher = cryptoMod.createCipheriv('aes-256-gcm', Buffer.from(encKey, 'hex'), iv);
+  let encrypted = cipher.update(Buffer.from(keypair.secretKey));
+  encrypted = Buffer.concat([encrypted, cipher.final()]);
+  const authTag = cipher.getAuthTag();
+  const encryptedSecret = iv.toString('hex') + ':' + authTag.toString('hex') + ':' + encrypted.toString('hex');
+
+  const now = new Date().toISOString();
+  db.prepare('INSERT INTO deposit_wallets (privy_id, public_key, encrypted_secret, created_at) VALUES (?, ?, ?, ?)')
+    .run(privyId, publicKey, encryptedSecret, now);
+
+  return publicKey;
+}
+
+export function getCreditBalance(privyId: string): { balance: number; totalDeposited: number; totalSpent: number } {
+  ensureCreditTables();
+  const db = getDb();
+  const row = db.prepare('SELECT * FROM user_credits WHERE privy_id = ?').get(privyId) as any;
+  if (!row) return { balance: 0, totalDeposited: 0, totalSpent: 0 };
+  return { balance: row.balance, totalDeposited: row.total_deposited, totalSpent: row.total_spent };
+}
+
+export function addCredits(privyId: string, amount: number, txHash?: string, description?: string): void {
+  ensureCreditTables();
+  const db = getDb();
+  const now = new Date().toISOString();
+
+  const txn = db.transaction(() => {
+    db.prepare(`
+      INSERT INTO user_credits (privy_id, balance, total_deposited, total_spent, updated_at)
+      VALUES (?, ?, ?, 0, ?)
+      ON CONFLICT(privy_id) DO UPDATE SET
+        balance = balance + ?,
+        total_deposited = total_deposited + ?,
+        updated_at = ?
+    `).run(privyId, amount, amount, now, amount, amount, now);
+
+    const id = crypto.randomUUID();
+    db.prepare('INSERT INTO credit_transactions (id, privy_id, type, amount, description, tx_hash, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(id, privyId, 'deposit', amount, description || 'Token deposit', txHash || null, now);
+  });
+  txn();
+}
+
+export function spendCredits(privyId: string, amount: number, description?: string): boolean {
+  ensureCreditTables();
+  const db = getDb();
+  const now = new Date().toISOString();
+
+  const txn = db.transaction(() => {
+    const row = db.prepare('SELECT balance FROM user_credits WHERE privy_id = ?').get(privyId) as any;
+    if (!row || row.balance < amount) return false;
+
+    db.prepare('UPDATE user_credits SET balance = balance - ?, total_spent = total_spent + ?, updated_at = ? WHERE privy_id = ?')
+      .run(amount, amount, now, privyId);
+
+    const id = crypto.randomUUID();
+    db.prepare('INSERT INTO credit_transactions (id, privy_id, type, amount, description, tx_hash, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(id, privyId, 'spend', amount, description || 'Prompt', null, now);
+
+    return true;
+  });
+  return txn() as boolean;
+}
+
+export function refundCredits(privyId: string, amount: number, description?: string): void {
+  ensureCreditTables();
+  const db = getDb();
+  const now = new Date().toISOString();
+
+  const txn = db.transaction(() => {
+    db.prepare(`
+      INSERT INTO user_credits (privy_id, balance, total_deposited, total_spent, updated_at)
+      VALUES (?, ?, 0, 0, ?)
+      ON CONFLICT(privy_id) DO UPDATE SET
+        balance = balance + ?,
+        total_spent = total_spent - ?,
+        updated_at = ?
+    `).run(privyId, amount, now, amount, amount, now);
+
+    const id = crypto.randomUUID();
+    db.prepare('INSERT INTO credit_transactions (id, privy_id, type, amount, description, tx_hash, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(id, privyId, 'refund', amount, description || 'Refund', null, now);
+  });
+  txn();
+}
+
+export function getCreditTransactions(privyId: string, limit = 20): any[] {
+  ensureCreditTables();
+  const db = getDb();
+  return db.prepare('SELECT * FROM credit_transactions WHERE privy_id = ? ORDER BY created_at DESC LIMIT ?').all(privyId, limit);
 }
