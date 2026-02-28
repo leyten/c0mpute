@@ -187,6 +187,38 @@ const NativeWorkerSection = ({ getAccessToken }: { getAccessToken: () => Promise
   const [copied, setCopied] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [tokenError, setTokenError] = useState<string | null>(null);
+  const [activeTokens, setActiveTokens] = useState<{id: string; name: string; created_at: string; last_used_at: string | null}[]>([]);
+  const [loadingTokens, setLoadingTokens] = useState(false);
+
+  // Fetch active tokens on expand
+  const fetchTokens = async () => {
+    setLoadingTokens(true);
+    try {
+      const accessToken = await getAccessToken();
+      if (!accessToken) return;
+      const res = await fetch('/api/worker-token', { headers: { Authorization: `Bearer ${accessToken}` } });
+      if (res.ok) {
+        const data = await res.json();
+        setActiveTokens(data.tokens || []);
+      }
+    } catch {} finally { setLoadingTokens(false); }
+  };
+
+  const revokeToken = async (tokenId: string) => {
+    try {
+      const accessToken = await getAccessToken();
+      if (!accessToken) return;
+      const res = await fetch('/api/worker-token', {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tokenId }),
+      });
+      if (res.ok) {
+        setActiveTokens(prev => prev.filter(t => t.id !== tokenId));
+        setTokenError(null);
+      }
+    } catch {}
+  };
 
   const generateToken = async () => {
     setGenerating(true);
@@ -224,7 +256,7 @@ const NativeWorkerSection = ({ getAccessToken }: { getAccessToken: () => Promise
   return (
     <div className="border border-white/10 bg-white/[0.02] rounded-2xl overflow-hidden mb-8">
       <button
-        onClick={() => setExpanded(!expanded)}
+        onClick={() => { const next = !expanded; setExpanded(next); if (next) fetchTokens(); }}
         className="w-full flex items-center justify-between p-6 hover:bg-white/[0.02] transition-colors"
       >
         <div className="flex items-center gap-3">
@@ -281,8 +313,35 @@ const NativeWorkerSection = ({ getAccessToken }: { getAccessToken: () => Promise
 
           <p className="pixel-sans text-white/25 text-xs mt-4">
             Requires Node.js 18+ and a compatible GPU (NVIDIA, AMD, Apple Silicon).
-            Token is shown once — save it. You can revoke tokens from settings.
+            Token is shown once — save it.
           </p>
+
+          {/* Active tokens */}
+          {activeTokens.length > 0 && (
+            <div className="mt-5 pt-4 border-t border-white/5">
+              <div className="pixel-sans text-white/30 text-[11px] uppercase tracking-wider mb-2">Active tokens ({activeTokens.length}/5)</div>
+              <div className="space-y-2">
+                {activeTokens.map(t => (
+                  <div key={t.id} className="flex items-center justify-between px-3 py-2 bg-white/[0.02] border border-white/5 rounded-lg">
+                    <div>
+                      <span className="pixel-sans text-white/50 text-xs font-mono">{t.id.slice(0, 8)}...</span>
+                      {t.last_used_at && (
+                        <span className="pixel-sans text-white/25 text-[10px] ml-2">
+                          last used {new Date(t.last_used_at).toLocaleDateString()}
+                        </span>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => revokeToken(t.id)}
+                      className="pixel-sans text-xs text-red-400/60 hover:text-red-400 transition-colors"
+                    >
+                      Revoke
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
