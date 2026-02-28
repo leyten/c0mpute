@@ -114,9 +114,9 @@ type ChatState = 'idle' | 'queued' | 'streaming' | 'error';
 
 // Available models for users
 const USER_MODELS = [
-  { id: 'Qwen2.5-1.5B-Instruct-q4f16_1-MLC', name: 'Free', tier: 'standard', description: 'Fast responses' },
-  { id: 'dolphin-2.6-mistral-7b-q4f16_1-MLC', name: 'Pro', tier: 'standard', description: 'Uncensored, higher quality' },
-  { id: 'native-max', name: 'Max', tier: 'premium', description: 'Best quality + web search' },
+  { id: 'Qwen2.5-1.5B-Instruct-q4f16_1-MLC', name: 'Qwen 1.5B', cost: 0, costLabel: 'Free', tier: 'standard', description: 'Fast responses' },
+  { id: 'dolphin-2.6-mistral-7b-q4f16_1-MLC', name: 'Dolphin 7B', cost: 10, costLabel: '10 cr', tier: 'standard', description: 'Uncensored, higher quality' },
+  { id: 'native-max', name: 'Qwen 14B', cost: 50, costLabel: '50 cr', tier: 'premium', description: 'Best quality + web search' },
 ];
 
 // Local storage keys
@@ -214,11 +214,6 @@ export default function UserPage() {
   
   // Credit system state
   const [creditBalance, setCreditBalance] = useState<number>(0);
-  const [depositWallet, setDepositWallet] = useState<string | null>(null);
-  const [showTopUp, setShowTopUp] = useState(false);
-  const [checkingDeposit, setCheckingDeposit] = useState(false);
-  const [depositResult, setDepositResult] = useState<string | null>(null);
-  const [copiedDeposit, setCopiedDeposit] = useState(false);
   
   // Fetch credits on mount
   useEffect(() => {
@@ -228,7 +223,6 @@ export default function UserPage() {
       .then(data => {
         if (data) {
           setCreditBalance(data.balance);
-          setDepositWallet(data.depositWallet);
         }
       })
       .catch(() => {});
@@ -559,9 +553,9 @@ export default function UserPage() {
         // Clear ref immediately
         currentJobIdRef.current = null;
         setCurrentJobId(null);
-        // Auto-open top-up modal on insufficient credits
+        // Show inline error with link for insufficient credits
         if (errorMsg && errorMsg.includes('Insufficient credits')) {
-          setShowTopUp(true);
+          setError('Not enough credits. Top up in Settings.');
         }
       }
     });
@@ -780,14 +774,15 @@ export default function UserPage() {
                   <button
                     key={model.id}
                     onClick={() => setSelectedModel(model.id)}
-                    className={`pixel-sans text-xs px-3 py-1.5 transition-colors ${
+                    className={`pixel-sans px-3 py-1.5 transition-colors flex flex-col items-center ${
                       isSelected 
                         ? 'bg-[#80a0c1]/20 text-[#80a0c1]' 
                         : 'text-white/50 hover:text-white/70 hover:bg-white/5'
                     }`}
                     title={model.description}
                   >
-                    {model.name}
+                    <span className="text-xs">{model.name}</span>
+                    <span className="text-[10px] text-white/30">{model.costLabel}</span>
                   </button>
                 );
               })}
@@ -801,7 +796,7 @@ export default function UserPage() {
               const promptsLeft = Math.floor(creditBalance / costPerPrompt);
               return (
                 <button
-                  onClick={() => setShowTopUp(true)}
+                  onClick={() => router.push('/settings#usage')}
                   className={`pixel-sans text-xs px-3 py-1.5 rounded-lg border transition-colors ${
                     creditBalance === 0
                       ? 'border-red-500/30 bg-red-500/[0.06] text-red-400/80'
@@ -1074,7 +1069,11 @@ export default function UserPage() {
                 {error && (
                   <div className="flex justify-center">
                     <div className="px-5 py-3 bg-red-500/10 border border-red-500/20 rounded-lg">
-                      <p className="pixel-sans text-red-400 text-sm">{error}</p>
+                      <p className="pixel-sans text-red-400 text-sm">
+                        {error.includes('Top up in Settings') ? (
+                          <>Not enough credits. Top up in <a href="/settings#usage" className="underline hover:text-red-300">Settings</a>.</>
+                        ) : error}
+                      </p>
                       <button
                         onClick={() => {
                           setError(null);
@@ -1153,136 +1152,6 @@ export default function UserPage() {
         </main>
       </div>
 
-      {/* Top Up Modal */}
-      {showTopUp && (
-        <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setShowTopUp(false)}>
-          <div className="bg-black border border-white/10 rounded-2xl p-6 max-w-md w-full relative" onClick={e => e.stopPropagation()}>
-            {/* Close button */}
-            <button onClick={() => setShowTopUp(false)} className="absolute top-4 right-4 text-white/40 hover:text-white transition-colors">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
-            </button>
-
-            <h2 className="pixel-serif text-white text-2xl mb-1">Top Up</h2>
-            <p className="pixel-sans text-white/40 text-sm mb-6">
-              Send <span className="dollar">$</span>ZERO to your deposit address to load credits.
-            </p>
-
-            {/* Conversion rate + balance */}
-            <div className="grid grid-cols-2 gap-3 mb-5">
-              <div className="p-3 bg-white/[0.02] border border-white/5 rounded-xl">
-                <div className="pixel-sans text-white/30 text-[11px] mb-1">Your balance</div>
-                <div className="pixel-serif text-white text-lg">{creditBalance.toFixed(0)} <span className="pixel-sans text-white/30 text-xs">credits</span></div>
-              </div>
-              <div className="p-3 bg-white/[0.02] border border-white/5 rounded-xl">
-                <div className="pixel-sans text-white/30 text-[11px] mb-1">Rate</div>
-                <div className="pixel-serif text-white text-lg">1:1</div>
-                <div className="pixel-sans text-white/30 text-[11px]">1 <span className="dollar">$</span>ZERO = 1 credit</div>
-              </div>
-            </div>
-
-            {/* Cost breakdown */}
-            <div className="mb-5 p-3 bg-white/[0.02] border border-white/5 rounded-xl">
-              <div className="pixel-sans text-white/30 text-[11px] uppercase tracking-wider mb-2">Cost per prompt</div>
-              <div className="space-y-1.5">
-                <div className="flex justify-between pixel-sans text-sm">
-                  <span className="text-white/50">Pro</span>
-                  <span className="text-white/70">10 <span className="dollar">$</span>ZERO</span>
-                </div>
-                <div className="flex justify-between pixel-sans text-sm">
-                  <span className="text-white/50">Max</span>
-                  <span className="text-white/70">50 <span className="dollar">$</span>ZERO</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Deposit Address */}
-            <div className="mb-5">
-              <div className="pixel-sans text-white/30 text-[11px] uppercase tracking-wider mb-2">Your deposit address</div>
-              <div className="flex items-center gap-2 bg-white/[0.03] border border-white/10 rounded-lg p-3">
-                <code className="font-mono text-[#80a0c1] text-xs flex-1 break-all select-all">{depositWallet || 'Loading...'}</code>
-                <button
-                  onClick={() => {
-                    if (depositWallet) {
-                      navigator.clipboard.writeText(depositWallet);
-                      setCopiedDeposit(true);
-                      setTimeout(() => setCopiedDeposit(false), 2000);
-                    }
-                  }}
-                  className="pixel-sans text-xs px-2.5 py-1.5 rounded-lg border border-white/10 text-white/40 hover:text-white hover:bg-white/5 transition-colors flex-shrink-0"
-                >
-                  {copiedDeposit ? 'Copied' : 'Copy'}
-                </button>
-              </div>
-              <p className="pixel-sans text-white/20 text-[11px] mt-1.5">
-                Only send <span className="dollar">$</span>ZERO (SPL token) to this address. Other tokens will be lost.
-              </p>
-            </div>
-
-            {/* Check Deposit Button */}
-            <button
-              onClick={async () => {
-                setCheckingDeposit(true);
-                setDepositResult(null);
-                try {
-                  const t = await getAccessToken();
-                  const res = await fetch('/api/credits/check-deposit', {
-                    method: 'POST',
-                    headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: 'check' }),
-                  });
-                  const data = await res.json();
-                  if (res.ok) {
-                    if (data.credited > 0) {
-                      setCreditBalance(data.newBalance);
-                      setDepositResult(`+${data.credited} credits added`);
-                    } else {
-                      setDepositResult(data.message || 'No new deposits found');
-                    }
-                  } else {
-                    setDepositResult(data.error || 'Check failed');
-                  }
-                } catch {
-                  setDepositResult('Failed to check');
-                } finally {
-                  setCheckingDeposit(false);
-                }
-              }}
-              disabled={checkingDeposit}
-              className="w-full pixel-sans text-sm py-3 rounded-xl bg-white/[0.05] border border-white/10 text-white/70 hover:bg-white/[0.08] hover:text-white transition-colors disabled:opacity-50"
-            >
-              {checkingDeposit ? 'Checking...' : 'I\'ve sent tokens — check balance'}
-            </button>
-
-            {depositResult && (
-              <p className={`pixel-sans text-xs text-center mt-2.5 ${depositResult.includes('added') ? 'text-green-400/80' : 'text-white/40'}`}>
-                {depositResult}
-              </p>
-            )}
-
-            {/* Dev add (non-production) */}
-            {process.env.NODE_ENV !== 'production' && (
-              <button
-                onClick={async () => {
-                  const t = await getAccessToken();
-                  const res = await fetch('/api/credits/check-deposit', {
-                    method: 'POST',
-                    headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: 'dev_add', amount: 100 }),
-                  });
-                  const data = await res.json();
-                  if (res.ok) {
-                    setCreditBalance(data.newBalance);
-                    setDepositResult('Dev: 100 credits added!');
-                  }
-                }}
-                className="w-full mt-2 pixel-sans text-xs py-2 rounded-xl border border-white/10 text-white/30 hover:text-white/50 transition-colors"
-              >
-                [DEV] Add 100 Credits
-              </button>
-            )}
-          </div>
-        </div>
-      )}
     </div>
   );
 }

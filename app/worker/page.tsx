@@ -187,38 +187,6 @@ const NativeWorkerSection = ({ getAccessToken }: { getAccessToken: () => Promise
   const [copied, setCopied] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [tokenError, setTokenError] = useState<string | null>(null);
-  const [activeTokens, setActiveTokens] = useState<{id: string; name: string; created_at: string; last_used_at: string | null}[]>([]);
-  const [loadingTokens, setLoadingTokens] = useState(false);
-
-  // Fetch active tokens on expand
-  const fetchTokens = async () => {
-    setLoadingTokens(true);
-    try {
-      const accessToken = await getAccessToken();
-      if (!accessToken) return;
-      const res = await fetch('/api/worker-token', { headers: { Authorization: `Bearer ${accessToken}` } });
-      if (res.ok) {
-        const data = await res.json();
-        setActiveTokens(data.tokens || []);
-      }
-    } catch {} finally { setLoadingTokens(false); }
-  };
-
-  const revokeToken = async (tokenId: string) => {
-    try {
-      const accessToken = await getAccessToken();
-      if (!accessToken) return;
-      const res = await fetch('/api/worker-token', {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tokenId }),
-      });
-      if (res.ok) {
-        setActiveTokens(prev => prev.filter(t => t.id !== tokenId));
-        setTokenError(null);
-      }
-    } catch {}
-  };
 
   const generateToken = async () => {
     setGenerating(true);
@@ -256,7 +224,7 @@ const NativeWorkerSection = ({ getAccessToken }: { getAccessToken: () => Promise
   return (
     <div className="border border-white/10 bg-white/[0.02] rounded-2xl overflow-hidden mb-8">
       <button
-        onClick={() => { const next = !expanded; setExpanded(next); if (next) fetchTokens(); }}
+        onClick={() => setExpanded(!expanded)}
         className="w-full flex items-center justify-between p-6 hover:bg-white/[0.02] transition-colors"
       >
         <div className="flex items-center gap-3">
@@ -313,35 +281,8 @@ const NativeWorkerSection = ({ getAccessToken }: { getAccessToken: () => Promise
 
           <p className="pixel-sans text-white/25 text-xs mt-4">
             Requires Node.js 18+ and a compatible GPU (NVIDIA, AMD, Apple Silicon).
-            Token is shown once — save it.
+            Token is shown once — save it. <a href="/settings#worker" className="text-[#80a0c1]/50 hover:text-[#80a0c1] underline">Manage tokens in Settings</a>.
           </p>
-
-          {/* Active tokens */}
-          {activeTokens.length > 0 && (
-            <div className="mt-5 pt-4 border-t border-white/5">
-              <div className="pixel-sans text-white/30 text-[11px] uppercase tracking-wider mb-2">Active tokens ({activeTokens.length}/5)</div>
-              <div className="space-y-2">
-                {activeTokens.map(t => (
-                  <div key={t.id} className="flex items-center justify-between px-3 py-2 bg-white/[0.02] border border-white/5 rounded-lg">
-                    <div>
-                      <span className="pixel-sans text-white/50 text-xs font-mono">{t.id.slice(0, 8)}...</span>
-                      {t.last_used_at && (
-                        <span className="pixel-sans text-white/25 text-[10px] ml-2">
-                          last used {new Date(t.last_used_at).toLocaleDateString()}
-                        </span>
-                      )}
-                    </div>
-                    <button
-                      onClick={() => revokeToken(t.id)}
-                      className="pixel-sans text-xs text-red-400/60 hover:text-red-400 transition-colors"
-                    >
-                      Revoke
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
       )}
     </div>
@@ -350,7 +291,7 @@ const NativeWorkerSection = ({ getAccessToken }: { getAccessToken: () => Promise
 
 export default function WorkerPage() {
   const router = useRouter();
-  const { isLoading: authLoading, isAuthenticated, login, getAccessToken, walletAddress, hasWallet } = useAuth();
+  const { isLoading: authLoading, isAuthenticated, login, getAccessToken } = useAuth();
   
   // Fetch auth token for socket connection
   const [socketAuthToken, setSocketAuthToken] = useState<string | null>(null);
@@ -365,7 +306,7 @@ export default function WorkerPage() {
             .catch(() => {});
           fetch('/api/worker-earnings', { headers: { Authorization: `Bearer ${t}` } })
             .then(r => r.ok ? r.json() : null)
-            .then(data => { if (data) setEarnings(data); })
+            .then(data => { if (data) setTodayEarnings({ todayEarnings: data.todayEarnings, dailyCap: data.dailyCap }); })
             .catch(() => {});
         }
       });
@@ -395,18 +336,7 @@ export default function WorkerPage() {
   const [error, setError] = useState<string | null>(null);
   const [stats, setStats] = useState<WorkerStats>({ jobsCompleted: 0, tokensGenerated: 0, solEarned: 0, uptime: 0 });
   const [lifetimeStats, setLifetimeStats] = useState<{ totalJobs: number; totalTokens: number; totalEarningPoints: number } | null>(null);
-  const [earnings, setEarnings] = useState<{
-    pendingBalance: number;
-    todayEarnings: number;
-    totalEarnings: number;
-    dailyCap: number;
-    wallet: string | null;
-  } | null>(null);
-  const [walletInput, setWalletInput] = useState('');
-  const [claimLoading, setClaimLoading] = useState(false);
-  const [walletSaving, setWalletSaving] = useState(false);
-  const [editingWallet, setEditingWallet] = useState(false);
-  const [earningsError, setEarningsError] = useState<string | null>(null);
+  const [todayEarnings, setTodayEarnings] = useState<{ todayEarnings: number; dailyCap: number } | null>(null);
   const [workerId, setWorkerId] = useState<string | null>(null);
   const [benchmarkTokPerSec, setBenchmarkTokPerSec] = useState<number>(0);
   const [currentJobId, setCurrentJobId] = useState<string | null>(null);
@@ -1085,81 +1015,14 @@ export default function WorkerPage() {
                 </div>
               </div>
 
-              {/* Earnings Section */}
-              <div className="mt-4 pt-4 border-t border-white/5">
-                {/* Payout Wallet */}
-                <div className="mb-4">
-                  {hasWallet ? (
-                    <div className="flex items-center gap-2">
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-green-400">
-                        <path d="M20 6L9 17l-5-5" />
-                      </svg>
-                      <span className="pixel-sans text-white/50 text-xs">Payout wallet:</span>
-                      <span className="pixel-sans text-white/70 text-xs font-mono">
-                        {walletAddress?.slice(0, 4)}...{walletAddress?.slice(-4)}
-                      </span>
-                    </div>
-                  ) : (
-                    <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl">
-                      <p className="pixel-sans text-amber-400/80 text-sm">
-                        <a href="/settings" className="underline hover:text-amber-300">Connect a wallet in Settings</a> to receive payouts
-                      </p>
-                    </div>
-                  )}
+              {/* Compact earnings line */}
+              {todayEarnings && (
+                <div className="mt-4 pt-3 border-t border-white/5">
+                  <p className="pixel-sans text-white/40 text-xs">
+                    <span className="dollar">$</span>{todayEarnings.todayEarnings.toFixed(2)} earned today · <span className="dollar">$</span>{todayEarnings.dailyCap}/day cap
+                  </p>
                 </div>
-
-                {earnings ? (
-                  <div>
-                    <div className="grid grid-cols-3 gap-4 mb-4">
-                      <div className="text-center p-3 bg-white/[0.02] border border-white/5 rounded-xl">
-                        <div className="pixel-serif text-green-400 text-xl"><span className="dollar">$</span>{earnings.pendingBalance.toFixed(2)}</div>
-                        <div className="pixel-sans text-white/40 text-[11px] mt-1">Pending</div>
-                      </div>
-                      <div className="text-center p-3 bg-white/[0.02] border border-white/5 rounded-xl">
-                        <div className="pixel-serif text-white/70 text-lg"><span className="dollar">$</span>{earnings.todayEarnings.toFixed(2)} <span className="text-white/30 text-sm">/ <span className="dollar">$</span>{earnings.dailyCap}</span></div>
-                        <div className="pixel-sans text-white/40 text-[11px] mt-1">Today</div>
-                      </div>
-                      <div className="text-center p-3 bg-white/[0.02] border border-white/5 rounded-xl">
-                        <div className="pixel-serif text-white/70 text-lg"><span className="dollar">$</span>{earnings.totalEarnings.toFixed(2)}</div>
-                        <div className="pixel-sans text-white/40 text-[11px] mt-1">All Time</div>
-                      </div>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <button
-                          disabled={claimLoading || earnings.pendingBalance < 1.0 || !hasWallet}
-                          onClick={async () => {
-                            setClaimLoading(true);
-                            setEarningsError(null);
-                            try {
-                              const t = await getAccessToken();
-                              const res = await fetch('/api/worker-earnings', {
-                                method: 'POST',
-                                headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ action: 'claim' }),
-                              });
-                              const d = await res.json();
-                              if (res.ok) {
-                                setEarnings(prev => prev ? { ...prev, pendingBalance: 0 } : prev);
-                              } else {
-                                setEarningsError(d.error || 'Claim failed');
-                              }
-                            } catch { setEarningsError('Claim failed'); }
-                            finally { setClaimLoading(false); }
-                          }}
-                          className="pixel-serif px-6 py-2.5 rounded-xl bg-white text-black hover:bg-white/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm"
-                        >
-                          {claimLoading ? 'Claiming...' : 'Claim'} <span className="dollar">$</span>SOL
-                        </button>
-                        {earnings.pendingBalance < 1.0 && earnings.pendingBalance > 0 && (
-                          <span className="pixel-sans text-white/30 text-xs">Min $1.00</span>
-                        )}
-                      </div>
-                    </div>
-                    {earningsError && <p className="pixel-sans text-red-400 text-xs mt-2">{earningsError}</p>}
-                  </div>
-                ) : null}
-              </div>
+              )}
             </div>
 
             {/* Network Graph Card */}
