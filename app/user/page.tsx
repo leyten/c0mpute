@@ -1036,11 +1036,12 @@ export default function UserPage() {
                     <div className="px-5 py-3 bg-[#80a0c1]/10 border border-[#80a0c1]/20 rounded-lg">
                       <p className="pixel-sans text-[#80a0c1] text-sm">
                         You are #{queuePosition} in queue
-                        {networkStats?.avgJobDurationMs && networkStats.avgJobDurationMs > 0 && (
-                          <span className="text-[#80a0c1]/70 ml-2">
-                            · ~{Math.ceil((queuePosition * networkStats.avgJobDurationMs) / 1000)}s wait
-                          </span>
-                        )}
+                        {(() => {
+                          const waitSec = networkStats?.avgJobDurationMs ? Math.ceil((queuePosition * networkStats.avgJobDurationMs) / 1000) : 0;
+                          return waitSec > 0 ? (
+                            <span className="text-[#80a0c1]/70 ml-2">· ~{waitSec}s wait</span>
+                          ) : null;
+                        })()}
                       </p>
                     </div>
                   </div>
