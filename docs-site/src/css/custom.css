@@ -393,7 +393,7 @@ table tr:nth-child(even) {
 }
 
 .pagination-nav__label {
-  font-family: "argent-pixel-cf", sans-serif;
+  font-family: 'Courier New', 'Monaco', 'Consolas', monospace;
   font-weight: 400;
 }
 
