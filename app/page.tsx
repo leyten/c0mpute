@@ -128,7 +128,7 @@ export default function Home() {
                 <div className="relative">
                   <button 
                     onClick={() => setUserMenuOpen(!userMenuOpen)}
-                    className="pixel-serif-logo text-sm px-3 md:px-4 py-2 border border-white/20 rounded-lg text-white hover:bg-white/5 transition-colors flex items-center gap-2">
+                    className="cursor-pointer pixel-serif-logo text-sm px-3 md:px-4 py-2 border border-white/20 rounded-lg text-white hover:bg-white/5 transition-colors flex items-center gap-2">
                     {userDisplay}
                     <svg 
                       width="10" 

@@ -804,7 +804,7 @@ export default function UserPage() {
 
             <button 
               onClick={() => router.push('/')}
-              className="cursor-pointer pixel-sans text-sm text-white"
+              className="cursor-pointer pixel-sans text-sm text-white/70 hover:text-white transition-colors"
             >
               ← Back
             </button>

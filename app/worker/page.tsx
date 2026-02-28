@@ -890,9 +890,9 @@ export default function WorkerPage() {
             <div className="flex items-center gap-4">
               <button 
                 onClick={() => router.push('/')}
-                className="pixel-sans text-sm text-white/70 hover:text-white transition-colors"
+                className="cursor-pointer pixel-sans text-sm text-white/70 hover:text-white transition-colors"
               >
-                Back
+                ← Back
               </button>
             </div>
           </nav>
