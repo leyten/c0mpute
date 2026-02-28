@@ -5,6 +5,7 @@ const sidebars = {
     'why-c0mpute',
     'how-it-works',
     'architecture',
+    'zero-token',
     {
       type: 'category',
       label: 'User Guide',

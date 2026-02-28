@@ -1,4 +1,5 @@
 /* ── c0mpute docs theme ── */
+/* Matches main site: black bg, white text, #80a0c1 accent, pixel fonts */
 
 :root {
   --ifm-color-primary: #80a0c1;
@@ -8,9 +9,10 @@
   --ifm-color-primary-light: #95b0cc;
   --ifm-color-primary-lighter: #a0b8d1;
   --ifm-color-primary-lightest: #c0d0e1;
-  --ifm-font-family-base: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --ifm-font-family-base: 'Courier New', 'Monaco', 'Consolas', monospace;
   --ifm-font-family-monospace: 'SF Mono', 'Fira Code', Menlo, Consolas, monospace;
-  --ifm-heading-font-weight: 600;
+  --ifm-heading-font-family: "argent-pixel-cf", sans-serif;
+  --ifm-heading-font-weight: 400;
   --ifm-font-weight-bold: 600;
   --ifm-line-height-base: 1.75;
   --ifm-spacing-horizontal: 1.2rem;
@@ -18,7 +20,7 @@
 
 [data-theme='dark'] {
   --ifm-background-color: #000;
-  --ifm-background-surface-color: #080808;
+  --ifm-background-surface-color: #000;
   --ifm-color-primary: #80a0c1;
   --ifm-color-primary-dark: #6b90b6;
   --ifm-color-primary-darker: #6089b1;
@@ -28,7 +30,7 @@
   --ifm-color-primary-lightest: #c0d0e1;
   --ifm-navbar-background-color: #000;
   --ifm-footer-background-color: #000;
-  --ifm-card-background-color: #080808;
+  --ifm-card-background-color: #000;
   --ifm-toc-border-color: rgba(255,255,255,0.06);
   --ifm-color-emphasis-300: rgba(255,255,255,0.06);
   --ifm-hr-border-color: rgba(255,255,255,0.06);
@@ -49,10 +51,36 @@
   --docusaurus-highlighted-code-line-bg: rgba(128,160,193,0.1);
 }
 
+/* ── Pixel font classes (match main site) ── */
+.pixel-serif {
+  font-family: "argent-pixel-cf", sans-serif;
+  font-weight: 400;
+  font-style: normal;
+  letter-spacing: 0.02em;
+  font-smooth: never;
+  -webkit-font-smoothing: none;
+  -moz-osx-font-smoothing: unset;
+  text-rendering: optimizeSpeed;
+}
+
+.pixel-sans {
+  font-family: 'Courier New', 'Monaco', 'Consolas', monospace;
+  letter-spacing: 0.01em;
+  font-weight: 400;
+  line-height: 1.6;
+}
+
+/* ── Global body ── */
+body {
+  font-smooth: never;
+  -webkit-font-smoothing: none;
+  -moz-osx-font-smoothing: unset;
+}
+
 /* ── Navbar ── */
 .navbar {
   background: #000 !important;
-  border-bottom: 1px solid rgba(255,255,255,0.06);
+  border-bottom: 1px solid rgba(255,255,255,0.10);
   padding: 0.6rem 1.5rem;
   box-shadow: none !important;
 }
@@ -78,6 +106,7 @@
 
 .navbar__link,
 .navbar__item {
+  font-family: 'Courier New', 'Monaco', 'Consolas', monospace;
   font-size: 0.8rem;
   font-weight: 400;
   color: rgba(255,255,255,0.4) !important;
@@ -99,27 +128,29 @@ a[href="https://c0mpute.ai"]::after {
 /* ── Sidebar ── */
 .menu {
   padding: 1rem 0.8rem;
-  font-size: 0.95rem;
+  font-size: 0.85rem;
+  font-family: 'Courier New', 'Monaco', 'Consolas', monospace;
 }
 
 .menu__link {
-  font-size: 0.95rem;
-  border-radius: 6px;
+  font-size: 0.85rem;
+  border-radius: 8px;
   padding: 0.5rem 0.9rem;
   font-weight: 400;
 }
 
 .menu__link--active:not(.menu__link--sublist) {
   font-weight: 500;
+  background: rgba(128,160,193,0.08);
 }
 
 .menu__list-item-collapsible {
-  border-radius: 6px;
+  border-radius: 8px;
 }
 
 .theme-doc-sidebar-container {
   background: #000 !important;
-  border-right: 1px solid rgba(255,255,255,0.06) !important;
+  border-right: 1px solid rgba(255,255,255,0.10) !important;
 }
 
 .theme-doc-sidebar-menu {
@@ -143,72 +174,99 @@ article {
 }
 
 .markdown h1 {
-  font-size: 2rem;
-  font-weight: 700;
+  font-family: "argent-pixel-cf", sans-serif;
+  font-weight: 400;
+  font-size: 2.2rem;
   margin-bottom: 1.5rem;
-  letter-spacing: -0.02em;
+  letter-spacing: 0.02em;
+  font-smooth: never;
+  -webkit-font-smoothing: none;
+  -moz-osx-font-smoothing: unset;
+  text-rendering: optimizeSpeed;
 }
 
 .markdown h2 {
-  font-size: 1.4rem;
-  font-weight: 600;
+  font-family: "argent-pixel-cf", sans-serif;
+  font-weight: 400;
+  font-size: 1.5rem;
   margin-top: 2.5rem;
   margin-bottom: 1rem;
   padding-bottom: 0.4rem;
-  border-bottom: 1px solid rgba(255,255,255,0.06);
-  letter-spacing: -0.01em;
+  border-bottom: 1px solid rgba(255,255,255,0.10);
+  letter-spacing: 0.02em;
+  font-smooth: never;
+  -webkit-font-smoothing: none;
+  -moz-osx-font-smoothing: unset;
 }
 
 .markdown h3 {
-  font-size: 1.1rem;
-  font-weight: 600;
+  font-family: "argent-pixel-cf", sans-serif;
+  font-weight: 400;
+  font-size: 1.15rem;
   margin-top: 2rem;
   margin-bottom: 0.8rem;
+  letter-spacing: 0.02em;
+  font-smooth: never;
+  -webkit-font-smoothing: none;
+  -moz-osx-font-smoothing: unset;
 }
 
 .markdown p {
+  font-family: 'Courier New', 'Monaco', 'Consolas', monospace;
   color: rgba(255,255,255,0.7);
   line-height: 1.8;
   margin-bottom: 1.2rem;
+  font-size: 0.9rem;
 }
 
 .markdown li {
+  font-family: 'Courier New', 'Monaco', 'Consolas', monospace;
   color: rgba(255,255,255,0.7);
   line-height: 1.75;
   margin-bottom: 0.3rem;
+  font-size: 0.9rem;
 }
 
 .markdown strong {
   color: rgba(255,255,255,0.95);
-  font-weight: 600;
+  font-weight: 700;
+  letter-spacing: 0.03em;
 }
 
 .markdown blockquote {
   border-left: 3px solid #80a0c1;
   background: rgba(128,160,193,0.05);
   padding: 0.8rem 1.2rem;
-  border-radius: 0 8px 8px 0;
+  border-radius: 0 12px 12px 0;
   color: rgba(255,255,255,0.6);
+}
+
+/* ── Cards (info boxes) ── */
+.markdown .card,
+.markdown details {
+  border: 1px solid rgba(255,255,255,0.10);
+  background: rgba(255,255,255,0.02);
+  border-radius: 16px;
 }
 
 /* ── Code ── */
 code {
   border: none;
   background: rgba(255,255,255,0.06);
-  border-radius: 4px;
+  border-radius: 6px;
   padding: 0.15rem 0.4rem;
   font-size: 0.85em;
 }
 
 .theme-code-block {
-  border: 1px solid rgba(255,255,255,0.06);
-  border-radius: 8px !important;
-  background: #0a0a0a !important;
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: 12px !important;
+  background: rgba(255,255,255,0.02) !important;
 }
 
 .theme-code-block pre {
-  background: #0a0a0a !important;
-  border-radius: 8px !important;
+  background: rgba(255,255,255,0.02) !important;
+  border-radius: 12px !important;
 }
 
 .prism-code {
@@ -220,18 +278,20 @@ code {
 table {
   display: table;
   border-collapse: collapse;
-  border: 1px solid rgba(255,255,255,0.06);
-  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: 12px;
   overflow: hidden;
-  font-size: 0.9rem;
+  font-size: 0.85rem;
+  font-family: 'Courier New', 'Monaco', 'Consolas', monospace;
 }
 
 table th {
   background: rgba(255,255,255,0.03);
-  font-weight: 600;
+  font-family: "argent-pixel-cf", sans-serif;
+  font-weight: 400;
   font-size: 0.8rem;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
   color: rgba(255,255,255,0.5);
   padding: 0.6rem 1rem;
 }
@@ -251,7 +311,8 @@ table tr:nth-child(even) {
 }
 
 .table-of-contents {
-  font-size: 0.8rem;
+  font-size: 0.75rem;
+  font-family: 'Courier New', 'Monaco', 'Consolas', monospace;
 }
 
 .table-of-contents__link {
@@ -267,7 +328,7 @@ table tr:nth-child(even) {
 /* ── Footer ── */
 .footer {
   background: #000 !important;
-  border-top: 1px solid rgba(255,255,255,0.04);
+  border-top: 1px solid rgba(255,255,255,0.06);
   padding: 1.5rem 0 !important;
 }
 
@@ -284,39 +345,53 @@ table tr:nth-child(even) {
 }
 
 .footer__copyright {
-  font-size: 0.75rem;
+  font-family: 'Courier New', 'Monaco', 'Consolas', monospace;
+  font-size: 0.7rem;
   color: rgba(255,255,255,0.15);
   text-align: center;
 }
 
 /* ── Pagination nav ── */
 .pagination-nav__link {
-  border: 1px solid rgba(255,255,255,0.06);
-  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: 12px;
   padding: 1rem;
-  transition: border-color 0.15s;
+  transition: border-color 0.15s, background 0.15s;
+  background: rgba(255,255,255,0.02);
 }
 
 .pagination-nav__link:hover {
-  border-color: rgba(255,255,255,0.12);
+  border-color: rgba(255,255,255,0.15);
+  background: rgba(255,255,255,0.04);
 }
 
 .pagination-nav__sublabel {
-  font-size: 0.75rem;
+  font-size: 0.7rem;
   color: rgba(255,255,255,0.3);
+  font-family: 'Courier New', 'Monaco', 'Consolas', monospace;
+}
+
+.pagination-nav__label {
+  font-family: "argent-pixel-cf", sans-serif;
+  font-weight: 400;
 }
 
 /* ── Search ── */
 .DocSearch-Button {
   border: 1px solid rgba(255,255,255,0.1) !important;
-  border-radius: 8px !important;
+  border-radius: 12px !important;
   background: rgba(255,255,255,0.03) !important;
 }
 
 /* ── Admonitions ── */
 .alert {
-  border-radius: 8px;
+  border-radius: 12px;
   border-width: 1px;
+  background: rgba(255,255,255,0.02);
+}
+
+.alert .admonition-heading {
+  font-family: "argent-pixel-cf", sans-serif;
 }
 
 /* ── Scrollbar ── */
@@ -336,4 +411,25 @@ table tr:nth-child(even) {
 
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(255,255,255,0.2);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.1) transparent;
+}
+
+/* ── Mobile responsive ── */
+@media (max-width: 768px) {
+  .markdown h1 {
+    font-size: 1.6rem;
+  }
+  .markdown h2 {
+    font-size: 1.2rem;
+  }
+  .markdown h3 {
+    font-size: 1rem;
+  }
+  article {
+    padding: 0 0.5rem;
+  }
 }

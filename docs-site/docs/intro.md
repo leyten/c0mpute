@@ -16,18 +16,28 @@ You send a message. The orchestrator finds an available worker. The worker runs 
 
 ## Three tiers
 
-| Tier | Model | Where it runs | Notes |
-|------|-------|---------------|-------|
-| **Free** | Qwen 1.5B | Browser (WebGPU) | ~900MB, fast, basic |
-| **Pro** | Dolphin Mistral 7B | Browser (WebGPU) | ~4GB VRAM, uncensored |
-| **Max** | Qwen2.5 14B abliterated | Native workers | ~9GB, uncensored + web search |
+| Tier | Model | Cost | Where it runs | Notes |
+|------|-------|------|---------------|-------|
+| **Free** | Qwen 1.5B | 0 credits | Browser (WebGPU) | ~900MB, fast, basic |
+| **Pro** | Dolphin Mistral 7B | 10 credits | Browser (WebGPU) | ~4GB VRAM, uncensored |
+| **Max** | Qwen2.5 14B abliterated | 50 credits | Native workers | ~9GB, uncensored + web search |
+
+## The $ZERO token
+
+$ZERO is the credit token that powers c0mpute. **1 $ZERO = 1 credit.**
+
+- Deposit $ZERO to your c0mpute account to get credits
+- Credits are spent per message based on your selected tier
+- Transaction fees from $ZERO trading fund the worker reward pool
+- Workers earn SOL for every job they complete
+
+See [The $ZERO Token](/zero-token) for the full breakdown.
 
 ## The stack
 
 - **Browser workers** use [WebGPU](https://developer.mozilla.org/en-US/docs/Web/API/WebGPU_API) via WebLLM to run models directly in the browser tab
 - **Native workers** use [node-llama-cpp](https://github.com/withcatai/node-llama-cpp) with CUDA, Metal, or Vulkan acceleration
 - The **orchestrator** is a Socket.io server that handles job routing, worker matching, and real-time token streaming
-- Workers earn **SOL** for every job they complete
 
 ## Why?
 
