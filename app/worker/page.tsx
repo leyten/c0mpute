@@ -245,17 +245,10 @@ const NativeWorkerSection = ({ getAccessToken }: { getAccessToken: () => Promise
             Get 3-5x earnings by running a native worker with your GPU.
           </p>
 
-          <div className="space-y-3 mb-6">
-            {[
-              'Generate a worker token below',
-              'Run the command in your terminal',
-              'Your native worker connects automatically',
-            ].map((text, i) => (
-              <div key={i} className="flex items-center gap-3">
-                <span className="pixel-serif text-[#80a0c1] text-sm w-6 h-6 rounded-full border border-[#80a0c1]/30 flex items-center justify-center flex-shrink-0">{i + 1}</span>
-                <span className="pixel-sans text-white/60 text-sm">{text}</span>
-              </div>
-            ))}
+          <div className="space-y-2 mb-6">
+            <p className="pixel-sans text-white/50 text-sm">1. Generate a worker token below</p>
+            <p className="pixel-sans text-white/50 text-sm">2. Run the command in your terminal</p>
+            <p className="pixel-sans text-white/50 text-sm">3. Your native worker connects automatically</p>
           </div>
 
           {tokenError && (
@@ -1033,27 +1026,6 @@ export default function WorkerPage() {
                 </div>
               </div>
 
-              {/* Lifetime Stats */}
-              {lifetimeStats && lifetimeStats.totalJobs > 0 && (
-                <div className="mt-4 pt-4 border-t border-white/5">
-                  <div className="pixel-sans text-white/30 text-xs mb-3 uppercase tracking-wider">All Time</div>
-                  <div className="grid grid-cols-3 gap-4">
-                    <div className="text-center">
-                      <div className="pixel-serif text-white/70 text-lg">{lifetimeStats.totalJobs}</div>
-                      <div className="pixel-sans text-white/30 text-[11px]">Jobs</div>
-                    </div>
-                    <div className="text-center">
-                      <div className="pixel-serif text-white/70 text-lg">{lifetimeStats.totalTokens.toLocaleString()}</div>
-                      <div className="pixel-sans text-white/30 text-[11px]">Tokens</div>
-                    </div>
-                    <div className="text-center">
-                      <div className="pixel-serif text-white/70 text-lg">{lifetimeStats.totalEarningPoints.toLocaleString()}</div>
-                      <div className="pixel-sans text-white/30 text-[11px]">Points</div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
               {/* Earnings Section */}
               <div className="mt-4 pt-4 border-t border-white/5">
                 {/* Payout Wallet */}
@@ -1081,15 +1053,15 @@ export default function WorkerPage() {
                   <div>
                     <div className="grid grid-cols-3 gap-4 mb-4">
                       <div className="text-center p-3 bg-white/[0.02] border border-white/5 rounded-xl">
-                        <div className="pixel-serif text-green-400 text-xl">${earnings.pendingBalance.toFixed(2)}</div>
+                        <div className="pixel-serif text-green-400 text-xl"><span className="dollar">$</span>{earnings.pendingBalance.toFixed(2)}</div>
                         <div className="pixel-sans text-white/40 text-[11px] mt-1">Pending</div>
                       </div>
                       <div className="text-center p-3 bg-white/[0.02] border border-white/5 rounded-xl">
-                        <div className="pixel-serif text-white/70 text-lg">${earnings.todayEarnings.toFixed(2)} <span className="text-white/30 text-sm">/ ${earnings.dailyCap}</span></div>
+                        <div className="pixel-serif text-white/70 text-lg"><span className="dollar">$</span>{earnings.todayEarnings.toFixed(2)} <span className="text-white/30 text-sm">/ <span className="dollar">$</span>{earnings.dailyCap}</span></div>
                         <div className="pixel-sans text-white/40 text-[11px] mt-1">Today</div>
                       </div>
                       <div className="text-center p-3 bg-white/[0.02] border border-white/5 rounded-xl">
-                        <div className="pixel-serif text-white/70 text-lg">${earnings.totalEarnings.toFixed(2)}</div>
+                        <div className="pixel-serif text-white/70 text-lg"><span className="dollar">$</span>{earnings.totalEarnings.toFixed(2)}</div>
                         <div className="pixel-sans text-white/40 text-[11px] mt-1">All Time</div>
                       </div>
                     </div>
@@ -1133,7 +1105,7 @@ export default function WorkerPage() {
 
             {/* Network Graph Card */}
             <div className="border border-white/10 bg-white/[0.02] rounded-2xl p-6">
-              <h3 className="pixel-sans text-white/50 text-sm mb-3">Network</h3>
+              <h3 className="pixel-serif text-white text-xl mb-3">Network</h3>
               <div className="h-44">
                 <NetworkGraph 
                   workersOnline={networkStats?.workersOnline || 0}
