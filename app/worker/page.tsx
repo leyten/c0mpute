@@ -261,7 +261,7 @@ const NativeWorkerSection = ({ getAccessToken }: { getAccessToken: () => Promise
             <button
               onClick={generateToken}
               disabled={generating}
-              className="pixel-sans text-sm px-6 py-3 rounded-xl bg-[#80a0c1]/15 border border-[#80a0c1]/30 text-[#80a0c1] hover:bg-[#80a0c1]/25 transition-colors disabled:opacity-50"
+              className="cursor-pointer pixel-sans text-sm px-6 py-3 rounded-xl bg-[#80a0c1]/15 border border-[#80a0c1]/30 text-[#80a0c1] hover:bg-[#80a0c1]/25 transition-colors disabled:opacity-50"
             >
               {generating ? 'Generating...' : 'Get Worker Token'}
             </button>
@@ -272,7 +272,7 @@ const NativeWorkerSection = ({ getAccessToken }: { getAccessToken: () => Promise
               </code>
               <button
                 onClick={copyCommand}
-                className="pixel-sans text-xs px-3 py-1.5 rounded-lg border border-white/10 text-white/50 hover:text-white hover:bg-white/5 transition-colors flex-shrink-0"
+                className="cursor-pointer pixel-sans text-xs px-3 py-1.5 rounded-lg border border-white/10 text-white/50 hover:text-white hover:bg-white/5 transition-colors flex-shrink-0"
               >
                 {copied ? 'Copied!' : 'Copy'}
               </button>
@@ -281,7 +281,7 @@ const NativeWorkerSection = ({ getAccessToken }: { getAccessToken: () => Promise
 
           <p className="pixel-sans text-white/25 text-xs mt-4">
             Requires Node.js 18+ and a compatible GPU (NVIDIA, AMD, Apple Silicon).
-            Token is shown once — save it. <a href="/settings#worker" className="text-[#80a0c1]/50 hover:text-[#80a0c1] underline">Manage tokens in Settings</a>.
+            Token is shown once — save it. <a href="/settings#worker" className="cursor-pointer text-[#80a0c1]/50 hover:text-[#80a0c1] underline">Manage tokens in Settings</a>.
           </p>
         </div>
       )}
@@ -867,7 +867,7 @@ export default function WorkerPage() {
             Login with Privy
           </button>
           <div className="mt-4">
-            <a href="/" className="pixel-sans text-white/30 text-xs hover:text-white/50 transition-colors">
+            <a href="/" className="cursor-pointer pixel-sans text-white/30 text-xs hover:text-white/50 transition-colors">
               ← Back to home
             </a>
           </div>
@@ -883,7 +883,7 @@ export default function WorkerPage() {
         <div className="max-w-6xl mx-auto px-4 md:px-6">
           <nav className="bg-black/80 backdrop-blur-sm border border-white/10 rounded-2xl px-4 md:px-6 py-3 flex items-center justify-between">
             <div className="flex-1">
-              <a href="/" className="pixel-serif-logo text-white text-lg md:text-xl font-bold flex items-center">
+              <a href="/" className="cursor-pointer pixel-serif-logo text-white text-lg md:text-xl font-bold flex items-center">
                 C<span className="pixel-serif-logo" style={{ fontSize: '1.8em', display: 'inline-block', verticalAlign: 'baseline', lineHeight: '1', marginTop: '-0.3em' }}>0</span>MPUTE
               </a>
             </div>
@@ -1152,19 +1152,19 @@ export default function WorkerPage() {
               <>
                 <button
                   onClick={stopWorker}
-                  className="flex-1 pixel-sans py-4 rounded-xl border border-white/20 text-white hover:bg-white/5 transition-colors"
+                  className="cursor-pointer flex-1 pixel-sans py-4 rounded-xl border border-white/20 text-white hover:bg-white/5 transition-colors"
                 >
                   Stop Worker
                 </button>
                 <button
                   onClick={testInference}
-                  className="px-8 pixel-sans py-4 rounded-xl border border-white/10 text-white/50 hover:bg-white/5 hover:text-white/70 transition-colors"
+                  className="cursor-pointer px-8 pixel-sans py-4 rounded-xl border border-white/10 text-white/50 hover:bg-white/5 hover:text-white/70 transition-colors"
                 >
                   Test
                 </button>
                 <button
                   onClick={forceReset}
-                  className="px-6 pixel-sans py-4 rounded-xl border border-red-500/20 text-red-400/70 hover:bg-red-500/10 hover:text-red-400 transition-colors"
+                  className="cursor-pointer px-6 pixel-sans py-4 rounded-xl border border-red-500/20 text-red-400/70 hover:bg-red-500/10 hover:text-red-400 transition-colors"
                   title="Force clear engine and all state"
                 >
                   Reset
@@ -1180,7 +1180,7 @@ export default function WorkerPage() {
                 </button>
                 <button
                   onClick={forceReset}
-                  className="px-6 pixel-sans py-4 rounded-xl border border-red-500/20 text-red-400/70 hover:bg-red-500/10 transition-colors"
+                  className="cursor-pointer px-6 pixel-sans py-4 rounded-xl border border-red-500/20 text-red-400/70 hover:bg-red-500/10 transition-colors"
                 >
                   Force Reset
                 </button>

@@ -77,7 +77,7 @@ function SourceStrip({ sources, content }: { sources: { title: string; url: stri
         const domain = (() => { try { return new URL(s.url).hostname.replace('www.', ''); } catch { return ''; } })();
         return (
           <a key={i} href={s.url} target="_blank" rel="noopener noreferrer"
-            className="flex items-center gap-1.5 px-2 py-1 bg-white/[0.04] border border-white/[0.08] hover:border-white/15 hover:bg-white/[0.06] transition-all rounded-md group">
+            className="cursor-pointer flex items-center gap-1.5 px-2 py-1 bg-white/[0.04] border border-white/[0.08] hover:border-white/15 hover:bg-white/[0.06] transition-all rounded-md group">
             <span className="flex items-center justify-center w-3.5 h-3.5 text-[9px] font-medium bg-white/10 text-white/40 rounded-full flex-shrink-0">{i + 1}</span>
             <img src={`https://www.google.com/s2/favicons?domain=${domain}&sz=16`} alt="" width={12} height={12} className="flex-shrink-0 opacity-50 group-hover:opacity-80" />
             <span className="pixel-sans text-white/40 text-[11px] truncate max-w-[100px] group-hover:text-white/70">{s.title || domain}</span>
@@ -724,7 +724,7 @@ export default function UserPage() {
             Login with Privy
           </button>
           <div className="mt-4">
-            <a href="/" className="pixel-sans text-white/30 text-xs hover:text-white/50 transition-colors">
+            <a href="/" className="cursor-pointer pixel-sans text-white/30 text-xs hover:text-white/50 transition-colors">
               ← Back to home
             </a>
           </div>
@@ -760,7 +760,7 @@ export default function UserPage() {
                 <path d="M3 12h18M3 6h18M3 18h18" />
               </svg>
             </button>
-            <a href="/" className="pixel-serif-logo text-white text-lg font-bold flex items-center">
+            <a href="/" className="cursor-pointer pixel-serif-logo text-white text-lg font-bold flex items-center">
               C<span className="pixel-serif-logo" style={{ fontSize: '1.8em', display: 'inline-block', verticalAlign: 'baseline', lineHeight: '1', marginTop: '-0.3em' }}>0</span>MPUTE
             </a>
           </div>
@@ -802,19 +802,12 @@ export default function UserPage() {
               {creditBalance.toFixed(0)} credits
             </button>
 
-            {/* Connection + Back */}
-            <div className="flex items-center gap-3">
-              <div className={`pixel-sans text-xs flex items-center gap-1.5 ${isConnected ? 'text-green-400/70' : 'text-white/30'}`}>
-                <span className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-green-400' : 'bg-white/30'}`} />
-                {isConnected ? 'Online' : '...'}
-              </div>
-              <button 
-                onClick={() => router.push('/')}
-                className="pixel-sans text-sm text-white/40 hover:text-white transition-colors"
-              >
-                ← Back
-              </button>
-            </div>
+            <button 
+              onClick={() => router.push('/')}
+              className="cursor-pointer pixel-sans text-sm text-white/40 hover:text-white transition-colors"
+            >
+              ← Back
+            </button>
           </div>
         </div>
       </header>
@@ -926,6 +919,12 @@ export default function UserPage() {
                 <div className="pixel-sans text-white/40 text-xs">In Queue</div>
               </div>
             </div>
+            <div className="flex items-center justify-center gap-1.5 mt-3 pt-3 border-t border-white/5">
+              <span className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-green-400' : 'bg-white/30'}`} />
+              <span className={`pixel-sans text-xs ${isConnected ? 'text-green-400/70' : 'text-white/30'}`}>
+                {isConnected ? 'Connected' : 'Connecting...'}
+              </span>
+            </div>
           </div>
         </aside>
 
@@ -939,7 +938,7 @@ export default function UserPage() {
                 <p className="pixel-sans text-white/40 text-base mb-6">Select a chat or start a new one</p>
                 <button
                   onClick={createNewChat}
-                  className="pixel-sans px-8 py-3 bg-white text-black rounded-xl hover:bg-white/90 transition-colors"
+                  className="cursor-pointer pixel-sans px-8 py-3 bg-white text-black rounded-xl hover:bg-white/90 transition-colors"
                 >
                   New Chat
                 </button>
@@ -1066,7 +1065,7 @@ export default function UserPage() {
                     <div className="px-5 py-3 bg-red-500/10 border border-red-500/20 rounded-lg">
                       <p className="pixel-sans text-red-400 text-sm">
                         {error.includes('Top up in Settings') ? (
-                          <>Not enough credits. Top up in <a href="/settings#usage" className="underline hover:text-red-300">Settings</a>.</>
+                          <>Not enough credits. Top up in <a href="/settings#usage" className="cursor-pointer underline hover:text-red-300">Settings</a>.</>
                         ) : error}
                       </p>
                       <button

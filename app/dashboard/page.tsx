@@ -121,7 +121,7 @@ export default function DashboardPage() {
             placeholder="Admin key"
             className="w-full bg-black border border-white/10 rounded-xl text-white px-4 py-3 mb-4 text-sm focus:outline-none focus:border-white/20"
           />
-          <button onClick={handleLogin} className="w-full pixel-sans text-sm py-3 rounded-xl bg-white text-black hover:bg-white/90 transition-colors">
+          <button onClick={handleLogin} className="cursor-pointer w-full pixel-sans text-sm py-3 rounded-xl bg-white text-black hover:bg-white/90 transition-colors">
             Authenticate
           </button>
         </div>

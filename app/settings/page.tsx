@@ -260,7 +260,7 @@ export default function SettingsPage() {
         <div className="max-w-6xl mx-auto px-4 md:px-6">
           <nav className="bg-black/80 backdrop-blur-sm border border-white/10 rounded-2xl px-4 md:px-6 py-3 flex items-center justify-between">
             <div className="flex-1">
-              <a href="/" className="pixel-serif-logo text-white text-lg md:text-xl font-bold flex items-center">
+              <a href="/" className="cursor-pointer pixel-serif-logo text-white text-lg md:text-xl font-bold flex items-center">
                 C<span className="pixel-serif-logo" style={{ fontSize: '1.8em', display: 'inline-block', verticalAlign: 'baseline', lineHeight: '1', marginTop: '-0.3em' }}>0</span>MPUTE
               </a>
             </div>
@@ -339,7 +339,7 @@ export default function SettingsPage() {
                       </div>
                     </div>
                     {!hasWallet && (
-                      <button onClick={handleLinkWallet} disabled={linkingWallet} className="pixel-sans text-xs px-4 py-2 border border-white/20 text-white hover:bg-white/5 transition-colors disabled:opacity-50">
+                      <button onClick={handleLinkWallet} disabled={linkingWallet} className="cursor-pointer pixel-sans text-xs px-4 py-2 border border-white/20 text-white hover:bg-white/5 transition-colors disabled:opacity-50">
                         {linkingWallet ? '...' : 'Link Wallet'}
                       </button>
                     )}
@@ -359,7 +359,7 @@ export default function SettingsPage() {
                       </div>
                     )}
                     {hasWallet && isEmbeddedWallet && (
-                      <button onClick={handleLinkWallet} disabled={linkingWallet} className="pixel-sans text-xs px-4 py-2 border border-white/20 text-white hover:bg-white/5 transition-colors disabled:opacity-50">
+                      <button onClick={handleLinkWallet} disabled={linkingWallet} className="cursor-pointer pixel-sans text-xs px-4 py-2 border border-white/20 text-white hover:bg-white/5 transition-colors disabled:opacity-50">
                         {linkingWallet ? '...' : 'Link External'}
                       </button>
                     )}
@@ -383,7 +383,7 @@ export default function SettingsPage() {
                       </div>
                     </div>
                     {!hasTwitter && (
-                      <button onClick={handleLinkTwitter} disabled={linkingTwitter} className="pixel-sans text-xs px-4 py-2 border border-white/20 text-white hover:bg-white/5 transition-colors disabled:opacity-50">
+                      <button onClick={handleLinkTwitter} disabled={linkingTwitter} className="cursor-pointer pixel-sans text-xs px-4 py-2 border border-white/20 text-white hover:bg-white/5 transition-colors disabled:opacity-50">
                         {linkingTwitter ? '...' : 'Link X'}
                       </button>
                     )}
@@ -439,7 +439,7 @@ export default function SettingsPage() {
                   <div className="space-y-4">
                     <p className="pixel-sans text-red-400/80 text-sm">Are you sure? This action cannot be undone.</p>
                     <div className="flex gap-3">
-                      <button onClick={handleDeleteAccount} disabled={deleteLoading} className="pixel-sans text-sm px-4 py-2 bg-red-500/20 border border-red-500/30 text-red-400 hover:bg-red-500/30 transition-colors disabled:opacity-50">
+                      <button onClick={handleDeleteAccount} disabled={deleteLoading} className="cursor-pointer pixel-sans text-sm px-4 py-2 bg-red-500/20 border border-red-500/30 text-red-400 hover:bg-red-500/30 transition-colors disabled:opacity-50">
                         {deleteLoading ? 'Deleting...' : 'Yes, Delete My Account'}
                       </button>
                       <button onClick={() => setShowDeleteConfirm(false)} disabled={deleteLoading} className="pixel-sans text-sm px-4 py-2 border border-white/20 text-white/70 hover:bg-white/5 transition-colors disabled:opacity-50">
@@ -486,7 +486,7 @@ export default function SettingsPage() {
                           Disconnect
                         </button>
                       )}
-                      <button onClick={handleLinkWallet} disabled={linkingWallet} className="pixel-sans text-xs px-4 py-2 border border-white/20 text-white hover:bg-white/5 rounded-xl transition-colors disabled:opacity-50">
+                      <button onClick={handleLinkWallet} disabled={linkingWallet} className="cursor-pointer pixel-sans text-xs px-4 py-2 border border-white/20 text-white hover:bg-white/5 rounded-xl transition-colors disabled:opacity-50">
                         {linkingWallet ? '...' : 'Link Different Wallet'}
                       </button>
                     </div>
@@ -494,7 +494,7 @@ export default function SettingsPage() {
                 ) : (
                   <div className="space-y-4">
                     <p className="pixel-sans text-white/50 text-sm">Connect a Solana wallet to receive worker payouts.</p>
-                    <button onClick={handleLinkWallet} disabled={linkingWallet} className="pixel-sans text-sm px-6 py-3 rounded-xl bg-[#80a0c1]/15 border border-[#80a0c1]/30 text-[#80a0c1] hover:bg-[#80a0c1]/25 transition-colors disabled:opacity-50">
+                    <button onClick={handleLinkWallet} disabled={linkingWallet} className="cursor-pointer pixel-sans text-sm px-6 py-3 rounded-xl bg-[#80a0c1]/15 border border-[#80a0c1]/30 text-[#80a0c1] hover:bg-[#80a0c1]/25 transition-colors disabled:opacity-50">
                       {linkingWallet ? '...' : 'Link Wallet'}
                     </button>
                   </div>
@@ -540,7 +540,7 @@ export default function SettingsPage() {
                   </p>
                 )}
 
-                <button onClick={generateToken} disabled={tokenGenerating} className="pixel-sans text-sm px-6 py-3 rounded-xl bg-[#80a0c1]/15 border border-[#80a0c1]/30 text-[#80a0c1] hover:bg-[#80a0c1]/25 transition-colors disabled:opacity-50 mb-4">
+                <button onClick={generateToken} disabled={tokenGenerating} className="cursor-pointer pixel-sans text-sm px-6 py-3 rounded-xl bg-[#80a0c1]/15 border border-[#80a0c1]/30 text-[#80a0c1] hover:bg-[#80a0c1]/25 transition-colors disabled:opacity-50 mb-4">
                   {tokenGenerating ? 'Generating...' : 'Generate New Token'}
                 </button>
 

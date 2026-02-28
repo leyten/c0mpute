@@ -94,15 +94,15 @@ export default function Home() {
           <nav className="bg-black/80 backdrop-blur-sm border border-white/10 rounded-2xl px-4 md:px-6 py-3 flex items-center justify-between">
             {/* Left: Logo */}
             <div className="flex-1">
-              <a href="/" className="pixel-serif-logo text-white text-lg md:text-xl font-bold flex items-center">
+              <a href="/" className="cursor-pointer pixel-serif-logo text-white text-lg md:text-xl font-bold flex items-center">
                 C<span className="pixel-serif-logo" style={{ fontSize: '1.8em', display: 'inline-block', verticalAlign: 'baseline', lineHeight: '1', marginTop: '-0.3em' }}>0</span>MPUTE
               </a>
             </div>
             
             {/* Center: Navigation - Hidden on mobile */}
             <div className="hidden md:flex items-center gap-8">
-              <a href="/user" className="pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide">User</a>
-              <a href="/worker" className="pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide">Worker</a>
+              <a href="/user" className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide">User</a>
+              <a href="/worker" className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide">Worker</a>
             </div>
             
             {/* Right: X + Login (desktop) + Hamburger (mobile) */}
@@ -112,7 +112,7 @@ export default function Home() {
                 href="https://x.com/c0mputeAI" 
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-white/70 hover:text-white transition-colors p-2"
+                className="cursor-pointer text-white/70 hover:text-white transition-colors p-2"
                 aria-label="Follow us on X"
               >
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
@@ -170,7 +170,7 @@ export default function Home() {
               
               {/* Hamburger Menu Button - Mobile only */}
               <button
-                className="md:hidden flex flex-col justify-center items-center w-8 h-8 gap-1.5"
+                className="cursor-pointer md:hidden flex flex-col justify-center items-center w-8 h-8 gap-1.5"
                 onClick={() => setMenuOpen(!menuOpen)}
                 aria-label="Toggle menu"
               >
@@ -186,14 +186,14 @@ export default function Home() {
             <div className="md:hidden bg-black/95 border border-white/10 border-t-0 rounded-b-2xl px-4 py-4 flex flex-col gap-4">
               <a 
                 href="/user" 
-                className="pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide"
+                className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide"
                 onClick={() => setMenuOpen(false)}
               >
                 User
               </a>
               <a 
                 href="/worker" 
-                className="pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide"
+                className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide"
                 onClick={() => setMenuOpen(false)}
               >
                 Worker
@@ -202,7 +202,7 @@ export default function Home() {
                 href="https://x.com/c0mpute" 
                 target="_blank"
                 rel="noopener noreferrer"
-                className="pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide flex items-center gap-2"
+                className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide flex items-center gap-2"
                 onClick={() => setMenuOpen(false)}
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
@@ -303,7 +303,7 @@ export default function Home() {
                 />
                 <button
                   type="submit"
-                  className="bg-black text-white border border-[#2a2a2a] rounded-xl px-3 md:px-4 py-3 flex items-center justify-center"
+                  className="cursor-pointer bg-black text-white border border-[#2a2a2a] rounded-xl px-3 md:px-4 py-3 flex items-center justify-center"
                   aria-label="Send"
                 >
                   <img src="/PixelSendIcon.png" alt="Send" width={20} height={20} />
