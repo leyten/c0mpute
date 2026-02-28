@@ -797,16 +797,20 @@ export default function UserPage() {
             {(() => {
               const tier = getModelTier(selectedModel);
               if (tier === 'free') return null;
+              const costPerPrompt = tier === 'max' ? 50 : 10;
+              const promptsLeft = Math.floor(creditBalance / costPerPrompt);
               return (
                 <button
                   onClick={() => setShowTopUp(true)}
                   className={`pixel-sans text-xs px-3 py-1.5 rounded-lg border transition-colors ${
                     creditBalance === 0
-                      ? 'border-amber-500/30 bg-amber-500/10 text-amber-400'
-                      : 'border-white/10 bg-white/[0.04] text-white/70 hover:bg-white/[0.08]'
+                      ? 'border-red-500/30 bg-red-500/[0.06] text-red-400/80'
+                      : promptsLeft <= 5
+                      ? 'border-white/15 bg-white/[0.04] text-white/60 hover:bg-white/[0.08]'
+                      : 'border-white/10 bg-white/[0.04] text-white/50 hover:bg-white/[0.08]'
                   }`}
                 >
-                  💎 {creditBalance.toFixed(0)}
+                  {creditBalance.toFixed(0)} credits
                 </button>
               );
             })()}
@@ -1097,7 +1101,7 @@ export default function UserPage() {
                     const hasWorkers = selectedModel === 'native-max' ? nativeCount > 0 : browserCount > 0;
                     if (!hasWorkers && isConnected) {
                       return (
-                        <div className="pixel-sans text-amber-400/80 text-xs text-center mb-2">
+                        <div className="pixel-sans text-white/40 text-xs text-center mb-2">
                           No {selectedModel === 'native-max' ? 'native' : 'browser'} workers are online — your message will queue until one connects
                         </div>
                       );
@@ -1158,33 +1162,44 @@ export default function UserPage() {
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
             </button>
 
-            <h2 className="pixel-serif text-white text-2xl mb-2">Top Up Credits</h2>
-            <p className="pixel-sans text-white/50 text-sm mb-6">Send <span className="dollar">$</span>ZERO tokens to your deposit wallet</p>
+            <h2 className="pixel-serif text-white text-2xl mb-1">Top Up</h2>
+            <p className="pixel-sans text-white/40 text-sm mb-6">
+              Send <span className="dollar">$</span>ZERO to your deposit address to load credits.
+            </p>
 
-            {/* Current Balance */}
-            <div className="flex items-center justify-between mb-4 p-3 bg-white/[0.04] border border-white/10 rounded-xl">
-              <span className="pixel-sans text-white/50 text-sm">Balance</span>
-              <span className="pixel-serif text-white text-xl">💎 {creditBalance.toFixed(0)}</span>
+            {/* Conversion rate + balance */}
+            <div className="grid grid-cols-2 gap-3 mb-5">
+              <div className="p-3 bg-white/[0.02] border border-white/5 rounded-xl">
+                <div className="pixel-sans text-white/30 text-[11px] mb-1">Your balance</div>
+                <div className="pixel-serif text-white text-lg">{creditBalance.toFixed(0)} <span className="pixel-sans text-white/30 text-xs">credits</span></div>
+              </div>
+              <div className="p-3 bg-white/[0.02] border border-white/5 rounded-xl">
+                <div className="pixel-sans text-white/30 text-[11px] mb-1">Rate</div>
+                <div className="pixel-serif text-white text-lg">1:1</div>
+                <div className="pixel-sans text-white/30 text-[11px]">1 <span className="dollar">$</span>ZERO = 1 credit</div>
+              </div>
             </div>
 
-            {/* Pricing */}
-            <div className="mb-4 p-3 bg-white/[0.02] border border-white/5 rounded-xl">
-              <div className="pixel-sans text-white/40 text-xs mb-2">Pricing</div>
-              <div className="flex justify-between pixel-sans text-sm">
-                <span className="text-white/60">Pro prompt</span>
-                <span className="text-white/80">10 credits</span>
-              </div>
-              <div className="flex justify-between pixel-sans text-sm mt-1">
-                <span className="text-white/60">Max prompt</span>
-                <span className="text-white/80">50 credits</span>
+            {/* Cost breakdown */}
+            <div className="mb-5 p-3 bg-white/[0.02] border border-white/5 rounded-xl">
+              <div className="pixel-sans text-white/30 text-[11px] uppercase tracking-wider mb-2">Cost per prompt</div>
+              <div className="space-y-1.5">
+                <div className="flex justify-between pixel-sans text-sm">
+                  <span className="text-white/50">Pro</span>
+                  <span className="text-white/70">10 <span className="dollar">$</span>ZERO</span>
+                </div>
+                <div className="flex justify-between pixel-sans text-sm">
+                  <span className="text-white/50">Max</span>
+                  <span className="text-white/70">50 <span className="dollar">$</span>ZERO</span>
+                </div>
               </div>
             </div>
 
             {/* Deposit Address */}
-            <div className="mb-4">
-              <div className="pixel-sans text-white/40 text-xs mb-2">Deposit Address</div>
-              <div className="flex items-center gap-2 bg-white/[0.04] border border-white/10 rounded-lg p-3">
-                <code className="font-mono text-[#80a0c1] text-sm flex-1 break-all">{depositWallet || 'Loading...'}</code>
+            <div className="mb-5">
+              <div className="pixel-sans text-white/30 text-[11px] uppercase tracking-wider mb-2">Your deposit address</div>
+              <div className="flex items-center gap-2 bg-white/[0.03] border border-white/10 rounded-lg p-3">
+                <code className="font-mono text-[#80a0c1] text-xs flex-1 break-all select-all">{depositWallet || 'Loading...'}</code>
                 <button
                   onClick={() => {
                     if (depositWallet) {
@@ -1193,11 +1208,14 @@ export default function UserPage() {
                       setTimeout(() => setCopiedDeposit(false), 2000);
                     }
                   }}
-                  className="pixel-sans text-xs px-3 py-1.5 rounded-lg border border-white/10 text-white/50 hover:text-white hover:bg-white/5 transition-colors flex-shrink-0"
+                  className="pixel-sans text-xs px-2.5 py-1.5 rounded-lg border border-white/10 text-white/40 hover:text-white hover:bg-white/5 transition-colors flex-shrink-0"
                 >
-                  {copiedDeposit ? 'Copied!' : 'Copy'}
+                  {copiedDeposit ? 'Copied' : 'Copy'}
                 </button>
               </div>
+              <p className="pixel-sans text-white/20 text-[11px] mt-1.5">
+                Only send <span className="dollar">$</span>ZERO (SPL token) to this address. Other tokens will be lost.
+              </p>
             </div>
 
             {/* Check Deposit Button */}
@@ -1216,7 +1234,7 @@ export default function UserPage() {
                   if (res.ok) {
                     if (data.credited > 0) {
                       setCreditBalance(data.newBalance);
-                      setDepositResult(`${data.credited} $ZERO credited!`);
+                      setDepositResult(`+${data.credited} credits added`);
                     } else {
                       setDepositResult(data.message || 'No new deposits found');
                     }
@@ -1224,19 +1242,19 @@ export default function UserPage() {
                     setDepositResult(data.error || 'Check failed');
                   }
                 } catch {
-                  setDepositResult('Failed to check deposits');
+                  setDepositResult('Failed to check');
                 } finally {
                   setCheckingDeposit(false);
                 }
               }}
               disabled={checkingDeposit}
-              className="w-full pixel-sans text-sm py-3 rounded-xl border border-[#80a0c1]/50 text-[#80a0c1] hover:bg-[#80a0c1]/10 transition-colors disabled:opacity-50"
+              className="w-full pixel-sans text-sm py-3 rounded-xl bg-white/[0.05] border border-white/10 text-white/70 hover:bg-white/[0.08] hover:text-white transition-colors disabled:opacity-50"
             >
-              {checkingDeposit ? 'Checking...' : 'Check for Deposit'}
+              {checkingDeposit ? 'Checking...' : 'I\'ve sent tokens — check balance'}
             </button>
 
             {depositResult && (
-              <p className={`pixel-sans text-sm text-center mt-3 ${depositResult.includes('credited') ? 'text-green-400' : 'text-white/50'}`}>
+              <p className={`pixel-sans text-xs text-center mt-2.5 ${depositResult.includes('added') ? 'text-green-400/80' : 'text-white/40'}`}>
                 {depositResult}
               </p>
             )}
