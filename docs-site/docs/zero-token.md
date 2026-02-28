@@ -31,14 +31,14 @@ Your deposit address is unique to your account. Any <span class="dollar">$</span
 
 ## The economic loop
 
-```
-1. Users buy <span class="dollar">$</span>ZERO on the open market
-2. Users deposit <span class="dollar">$</span>ZERO → receive credits
-3. Credits are spent on AI inference (messages)
-4. <span class="dollar">$</span>ZERO trading generates transaction fees in SOL
-5. Transaction fees flow into the worker reward pool
-6. Workers earn SOL for completing inference jobs
-```
+<ol>
+<li>Users buy $ZERO on the open market</li>
+<li>Users deposit $ZERO → receive credits</li>
+<li>Credits are spent on AI inference (messages)</li>
+<li>$ZERO trading generates transaction fees in SOL</li>
+<li>Transaction fees flow into the worker reward pool</li>
+<li>Workers earn SOL for completing inference jobs</li>
+</ol>
 
 The more people use c0mpute, the more <span class="dollar">$</span>ZERO trades. The more <span class="dollar">$</span>ZERO trades, the more SOL workers earn. This creates a self-reinforcing cycle where usage directly funds the compute network.
 
