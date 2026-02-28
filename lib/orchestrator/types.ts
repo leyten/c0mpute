@@ -37,6 +37,7 @@ export interface Job {
   error?: string;
   searchContext?: string;
   searchResults?: { title: string; url: string; description: string }[];
+  serverTokenCount?: number;
 }
 
 export interface ChatMessage {
@@ -57,6 +58,7 @@ export interface ServerToClientEvents {
   'job:cancel': (data: { jobId: string }) => void;
   'worker:registered': (data: { workerId: string }) => void;
   'stats:update': (data: NetworkStats) => void;
+  'native:status': (data: { online: boolean; workerId?: string; jobsCompleted: number; tokensGenerated: number; tokPerSec: number; currentJob?: string }) => void;
 }
 
 export interface ClientToServerEvents {
@@ -70,10 +72,23 @@ export interface ClientToServerEvents {
 
 export interface NetworkStats {
   workersOnline: number;
+  browserWorkers: number;
+  nativeWorkers: number;
   jobsInQueue: number;
   jobsCompleted: number;
   tokensGenerated: number;
   avgJobDurationMs: number;
+}
+
+/** Model tier as selected by the user */
+export type ModelTier = 'free' | 'pro' | 'max';
+
+/** Map user-facing model IDs to tiers */
+export function getModelTier(modelId?: string): ModelTier {
+  if (!modelId) return 'free';
+  if (modelId === 'native-max') return 'max';
+  if (modelId.includes('dolphin')) return 'pro';
+  return 'free';
 }
 
 export const MAX_INPUT_CHARS = 2000;

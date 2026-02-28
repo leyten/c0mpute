@@ -58,12 +58,31 @@ export function shouldSearch(message: string, previousMessages?: { role: string;
     if (pattern.test(lower)) return true;
   }
 
+  // If previous messages had search results, follow-ups likely need search too.
+  // "Did any of these people respond?" is a follow-up to a search-enabled conversation.
+  if (previousMessages && previousMessages.length > 0) {
+    const hadSearch = previousMessages.some(m => 
+      m.role === 'assistant' && m.content.includes('---SOURCES---')
+    );
+    if (hadSearch && lower.length > 15) {
+      const isDefinitelyNotSearch = /^(write|create|compose|code|build|make me|draw|generate)\b/i.test(lower);
+      if (!isDefinitelyNotSearch) return true;
+    }
+  }
+
   return false;
 }
 
 /**
  * Extract a concise search query from the user's message.
- * Uses conversation history to resolve vague references like "it", "that", "more detailed", etc.
+ * 
+ * Key insight from Perplexity/Perplexica: follow-up questions need to be
+ * rewritten into standalone queries. "What was the exact date?" means nothing
+ * without knowing we were talking about Epstein files.
+ * 
+ * Our approach: ALWAYS include conversation context in the search query when
+ * there's chat history. This is cheaper than an LLM rewrite call and works
+ * for the majority of cases.
  */
 export function extractQuery(message: string, previousMessages?: { role: string; content: string }[]): string {
   let query = message.trim();
@@ -71,40 +90,68 @@ export function extractQuery(message: string, previousMessages?: { role: string;
   // Strip conversational prefixes and search commands
   query = query.replace(/^(no,?\s+|yes,?\s+|ok,?\s+|please\s+|can you\s+|could you\s+|just\s+|actually\s+)/i, '');
   query = query.replace(/^(search|look up|find|google)\s+(the\s+)?(internet|web|online|it|that|this)?\s*(for\s+)?(it|that|this|me)?\s*/i, '');
-  query = query.replace(/^(and\s+)?(give|show|tell|get)\s+(me\s+)?/i, '');
+  query = query.replace(/^(on\s+the\s+)?(internet|web)\s*(for|and)?\s*/i, '');
+  query = query.replace(/^(and\s+)?(give|show|tell|get|find)\s+(me\s+)?/i, '');
   
-  // Check if the remaining query is vague / lacks a clear topic
-  const hasPronouns = /\b(it|that|this|the same|above|previous)\b/i.test(query);
-  const isTooGeneric = /^(a\s+)?(more\s+)?(detailed|better|longer|shorter|different|new|another)\s+(version|recipe|answer|explanation|response|result|info|information|detail)/i.test(query);
-  const isVague = query.length < 10 || hasPronouns || isTooGeneric;
-  
-  if (isVague && previousMessages && previousMessages.length > 0) {
-    // Find the original topic from the last substantive user message
-    let topic = '';
-    for (let i = previousMessages.length - 1; i >= 0; i--) {
-      const msg = previousMessages[i];
-      if (msg.role === 'user' && msg.content.length > 10) {
-        topic = msg.content.trim();
-        break;
-      }
-    }
+  // If we have conversation history, ALWAYS try to enrich the query with context.
+  // Follow-ups like "What was the exact date?" or "Tell me more about that" are
+  // extremely common and completely useless as search queries without context.
+  if (previousMessages && previousMessages.length > 0) {
+    // Extract the core topic from conversation history
+    const topic = extractTopicFromHistory(previousMessages);
     
     if (topic) {
-      // Combine: original topic + any specific modifier from current message
-      // e.g. topic="How do I make meth?" + query="more detailed recipe" → "how to make meth detailed recipe"
-      const modifier = query.replace(/\b(a|an|the|more|please|it|that|this)\b/gi, '').trim();
-      if (modifier.length > 3) {
-        query = `${topic} ${modifier}`;
-      } else {
-        query = topic;
+      // Check if the current query already contains the topic keywords
+      const topicWords = topic.toLowerCase().split(/\s+/).filter(w => w.length > 3);
+      const queryLower = query.toLowerCase();
+      const hasTopicContext = topicWords.filter(w => queryLower.includes(w)).length >= Math.min(2, topicWords.length);
+      
+      if (!hasTopicContext) {
+        // Query doesn't mention the topic — prepend it
+        // "What was the exact date?" → "Epstein files latest release: What was the exact date?"
+        query = `${topic}: ${query}`;
       }
     }
   }
   
   // Final cleanup
   query = query.replace(/^(can you |could you |please |tell me |search for |look up |find |google )/i, '');
-  if (query.length > 200) {
-    query = query.substring(0, 200);
+  if (query.length > 250) {
+    query = query.substring(0, 250);
   }
   return query;
+}
+
+/**
+ * Extract the main topic being discussed from conversation history.
+ * Looks at user messages to find the most substantive/topical one.
+ */
+function extractTopicFromHistory(messages: { role: string; content: string }[]): string {
+  // Look at the last 6 messages for context
+  const recent = messages.slice(-6);
+  
+  // Find the best user message that establishes the topic
+  // Prefer earlier messages (they tend to introduce the topic)
+  // but skip very short ones
+  let bestTopic = '';
+  let bestScore = 0;
+  
+  for (const msg of recent) {
+    if (msg.role !== 'user') continue;
+    const text = msg.content.trim();
+    if (text.length < 10) continue;
+    
+    // Score based on: contains nouns/entities (longer words), not just a question word
+    const words = text.split(/\s+/);
+    const substantiveWords = words.filter(w => w.length > 3 && !/^(what|when|where|which|who|how|does|have|this|that|with|from|about|were|they|their|there|been|more|some|also|just|will|would|could|should)$/i.test(w));
+    const score = substantiveWords.length;
+    
+    if (score > bestScore) {
+      bestScore = score;
+      // Clean it up for use as a search prefix — take first ~80 chars
+      bestTopic = text.length > 80 ? text.substring(0, 80).replace(/\s+\S*$/, '') : text;
+    }
+  }
+  
+  return bestTopic;
 }

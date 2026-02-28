@@ -30,6 +30,7 @@ interface UseSocketReturn {
   setOnJobCancel: (handler: ((jobId: string) => void) | null) => void;
   setOnJobSearching: (handler: ((jobId: string) => void) | null) => void;
   setOnJobSources: (handler: ((jobId: string, sources: { title: string; url: string; description: string }[]) => void) | null) => void;
+  nativeStatus: { online: boolean; workerId?: string; jobsCompleted: number; tokensGenerated: number; tokPerSec: number; currentJob?: string } | null;
 }
 
 export function useSocket(authToken?: string | null): UseSocketReturn {
@@ -37,6 +38,7 @@ export function useSocket(authToken?: string | null): UseSocketReturn {
   const [isConnected, setIsConnected] = useState(false);
   const [networkStats, setNetworkStats] = useState<NetworkStats | null>(null);
   const [queuePosition, setQueuePosition] = useState<number | null>(null);
+  const [nativeStatus, setNativeStatus] = useState<UseSocketReturn['nativeStatus']>(null);
   
   const onNewJobRef = useRef<((jobId: string, messages?: ChatMessage[]) => void) | null>(null);
   const onJobTokenRef = useRef<((jobId: string, token: string) => void) | null>(null);
@@ -60,12 +62,10 @@ export function useSocket(authToken?: string | null): UseSocketReturn {
     });
 
     socket.on('connect', () => {
-      console.log('[Socket] Connected to orchestrator');
       setIsConnected(true);
     });
 
     socket.on('disconnect', () => {
-      console.log('[Socket] Disconnected from orchestrator');
       setIsConnected(false);
     });
 
@@ -130,6 +130,10 @@ export function useSocket(authToken?: string | null): UseSocketReturn {
       if (onJobSourcesRef.current) {
         onJobSourcesRef.current(data.jobId, data.sources);
       }
+    });
+
+    (socket as any).on('native:status', (data: any) => {
+      setNativeStatus(data);
     });
 
     socketRef.current = socket;
@@ -197,6 +201,7 @@ export function useSocket(authToken?: string | null): UseSocketReturn {
     isConnected,
     networkStats,
     queuePosition,
+    nativeStatus,
     registerWorker,
     unregisterWorker,
     sendToken,

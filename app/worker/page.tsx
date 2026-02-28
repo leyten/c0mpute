@@ -19,7 +19,7 @@ const QualityBars = ({ level }: { level: number }) => (
     {[1, 2, 3, 4, 5].map((i) => (
       <div
         key={i}
-        className="w-2 h-4"
+        className="w-2 h-4 rounded-sm"
         style={{ backgroundColor: i <= level ? ACCENT_COLOR : 'rgba(255,255,255,0.15)' }}
       />
     ))}
@@ -83,7 +83,7 @@ interface WorkerStats {
 }
 
 // Network visualization component
-const NetworkGraph = ({ workersOnline, isWorkerActive }: { workersOnline: number; isWorkerActive: boolean }) => {
+const NetworkGraph = ({ workersOnline, nativeWorkers, isWorkerActive }: { workersOnline: number; nativeWorkers: number; isWorkerActive: boolean }) => {
   // Generate worker positions in a circle around the orchestrator
   const workerPositions = [];
   const radius = 70;
@@ -123,21 +123,40 @@ const NetworkGraph = ({ workersOnline, isWorkerActive }: { workersOnline: number
       </text>
       
       {/* Worker nodes */}
-      {workerPositions.map((pos, i) => (
-        <g key={`worker-${i}`}>
-          <rect
-            x={pos.x - 6}
-            y={pos.y - 6}
-            width="12"
-            height="12"
-            fill={i === 0 && isWorkerActive ? ACCENT_COLOR : 'transparent'}
-            fillOpacity={i === 0 && isWorkerActive ? 0.8 : 0}
-            stroke={i === 0 && isWorkerActive ? ACCENT_COLOR : 'white'}
-            strokeWidth="1"
-            strokeOpacity={i === 0 && isWorkerActive ? 0.9 : 0.2}
-          />
-        </g>
-      ))}
+      {workerPositions.map((pos, i) => {
+        const browserCount = workersOnline - nativeWorkers;
+        const isNative = i >= browserCount;
+        const isYou = i === 0 && isWorkerActive;
+        const nativeColor = '#f59e0b';
+        return (
+          <g key={`worker-${i}`}>
+            {isNative ? (
+              <polygon
+                points={`${pos.x},${pos.y - 7} ${pos.x + 7},${pos.y} ${pos.x},${pos.y + 7} ${pos.x - 7},${pos.y}`}
+                fill={isYou ? nativeColor : 'transparent'}
+                fillOpacity={isYou ? 0.8 : 0}
+                stroke={nativeColor}
+                strokeWidth="1"
+                strokeOpacity={isYou ? 0.9 : 0.4}
+              />
+            ) : (
+              <rect
+                x={pos.x - 6}
+                y={pos.y - 6}
+                width="12"
+                height="12"
+                rx="3"
+                ry="3"
+                fill={isYou ? ACCENT_COLOR : 'transparent'}
+                fillOpacity={isYou ? 0.8 : 0}
+                stroke={isYou ? ACCENT_COLOR : 'white'}
+                strokeWidth="1"
+                strokeOpacity={isYou ? 0.9 : 0.2}
+              />
+            )}
+          </g>
+        );
+      })}
       
       {/* "You" indicator if active */}
       {isWorkerActive && workerPositions.length > 0 && (
@@ -162,6 +181,121 @@ const NetworkGraph = ({ workersOnline, isWorkerActive }: { workersOnline: number
   );
 };
 
+const NativeWorkerSection = ({ getAccessToken }: { getAccessToken: () => Promise<string | null> }) => {
+  const [expanded, setExpanded] = useState(false);
+  const [token, setToken] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [tokenError, setTokenError] = useState<string | null>(null);
+
+  const generateToken = async () => {
+    setGenerating(true);
+    setTokenError(null);
+    try {
+      const accessToken = await getAccessToken();
+      if (!accessToken) {
+        setTokenError('Please log in first.');
+        return;
+      }
+      const res = await fetch('/api/worker-token', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'cli' }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setTokenError(data.error || 'Failed to generate token.');
+        return;
+      }
+      setToken(data.token);
+    } catch {
+      setTokenError('Failed to generate token.');
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const copyCommand = () => {
+    navigator.clipboard.writeText(`npx @c0mpute/worker --token ${token}`);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div className="border border-white/10 bg-white/[0.02] rounded-2xl overflow-hidden mb-8">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center justify-between p-6 hover:bg-white/[0.02] transition-colors"
+      >
+        <div className="flex items-center gap-3">
+          <svg className="w-5 h-5 text-[#80a0c1]" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M13 2L3 14h8l-1 8 10-12h-8l1-8z" />
+          </svg>
+          <span className="pixel-serif text-white text-2xl">Native Worker</span>
+          <span className="pixel-sans text-[#80a0c1]/70 text-xs ml-1">3-5x earnings</span>
+        </div>
+        <svg className={`w-4 h-4 text-white/40 transition-transform ${expanded ? 'rotate-180' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M6 9l6 6 6-6" />
+        </svg>
+      </button>
+
+      {expanded && (
+        <div className="px-6 pb-6 border-t border-white/5 pt-5">
+          <p className="pixel-sans text-white/50 text-sm mb-5">
+            Get 3-5x earnings by running a native worker with your GPU.
+          </p>
+
+          <div className="space-y-3 mb-6">
+            {[
+              'Generate a worker token below',
+              'Run the command in your terminal',
+              'Your native worker connects automatically',
+            ].map((text, i) => (
+              <div key={i} className="flex items-center gap-3">
+                <span className="pixel-serif text-[#80a0c1] text-sm w-6 h-6 rounded-full border border-[#80a0c1]/30 flex items-center justify-center flex-shrink-0">{i + 1}</span>
+                <span className="pixel-sans text-white/60 text-sm">{text}</span>
+              </div>
+            ))}
+          </div>
+
+          {tokenError && (
+            <div className="mb-3 p-2 border border-red-500/30 bg-red-500/10 rounded-lg">
+              <p className="pixel-sans text-red-400 text-xs">{tokenError}</p>
+            </div>
+          )}
+
+          {!token ? (
+            <button
+              onClick={generateToken}
+              disabled={generating}
+              className="pixel-sans text-sm px-6 py-3 rounded-xl bg-[#80a0c1]/15 border border-[#80a0c1]/30 text-[#80a0c1] hover:bg-[#80a0c1]/25 transition-colors disabled:opacity-50"
+            >
+              {generating ? 'Generating...' : 'Get Worker Token'}
+            </button>
+          ) : (
+            <div className="flex items-center gap-2 bg-white/[0.04] border border-white/10 rounded-lg p-3 font-mono text-sm overflow-x-auto">
+              <code className="text-[#80a0c1] whitespace-nowrap flex-1">
+                npx @c0mpute/worker --token {token}
+              </code>
+              <button
+                onClick={copyCommand}
+                className="pixel-sans text-xs px-3 py-1.5 rounded-lg border border-white/10 text-white/50 hover:text-white hover:bg-white/5 transition-colors flex-shrink-0"
+              >
+                {copied ? 'Copied!' : 'Copy'}
+              </button>
+            </div>
+          )}
+
+          <p className="pixel-sans text-white/25 text-xs mt-4">
+            Requires Node.js 18+ and a compatible GPU (NVIDIA, AMD, Apple Silicon).
+            Token is shown once — save it. You can revoke tokens from settings.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+};
+
 export default function WorkerPage() {
   const router = useRouter();
   const { isLoading: authLoading, isAuthenticated, login, getAccessToken } = useAuth();
@@ -171,7 +305,17 @@ export default function WorkerPage() {
   useEffect(() => {
     if (isAuthenticated) {
       getAccessToken().then(t => {
-        if (t) setSocketAuthToken(t);
+        if (t) {
+          setSocketAuthToken(t);
+          fetch('/api/worker-stats', { headers: { Authorization: `Bearer ${t}` } })
+            .then(r => r.ok ? r.json() : null)
+            .then(data => { if (data?.stats) setLifetimeStats(data.stats); })
+            .catch(() => {});
+          fetch('/api/worker-earnings', { headers: { Authorization: `Bearer ${t}` } })
+            .then(r => r.ok ? r.json() : null)
+            .then(data => { if (data) setEarnings(data); })
+            .catch(() => {});
+        }
       });
     }
   }, [isAuthenticated, getAccessToken]);
@@ -188,7 +332,7 @@ export default function WorkerPage() {
     // requestSearch removed
     setOnNewJob,
     setOnJobCancel,
-    // setOnSearchResults removed
+    nativeStatus,
   } = useSocket(socketAuthToken);
   
   // Worker state
@@ -198,6 +342,19 @@ export default function WorkerPage() {
   const [loadingText, setLoadingText] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [stats, setStats] = useState<WorkerStats>({ jobsCompleted: 0, tokensGenerated: 0, solEarned: 0, uptime: 0 });
+  const [lifetimeStats, setLifetimeStats] = useState<{ totalJobs: number; totalTokens: number; totalEarningPoints: number } | null>(null);
+  const [earnings, setEarnings] = useState<{
+    pendingBalance: number;
+    todayEarnings: number;
+    totalEarnings: number;
+    dailyCap: number;
+    wallet: string | null;
+  } | null>(null);
+  const [walletInput, setWalletInput] = useState('');
+  const [claimLoading, setClaimLoading] = useState(false);
+  const [walletSaving, setWalletSaving] = useState(false);
+  const [editingWallet, setEditingWallet] = useState(false);
+  const [earningsError, setEarningsError] = useState<string | null>(null);
   const [workerId, setWorkerId] = useState<string | null>(null);
   const [benchmarkTokPerSec, setBenchmarkTokPerSec] = useState<number>(0);
   const [currentJobId, setCurrentJobId] = useState<string | null>(null);
@@ -250,8 +407,6 @@ export default function WorkerPage() {
             // Estimate VRAM from maxBufferSize (rough approximation)
             // maxBufferSize is typically ~25% of total VRAM
             const maxBufferSize = adapter.limits?.maxBufferSize || 0;
-            console.log(`[Worker] Raw maxBufferSize: ${maxBufferSize} bytes (${(maxBufferSize / (1024*1024*1024)).toFixed(2)} GB)`);
-            console.log(`[Worker] maxStorageBufferBindingSize: ${adapter.limits?.maxStorageBufferBindingSize}`);
             const estimatedVRAM = Math.round((maxBufferSize / (1024 * 1024 * 1024)) * 4 * 10) / 10; // Convert to GB and multiply by ~4
             
             // Clamp to reasonable values (1GB - 24GB)
@@ -266,7 +421,6 @@ export default function WorkerPage() {
               setRecommendedModel(compatible[0].id);
             }
             
-            console.log('[Worker] Detected VRAM:', clampedVRAM, 'GB', 'GPU:', info?.device, 'Vendor:', info?.vendor, 'Arch:', info?.architecture);
           } else {
             setWebGPUSupported(false);
           }
@@ -289,14 +443,6 @@ export default function WorkerPage() {
         const target = recommendedModel || AVAILABLE_MODELS.find(m => canRunModel(m.vramRequired, detectedVRAM))?.id;
         if (target) {
           setSelectedModel(target);
-          console.log('[Worker] Auto-switched to compatible model:', target);
-        }
-      } else if (recommendedModel && recommendedModel !== selectedModel && currentModel?.quality !== undefined) {
-        // If recommended model is better quality and we haven't manually changed, auto-select it
-        const recModel = AVAILABLE_MODELS.find(m => m.id === recommendedModel);
-        if (recModel && recModel.quality > (currentModel?.quality || 0)) {
-          setSelectedModel(recommendedModel);
-          console.log('[Worker] Auto-selected recommended model:', recommendedModel);
         }
       }
     }
@@ -369,7 +515,6 @@ export default function WorkerPage() {
           // Safety scan on accumulated output
           const safetyResult = scanOutput(fullResponse);
           if (!safetyResult.safe) {
-            console.log('[Worker] Safety filter triggered, aborting job', jobId);
             sendToken(jobId, BLOCKED_MESSAGE);
             completeJob(jobId, BLOCKED_MESSAGE, tokensGenerated);
             setStats(prev => ({ ...prev, jobsCompleted: prev.jobsCompleted + 1 }));
@@ -409,7 +554,6 @@ export default function WorkerPage() {
   // Register job handler (only once, uses ref to always get latest processJob)
   useEffect(() => {
     setOnNewJob((jobId: string, messages?: ChatMessage[]) => {
-      console.log(`[Worker] Received job:new event for ${jobId}`);
       if (processJobRef.current) {
         processJobRef.current(jobId, messages);
       } else {
@@ -426,7 +570,6 @@ export default function WorkerPage() {
   // Handle job cancellation (user disconnected mid-inference)
   useEffect(() => {
     setOnJobCancel((jobId: string) => {
-      console.log(`[Worker] Job ${jobId} cancelled by orchestrator`);
       if (engineRef.current && typeof (engineRef.current as any).interruptGenerate === 'function') {
         try {
           (engineRef.current as any).interruptGenerate();
@@ -485,8 +628,6 @@ export default function WorkerPage() {
         const modelUrl = customModelConfig.url;
         const wasmUrl = `${modelUrl}/${customModelConfig.wasm}`;
         
-        console.log('[Worker] Loading custom model from:', modelUrl);
-        console.log('[Worker] WASM URL:', wasmUrl);
         
         engine = await CreateMLCEngine(selectedModel, {
           initProgressCallback: progressCallback,
@@ -533,7 +674,6 @@ export default function WorkerPage() {
         if (benchTokens > 0 && benchMs > 0) {
           tokPerSec = (benchTokens / benchMs) * 1000;
         }
-        console.log(`[Worker] Benchmark: ${tokPerSec.toFixed(1)} tok/s (${benchTokens} tokens in ${Math.round(benchMs)}ms)`);
         setBenchmarkTokPerSec(tokPerSec);
         
         // Reset chat context after benchmark
@@ -559,7 +699,6 @@ export default function WorkerPage() {
         setStatus('ready');
         setLoadingText('');
         setStats(prev => ({ ...prev, uptime: 0 }));
-        console.log(`[Worker] Registered as ${id} (${tokPerSec.toFixed(1)} tok/s)`);
       } catch (regErr) {
         console.error('Failed to register with orchestrator:', regErr);
         setError(regErr instanceof Error ? regErr.message : 'Failed to register with orchestrator');
@@ -574,7 +713,6 @@ export default function WorkerPage() {
 
   // Stop worker
   const stopWorker = useCallback(async () => {
-    console.log('[Worker] Stopping worker...');
     
     // Update status ref immediately
     statusRef.current = 'offline';
@@ -586,9 +724,7 @@ export default function WorkerPage() {
     
     if (engineRef.current) {
       try {
-        console.log('[Worker] Unloading engine...');
         await engineRef.current.unload();
-        console.log('[Worker] Engine unloaded');
       } catch (err) {
         console.error('[Worker] Error unloading engine:', err);
       }
@@ -602,12 +738,10 @@ export default function WorkerPage() {
     
     setStatus('offline');
     setStats({ jobsCompleted: 0, tokensGenerated: 0, solEarned: 0, uptime: 0 });
-    console.log('[Worker] Worker stopped');
   }, [workerId, unregisterWorker]);
 
   // Force reset - nuclear option to clear everything
   const forceReset = useCallback(async () => {
-    console.log('[Worker] FORCE RESET - Clearing everything...');
     
     // Stop any running processes
     setStatus('offline');
@@ -647,7 +781,6 @@ export default function WorkerPage() {
       uptimeInterval.current = null;
     }
     
-    console.log('[Worker] FORCE RESET complete - all cleared');
     
     // Suggest page refresh for complete cleanup
     alert('Force reset complete! For best results, also refresh the page (F5) to clear GPU memory.');
@@ -656,7 +789,6 @@ export default function WorkerPage() {
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      console.log('[Worker] Component unmounting, cleaning up...');
       if (engineRef.current) {
         engineRef.current.unload().catch((err: unknown) => {
           console.error('[Worker] Error unloading engine on unmount:', err);
@@ -685,7 +817,6 @@ export default function WorkerPage() {
       });
 
       const content = response.choices[0]?.message?.content || '';
-      console.log('Test response:', content);
       
       const tokensGenerated = content.split(' ').length;
       const tierMultiplier = modelConfig?.tier === 'premium' ? 2 : modelConfig?.tier === 'standard' ? 1 : 0.5;
@@ -741,7 +872,7 @@ export default function WorkerPage() {
   if (!authLoading && !isAuthenticated) {
     return (
       <div className="h-screen bg-black flex items-center justify-center">
-        <div className="text-center border border-white/10 bg-white/[0.02] p-8 max-w-md mx-4">
+        <div className="text-center border border-white/10 bg-white/[0.02] rounded-2xl p-8 max-w-md mx-4">
           <div className="pixel-serif text-[#80a0c1] text-4xl mb-4">⬡</div>
           <h1 className="pixel-serif text-white text-2xl mb-3">Login Required</h1>
           <p className="pixel-sans text-white/50 text-sm mb-6">
@@ -749,7 +880,7 @@ export default function WorkerPage() {
           </p>
           <button
             onClick={() => login()}
-            className="pixel-sans text-sm px-8 py-3 border border-[#80a0c1]/50 text-[#80a0c1] hover:bg-[#80a0c1]/10 transition-colors"
+            className="pixel-sans text-sm px-8 py-3 rounded-xl border border-[#80a0c1]/50 text-[#80a0c1] hover:bg-[#80a0c1]/10 transition-colors"
           >
             Login with Privy
           </button>
@@ -768,7 +899,7 @@ export default function WorkerPage() {
       {/* Header */}
       <header className="fixed top-0 left-0 right-0 z-50 py-4">
         <div className="max-w-6xl mx-auto px-4 md:px-6">
-          <nav className="bg-black/80 backdrop-blur-sm border border-white/10 px-4 md:px-6 py-3 flex items-center justify-between">
+          <nav className="bg-black/80 backdrop-blur-sm border border-white/10 rounded-2xl px-4 md:px-6 py-3 flex items-center justify-between">
             <div className="flex-1">
               <a href="/" className="pixel-serif-logo text-white text-lg md:text-xl font-bold flex items-center">
                 C<span className="pixel-serif-logo" style={{ fontSize: '1.8em', display: 'inline-block', verticalAlign: 'baseline', lineHeight: '1', marginTop: '-0.3em' }}>0</span>MPUTE
@@ -804,7 +935,11 @@ export default function WorkerPage() {
               </div>
               {networkStats && isConnected && (
                 <p className="pixel-sans text-white/40 text-sm mt-1">
-                  {networkStats.workersOnline} workers online · {networkStats.jobsInQueue} jobs in queue
+                  {networkStats.workersOnline} workers online
+                  {((networkStats as any).browserWorkers > 0 || (networkStats as any).nativeWorkers > 0) && (
+                    <span className="text-white/30"> ({(networkStats as any).browserWorkers || 0} browser · {(networkStats as any).nativeWorkers || 0} native)</span>
+                  )}
+                  {' '}· {networkStats.jobsInQueue} in queue
                 </p>
               )}
             </div>
@@ -812,7 +947,7 @@ export default function WorkerPage() {
 
           {/* WebGPU Check */}
           {webGPUSupported === false && (
-            <div className="border border-red-500/30 bg-red-500/10 p-4 mb-6">
+            <div className="border border-red-500/30 bg-red-500/10 rounded-lg p-4 mb-6">
               <p className="pixel-sans text-red-400 text-sm">
                 WebGPU is not supported in your browser. Please use Chrome or Edge for the best experience.
               </p>
@@ -822,18 +957,26 @@ export default function WorkerPage() {
           {/* Main Grid */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-8">
             {/* Status Card */}
-            <div className="md:col-span-2 border border-white/10 bg-white/[0.02] p-8">
+            <div className="md:col-span-2 border border-white/10 bg-white/[0.02] rounded-2xl p-8">
               <div className="flex items-center justify-between mb-8">
-                <h2 className="pixel-serif text-white text-2xl">Status</h2>
-                <span className={`pixel-sans text-sm flex items-center gap-2 ${getStatusColor()}`}>
-                  <span className="w-2 h-2 rounded-full bg-current" />
-                  {getStatusText()}
+                <div className="flex items-center gap-3">
+                  <h2 className="pixel-serif text-white text-2xl">Status</h2>
+                  {nativeStatus?.online && (
+                    <span className="pixel-sans text-xs px-2 py-1 rounded-md bg-amber-500/15 text-amber-400 border border-amber-500/30 flex items-center gap-1.5">
+                      <svg className="w-3 h-3" viewBox="0 0 24 24" fill="currentColor"><path d="M13 2L3 14h8l-1 8 10-12h-8l1-8z" /></svg>
+                      Native
+                    </span>
+                  )}
+                </div>
+                <span className={`pixel-sans text-sm flex items-center gap-2 ${nativeStatus?.online ? (nativeStatus.currentJob ? 'text-amber-400' : 'text-green-400') : getStatusColor()}`}>
+                  <span className={`w-2 h-2 rounded-full bg-current ${nativeStatus?.online && nativeStatus.currentJob ? 'animate-pulse' : ''}`} />
+                  {nativeStatus?.online ? (nativeStatus.currentJob ? 'Processing' : 'Ready') : getStatusText()}
                 </span>
               </div>
 
               {/* Worker ID */}
               {workerId && (
-                <div className="mb-4 p-2 bg-white/[0.02] border border-white/5">
+                <div className="mb-4 p-2 bg-white/[0.02] border border-white/5 rounded-lg">
                   <span className="pixel-sans text-white/50 text-xs">Worker ID: </span>
                   <span className="pixel-sans text-white/70 text-xs font-mono">{workerId.slice(0, 8)}...</span>
                 </div>
@@ -841,7 +984,7 @@ export default function WorkerPage() {
 
               {/* Current Job */}
               {currentJobId && (
-                <div className="mb-4 p-2 bg-[#80a0c1]/10 border border-[#80a0c1]/25">
+                <div className="mb-4 p-2 bg-[#80a0c1]/10 border border-[#80a0c1]/25 rounded-lg">
                   <span className="pixel-sans text-[#80a0c1] text-xs">Processing job: </span>
                   <span className="pixel-sans text-[#80a0c1]/70 text-xs font-mono">{currentJobId.slice(0, 8)}...</span>
                 </div>
@@ -854,9 +997,9 @@ export default function WorkerPage() {
                     <span className="pixel-sans text-white/50 text-xs">{loadingText}</span>
                     <span className="pixel-sans text-[#80a0c1] text-xs">{Math.round(loadProgress * 100)}%</span>
                   </div>
-                  <div className="h-1.5 bg-white/10 overflow-hidden">
+                  <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
                     <div 
-                      className="h-full transition-all duration-300"
+                      className="h-full rounded-full transition-all duration-300"
                       style={{ width: `${loadProgress * 100}%`, backgroundColor: '#80a0c1' }}
                     />
                   </div>
@@ -865,48 +1008,201 @@ export default function WorkerPage() {
 
               {/* Error message */}
               {error && (
-                <div className="mb-6 p-3 border border-red-500/30 bg-red-500/10">
+                <div className="mb-6 p-3 border border-red-500/30 bg-red-500/10 rounded-lg">
                   <p className="pixel-sans text-red-400 text-sm">{error}</p>
                 </div>
               )}
 
               {/* Stats */}
               <div className="grid grid-cols-4 gap-4">
-                <div className="flex flex-col items-center justify-center p-4 bg-white/[0.02] border border-white/5 min-h-[90px]">
+                <div className="flex flex-col items-center justify-center p-4 bg-white/[0.02] border border-white/5 rounded-xl min-h-[90px]">
                   <div className="pixel-serif text-white text-lg md:text-xl whitespace-nowrap">{stats.solEarned.toFixed(5)}</div>
                   <div className="pixel-sans text-white/50 text-xs mt-2"><span className="dollar">$</span>SOL</div>
                 </div>
-                <div className="flex flex-col items-center justify-center p-4 bg-white/[0.02] border border-white/5 min-h-[90px]">
+                <div className="flex flex-col items-center justify-center p-4 bg-white/[0.02] border border-white/5 rounded-xl min-h-[90px]">
                   <div className="pixel-serif text-white text-lg md:text-xl font-mono whitespace-nowrap">{formatUptime(stats.uptime)}</div>
                   <div className="pixel-sans text-white/50 text-xs mt-2">Uptime</div>
                 </div>
-                <div className="flex flex-col items-center justify-center p-4 bg-white/[0.02] border border-white/5 min-h-[90px]">
-                  <div className="pixel-serif text-white text-2xl md:text-3xl">{stats.jobsCompleted}</div>
+                <div className="flex flex-col items-center justify-center p-4 bg-white/[0.02] border border-white/5 rounded-xl min-h-[90px]">
+                  <div className="pixel-serif text-white text-2xl md:text-3xl">{nativeStatus?.online ? nativeStatus.jobsCompleted : stats.jobsCompleted}</div>
                   <div className="pixel-sans text-white/50 text-xs mt-2">Jobs</div>
                 </div>
-                <div className="flex flex-col items-center justify-center p-4 bg-white/[0.02] border border-white/5 min-h-[90px]">
-                  <div className="pixel-serif text-white text-2xl md:text-3xl">{benchmarkTokPerSec > 0 ? benchmarkTokPerSec.toFixed(1) : '—'}</div>
+                <div className="flex flex-col items-center justify-center p-4 bg-white/[0.02] border border-white/5 rounded-xl min-h-[90px]">
+                  <div className="pixel-serif text-white text-2xl md:text-3xl">{nativeStatus?.online ? nativeStatus.tokPerSec.toFixed(1) : benchmarkTokPerSec > 0 ? benchmarkTokPerSec.toFixed(1) : '—'}</div>
                   <div className="pixel-sans text-white/50 text-xs mt-2">tok/s</div>
                 </div>
               </div>
 
-              {/* Claim Button */}
-              <div className="grid grid-cols-4 gap-4 mt-4">
-                <button
-                  disabled={stats.solEarned <= 0}
-                  className="pixel-serif py-3 bg-white text-black hover:bg-white/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  Claim <span className="dollar">$</span>SOL
-                </button>
+              {/* Lifetime Stats */}
+              {lifetimeStats && lifetimeStats.totalJobs > 0 && (
+                <div className="mt-4 pt-4 border-t border-white/5">
+                  <div className="pixel-sans text-white/30 text-xs mb-3 uppercase tracking-wider">All Time</div>
+                  <div className="grid grid-cols-3 gap-4">
+                    <div className="text-center">
+                      <div className="pixel-serif text-white/70 text-lg">{lifetimeStats.totalJobs}</div>
+                      <div className="pixel-sans text-white/30 text-[11px]">Jobs</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="pixel-serif text-white/70 text-lg">{lifetimeStats.totalTokens.toLocaleString()}</div>
+                      <div className="pixel-sans text-white/30 text-[11px]">Tokens</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="pixel-serif text-white/70 text-lg">{lifetimeStats.totalEarningPoints.toLocaleString()}</div>
+                      <div className="pixel-sans text-white/30 text-[11px]">Points</div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Earnings Section */}
+              <div className="mt-4 pt-4 border-t border-white/5">
+                {earnings && !earnings.wallet && !editingWallet ? (
+                  <div>
+                    <p className="pixel-sans text-white/50 text-sm mb-3">Set your SOL wallet to start earning</p>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={walletInput}
+                        onChange={e => setWalletInput(e.target.value)}
+                        placeholder="Solana wallet address"
+                        className="flex-1 px-4 py-2.5 rounded-xl bg-white/[0.04] border border-white/10 text-white pixel-sans text-sm placeholder:text-white/20 focus:outline-none focus:border-[#80a0c1]/40"
+                      />
+                      <button
+                        disabled={walletSaving || !/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(walletInput)}
+                        onClick={async () => {
+                          setWalletSaving(true);
+                          setEarningsError(null);
+                          try {
+                            const t = await getAccessToken();
+                            const res = await fetch('/api/worker-wallet', {
+                              method: 'POST',
+                              headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ walletAddress: walletInput }),
+                            });
+                            if (res.ok) {
+                              setEarnings(prev => prev ? { ...prev, wallet: walletInput } : prev);
+                              setWalletInput('');
+                            } else {
+                              const d = await res.json();
+                              setEarningsError(d.error || 'Failed to save wallet');
+                            }
+                          } catch { setEarningsError('Failed to save wallet'); }
+                          finally { setWalletSaving(false); }
+                        }}
+                        className="px-5 py-2.5 rounded-xl bg-white text-black pixel-sans text-sm hover:bg-white/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {walletSaving ? '...' : 'Save'}
+                      </button>
+                    </div>
+                    {earningsError && <p className="pixel-sans text-red-400 text-xs mt-2">{earningsError}</p>}
+                  </div>
+                ) : earnings ? (
+                  <div>
+                    <div className="grid grid-cols-3 gap-4 mb-4">
+                      <div className="text-center p-3 bg-white/[0.02] border border-white/5 rounded-xl">
+                        <div className="pixel-serif text-green-400 text-xl">${earnings.pendingBalance.toFixed(2)}</div>
+                        <div className="pixel-sans text-white/40 text-[11px] mt-1">Pending</div>
+                      </div>
+                      <div className="text-center p-3 bg-white/[0.02] border border-white/5 rounded-xl">
+                        <div className="pixel-serif text-white/70 text-lg">${earnings.todayEarnings.toFixed(2)} <span className="text-white/30 text-sm">/ ${earnings.dailyCap}</span></div>
+                        <div className="pixel-sans text-white/40 text-[11px] mt-1">Today</div>
+                      </div>
+                      <div className="text-center p-3 bg-white/[0.02] border border-white/5 rounded-xl">
+                        <div className="pixel-serif text-white/70 text-lg">${earnings.totalEarnings.toFixed(2)}</div>
+                        <div className="pixel-sans text-white/40 text-[11px] mt-1">All Time</div>
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <button
+                          disabled={claimLoading || earnings.pendingBalance < 1.0}
+                          onClick={async () => {
+                            setClaimLoading(true);
+                            setEarningsError(null);
+                            try {
+                              const t = await getAccessToken();
+                              const res = await fetch('/api/worker-earnings', {
+                                method: 'POST',
+                                headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ action: 'claim' }),
+                              });
+                              const d = await res.json();
+                              if (res.ok) {
+                                setEarnings(prev => prev ? { ...prev, pendingBalance: 0 } : prev);
+                              } else {
+                                setEarningsError(d.error || 'Claim failed');
+                              }
+                            } catch { setEarningsError('Claim failed'); }
+                            finally { setClaimLoading(false); }
+                          }}
+                          className="pixel-serif px-6 py-2.5 rounded-xl bg-white text-black hover:bg-white/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+                        >
+                          {claimLoading ? 'Claiming...' : 'Claim'} <span className="dollar">$</span>SOL
+                        </button>
+                        {earnings.pendingBalance < 1.0 && earnings.pendingBalance > 0 && (
+                          <span className="pixel-sans text-white/30 text-xs">Min $1.00</span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="pixel-sans text-white/30 text-xs font-mono">
+                          {earnings.wallet ? `${earnings.wallet.slice(0, 4)}...${earnings.wallet.slice(-4)}` : ''}
+                        </span>
+                        <button
+                          onClick={() => { setEditingWallet(true); setWalletInput(earnings.wallet || ''); }}
+                          className="pixel-sans text-white/20 text-xs hover:text-white/40 transition-colors"
+                        >
+                          Change
+                        </button>
+                      </div>
+                    </div>
+                    {earningsError && <p className="pixel-sans text-red-400 text-xs mt-2">{earningsError}</p>}
+                    {editingWallet && (
+                      <div className="flex gap-2 mt-3">
+                        <input
+                          type="text"
+                          value={walletInput}
+                          onChange={e => setWalletInput(e.target.value)}
+                          placeholder="New wallet address"
+                          className="flex-1 px-3 py-2 rounded-lg bg-white/[0.04] border border-white/10 text-white pixel-sans text-xs placeholder:text-white/20 focus:outline-none focus:border-[#80a0c1]/40"
+                        />
+                        <button
+                          disabled={walletSaving || !/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(walletInput)}
+                          onClick={async () => {
+                            setWalletSaving(true);
+                            try {
+                              const t = await getAccessToken();
+                              const res = await fetch('/api/worker-wallet', {
+                                method: 'POST',
+                                headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ walletAddress: walletInput }),
+                              });
+                              if (res.ok) {
+                                setEarnings(prev => prev ? { ...prev, wallet: walletInput } : prev);
+                                setEditingWallet(false);
+                                setWalletInput('');
+                              }
+                            } catch {}
+                            finally { setWalletSaving(false); }
+                          }}
+                          className="px-4 py-2 rounded-lg bg-white text-black pixel-sans text-xs disabled:opacity-50"
+                        >
+                          Save
+                        </button>
+                        <button onClick={() => { setEditingWallet(false); setWalletInput(''); }} className="pixel-sans text-white/30 text-xs px-2">Cancel</button>
+                      </div>
+                    )}
+                  </div>
+                ) : null}
               </div>
             </div>
 
             {/* Network Graph Card */}
-            <div className="border border-white/10 bg-white/[0.02] p-6">
+            <div className="border border-white/10 bg-white/[0.02] rounded-2xl p-6">
               <h3 className="pixel-sans text-white/50 text-sm mb-3">Network</h3>
               <div className="h-44">
                 <NetworkGraph 
-                  workersOnline={networkStats?.workersOnline || 0} 
+                  workersOnline={networkStats?.workersOnline || 0}
+                  nativeWorkers={(networkStats as any)?.nativeWorkers || 0}
                   isWorkerActive={status === 'ready' || status === 'working'}
                 />
               </div>
@@ -914,7 +1210,7 @@ export default function WorkerPage() {
           </div>
 
           {/* Model Selection */}
-          <div className="border border-white/10 bg-white/[0.02] p-8 mb-8">
+          <div className="border border-white/10 bg-white/[0.02] rounded-2xl p-8 mb-8">
             <div className="flex items-center justify-between mb-6">
               <h2 className="pixel-serif text-white text-2xl">Model Selection</h2>
               {/* GPU Info */}
@@ -925,7 +1221,7 @@ export default function WorkerPage() {
                   </span>
                 )}
                 <span className="text-white/50">VRAM:</span>
-                <span className={`px-3 py-1.5 border ${
+                <span className={`px-3 py-1.5 rounded-lg border ${
                   detectedVRAM === null 
                     ? 'bg-white/5 text-white/50 border-white/10'
                     : 'bg-[#80a0c1]/15 text-[#80a0c1] border-[#80a0c1]/30'
@@ -943,7 +1239,7 @@ export default function WorkerPage() {
                 return (
                 <label
                   key={model.id}
-                  className={`flex items-center justify-between p-5 border transition-colors ${
+                  className={`flex items-center justify-between p-5 border rounded-xl transition-colors ${
                     !modelAvailable 
                       ? 'opacity-40 cursor-not-allowed border-white/5'
                       : selectedModel === model.id 
@@ -962,14 +1258,14 @@ export default function WorkerPage() {
                       className="sr-only"
                     />
                     <div 
-                      className={`w-5 h-5 border transition-colors ${
+                      className={`w-5 h-5 rounded-full border transition-colors ${
                         !modelAvailable ? 'border-white/10' :
                         selectedModel === model.id ? 'border-[#80a0c1] bg-[#80a0c1]' : 'border-white/30'
                       }`}
                     >
                       {selectedModel === model.id && modelAvailable && (
                         <div className="w-full h-full flex items-center justify-center">
-                          <div className="w-2.5 h-2.5 bg-black" />
+                          <div className="w-2.5 h-2.5 rounded-full bg-black" />
                         </div>
                       )}
                     </div>
@@ -977,7 +1273,7 @@ export default function WorkerPage() {
                       <div className="pixel-sans text-white text-base flex items-center gap-3">
                         {model.name}
                         {model.tier === 'premium' && (
-                          <span className={`text-xs px-2 py-0.5 border ${
+                          <span className={`text-xs px-2 py-0.5 rounded-md border ${
                             !modelAvailable 
                               ? 'bg-white/5 text-white/30 border-white/10'
                               : selectedModel === model.id
@@ -988,12 +1284,12 @@ export default function WorkerPage() {
                           </span>
                         )}
                         {recommendedModel === model.id && modelAvailable && (
-                          <span className="text-xs px-2 py-0.5 bg-green-500/15 text-green-400 border border-green-500/30">
+                          <span className="text-xs px-2 py-0.5 rounded-md bg-green-500/15 text-green-400 border border-green-500/30">
                             Recommended
                           </span>
                         )}
                         {!modelAvailable && (
-                          <span className="text-xs px-2 py-0.5 bg-red-500/20 text-red-400 border border-red-500/30">
+                          <span className="text-xs px-2 py-0.5 rounded-md bg-red-500/20 text-red-400 border border-red-500/30">
                             Requires {model.vramRequired}GB VRAM
                           </span>
                         )}
@@ -1010,33 +1306,36 @@ export default function WorkerPage() {
             </div>
           </div>
 
+          {/* Native Worker Section */}
+          <NativeWorkerSection getAccessToken={getAccessToken} />
+
           {/* Controls */}
           <div className="flex gap-4">
             {status === 'offline' ? (
               <button
                 onClick={initializeEngine}
-                disabled={!webGPUSupported || !isConnected}
-                className="flex-1 pixel-serif text-lg py-5 bg-white text-black hover:bg-white/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={!webGPUSupported || !isConnected || !!nativeStatus?.online}
+                className="flex-1 pixel-serif text-lg py-5 rounded-xl bg-white text-black hover:bg-white/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {!isConnected ? 'Waiting for connection...' : 'Start Worker'}
+                {nativeStatus?.online ? 'Native Worker Running' : !isConnected ? 'Waiting for connection...' : 'Start Worker'}
               </button>
             ) : status === 'ready' ? (
               <>
                 <button
                   onClick={stopWorker}
-                  className="flex-1 pixel-sans py-4 border border-white/20 text-white hover:bg-white/5 transition-colors"
+                  className="flex-1 pixel-sans py-4 rounded-xl border border-white/20 text-white hover:bg-white/5 transition-colors"
                 >
                   Stop Worker
                 </button>
                 <button
                   onClick={testInference}
-                  className="px-8 pixel-sans py-4 border border-white/10 text-white/50 hover:bg-white/5 hover:text-white/70 transition-colors"
+                  className="px-8 pixel-sans py-4 rounded-xl border border-white/10 text-white/50 hover:bg-white/5 hover:text-white/70 transition-colors"
                 >
                   Test
                 </button>
                 <button
                   onClick={forceReset}
-                  className="px-6 pixel-sans py-4 border border-red-500/20 text-red-400/70 hover:bg-red-500/10 hover:text-red-400 transition-colors"
+                  className="px-6 pixel-sans py-4 rounded-xl border border-red-500/20 text-red-400/70 hover:bg-red-500/10 hover:text-red-400 transition-colors"
                   title="Force clear engine and all state"
                 >
                   Reset
@@ -1046,13 +1345,13 @@ export default function WorkerPage() {
               <div className="flex gap-4 w-full">
                 <button
                   onClick={() => { setStatus('offline'); setError(null); }}
-                  className="flex-1 pixel-sans py-4 border border-white/20 text-white hover:bg-white/5 transition-colors"
+                  className="flex-1 pixel-sans py-4 rounded-xl border border-white/20 text-white hover:bg-white/5 transition-colors"
                 >
                   Try Again
                 </button>
                 <button
                   onClick={forceReset}
-                  className="px-6 pixel-sans py-4 border border-red-500/20 text-red-400/70 hover:bg-red-500/10 transition-colors"
+                  className="px-6 pixel-sans py-4 rounded-xl border border-red-500/20 text-red-400/70 hover:bg-red-500/10 transition-colors"
                 >
                   Force Reset
                 </button>
@@ -1060,7 +1359,7 @@ export default function WorkerPage() {
             ) : (
               <button
                 disabled
-                className="flex-1 pixel-sans text-lg py-5 bg-white/20 text-white/70 cursor-not-allowed"
+                className="flex-1 pixel-sans text-lg py-5 rounded-xl bg-white/20 text-white/70 cursor-not-allowed"
               >
                 {status === 'downloading' ? 'Downloading Model...' : 
                  status === 'initializing' ? 'Initializing...' :
@@ -1071,7 +1370,7 @@ export default function WorkerPage() {
           </div>
 
           {/* Info */}
-          <div className="mt-10 p-6 border border-white/5 bg-white/[0.01]">
+          <div className="mt-10 p-6 border border-white/5 bg-white/[0.01] rounded-xl">
             <p className="pixel-sans text-white/30 text-sm leading-relaxed">
               <strong className="text-white/50">How it works:</strong> When you start the worker, 
               the selected model will be downloaded to your browser (cached for future use). 

@@ -111,3 +111,323 @@ export function incrementPromptsSent(privyId: string) {
     'UPDATE profiles SET prompts_sent = prompts_sent + 1, updated_at = ? WHERE privy_id = ?'
   ).run(new Date().toISOString(), privyId);
 }
+
+// ── Worker Stats ──
+
+function ensureWorkerStatsTable() {
+  const db = getDb();
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS worker_stats (
+      privy_id TEXT PRIMARY KEY,
+      total_jobs INTEGER DEFAULT 0,
+      total_tokens INTEGER DEFAULT 0,
+      total_earning_points REAL DEFAULT 0,
+      total_sol_paid TEXT DEFAULT '0',
+      last_active_at TEXT,
+      created_at TEXT NOT NULL
+    );
+  `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS completed_jobs (
+      id TEXT PRIMARY KEY,
+      worker_privy_id TEXT NOT NULL,
+      user_privy_id TEXT,
+      model TEXT,
+      tier TEXT,
+      tokens_generated INTEGER NOT NULL,
+      duration_ms INTEGER,
+      earning_points REAL NOT NULL,
+      completed_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_completed_jobs_worker ON completed_jobs(worker_privy_id);
+    CREATE INDEX IF NOT EXISTS idx_completed_jobs_date ON completed_jobs(completed_at);
+  `);
+}
+
+export function recordCompletedJob(data: {
+  jobId: string;
+  workerPrivyId: string;
+  userPrivyId?: string;
+  model?: string;
+  tier: string;
+  tokensGenerated: number;
+  durationMs?: number;
+}) {
+  ensureWorkerStatsTable();
+  const db = getDb();
+  const now = new Date().toISOString();
+
+  // Earning points: tokens * tier multiplier
+  const tierMultiplier = data.tier === 'max' ? 5 : data.tier === 'pro' ? 2 : 1;
+  const earningPoints = data.tokensGenerated * tierMultiplier;
+
+  db.prepare(`
+    INSERT INTO completed_jobs (id, worker_privy_id, user_privy_id, model, tier, tokens_generated, duration_ms, earning_points, completed_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(data.jobId, data.workerPrivyId, data.userPrivyId || null, data.model || null, data.tier, data.tokensGenerated, data.durationMs || null, earningPoints, now);
+
+  // Upsert worker stats
+  db.prepare(`
+    INSERT INTO worker_stats (privy_id, total_jobs, total_tokens, total_earning_points, last_active_at, created_at)
+    VALUES (?, 1, ?, ?, ?, ?)
+    ON CONFLICT(privy_id) DO UPDATE SET
+      total_jobs = total_jobs + 1,
+      total_tokens = total_tokens + ?,
+      total_earning_points = total_earning_points + ?,
+      last_active_at = ?
+  `).run(data.workerPrivyId, data.tokensGenerated, earningPoints, now, now, data.tokensGenerated, earningPoints, now);
+}
+
+export function getWorkerStats(privyId: string): { totalJobs: number; totalTokens: number; totalEarningPoints: number; totalSolPaid: string; lastActiveAt: string | null } | null {
+  ensureWorkerStatsTable();
+  const db = getDb();
+  const row = db.prepare('SELECT * FROM worker_stats WHERE privy_id = ?').get(privyId) as any;
+  if (!row) return null;
+  return {
+    totalJobs: row.total_jobs,
+    totalTokens: row.total_tokens,
+    totalEarningPoints: row.total_earning_points,
+    totalSolPaid: row.total_sol_paid,
+    lastActiveAt: row.last_active_at,
+  };
+}
+
+export function getWorkerJobHistory(privyId: string, limit = 50): any[] {
+  ensureWorkerStatsTable();
+  const db = getDb();
+  return db.prepare('SELECT * FROM completed_jobs WHERE worker_privy_id = ? ORDER BY completed_at DESC LIMIT ?').all(privyId, limit);
+}
+
+export function getNetworkStats(): { totalJobs: number; totalTokens: number; totalWorkers: number } {
+  ensureWorkerStatsTable();
+  const db = getDb();
+  const row = db.prepare('SELECT COALESCE(SUM(total_jobs),0) as tj, COALESCE(SUM(total_tokens),0) as tt, COUNT(*) as tw FROM worker_stats').get() as any;
+  return { totalJobs: row.tj, totalTokens: row.tt, totalWorkers: row.tw };
+}
+
+// ── Worker Earnings & Payouts ──
+
+function ensureEarningsTables() {
+  const db = getDb();
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS worker_earnings (
+      id TEXT PRIMARY KEY,
+      privy_id TEXT NOT NULL,
+      job_id TEXT NOT NULL UNIQUE,
+      tier TEXT NOT NULL,
+      tokens INTEGER NOT NULL,
+      earning_usd REAL NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_worker_earnings_privy ON worker_earnings(privy_id);
+    CREATE INDEX IF NOT EXISTS idx_worker_earnings_date ON worker_earnings(created_at);
+
+    CREATE TABLE IF NOT EXISTS worker_payouts (
+      id TEXT PRIMARY KEY,
+      privy_id TEXT NOT NULL,
+      amount_usd REAL NOT NULL,
+      amount_sol REAL,
+      sol_price_usd REAL,
+      wallet_address TEXT,
+      status TEXT DEFAULT 'pending_transfer',
+      tx_hash TEXT,
+      created_at TEXT NOT NULL,
+      completed_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS worker_wallets (
+      privy_id TEXT PRIMARY KEY,
+      wallet_address TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `);
+}
+
+const DAILY_CAPS: Record<string, number> = { free: 20, pro: 50, max: 100 };
+
+export function recordEarning(data: {
+  privyId: string;
+  jobId: string;
+  tier: 'free' | 'pro' | 'max';
+  tokensGenerated: number;
+}): number {
+  ensureEarningsTables();
+  const db = getDb();
+  const cap = DAILY_CAPS[data.tier] || 20;
+  const todayEarnings = getTodayEarnings(data.privyId);
+  if (todayEarnings >= cap) return 0;
+
+  let earning = data.tokensGenerated * 0.01;
+  const remaining = cap - todayEarnings;
+  if (earning > remaining) earning = remaining;
+
+  const id = crypto.randomUUID();
+  const now = new Date().toISOString();
+  db.prepare(
+    'INSERT INTO worker_earnings (id, privy_id, job_id, tier, tokens, earning_usd, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).run(id, data.privyId, data.jobId, data.tier, data.tokensGenerated, earning, now);
+  return earning;
+}
+
+export function getTodayEarnings(privyId: string): number {
+  ensureEarningsTables();
+  const db = getDb();
+  const todayMidnight = new Date();
+  todayMidnight.setUTCHours(0, 0, 0, 0);
+  const row = db.prepare(
+    'SELECT COALESCE(SUM(earning_usd), 0) as total FROM worker_earnings WHERE privy_id = ? AND created_at >= ?'
+  ).get(privyId, todayMidnight.toISOString()) as { total: number };
+  return row.total;
+}
+
+export function getPendingBalance(privyId: string): number {
+  ensureEarningsTables();
+  const db = getDb();
+  const earningsRow = db.prepare(
+    'SELECT COALESCE(SUM(earning_usd), 0) as total FROM worker_earnings WHERE privy_id = ?'
+  ).get(privyId) as { total: number };
+  const payoutsRow = db.prepare(
+    "SELECT COALESCE(SUM(amount_usd), 0) as total FROM worker_payouts WHERE privy_id = ? AND status IN ('pending_transfer', 'completed')"
+  ).get(privyId) as { total: number };
+  return Math.max(0, earningsRow.total - payoutsRow.total);
+}
+
+export function getTotalEarnings(privyId: string): number {
+  ensureEarningsTables();
+  const db = getDb();
+  const row = db.prepare(
+    'SELECT COALESCE(SUM(earning_usd), 0) as total FROM worker_earnings WHERE privy_id = ?'
+  ).get(privyId) as { total: number };
+  return row.total;
+}
+
+export function requestPayout(privyId: string): { payoutId: string; amountUsd: number } | null {
+  ensureEarningsTables();
+  const db = getDb();
+
+  // Use a transaction to prevent race conditions (double-claim)
+  const txn = db.transaction(() => {
+    const pending = getPendingBalance(privyId);
+    if (pending < 1.0) return null;
+    const wallet = getWorkerWallet(privyId);
+    if (!wallet) return null;
+
+    // Check no pending_transfer payout exists (prevent spam)
+    const existingPending = db.prepare(
+      "SELECT id FROM worker_payouts WHERE privy_id = ? AND status = 'pending_transfer'"
+    ).get(privyId);
+    if (existingPending) return null;
+
+    const id = crypto.randomUUID();
+    const now = new Date().toISOString();
+    db.prepare(
+      'INSERT INTO worker_payouts (id, privy_id, amount_usd, wallet_address, status, created_at) VALUES (?, ?, ?, ?, ?, ?)'
+    ).run(id, privyId, pending, wallet, 'pending_transfer', now);
+    return { payoutId: id, amountUsd: pending };
+  });
+
+  return txn();
+}
+
+export function getPayoutHistory(privyId: string, limit = 10): any[] {
+  ensureEarningsTables();
+  const db = getDb();
+  return db.prepare(
+    'SELECT * FROM worker_payouts WHERE privy_id = ? ORDER BY created_at DESC LIMIT ?'
+  ).all(privyId, limit);
+}
+
+export function setWorkerWallet(privyId: string, walletAddress: string): void {
+  ensureEarningsTables();
+  const db = getDb();
+  const now = new Date().toISOString();
+  db.prepare(
+    'INSERT INTO worker_wallets (privy_id, wallet_address, updated_at) VALUES (?, ?, ?) ON CONFLICT(privy_id) DO UPDATE SET wallet_address = ?, updated_at = ?'
+  ).run(privyId, walletAddress, now, walletAddress, now);
+}
+
+export function getWorkerWallet(privyId: string): string | null {
+  ensureEarningsTables();
+  const db = getDb();
+  const row = db.prepare(
+    'SELECT wallet_address FROM worker_wallets WHERE privy_id = ?'
+  ).get(privyId) as { wallet_address: string } | undefined;
+  return row?.wallet_address || null;
+}
+
+export function getRecentEarnings(privyId: string, limit = 20): any[] {
+  ensureEarningsTables();
+  const db = getDb();
+  return db.prepare(
+    'SELECT * FROM worker_earnings WHERE privy_id = ? ORDER BY created_at DESC LIMIT ?'
+  ).all(privyId, limit);
+}
+
+// ── Worker Tokens ──
+
+function ensureWorkerTokensTable() {
+  const db = getDb();
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS worker_tokens (
+      id TEXT PRIMARY KEY,
+      privy_id TEXT NOT NULL,
+      token_hash TEXT UNIQUE NOT NULL,
+      name TEXT DEFAULT 'default',
+      created_at TEXT NOT NULL,
+      last_used_at TEXT,
+      revoked INTEGER DEFAULT 0
+    );
+  `);
+}
+
+function hashToken(token: string): string {
+  const crypto = require('crypto');
+  return crypto.createHash('sha256').update(token).digest('hex');
+}
+
+function generateWorkerToken(): string {
+  const crypto = require('crypto');
+  return 'cwt_' + crypto.randomBytes(24).toString('base64url');
+}
+
+export function createWorkerToken(privyId: string, name?: string): string {
+  ensureWorkerTokensTable();
+  const db = getDb();
+  const token = generateWorkerToken();
+  const id = crypto.randomUUID();
+  const now = new Date().toISOString();
+  db.prepare(
+    'INSERT INTO worker_tokens (id, privy_id, token_hash, name, created_at) VALUES (?, ?, ?, ?, ?)'
+  ).run(id, privyId, hashToken(token), name || 'default', now);
+  return token;
+}
+
+export function verifyWorkerToken(token: string): string | null {
+  ensureWorkerTokensTable();
+  const db = getDb();
+  const hash = hashToken(token);
+  const row = db.prepare(
+    'SELECT privy_id FROM worker_tokens WHERE token_hash = ? AND revoked = 0'
+  ).get(hash) as { privy_id: string } | undefined;
+  if (!row) return null;
+  // Update last_used_at
+  db.prepare('UPDATE worker_tokens SET last_used_at = ? WHERE token_hash = ?').run(new Date().toISOString(), hash);
+  return row.privy_id;
+}
+
+export function getWorkerTokens(privyId: string): { id: string; name: string; created_at: string; last_used_at: string | null }[] {
+  ensureWorkerTokensTable();
+  const db = getDb();
+  return db.prepare(
+    'SELECT id, name, created_at, last_used_at FROM worker_tokens WHERE privy_id = ? AND revoked = 0 ORDER BY created_at DESC'
+  ).all(privyId) as any[];
+}
+
+export function revokeWorkerToken(tokenId: string, privyId: string): boolean {
+  ensureWorkerTokensTable();
+  const db = getDb();
+  const result = db.prepare(
+    'UPDATE worker_tokens SET revoked = 1 WHERE id = ? AND privy_id = ?'
+  ).run(tokenId, privyId);
+  return result.changes > 0;
+}

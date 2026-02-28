@@ -3,6 +3,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
+import ReactMarkdown, { Components } from 'react-markdown';
+import remarkBreaks from 'remark-breaks';
 import { useSocket } from '@/hooks/useSocket';
 import { Chat, Message, ChatWithMessages } from '@/lib/types';
 import { MAX_INPUT_CHARS } from '@/lib/orchestrator/types';
@@ -24,12 +26,90 @@ function parseSourcesFromContent(content: string): { cleanContent: string; sourc
   }
 }
 
+// Render inline citations [1], [2] etc. as superscript links
+function CitationText({ text, sources }: { text: string; sources: { title: string; url: string; description: string }[] }) {
+  if (sources.length === 0) return <>{text}</>;
+  const parts = text.split(/(\[\d+\])/g);
+  return (
+    <>
+      {parts.map((part, i) => {
+        const match = part.match(/^\[(\d+)\]$/);
+        if (match) {
+          const idx = parseInt(match[1], 10) - 1;
+          const source = sources[idx];
+          if (source) {
+            const domain = (() => { try { return new URL(source.url).hostname.replace('www.', ''); } catch { return ''; } })();
+            return (
+              <a key={i} href={source.url} target="_blank" rel="noopener noreferrer"
+                className="inline-flex items-center justify-center w-4 h-4 text-[10px] font-medium bg-white/10 hover:bg-white/20 text-white/60 hover:text-white rounded-full no-underline align-super ml-0.5 mr-0.5 transition-colors cursor-pointer"
+                title={`${source.title} — ${domain}`}>{match[1]}</a>
+            );
+          }
+        }
+        return <span key={i}>{part}</span>;
+      })}
+    </>
+  );
+}
+
+// Filter sources to only those cited in the content
+function getUsedSources(content: string, sources: { title: string; url: string; description: string }[]): { source: { title: string; url: string; description: string }; originalIndex: number }[] {
+  if (sources.length === 0) return [];
+  const used: { source: typeof sources[0]; originalIndex: number }[] = [];
+  sources.forEach((s, i) => {
+    if (content.includes(`[${i + 1}]`)) {
+      used.push({ source: s, originalIndex: i });
+    }
+  });
+  // If no inline citations found, show all (fallback for old messages)
+  if (used.length === 0) return sources.map((s, i) => ({ source: s, originalIndex: i }));
+  return used;
+}
+
+// Source strip shown above the response
+function SourceStrip({ sources, content }: { sources: { title: string; url: string; description: string }[]; content?: string }) {
+  if (sources.length === 0) return null;
+  const displayed = content ? getUsedSources(content, sources) : sources.map((s, i) => ({ source: s, originalIndex: i }));
+  if (displayed.length === 0) return null;
+  return (
+    <div className="mb-3 flex flex-wrap gap-1.5">
+      {displayed.map(({ source: s, originalIndex: i }) => {
+        const domain = (() => { try { return new URL(s.url).hostname.replace('www.', ''); } catch { return ''; } })();
+        return (
+          <a key={i} href={s.url} target="_blank" rel="noopener noreferrer"
+            className="flex items-center gap-1.5 px-2 py-1 bg-white/[0.04] border border-white/[0.08] hover:border-white/15 hover:bg-white/[0.06] transition-all rounded-md group">
+            <span className="flex items-center justify-center w-3.5 h-3.5 text-[9px] font-medium bg-white/10 text-white/40 rounded-full flex-shrink-0">{i + 1}</span>
+            <img src={`https://www.google.com/s2/favicons?domain=${domain}&sz=16`} alt="" width={12} height={12} className="flex-shrink-0 opacity-50 group-hover:opacity-80" />
+            <span className="pixel-sans text-white/40 text-[11px] truncate max-w-[100px] group-hover:text-white/70">{s.title || domain}</span>
+          </a>
+        );
+      })}
+    </div>
+  );
+}
+
+// Build markdown components that inject citation rendering
+function buildMarkdownComponents(sources: { title: string; url: string; description: string }[]): Components {
+  if (sources.length === 0) return {};
+  return {
+    p: ({ children }) => {
+      const proc = (child: React.ReactNode): React.ReactNode => typeof child === 'string' ? <CitationText text={child} sources={sources} /> : child;
+      return <p>{Array.isArray(children) ? children.map((c, i) => <span key={i}>{proc(c)}</span>) : proc(children)}</p>;
+    },
+    li: ({ children }) => {
+      const proc = (child: React.ReactNode): React.ReactNode => typeof child === 'string' ? <CitationText text={child} sources={sources} /> : child;
+      return <li>{Array.isArray(children) ? children.map((c, i) => <span key={i}>{proc(c)}</span>) : proc(children)}</li>;
+    },
+  };
+}
+
 type ChatState = 'idle' | 'queued' | 'streaming' | 'error';
 
 // Available models for users
 const USER_MODELS = [
-  { id: 'Qwen2.5-1.5B-Instruct-q4f16_1-MLC', name: 'Standard', tier: 'standard', description: 'Fast responses' },
-  { id: 'dolphin-2.6-mistral-7b-q4f16_1-MLC', name: 'Premium', tier: 'standard', description: 'Uncensored, higher quality' }, // TODO: Change back to 'premium' after token launch
+  { id: 'Qwen2.5-1.5B-Instruct-q4f16_1-MLC', name: 'Free', tier: 'standard', description: 'Fast responses' },
+  { id: 'dolphin-2.6-mistral-7b-q4f16_1-MLC', name: 'Pro', tier: 'standard', description: 'Uncensored, higher quality' },
+  { id: 'native-max', name: 'Max', tier: 'premium', description: 'Best quality + web search' },
 ];
 
 // Local storage keys
@@ -120,6 +200,7 @@ export default function UserPage() {
   const [editingTitle, setEditingTitle] = useState('');
   const [pendingPromptProcessed, setPendingPromptProcessed] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
   const [pendingSources, setPendingSources] = useState<{ title: string; url: string; description: string }[]>([]);
   const pendingSourcesRef = useRef<{ title: string; url: string; description: string }[]>([]);
   useEffect(() => { pendingSourcesRef.current = pendingSources; }, [pendingSources]);
@@ -129,13 +210,7 @@ export default function UserPage() {
     if (typeof window !== 'undefined') {
       const stored = localStorage.getItem(SELECTED_MODEL_KEY);
       if (stored && USER_MODELS.find(m => m.id === stored)) {
-        // Only restore premium model if user is premium
-        const model = USER_MODELS.find(m => m.id === stored);
-        if (model?.tier === 'premium' && !isPremiumUser) {
-          setSelectedModel(USER_MODELS[0].id);
-        } else {
-          setSelectedModel(stored);
-        }
+        setSelectedModel(stored);
       }
     }
   }, [isPremiumUser]);
@@ -259,6 +334,38 @@ export default function UserPage() {
   }, []);
 
   // Send message — with E2E encryption and auth
+  // Copy message content
+  const copyMessage = useCallback((messageId: string, content: string) => {
+    const clean = content.replace(/---SOURCES---[\s\S]*$/, '').trim();
+    navigator.clipboard.writeText(clean);
+    setCopiedId(messageId);
+    setTimeout(() => setCopiedId(null), 2000);
+  }, []);
+
+  // Edit user message — delete everything after it and set input to its content
+  const editUserMessage = useCallback((messageId: string) => {
+    if (!activeChat || chatState !== 'idle') return;
+    const msgIndex = activeChat.messages.findIndex(m => m.id === messageId);
+    if (msgIndex === -1) return;
+    const msg = activeChat.messages[msgIndex];
+    if (msg.role !== 'user') return;
+
+    // Set input to the message content
+    setInputValue(msg.content);
+
+    // Remove this message and everything after it
+    const trimmedMessages = activeChat.messages.slice(0, msgIndex);
+    const updatedChat = { ...activeChat, messages: trimmedMessages, updated_at: new Date().toISOString() };
+    setActiveChat(updatedChat);
+    setChats(prev => {
+      const updated = prev.map(c => c.id === updatedChat.id ? updatedChat : c);
+      saveChatsToStorage(updated);
+      return updated;
+    });
+
+    inputRef.current?.focus();
+  }, [activeChat, chatState]);
+
   const sendMessage = useCallback(async () => {
     if (!inputValue.trim() || !activeChat || chatState !== 'idle' || !isConnected) return;
     if (inputValue.length > MAX_INPUT_CHARS) {
@@ -299,7 +406,6 @@ export default function UserPage() {
       
       currentJobIdRef.current = jobId;
       setCurrentJobId(jobId);
-      console.log('[User] Job submitted:', jobId);
       // prompts_sent is now tracked server-side by the orchestrator on job completion
     } catch (err) {
       console.error('Error submitting job:', err);
@@ -346,7 +452,6 @@ export default function UserPage() {
   useEffect(() => {
     setOnJobAssigned(async (jobId, _workerId) => {
       if (jobId === currentJobIdRef.current) {
-        console.log('[User] Job assigned:', jobId);
         setChatState('streaming');
       }
     });
@@ -357,7 +462,6 @@ export default function UserPage() {
   useEffect(() => {
     setOnJobComplete((jobId, _response) => {
       if (jobId === currentJobIdRef.current && activeChat) {
-        console.log('[User] Job complete:', jobId);
         
         // Use the accumulated streaming content (already decrypted and safety-scanned)
         setStreamingContent(prev => {
@@ -376,11 +480,9 @@ export default function UserPage() {
           
           // Append sources to content so they persist in storage
           const sources = pendingSourcesRef.current;
-          console.log('[User] Sources at completion:', sources.length, sources);
           if (sources.length > 0) {
             finalContent += `\n---SOURCES---${JSON.stringify(sources)}`;
           }
-          console.log('[User] Saving with sources:', finalContent.includes('---SOURCES---'));
           saveMessage(activeChat.id, 'assistant', finalContent, jobId);
           return '';
         });
@@ -421,7 +523,6 @@ export default function UserPage() {
     setOnJobError((jobId, errorMsg) => {
       // Use ref for immediate access
       if (jobId === currentJobIdRef.current) {
-        console.log('[User] Job error:', jobId, errorMsg);
         setIsSearching(false);
         setChatState('error');
         setError(errorMsg);
@@ -536,7 +637,6 @@ export default function UserPage() {
         .then((jobId) => {
           currentJobIdRef.current = jobId;
           setCurrentJobId(jobId);
-          console.log('[User] Pending prompt job submitted:', jobId);
         })
         .catch((err) => {
           console.error('Error submitting pending prompt job:', err);
@@ -584,7 +684,7 @@ export default function UserPage() {
   if (!authLoading && !isAuthenticated) {
     return (
       <div className="h-screen bg-black flex items-center justify-center">
-        <div className="text-center border border-white/10 bg-white/[0.02] p-8 max-w-md mx-4">
+        <div className="text-center border border-white/10 bg-white/[0.02] rounded-2xl p-8 max-w-md mx-4">
           <div className="pixel-serif text-white text-4xl mb-4">🔒</div>
           <h1 className="pixel-serif text-white text-2xl mb-3">Login Required</h1>
           <p className="pixel-sans text-white/50 text-sm mb-6">
@@ -592,7 +692,7 @@ export default function UserPage() {
           </p>
           <button
             onClick={() => login()}
-            className="pixel-sans text-sm px-8 py-3 bg-white text-black hover:bg-white/90 transition-colors"
+            className="pixel-sans text-sm px-8 py-3 bg-white text-black rounded-xl hover:bg-white/90 transition-colors"
           >
             Login with Privy
           </button>
@@ -640,26 +740,21 @@ export default function UserPage() {
           
           <div className="flex items-center gap-4">
             {/* Model Switcher */}
-            <div className="flex items-center border border-white/10">
+            <div className="flex items-center border border-white/10 rounded-lg overflow-hidden">
               {USER_MODELS.map((model) => {
                 const isSelected = selectedModel === model.id;
-                const isLocked = model.tier === 'premium' && !isPremiumUser;
                 return (
                   <button
                     key={model.id}
-                    onClick={() => !isLocked && setSelectedModel(model.id)}
-                    disabled={isLocked}
-                    className={`pixel-sans text-xs px-3 py-1.5 transition-colors relative ${
+                    onClick={() => setSelectedModel(model.id)}
+                    className={`pixel-sans text-xs px-3 py-1.5 transition-colors ${
                       isSelected 
                         ? 'bg-[#80a0c1]/20 text-[#80a0c1]' 
-                        : isLocked
-                        ? 'text-white/20 cursor-not-allowed'
                         : 'text-white/50 hover:text-white/70 hover:bg-white/5'
                     }`}
-                    title={isLocked ? 'Hold $ZERO to unlock premium' : model.description}
+                    title={model.description}
                   >
                     {model.name}
-                    {isLocked && <span className="ml-1">🔒</span>}
                   </button>
                 );
               })}
@@ -686,7 +781,7 @@ export default function UserPage() {
           <div className="py-2">
             <button
               onClick={createNewChat}
-              className="w-full pixel-sans py-3 mx-2 px-3 border border-white/20 text-white hover:bg-white/5 transition-colors flex items-center justify-center gap-2 cursor-pointer"
+              className="w-full pixel-sans py-3 mx-2 px-3 border border-white/20 rounded-xl text-white hover:bg-white/5 transition-colors flex items-center justify-center gap-2 cursor-pointer"
               style={{ width: 'calc(100% - 16px)' }}
             >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -711,7 +806,7 @@ export default function UserPage() {
                 {chats.map((chat) => (
                   <div
                     key={chat.id}
-                    className={`group px-3 py-3 mx-2 mb-1 cursor-pointer transition-colors ${
+                    className={`group px-3 py-3 mx-2 mb-1 cursor-pointer transition-colors rounded-lg ${
                       activeChat?.id === chat.id 
                         ? 'bg-white/10 border border-white/20' 
                         : 'bg-white/[0.02] hover:bg-white/10 border border-transparent'
@@ -731,7 +826,7 @@ export default function UserPage() {
                             }}
                             onBlur={() => renameChat(chat.id, editingTitle)}
                             autoFocus
-                            className="w-full bg-black/50 border border-white/20 px-2 py-1 pixel-sans text-white text-sm focus:outline-none focus:border-white/40"
+                            className="w-full bg-black/50 border border-white/20 rounded-md px-2 py-1 pixel-sans text-white text-sm focus:outline-none focus:border-white/40"
                             onClick={(e) => e.stopPropagation()}
                           />
                         ) : (
@@ -799,7 +894,7 @@ export default function UserPage() {
                 <p className="pixel-sans text-white/40 text-base mb-6">Select a chat or start a new one</p>
                 <button
                   onClick={createNewChat}
-                  className="pixel-sans px-8 py-3 bg-white text-black hover:bg-white/90 transition-colors"
+                  className="pixel-sans px-8 py-3 bg-white text-black rounded-xl hover:bg-white/90 transition-colors"
                 >
                   New Chat
                 </button>
@@ -809,9 +904,10 @@ export default function UserPage() {
             <>
               {/* Messages */}
               <div 
-                className="flex-1 overflow-y-auto p-4 space-y-4"
+                className="flex-1 overflow-y-auto py-4"
                 onClick={() => inputRef.current?.focus()}
               >
+              <div className="max-w-3xl mx-auto px-4 space-y-5">
                 {activeChat.messages.length === 0 && chatState === 'idle' && (
                   <div className="flex items-center justify-center h-full">
                     <p className="pixel-sans text-white/30 text-base">Send a message to start the conversation</p>
@@ -825,42 +921,41 @@ export default function UserPage() {
                   return (
                     <div
                       key={message.id}
-                      className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                      className={`group/msg flex flex-col ${message.role === 'user' ? 'items-end' : 'items-start'}`}
                     >
                       <div
-                        className={`max-w-[80%] md:max-w-[70%] p-5 ${
+                        className={`${
                           message.role === 'user'
-                            ? 'bg-white/10 border border-white/20'
-                            : 'bg-white/[0.02] border border-white/5'
+                            ? 'max-w-[85%] px-4 py-2.5 bg-white/[0.07] rounded-2xl'
+                            : 'w-full'
                         }`}
                       >
-                        <p className="pixel-sans text-white text-base leading-relaxed whitespace-pre-wrap">{cleanContent}</p>
-                        {sources.length > 0 && (
-                          <div className="mt-4 pt-3 border-t border-white/5">
-                            <div className="flex flex-wrap gap-2">
-                              {sources.map((s, i) => {
-                                const domain = (() => { try { return new URL(s.url).hostname.replace('www.', ''); } catch { return ''; } })();
-                                return (
-                                  <a
-                                    key={i}
-                                    href={s.url}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="flex items-center gap-2 px-3 py-2 bg-white/[0.04] border border-white/10 hover:border-white/20 hover:bg-white/[0.08] transition-all max-w-[200px] group"
-                                  >
-                                    <img
-                                      src={`https://www.google.com/s2/favicons?domain=${domain}&sz=16`}
-                                      alt=""
-                                      width={14}
-                                      height={14}
-                                      className="flex-shrink-0 opacity-60 group-hover:opacity-100"
-                                    />
-                                    <span className="pixel-sans text-white/50 text-xs truncate group-hover:text-white/80">{s.title || domain}</span>
-                                  </a>
-                                );
-                              })}
-                            </div>
-                          </div>
+                        <SourceStrip sources={sources} content={cleanContent} />
+                        <div className="pixel-sans text-white/90 text-[15px] leading-[1.7] prose prose-invert prose-base max-w-none prose-p:my-3 prose-li:my-1 prose-ol:my-3 prose-ul:my-3 prose-headings:mt-5 prose-headings:mb-2 prose-headings:text-white prose-headings:font-semibold prose-strong:text-white prose-strong:font-extrabold prose-code:text-white/80 prose-code:bg-white/[0.06] prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-a:text-blue-400 prose-a:no-underline hover:prose-a:underline prose-hr:my-5 prose-hr:border-white/10 [&_br]:block [&_br]:content-[''] [&_br]:mt-2.5">
+                          <ReactMarkdown remarkPlugins={[remarkBreaks]} components={buildMarkdownComponents(sources)}>{cleanContent}</ReactMarkdown>
+                        </div>
+                      </div>
+                      {/* Action buttons */}
+                      <div className="flex items-center gap-1 mt-1 opacity-0 group-hover/msg:opacity-100 transition-opacity">
+                        <button
+                          onClick={() => copyMessage(message.id, message.content)}
+                          className="p-1 rounded hover:bg-white/[0.06] transition-colors"
+                          title="Copy"
+                        >
+                          {copiedId === message.id ? (
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-green-400"><path d="M20 6L9 17l-5-5"/></svg>
+                          ) : (
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-white/30 hover:text-white/60"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+                          )}
+                        </button>
+                        {message.role === 'user' && chatState === 'idle' && (
+                          <button
+                            onClick={() => editUserMessage(message.id)}
+                            className="p-1 rounded hover:bg-white/[0.06] transition-colors"
+                            title="Edit"
+                          >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-white/30 hover:text-white/60"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                          </button>
                         )}
                       </div>
                     </div>
@@ -870,38 +965,12 @@ export default function UserPage() {
                 {/* Streaming message */}
                 {streamingContent && (
                   <div className="flex justify-start">
-                    <div className="max-w-[80%] md:max-w-[70%] p-5 bg-white/[0.02] border border-white/5">
-                      <p className="pixel-sans text-white text-base leading-relaxed whitespace-pre-wrap">
-                        {filterDisclaimers(streamingContent)}
+                    <div className="w-full">
+                      <SourceStrip sources={pendingSources} />
+                      <div className="pixel-sans text-white/90 text-[15px] leading-[1.7] prose prose-invert prose-base max-w-none prose-p:my-3 prose-li:my-1 prose-ol:my-3 prose-ul:my-3 prose-headings:mt-5 prose-headings:mb-2 prose-headings:text-white prose-headings:font-semibold prose-strong:text-white prose-strong:font-extrabold prose-code:text-white/80 prose-code:bg-white/[0.06] prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-a:text-blue-400 prose-a:no-underline hover:prose-a:underline prose-hr:my-5 prose-hr:border-white/10 [&_br]:block [&_br]:content-[''] [&_br]:mt-2.5">
+                        <ReactMarkdown remarkPlugins={[remarkBreaks]} components={buildMarkdownComponents(pendingSources)}>{filterDisclaimers(streamingContent)}</ReactMarkdown>
                         <span className="inline-block w-2 h-5 bg-white/50 ml-1 animate-pulse" />
-                      </p>
-                      {pendingSources.length > 0 && (
-                        <div className="mt-4 pt-3 border-t border-white/5">
-                          <div className="flex flex-wrap gap-2">
-                            {pendingSources.map((s, i) => {
-                              const domain = (() => { try { return new URL(s.url).hostname.replace('www.', ''); } catch { return ''; } })();
-                              return (
-                                <a
-                                  key={i}
-                                  href={s.url}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="flex items-center gap-2 px-3 py-2 bg-white/[0.04] border border-white/10 hover:border-white/20 hover:bg-white/[0.08] transition-all max-w-[200px] group"
-                                >
-                                  <img
-                                    src={`https://www.google.com/s2/favicons?domain=${domain}&sz=16`}
-                                    alt=""
-                                    width={14}
-                                    height={14}
-                                    className="flex-shrink-0 opacity-60 group-hover:opacity-100"
-                                  />
-                                  <span className="pixel-sans text-white/50 text-xs truncate group-hover:text-white/80">{s.title || domain}</span>
-                                </a>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      )}
+                      </div>
                     </div>
                   </div>
                 )}
@@ -909,7 +978,7 @@ export default function UserPage() {
                 {/* Search indicator */}
                 {isSearching && (
                   <div className="flex justify-center">
-                    <div className="px-4 py-2 bg-white/[0.03] border border-white/10">
+                    <div className="px-4 py-2 bg-white/[0.03] border border-white/10 rounded-lg">
                       <p className="pixel-sans text-white/50 text-sm">
                         Searching the web...
                       </p>
@@ -920,7 +989,7 @@ export default function UserPage() {
                 {/* Queue position indicator with estimated wait time */}
                 {chatState === 'queued' && queuePosition !== null && queuePosition > 0 && (
                   <div className="flex justify-center">
-                    <div className="px-5 py-3 bg-[#80a0c1]/10 border border-[#80a0c1]/20">
+                    <div className="px-5 py-3 bg-[#80a0c1]/10 border border-[#80a0c1]/20 rounded-lg">
                       <p className="pixel-sans text-[#80a0c1] text-sm">
                         You are #{queuePosition} in queue
                         {networkStats?.avgJobDurationMs && networkStats.avgJobDurationMs > 0 && (
@@ -936,7 +1005,7 @@ export default function UserPage() {
                 {/* Processing indicator */}
                 {chatState === 'streaming' && !streamingContent && (
                   <div className="flex justify-start">
-                    <div className="p-4 bg-white/[0.02] border border-white/5">
+                    <div className="p-4 bg-white/[0.02] border border-white/5 rounded-lg">
                       <div className="flex gap-1">
                         <span className="w-2 h-2 bg-white/50 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
                         <span className="w-2 h-2 bg-white/50 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
@@ -949,7 +1018,7 @@ export default function UserPage() {
                 {/* Error message */}
                 {error && (
                   <div className="flex justify-center">
-                    <div className="px-5 py-3 bg-red-500/10 border border-red-500/20">
+                    <div className="px-5 py-3 bg-red-500/10 border border-red-500/20 rounded-lg">
                       <p className="pixel-sans text-red-400 text-sm">{error}</p>
                       <button
                         onClick={() => {
@@ -966,10 +1035,24 @@ export default function UserPage() {
                 
                 <div ref={messagesEndRef} />
               </div>
+              </div>
 
               {/* Input Area */}
               <div className="border-t border-white/10 p-4">
                 <div className="max-w-4xl mx-auto">
+                  {(() => {
+                    const nativeCount = (networkStats as any)?.nativeWorkers || 0;
+                    const browserCount = (networkStats as any)?.browserWorkers || 0;
+                    const hasWorkers = selectedModel === 'native-max' ? nativeCount > 0 : browserCount > 0;
+                    if (!hasWorkers && isConnected) {
+                      return (
+                        <div className="pixel-sans text-amber-400/80 text-xs text-center mb-2">
+                          No {selectedModel === 'native-max' ? 'native' : 'browser'} workers are online — your message will queue until one connects
+                        </div>
+                      );
+                    }
+                    return null;
+                  })()}
                   <div className="flex gap-3">
                     <div className="flex-1 relative">
                       <input
@@ -983,7 +1066,7 @@ export default function UserPage() {
                         }}
                         placeholder={isConnected ? "Type your message..." : "Connecting to network..."}
                         disabled={chatState !== 'idle' || !isConnected}
-                        className="w-full bg-white/[0.02] border border-white/10 px-5 py-4 pixel-sans text-white text-base placeholder:text-white/30 focus:outline-none focus:border-white/30 disabled:opacity-50"
+                        className="w-full bg-white/[0.02] border border-white/10 rounded-xl px-5 py-4 pixel-sans text-white text-base placeholder:text-white/30 focus:outline-none focus:border-white/30 disabled:opacity-50"
                       />
                       {/* Character counter */}
                       <span className={`absolute top-1/2 -translate-y-1/2 right-4 pixel-sans text-xs ${
@@ -999,7 +1082,7 @@ export default function UserPage() {
                     <button
                       onClick={sendMessage}
                       disabled={!inputValue.trim() || inputValue.length > MAX_INPUT_CHARS || chatState !== 'idle' || !isConnected}
-                      className="bg-black border border-white/10 px-5 flex items-center justify-center hover:bg-white/5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="bg-black border border-white/10 rounded-xl px-5 flex items-center justify-center hover:bg-white/5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                       aria-label="Send"
                     >
                       <img src="/PixelSendIcon.png" alt="Send" width={24} height={24} />

@@ -11,13 +11,13 @@ export const DATA_DIR = join(homedir(), '.c0mpute');
 export const MODELS_DIR = join(DATA_DIR, 'models');
 
 /** Default HuggingFace model repository */
-export const DEFAULT_MODEL_REPO = 'bartowski/Qwen2.5-14B-Instruct-GGUF';
+export const DEFAULT_MODEL_REPO = 'mradermacher/Qwen2.5-14B-Instruct-abliterated-v2-GGUF';
 
 /** Default GGUF filename */
-export const DEFAULT_MODEL_FILENAME = 'Qwen2.5-14B-Instruct-Q4_K_M.gguf';
+export const DEFAULT_MODEL_FILENAME = 'Qwen2.5-14B-Instruct-abliterated-v2.Q4_K_M.gguf';
 
 /** Human-readable model name sent to orchestrator */
-export const DEFAULT_MODEL_NAME = 'qwen2.5-14b-instruct-q4_K_M';
+export const DEFAULT_MODEL_NAME = 'qwen2.5-14b-instruct-abliterated-v2-q4_K_M';
 
 /** Number of tokens to generate during benchmark */
 export const BENCHMARK_TOKENS = 32;

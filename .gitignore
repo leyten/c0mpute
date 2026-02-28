@@ -42,3 +42,15 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# docs site build
+/docs-site/build/
+/docs-site/node_modules/
+/docs-site/.docusaurus/
+
+# native worker dist (built artifacts)
+/c0mpute-worker/dist/
+/c0mpute-worker/node_modules/
+
+# misc artifacts
+*.tar.gz

@@ -91,7 +91,7 @@ export default function Home() {
       {/* Header */}
       <header className="fixed top-0 left-0 right-0 z-50 py-4">
         <div className="max-w-6xl mx-auto px-4 md:px-6">
-          <nav className="bg-black/80 backdrop-blur-sm border border-white/10 px-4 md:px-6 py-3 flex items-center justify-between">
+          <nav className="bg-black/80 backdrop-blur-sm border border-white/10 rounded-2xl px-4 md:px-6 py-3 flex items-center justify-between">
             {/* Left: Logo */}
             <div className="flex-1">
               <a href="/" className="pixel-serif-logo text-white text-lg md:text-xl font-bold flex items-center">
@@ -121,14 +121,14 @@ export default function Home() {
               </a>
               
               {isLoading ? (
-                <div className="pixel-serif-logo text-sm px-3 md:px-4 py-2 border border-white/20 text-white/50">
+                <div className="pixel-serif-logo text-sm px-3 md:px-4 py-2 border border-white/20 rounded-lg text-white/50">
                   ...
                 </div>
               ) : isAuthenticated ? (
                 <div className="relative">
                   <button 
                     onClick={() => setUserMenuOpen(!userMenuOpen)}
-                    className="pixel-serif-logo text-sm px-3 md:px-4 py-2 border border-white/20 text-white hover:bg-white/5 transition-colors flex items-center gap-2">
+                    className="pixel-serif-logo text-sm px-3 md:px-4 py-2 border border-white/20 rounded-lg text-white hover:bg-white/5 transition-colors flex items-center gap-2">
                     {userDisplay}
                     <svg 
                       width="10" 
@@ -143,7 +143,7 @@ export default function Home() {
                   
                   {/* User Dropdown Menu */}
                   {userMenuOpen && (
-                    <div className="absolute right-0 top-full mt-1 bg-black border border-white/20 min-w-[150px] z-50">
+                    <div className="absolute right-0 top-full mt-1 bg-black border border-white/20 rounded-lg min-w-[150px] z-50">
                       <a
                         href="/settings"
                         onClick={() => setUserMenuOpen(false)}
@@ -163,7 +163,7 @@ export default function Home() {
               ) : (
                 <button 
                   onClick={() => login()}
-                  className="pixel-serif-logo text-sm px-3 md:px-4 py-2 border border-white/20 text-white hover:bg-white/5 transition-colors">
+                  className="pixel-serif-logo text-sm px-3 md:px-4 py-2 border border-white/20 rounded-lg text-white hover:bg-white/5 transition-colors">
                   Login
                 </button>
               )}
@@ -183,7 +183,7 @@ export default function Home() {
           
           {/* Mobile Menu Dropdown */}
           {menuOpen && (
-            <div className="md:hidden bg-black/95 border border-white/10 border-t-0 px-4 py-4 flex flex-col gap-4">
+            <div className="md:hidden bg-black/95 border border-white/10 border-t-0 rounded-b-2xl px-4 py-4 flex flex-col gap-4">
               <a 
                 href="/user" 
                 className="pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide"
@@ -294,7 +294,7 @@ export default function Home() {
                   value={prompt}
                   onChange={(e) => setPrompt(e.target.value)}
                   placeholder="Ask anything..."
-                  className="flex-1 pixel-sans bg-black border border-[#2a2a2a] text-white placeholder:text-white/40 px-3 md:px-4 py-3 focus:outline-none focus:border-[#3a3a3a] transition-colors text-sm md:text-lg"
+                  className="flex-1 pixel-sans bg-black border border-[#2a2a2a] rounded-xl text-white placeholder:text-white/40 px-3 md:px-4 py-3 focus:outline-none focus:border-[#3a3a3a] transition-colors text-sm md:text-lg"
                   style={{
                     fontSmooth: 'never',
                     WebkitFontSmoothing: 'none',
@@ -303,7 +303,7 @@ export default function Home() {
                 />
                 <button
                   type="submit"
-                  className="bg-black text-white border border-[#2a2a2a] px-3 md:px-4 py-3 flex items-center justify-center"
+                  className="bg-black text-white border border-[#2a2a2a] rounded-xl px-3 md:px-4 py-3 flex items-center justify-center"
                   aria-label="Send"
                 >
                   <img src="/PixelSendIcon.png" alt="Send" width={20} height={20} />
@@ -344,7 +344,7 @@ export default function Home() {
           {/* Mobile: Stacked text-only cards */}
           <div className="md:hidden flex flex-col gap-4">
             {/* Card 1 - People Powered */}
-            <div className="border border-white/10 bg-white/[0.02] p-6">
+            <div className="border border-white/10 bg-white/[0.02] rounded-2xl p-6">
               <h3 className="pixel-serif text-white text-xl">
                 People-Powered AI
               </h3>
@@ -354,7 +354,7 @@ export default function Home() {
             </div>
             
             {/* Card 2 - Privacy */}
-            <div className="border border-white/10 bg-white/[0.02] p-6">
+            <div className="border border-white/10 bg-white/[0.02] rounded-2xl p-6">
               <h3 className="pixel-serif text-white text-xl">
                 Private by Design
               </h3>
@@ -364,7 +364,7 @@ export default function Home() {
             </div>
             
             {/* Card 3 - Browser */}
-            <div className="border border-white/10 bg-white/[0.02] p-6">
+            <div className="border border-white/10 bg-white/[0.02] rounded-2xl p-6">
               <h3 className="pixel-serif text-white text-xl">
                 In-Browser
               </h3>
@@ -374,7 +374,7 @@ export default function Home() {
             </div>
             
             {/* Card 4 - Get Paid */}
-            <div className="border border-white/10 bg-white/[0.02] p-6">
+            <div className="border border-white/10 bg-white/[0.02] rounded-2xl p-6">
               <h3 className="pixel-serif text-white text-xl">
                 Get Paid for Your Compute
               </h3>
@@ -388,7 +388,7 @@ export default function Home() {
           <div className="hidden md:grid grid-cols-5 grid-rows-2 gap-4 h-[750px]">
             {/* Row 1: Large + Small */}
             {/* Cell 1 - People Powered (large) */}
-            <div className="col-span-3 border border-white/10 bg-white/[0.02] p-8 flex flex-col hover:bg-white/[0.04] transition-colors overflow-hidden">
+            <div className="col-span-3 border border-white/10 bg-white/[0.02] rounded-2xl p-8 flex flex-col hover:bg-white/[0.04] transition-colors overflow-hidden">
               <h3 className="pixel-serif text-white text-2xl md:text-3xl">
                 People-Powered AI
               </h3>
@@ -402,7 +402,7 @@ export default function Home() {
             </div>
             
             {/* Cell 2 - Privacy (small) */}
-            <div className="col-span-2 border border-white/10 bg-white/[0.02] p-6 flex flex-col hover:bg-white/[0.04] transition-colors overflow-hidden">
+            <div className="col-span-2 border border-white/10 bg-white/[0.02] rounded-2xl p-6 flex flex-col hover:bg-white/[0.04] transition-colors overflow-hidden">
               <h3 className="pixel-serif text-white text-xl">
                 Private by Design
               </h3>
@@ -417,7 +417,7 @@ export default function Home() {
             
             {/* Row 2: Small + Large */}
             {/* Cell 3 - Browser (small) */}
-            <div className="col-span-2 border border-white/10 bg-white/[0.02] p-6 flex flex-col hover:bg-white/[0.04] transition-colors overflow-hidden">
+            <div className="col-span-2 border border-white/10 bg-white/[0.02] rounded-2xl p-6 flex flex-col hover:bg-white/[0.04] transition-colors overflow-hidden">
               <h3 className="pixel-serif text-white text-xl">
                 In-Browser
               </h3>
@@ -431,7 +431,7 @@ export default function Home() {
             </div>
             
             {/* Cell 4 - Get Paid (large) */}
-            <div className="col-span-3 border border-white/10 bg-white/[0.02] p-8 flex flex-col hover:bg-white/[0.04] transition-colors overflow-hidden">
+            <div className="col-span-3 border border-white/10 bg-white/[0.02] rounded-2xl p-8 flex flex-col hover:bg-white/[0.04] transition-colors overflow-hidden">
               <h3 className="pixel-serif text-white text-2xl md:text-3xl">
                 Get Paid for Your Compute
               </h3>
@@ -465,7 +465,7 @@ export default function Home() {
           {/* Three Steps */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 md:gap-8">
             {/* Step 1 */}
-            <div className="border border-white/10 bg-white/[0.02] p-6 md:p-8">
+            <div className="border border-white/10 bg-white/[0.02] rounded-2xl p-6 md:p-8">
               <div className="flex items-center gap-3 mb-4">
                 <span className="pixel-serif text-white/30 text-3xl md:text-4xl">01</span>
               </div>
@@ -478,7 +478,7 @@ export default function Home() {
             </div>
             
             {/* Step 2 */}
-            <div className="border border-white/10 bg-white/[0.02] p-6 md:p-8">
+            <div className="border border-white/10 bg-white/[0.02] rounded-2xl p-6 md:p-8">
               <div className="flex items-center gap-3 mb-4">
                 <span className="pixel-serif text-white/30 text-3xl md:text-4xl">02</span>
               </div>
@@ -491,7 +491,7 @@ export default function Home() {
             </div>
             
             {/* Step 3 */}
-            <div className="border border-white/10 bg-white/[0.02] p-6 md:p-8">
+            <div className="border border-white/10 bg-white/[0.02] rounded-2xl p-6 md:p-8">
               <div className="flex items-center gap-3 mb-4">
                 <span className="pixel-serif text-white/30 text-3xl md:text-4xl">03</span>
               </div>

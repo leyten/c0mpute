@@ -8,7 +8,15 @@ import { BENCHMARK_TOKENS, MIN_TOK_PER_SEC } from './config.js';
 export async function runBenchmark(): Promise<number> {
   console.log(`Running benchmark (${BENCHMARK_TOKENS} tokens)...`);
 
-  const tokPerSec = await benchmarkInference(BENCHMARK_TOKENS);
+  const timeoutMs = 120_000; // 2 minutes max
+  const result = await Promise.race([
+    benchmarkInference(BENCHMARK_TOKENS),
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('Benchmark timed out after 2 minutes')), timeoutMs)
+    ),
+  ]);
+
+  const tokPerSec = result;
   const rounded = Math.round(tokPerSec * 10) / 10;
 
   console.log(`Benchmark: ${rounded} tok/s`);

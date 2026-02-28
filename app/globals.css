@@ -242,6 +242,14 @@
   letter-spacing: 0.01em;
   font-weight: 400;
   line-height: 1.6;
+}
+
+.pixel-sans strong,
+.pixel-sans b {
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: #fff;
+  text-shadow: 0 0 1px rgba(255, 255, 255, 0.15);
   font-smooth: never;
   -webkit-font-smoothing: none;
   -moz-osx-font-smoothing: unset;
@@ -249,6 +257,33 @@
   transform: scale(1);
   transform-origin: center;
   font-feature-settings: normal;
+}
+
+/* Clean sans-serif for AI chat responses — readable over aesthetic */
+.chat-response {
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  color: #faf9f5;
+}
+
+.chat-response strong,
+.chat-response b {
+  font-weight: 600;
+  color: #ffffff;
+}
+
+.chat-response code {
+  font-family: 'Courier New', 'Monaco', 'Consolas', monospace;
+  font-size: 0.9em;
+}
+
+.chat-response h1,
+.chat-response h2,
+.chat-response h3,
+.chat-response h4 {
+  font-weight: 600;
+  color: #ffffff;
 }
 
 /* Dollar sign with system font fallback */
