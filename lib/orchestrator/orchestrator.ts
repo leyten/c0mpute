@@ -54,7 +54,7 @@ export class Orchestrator {
         return next(new Error('Authentication required'));
       }
       // TODO: Remove dev token before production
-      const isDevToken = token === 'dev-test-token-remove-before-prod';
+      const isDevToken = false; // dev token disabled
       let userId: string | null = null;
       if (isDevToken) {
         userId = 'dev-worker';
@@ -139,7 +139,7 @@ export class Orchestrator {
           callback({ error: 'Authentication required' });
           return;
         }
-        const isDevToken = data.authToken === 'dev-test-token-remove-before-prod';
+        const isDevToken = false; // dev token disabled
         let privyUserId: string | null = null;
         if (isDevToken) {
           privyUserId = 'dev-worker';
@@ -313,6 +313,13 @@ export class Orchestrator {
     this.jobQueue = this.jobQueue.filter(jobId => {
       const job = this.jobs.get(jobId);
       if (job && job.userSocketId === userSocketId) {
+        // Refund credits for queued jobs on disconnect
+        if (job.privyUserId && job.requestedModel) {
+          const tier = getModelTier(job.requestedModel);
+          if (tier === 'pro' || tier === 'max') {
+            refundCredits(job.privyUserId, tier === 'max' ? 50 : 10, 'User disconnected while queued');
+          }
+        }
         this.jobs.delete(jobId);
         return false;
       }
@@ -658,6 +665,15 @@ export class Orchestrator {
     }
 
     console.log(`[Orchestrator] Job ${jobId} failed: ${error}`);
+
+    // Refund credits for failed jobs
+    if (job.privyUserId && job.requestedModel) {
+      const tier = getModelTier(job.requestedModel);
+      if (tier === 'pro' || tier === 'max') {
+        refundCredits(job.privyUserId, tier === 'max' ? 50 : 10, 'Job failed: ' + error.slice(0, 50));
+      }
+    }
+
     this.jobs.delete(jobId);
     setTimeout(() => this.processQueue(), 100);
   }
