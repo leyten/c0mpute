@@ -55,6 +55,9 @@ export default function SettingsPage() {
 
   // Usage tab state
   const [credits, setCredits] = useState<{balance: number; totalDeposited?: number; totalSpent?: number; depositWallet?: string; recentTransactions?: {date: string; type: string; amount: number; description: string}[]} | null>(null);
+  const [activePlan, setActivePlan] = useState<'free' | 'pro' | 'max'>('free');
+  const [planConfirm, setPlanConfirm] = useState<'free' | 'pro' | 'max' | null>(null);
+  const [planSwitching, setPlanSwitching] = useState(false);
   const [checkingDeposit, setCheckingDeposit] = useState(false);
   const [depositResult, setDepositResult] = useState<string | null>(null);
   const [copiedDeposit, setCopiedDeposit] = useState(false);
@@ -122,8 +125,33 @@ export default function SettingsPage() {
       fetchEarnings();
     } else if (activeTab === 'usage') {
       fetchCredits();
+      // Fetch active plan
+      getAccessToken().then(t => {
+        if (!t) return;
+        fetch('/api/plan', { headers: { Authorization: `Bearer ${t}` } })
+          .then(r => r.ok ? r.json() : null)
+          .then(data => { if (data?.plan) setActivePlan(data.plan); })
+          .catch(() => {});
+      });
     }
   }, [activeTab, isAuthenticated]);
+
+  const switchPlan = async (plan: 'free' | 'pro' | 'max') => {
+    setPlanSwitching(true);
+    try {
+      const t = await getAccessToken();
+      const res = await fetch('/api/plan', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plan }),
+      });
+      if (res.ok) {
+        setActivePlan(plan);
+        setPlanConfirm(null);
+      }
+    } catch {}
+    finally { setPlanSwitching(false); }
+  };
 
   const generateToken = async () => {
     setTokenGenerating(true);
@@ -610,24 +638,65 @@ export default function SettingsPage() {
                 <p className="pixel-sans text-white/30 text-xs">1 <span className="dollar">$</span>ZERO = 1 credit</p>
               </section>
 
-              {/* Prompt Costs */}
+              {/* Plan Selection */}
               <section className="border border-white/10 bg-white/[0.02] p-6 rounded-2xl">
-                <h2 className="pixel-serif text-white text-xl mb-4">Prompt Costs</h2>
-                <div className="space-y-3">
-                  <div className="flex justify-between items-center py-2 border-b border-white/5">
-                    <span className="pixel-sans text-white/70 text-sm">Qwen 1.5B</span>
-                    <span className="pixel-sans text-green-400 text-sm">Free</span>
-                  </div>
-                  <div className="flex justify-between items-center py-2 border-b border-white/5">
-                    <span className="pixel-sans text-white/70 text-sm">Dolphin 7B</span>
-                    <span className="pixel-sans text-white/50 text-sm">10 credits</span>
-                  </div>
-                  <div className="flex justify-between items-center py-2">
-                    <span className="pixel-sans text-white/70 text-sm">Qwen 14B + search</span>
-                    <span className="pixel-sans text-white/50 text-sm">50 credits</span>
-                  </div>
+                <h2 className="pixel-serif text-white text-xl mb-4">Plan</h2>
+                <div className="grid grid-cols-3 gap-3">
+                  {([
+                    { id: 'free', name: 'Free', cost: '0 cr', features: ['Qwen 1.5B', 'Browser-powered', 'Censored'] },
+                    { id: 'pro', name: 'Pro', cost: '10 cr', features: ['Dolphin 7B', 'Browser-powered', 'Uncensored'] },
+                    { id: 'max', name: 'Max', cost: '50 cr', features: ['Qwen 14B', 'Native inference', 'Uncensored', 'Web search'] },
+                  ] as const).map((plan) => {
+                    const isActive = activePlan === plan.id;
+                    return (
+                      <div
+                        key={plan.id}
+                        className={`relative p-4 rounded-xl border transition-colors cursor-pointer ${
+                          isActive
+                            ? 'border-[#80a0c1]/40 bg-[#80a0c1]/[0.06]'
+                            : 'border-white/10 bg-white/[0.02] hover:border-white/20'
+                        }`}
+                        onClick={() => {
+                          if (plan.id !== activePlan) setPlanConfirm(plan.id);
+                        }}
+                      >
+                        {isActive && (
+                          <div className="absolute top-2 right-2">
+                            <span className="pixel-sans text-[10px] px-1.5 py-0.5 bg-[#80a0c1]/20 text-[#80a0c1] rounded">Active</span>
+                          </div>
+                        )}
+                        <div className="pixel-serif text-white text-lg mb-1">{plan.name}</div>
+                        <div className="pixel-sans text-white/40 text-xs mb-3">{plan.cost} / message</div>
+                        <ul className="space-y-1.5">
+                          {plan.features.map((f, i) => (
+                            <li key={i} className="pixel-sans text-white/40 text-xs flex items-center gap-1.5">
+                              <span className="text-[#80a0c1]">✓</span> {f}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    );
+                  })}
                 </div>
               </section>
+
+              {/* Plan Switch Confirmation */}
+              {planConfirm && (
+                <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[100] flex items-center justify-center p-4" onClick={() => setPlanConfirm(null)}>
+                  <div className="bg-[#0a0a0a] border border-white/10 rounded-2xl p-6 max-w-sm w-full" onClick={e => e.stopPropagation()}>
+                    <h3 className="pixel-serif text-white text-lg mb-2">Switch to {planConfirm.charAt(0).toUpperCase() + planConfirm.slice(1)}?</h3>
+                    <p className="pixel-sans text-white/50 text-sm mb-5">
+                      This will change the model used for all future messages.
+                    </p>
+                    <div className="flex gap-3">
+                      <button onClick={() => setPlanConfirm(null)} className="flex-1 pixel-sans text-sm py-2.5 rounded-xl border border-white/10 text-white/50 hover:bg-white/5 transition-colors">Cancel</button>
+                      <button onClick={() => switchPlan(planConfirm)} className="flex-1 pixel-sans text-sm py-2.5 rounded-xl bg-[#80a0c1]/20 border border-[#80a0c1]/30 text-[#80a0c1] hover:bg-[#80a0c1]/30 transition-colors">
+                        {planSwitching ? 'Switching...' : 'Switch'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Top Up */}
               <section className="border border-white/10 bg-white/[0.02] p-6 rounded-2xl">

@@ -103,25 +103,18 @@ function buildMarkdownComponents(sources: { title: string; url: string; descript
   };
 }
 
-// Get model tier helper
-function getModelTier(modelId: string): string {
-  if (modelId === 'native-max') return 'max';
-  if (modelId.includes('dolphin')) return 'pro';
-  return 'free';
-}
-
 type ChatState = 'idle' | 'queued' | 'streaming' | 'error';
 
-// Available models for users
-const USER_MODELS = [
-  { id: 'Qwen2.5-1.5B-Instruct-q4f16_1-MLC', name: 'Qwen 1.5B', cost: 0, costLabel: 'Free', tier: 'standard', description: 'Fast responses' },
-  { id: 'dolphin-2.6-mistral-7b-q4f16_1-MLC', name: 'Dolphin 7B', cost: 10, costLabel: '10 cr', tier: 'standard', description: 'Uncensored, higher quality' },
-  { id: 'native-max', name: 'Qwen 14B', cost: 50, costLabel: '50 cr', tier: 'premium', description: 'Best quality + web search' },
-];
+// Plan definitions — maps user-facing plans to internal model IDs
+const PLANS = [
+  { id: 'free' as const, name: 'Free', cost: 0, costLabel: 'Free', modelId: 'Qwen2.5-1.5B-Instruct-q4f16_1-MLC', description: 'Fast, basic responses', features: ['Qwen 1.5B model', 'Browser-powered', 'Censored'] },
+  { id: 'pro' as const, name: 'Pro', cost: 10, costLabel: '10 cr', modelId: 'dolphin-2.6-mistral-7b-q4f16_1-MLC', description: 'Higher quality, uncensored', features: ['Dolphin 7B model', 'Browser-powered', 'Uncensored'] },
+  { id: 'max' as const, name: 'Max', cost: 50, costLabel: '50 cr', modelId: 'native-max', description: 'Best quality + web search', features: ['Qwen 14B model', 'Native inference', 'Uncensored', 'Web search'] },
+] as const;
+type PlanId = typeof PLANS[number]['id'];
 
 // Local storage keys
 const CHATS_STORAGE_KEY = 'c0mpute_chats';
-const SELECTED_MODEL_KEY = 'c0mpute_selected_model';
 const PENDING_PROMPT_KEY = 'c0mpute_pending_prompt';
 
 // Helper to load chats from localStorage
@@ -201,8 +194,8 @@ export default function UserPage() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [inputValue, setInputValue] = useState('');
   const [loadingChats, setLoadingChats] = useState(true);
-  const [selectedModel, setSelectedModel] = useState(USER_MODELS[0].id);
-  const [isPremiumUser, setIsPremiumUser] = useState(false); // TODO: Check $ZERO holdings
+  const [selectedPlan, setSelectedPlan] = useState<PlanId>('free');
+  const [pendingPlan, setPendingPlan] = useState<PlanId | null>(null); // for confirmation modal
   const [editingChatId, setEditingChatId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState('');
   const [pendingPromptProcessed, setPendingPromptProcessed] = useState(false);
@@ -228,22 +221,29 @@ export default function UserPage() {
       .catch(() => {});
   }, [isAuthenticated, socketAuthToken]);
 
-  // Load selected model from localStorage
+  // Load plan from DB
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const stored = localStorage.getItem(SELECTED_MODEL_KEY);
-      if (stored && USER_MODELS.find(m => m.id === stored)) {
-        setSelectedModel(stored);
-      }
-    }
-  }, [isPremiumUser]);
-  
-  // Save selected model to localStorage
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem(SELECTED_MODEL_KEY, selectedModel);
-    }
-  }, [selectedModel]);
+    if (!isAuthenticated || !socketAuthToken) return;
+    fetch('/api/plan', { headers: { Authorization: `Bearer ${socketAuthToken}` } })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (data?.plan) setSelectedPlan(data.plan); })
+      .catch(() => {});
+  }, [isAuthenticated, socketAuthToken]);
+
+  // Save plan to DB
+  const savePlan = async (plan: PlanId) => {
+    setSelectedPlan(plan);
+    setPendingPlan(null);
+    if (!socketAuthToken) return;
+    fetch('/api/plan', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${socketAuthToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ plan }),
+    }).catch(() => {});
+  };
+
+  // Derive model ID from plan
+  const selectedModel = PLANS.find(p => p.id === selectedPlan)?.modelId ?? PLANS[0].modelId;
   
   // Refs
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -766,23 +766,25 @@ export default function UserPage() {
           </div>
           
           <div className="flex items-center gap-4">
-            {/* Model Switcher */}
-            {/* Model switcher */}
+            {/* Plan Switcher */}
             <div className="flex items-center border border-white/10 rounded-lg overflow-hidden">
-              {USER_MODELS.map((model) => {
-                const isSelected = selectedModel === model.id;
+              {PLANS.map((plan) => {
+                const isSelected = selectedPlan === plan.id;
                 return (
                   <button
-                    key={model.id}
-                    onClick={() => setSelectedModel(model.id)}
+                    key={plan.id}
+                    onClick={() => {
+                      if (plan.id === selectedPlan) return;
+                      setPendingPlan(plan.id);
+                    }}
                     className={`pixel-sans text-xs px-3 py-2 transition-colors ${
                       isSelected 
                         ? 'bg-[#80a0c1]/20 text-[#80a0c1]' 
                         : 'text-white/50 hover:text-white/70 hover:bg-white/5'
                     }`}
-                    title={model.description}
+                    title={plan.description}
                   >
-                    {model.name} <span className={`${isSelected ? 'text-[#80a0c1]/60' : 'text-white/25'}`}>· {model.costLabel}</span>
+                    {plan.name} {plan.cost > 0 && <span className={`${isSelected ? 'text-[#80a0c1]/60' : 'text-white/25'}`}>· {plan.costLabel}</span>}
                   </button>
                 );
               })}
@@ -1145,6 +1147,47 @@ export default function UserPage() {
         </main>
       </div>
 
+      {/* Plan Switch Confirmation Modal */}
+      {pendingPlan && (() => {
+        const plan = PLANS.find(p => p.id === pendingPlan)!;
+        const currentPlan = PLANS.find(p => p.id === selectedPlan)!;
+        return (
+          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[100] flex items-center justify-center p-4" onClick={() => setPendingPlan(null)}>
+            <div className="bg-[#0a0a0a] border border-white/10 rounded-2xl p-6 max-w-sm w-full" onClick={e => e.stopPropagation()}>
+              <h3 className="pixel-serif text-white text-lg mb-2">Switch to {plan.name}?</h3>
+              <p className="pixel-sans text-white/50 text-sm mb-4">
+                {plan.cost > 0
+                  ? `Each message will cost ${plan.cost} credits.`
+                  : 'Messages will be free.'}
+              </p>
+              <div className="bg-white/[0.03] border border-white/5 rounded-xl p-4 mb-5">
+                <div className="pixel-sans text-white/70 text-sm font-medium mb-2">{plan.name} includes:</div>
+                <ul className="space-y-1.5">
+                  {plan.features.map((f, i) => (
+                    <li key={i} className="pixel-sans text-white/40 text-xs flex items-center gap-2">
+                      <span className="text-[#80a0c1]">✓</span> {f}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setPendingPlan(null)}
+                  className="flex-1 pixel-sans text-sm py-2.5 rounded-xl border border-white/10 text-white/50 hover:bg-white/5 transition-colors"
+                >
+                  Stay on {currentPlan.name}
+                </button>
+                <button
+                  onClick={() => savePlan(pendingPlan)}
+                  className="flex-1 pixel-sans text-sm py-2.5 rounded-xl bg-[#80a0c1]/20 border border-[#80a0c1]/30 text-[#80a0c1] hover:bg-[#80a0c1]/30 transition-colors"
+                >
+                  Switch
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
