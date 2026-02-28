@@ -147,13 +147,13 @@ export default function Home() {
                       <a
                         href="/settings"
                         onClick={() => setUserMenuOpen(false)}
-                        className="pixel-sans text-sm w-full px-4 py-3 text-left text-white/70 hover:text-white hover:bg-white/5 transition-colors block"
+                        className="cursor-pointer pixel-sans text-sm w-full px-4 py-3 text-left text-white/70 hover:text-white hover:bg-white/5 transition-colors block"
                       >
                         Settings
                       </a>
                       <button
                         onClick={() => { logout(); setUserMenuOpen(false); }}
-                        className="pixel-sans text-sm w-full px-4 py-3 text-left text-white/70 hover:text-white hover:bg-white/5 transition-colors border-t border-white/10"
+                        className="cursor-pointer pixel-sans text-sm w-full px-4 py-3 text-left text-white/70 hover:text-white hover:bg-white/5 transition-colors border-t border-white/10"
                       >
                         Logout
                       </button>
@@ -220,13 +220,13 @@ export default function Home() {
                     <a 
                       href="/settings"
                       onClick={() => setMenuOpen(false)}
-                      className="pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide block mb-3"
+                      className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide block mb-3"
                     >
                       Settings
                     </a>
                     <button 
                       onClick={() => { logout(); setMenuOpen(false); }}
-                      className="pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide block"
+                      className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide block"
                     >
                       Logout
                     </button>

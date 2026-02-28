@@ -777,7 +777,7 @@ export default function UserPage() {
                       if (plan.id === selectedPlan) return;
                       setPendingPlan(plan.id);
                     }}
-                    className={`pixel-sans text-xs px-3 py-2 transition-colors ${
+                    className={`cursor-pointer pixel-sans text-xs px-3 py-2 transition-colors ${
                       isSelected 
                         ? 'bg-[#80a0c1]/20 text-[#80a0c1]' 
                         : 'text-white/50 hover:text-white/70 hover:bg-white/5'
@@ -804,7 +804,7 @@ export default function UserPage() {
 
             <button 
               onClick={() => router.push('/')}
-              className="cursor-pointer pixel-sans text-sm text-white/40 hover:text-white transition-colors"
+              className="cursor-pointer pixel-sans text-sm text-white"
             >
               ← Back
             </button>
