@@ -22,16 +22,16 @@ You send a message. The orchestrator finds an available worker. The worker runs 
 | **Pro** | Dolphin Mistral 7B | 10 credits | Browser (WebGPU) | ~4GB VRAM, uncensored |
 | **Max** | Qwen2.5 14B abliterated | 50 credits | Native workers | ~9GB, uncensored + web search |
 
-## The $ZERO token
+## The <span class="dollar">$</span>ZERO token
 
-$ZERO is the credit token that powers c0mpute. **1 $ZERO = 1 credit.**
+<span class="dollar">$</span>ZERO is the credit token that powers c0mpute. **1 <span class="dollar">$</span>ZERO = 1 credit.**
 
-- Deposit $ZERO to your c0mpute account to get credits
+- Deposit <span class="dollar">$</span>ZERO to your c0mpute account to get credits
 - Credits are spent per message based on your selected tier
-- Transaction fees from $ZERO trading fund the worker reward pool
+- Transaction fees from <span class="dollar">$</span>ZERO trading fund the worker reward pool
 - Workers earn SOL for every job they complete
 
-See [The $ZERO Token](/zero-token) for the full breakdown.
+See [The <span class="dollar">$</span>ZERO Token](/zero-token) for the full breakdown.
 
 ## The stack
 

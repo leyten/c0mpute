@@ -275,6 +275,23 @@ code {
 }
 
 /* ── Tables ── */
+/* Dollar sign fix — pixel font breaks $ */
+.dollar {
+  font-family: 'Courier New', 'Monaco', monospace;
+  font-weight: 400;
+}
+
+/* Table wrapper for mobile scroll */
+.markdown table {
+  display: table;
+  width: 100%;
+}
+
+.theme-doc-markdown div:has(> table) {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
 table {
   display: table;
   border-collapse: collapse;
@@ -283,6 +300,7 @@ table {
   overflow: hidden;
   font-size: 0.85rem;
   font-family: 'Courier New', 'Monaco', 'Consolas', monospace;
+  min-width: 500px;
 }
 
 table th {
