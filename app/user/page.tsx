@@ -1172,13 +1172,13 @@ export default function UserPage() {
               <div className="flex gap-3">
                 <button
                   onClick={() => setPendingPlan(null)}
-                  className="flex-1 pixel-sans text-sm py-2.5 rounded-xl border border-white/10 text-white/50 hover:bg-white/5 transition-colors"
+                  className="cursor-pointer flex-1 pixel-sans text-sm py-2.5 rounded-xl border border-white/10 text-white/50 hover:bg-white/5 transition-colors"
                 >
                   Stay on {currentPlan.name}
                 </button>
                 <button
                   onClick={() => savePlan(pendingPlan)}
-                  className="flex-1 pixel-sans text-sm py-2.5 rounded-xl bg-[#80a0c1]/20 border border-[#80a0c1]/30 text-[#80a0c1] hover:bg-[#80a0c1]/30 transition-colors"
+                  className="cursor-pointer flex-1 pixel-sans text-sm py-2.5 rounded-xl bg-[#80a0c1]/20 border border-[#80a0c1]/30 text-[#80a0c1] hover:bg-[#80a0c1]/30 transition-colors"
                 >
                   Switch
                 </button>
