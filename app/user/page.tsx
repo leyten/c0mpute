@@ -934,11 +934,11 @@ export default function UserPage() {
             // Empty state
             <div className="flex-1 flex items-center justify-center">
               <div className="text-center">
-                <div className="pixel-serif text-white/20 text-7xl mb-6">?</div>
-                <p className="pixel-sans text-white/40 text-base mb-6">Select a chat or start a new one</p>
+                <div className="pixel-serif text-white/60 text-7xl mb-6">?</div>
+                <p className="pixel-sans text-white/60 text-base mb-6">Select a chat or start a new one</p>
                 <button
                   onClick={createNewChat}
-                  className="cursor-pointer pixel-sans px-8 py-3 bg-white text-black rounded-xl hover:bg-white/90 transition-colors"
+                  className="cursor-pointer pixel-sans font-bold px-8 py-3 bg-white/[0.08] border border-white/15 text-white rounded-xl hover:bg-white/[0.12] transition-colors"
                 >
                   New Chat
                 </button>
