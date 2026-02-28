@@ -38,6 +38,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [actionResult, setActionResult] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
 
   // Persist token in sessionStorage
   useEffect(() => {
@@ -257,9 +258,26 @@ export default function DashboardPage() {
         )}
 
         {/* Users */}
-        {tab === 'users' && (
+        {tab === 'users' && (() => {
+          const filtered = search.trim()
+            ? users.filter(u =>
+                (u.x_username || '').toLowerCase().includes(search.toLowerCase()) ||
+                u.privy_id.toLowerCase().includes(search.toLowerCase()) ||
+                (u.wallet_address || '').toLowerCase().includes(search.toLowerCase())
+              )
+            : users;
+          return (
           <section className="border border-white/10 bg-white/[0.02] rounded-2xl p-6">
-            <h2 className="pixel-serif text-white text-lg mb-4">Users ({users.length})</h2>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="pixel-serif text-white text-lg">Users ({filtered.length})</h2>
+              <input
+                type="text"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                placeholder="Search by name, wallet, ID..."
+                className="pixel-sans text-sm bg-black border border-white/10 rounded-xl px-4 py-2 text-white placeholder:text-white/20 focus:outline-none focus:border-white/20 w-64"
+              />
+            </div>
             <div className="overflow-x-auto">
               <table className="w-full text-left">
                 <thead>
@@ -270,11 +288,11 @@ export default function DashboardPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {users.map(u => (
+                  {filtered.map(u => (
                     <tr key={u.privy_id} className="border-b border-white/[0.03]">
                       <td className="py-3 pr-4">
-                        <div className="pixel-sans text-white/70 text-xs">{u.x_username ? `@${u.x_username}` : u.privy_id.slice(-12)}</div>
-                        <div className="pixel-sans text-white/25 text-[10px] font-mono">{u.privy_id.slice(-12)}</div>
+                        {u.x_username && <div className="pixel-sans text-white text-xs">@{u.x_username}</div>}
+                        <div className="pixel-sans text-white/25 text-[10px] font-mono">{u.privy_id.slice(-16)}</div>
                       </td>
                       <td className="pixel-sans text-white/40 text-xs py-3 pr-4 font-mono">{u.wallet_address ? `${u.wallet_address.slice(0, 4)}...${u.wallet_address.slice(-4)}` : '—'}</td>
                       <td className="py-3 pr-4">
@@ -299,7 +317,8 @@ export default function DashboardPage() {
               </table>
             </div>
           </section>
-        )}
+          );
+        })()}
       </main>
     </div>
   );
