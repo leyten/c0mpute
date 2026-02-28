@@ -767,6 +767,7 @@ export default function UserPage() {
           
           <div className="flex items-center gap-4">
             {/* Model Switcher */}
+            {/* Model switcher */}
             <div className="flex items-center border border-white/10 rounded-lg overflow-hidden">
               {USER_MODELS.map((model) => {
                 const isSelected = selectedModel === model.id;
@@ -774,52 +775,44 @@ export default function UserPage() {
                   <button
                     key={model.id}
                     onClick={() => setSelectedModel(model.id)}
-                    className={`pixel-sans px-3 py-1.5 transition-colors flex flex-col items-center ${
+                    className={`pixel-sans text-xs px-3 py-2 transition-colors ${
                       isSelected 
                         ? 'bg-[#80a0c1]/20 text-[#80a0c1]' 
                         : 'text-white/50 hover:text-white/70 hover:bg-white/5'
                     }`}
                     title={model.description}
                   >
-                    <span className="text-xs">{model.name}</span>
-                    <span className="text-[10px] text-white/30">{model.costLabel}</span>
+                    {model.name} <span className={`${isSelected ? 'text-[#80a0c1]/60' : 'text-white/25'}`}>· {model.costLabel}</span>
                   </button>
                 );
               })}
             </div>
             
-            {/* Credit Balance Pill */}
-            {(() => {
-              const tier = getModelTier(selectedModel);
-              if (tier === 'free') return null;
-              const costPerPrompt = tier === 'max' ? 50 : 10;
-              const promptsLeft = Math.floor(creditBalance / costPerPrompt);
-              return (
-                <button
-                  onClick={() => router.push('/settings#usage')}
-                  className={`pixel-sans text-xs px-3 py-1.5 rounded-lg border transition-colors ${
-                    creditBalance === 0
-                      ? 'border-red-500/30 bg-red-500/[0.06] text-red-400/80'
-                      : promptsLeft <= 5
-                      ? 'border-white/15 bg-white/[0.04] text-white/60 hover:bg-white/[0.08]'
-                      : 'border-white/10 bg-white/[0.04] text-white/50 hover:bg-white/[0.08]'
-                  }`}
-                >
-                  {creditBalance.toFixed(0)} credits
-                </button>
-              );
-            })()}
-            
-            <div className={`pixel-sans text-xs flex items-center gap-2 ${isConnected ? 'text-green-400' : 'text-[#80a0c1]'}`}>
-              <span className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-green-400' : 'bg-[#80a0c1]'}`} />
-              {isConnected ? 'Connected' : 'Connecting...'}
-            </div>
-            <button 
-              onClick={() => router.push('/')}
-              className="pixel-sans text-sm text-white/70 hover:text-white transition-colors"
+            {/* Credit balance — always visible */}
+            <button
+              onClick={() => router.push('/settings#usage')}
+              className={`pixel-sans text-xs px-3 py-2 rounded-lg border transition-colors ${
+                creditBalance === 0
+                  ? 'border-red-500/20 bg-red-500/[0.04] text-red-400/70'
+                  : 'border-white/10 bg-white/[0.03] text-white/50 hover:bg-white/[0.06]'
+              }`}
             >
-              Back
+              {creditBalance.toFixed(0)} credits
             </button>
+
+            {/* Connection + Back */}
+            <div className="flex items-center gap-3">
+              <div className={`pixel-sans text-xs flex items-center gap-1.5 ${isConnected ? 'text-green-400/70' : 'text-white/30'}`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-green-400' : 'bg-white/30'}`} />
+                {isConnected ? 'Online' : '...'}
+              </div>
+              <button 
+                onClick={() => router.push('/')}
+                className="pixel-sans text-sm text-white/40 hover:text-white transition-colors"
+              >
+                ← Back
+              </button>
+            </div>
           </div>
         </div>
       </header>

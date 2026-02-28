@@ -483,35 +483,33 @@ export default function SettingsPage() {
                 <h2 className="pixel-serif text-white text-xl mb-4">Worker Tokens</h2>
                 <p className="pixel-sans text-white/40 text-sm mb-4">Max 5 tokens. Use them to run a native worker:</p>
                 
-                <div className="flex items-center gap-2 bg-white/[0.03] border border-white/10 rounded-lg p-3 mb-4">
-                  <code className="font-mono text-white/50 text-sm flex-1 whitespace-nowrap overflow-x-auto">npx @c0mpute/worker --token &lt;token&gt;</code>
-                  <button
-                    onClick={() => { navigator.clipboard.writeText('npx @c0mpute/worker --token <token>'); setCopied('cmd'); setTimeout(() => setCopied(null), 2000); }}
-                    className="pixel-sans text-xs px-2.5 py-1.5 rounded-lg border border-white/10 text-white/40 hover:text-white hover:bg-white/5 transition-colors flex-shrink-0"
-                  >
-                    {copied === 'cmd' ? 'Copied' : 'Copy'}
-                  </button>
-                </div>
-
                 {tokenError && (
                   <div className="mb-3 p-2 border border-red-500/30 bg-red-500/10 rounded-lg">
                     <p className="pixel-sans text-red-400 text-xs">{tokenError}</p>
                   </div>
                 )}
 
+                <div className="flex items-center gap-2 bg-white/[0.03] border border-white/10 rounded-lg p-3 mb-4">
+                  <code className="font-mono text-sm flex-1 whitespace-nowrap overflow-x-auto select-all" style={{color: newToken ? '#80a0c1' : 'rgba(255,255,255,0.35)'}}>
+                    npx @c0mpute/worker --token {newToken || '<token>'}
+                  </code>
+                  <button
+                    onClick={() => {
+                      const cmd = `npx @c0mpute/worker --token ${newToken || '<token>'}`;
+                      navigator.clipboard.writeText(cmd);
+                      setCopied('cmd');
+                      setTimeout(() => setCopied(null), 2000);
+                    }}
+                    className="pixel-sans text-xs px-2.5 py-1.5 rounded-lg border border-white/10 text-white/40 hover:text-white hover:bg-white/5 transition-colors flex-shrink-0"
+                  >
+                    {copied === 'cmd' ? 'Copied' : 'Copy'}
+                  </button>
+                </div>
+
                 {newToken && (
-                  <div className="mb-4 p-3 bg-green-500/10 border border-green-500/30 rounded-xl">
-                    <p className="pixel-sans text-green-400 text-xs mb-2">Token generated — save it now, it won&apos;t be shown again:</p>
-                    <div className="flex items-center gap-2 bg-black/30 rounded-lg p-2">
-                      <code className="font-mono text-green-400 text-xs flex-1 break-all select-all">{newToken}</code>
-                      <button
-                        onClick={() => { navigator.clipboard.writeText(newToken); setCopied('new-token'); setTimeout(() => setCopied(null), 2000); }}
-                        className="pixel-sans text-xs px-2.5 py-1.5 rounded-lg border border-green-500/30 text-green-400/70 hover:text-green-400 transition-colors flex-shrink-0"
-                      >
-                        {copied === 'new-token' ? 'Copied' : 'Copy'}
-                      </button>
-                    </div>
-                  </div>
+                  <p className="pixel-sans text-white/30 text-xs mb-4">
+                    Token generated — save the command above. It won&apos;t be shown again.
+                  </p>
                 )}
 
                 <button onClick={generateToken} disabled={tokenGenerating} className="pixel-sans text-sm px-6 py-3 rounded-xl bg-[#80a0c1]/15 border border-[#80a0c1]/30 text-[#80a0c1] hover:bg-[#80a0c1]/25 transition-colors disabled:opacity-50 mb-4">
@@ -597,16 +595,16 @@ export default function SettingsPage() {
                 <h2 className="pixel-serif text-white text-xl mb-4">Credit Balance</h2>
                 <div className="grid grid-cols-3 gap-4 mb-4">
                   <div className="text-center p-4 bg-white/[0.02] border border-white/5 rounded-xl">
-                    <div className="pixel-serif text-white text-3xl">{credits?.balance?.toFixed(0) ?? '—'}</div>
+                    <div className="pixel-serif text-white text-2xl">{credits?.balance?.toFixed(0) ?? '0'}</div>
                     <div className="pixel-sans text-white/40 text-xs mt-1">Balance</div>
                   </div>
                   <div className="text-center p-4 bg-white/[0.02] border border-white/5 rounded-xl">
-                    <div className="pixel-serif text-white/70 text-xl">{credits?.totalDeposited?.toFixed(0) ?? '—'}</div>
-                    <div className="pixel-sans text-white/40 text-xs mt-1">Total Deposited</div>
+                    <div className="pixel-serif text-white/70 text-2xl">{credits?.totalDeposited?.toFixed(0) ?? '0'}</div>
+                    <div className="pixel-sans text-white/40 text-xs mt-1">Deposited</div>
                   </div>
                   <div className="text-center p-4 bg-white/[0.02] border border-white/5 rounded-xl">
-                    <div className="pixel-serif text-white/70 text-xl">{credits?.totalSpent?.toFixed(0) ?? '—'}</div>
-                    <div className="pixel-sans text-white/40 text-xs mt-1">Total Spent</div>
+                    <div className="pixel-serif text-white/70 text-2xl">{credits?.totalSpent?.toFixed(0) ?? '0'}</div>
+                    <div className="pixel-sans text-white/40 text-xs mt-1">Spent</div>
                   </div>
                 </div>
                 <p className="pixel-sans text-white/30 text-xs">1 <span className="dollar">$</span>ZERO = 1 credit</p>
