@@ -132,6 +132,8 @@ export class Orchestrator {
 
   private setupEventHandlers() {
     this.io.on('connection', (socket) => {
+      // Send current stats immediately on connect
+      socket.emit('stats:update', this.getStats());
 
       // Worker registration
       socket.on('worker:register', async (data, callback) => {
