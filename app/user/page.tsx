@@ -211,16 +211,13 @@ function ThinkingDropdown({ thinking, isStreaming }: { thinking: string; isStrea
           <path d="M9 18l6-6-6-6" />
         </svg>
         {isStreaming ? (
-          <span className="flex items-center gap-1.5">
-            <span className="inline-block w-1.5 h-1.5 bg-blue-400 rounded-full animate-pulse" />
-            Thinking...
-          </span>
+          <span>Thinking...</span>
         ) : (
           <span>Thought for {seconds}s</span>
         )}
       </button>
       {isOpen && (
-        <div className="mt-2 ml-5 pl-3 border-l border-white/10 text-white/40 text-sm leading-relaxed whitespace-pre-wrap">
+        <div className="mt-2 ml-5 pl-3 border-l border-white/10 text-white/40 text-base leading-relaxed whitespace-pre-wrap pixel-sans">
           {thinking}
         </div>
       )}
@@ -1067,10 +1064,10 @@ export default function UserPage() {
                         }`}
                       >
                         <SourceStrip sources={sources} content={cleanContent} />
-                        {thinking && <ThinkingDropdown thinking={thinking} />}
                         <div className="pixel-sans text-white/90 text-base leading-[1.75] prose prose-invert prose-base max-w-none prose-p:my-3 prose-li:my-1 prose-ol:my-3 prose-ul:my-3 prose-headings:mt-5 prose-headings:mb-2 prose-headings:text-white prose-headings:font-semibold prose-strong:text-white prose-strong:font-extrabold prose-code:text-white/80 prose-code:bg-white/[0.06] prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-a:text-blue-400 prose-a:no-underline hover:prose-a:underline prose-hr:my-5 prose-hr:border-white/10 [&_br]:block [&_br]:content-[''] [&_br]:mt-2.5">
                           <Markdown options={buildMarkdownOverrides(sources)}>{cleanContent}</Markdown>
                         </div>
+                        {thinking && <ThinkingDropdown thinking={thinking} />}
                       </div>
                       {/* Action buttons */}
                       <div className="flex items-center gap-1 mt-1 opacity-0 group-hover/msg:opacity-100 transition-opacity">
@@ -1107,13 +1104,13 @@ export default function UserPage() {
                     <div className="flex justify-start">
                       <div className="w-full px-4 py-3 bg-white/[0.03] rounded-2xl border border-white/[0.04]">
                         <SourceStrip sources={pendingSources} />
-                        {streamThinking && <ThinkingDropdown thinking={streamThinking} isStreaming={isStillThinking} />}
                         {streamResponse && (
                           <div className="pixel-sans text-white/90 text-base leading-[1.75] prose prose-invert prose-base max-w-none prose-p:my-3 prose-li:my-1 prose-ol:my-3 prose-ul:my-3 prose-headings:mt-5 prose-headings:mb-2 prose-headings:text-white prose-headings:font-semibold prose-strong:text-white prose-strong:font-extrabold prose-code:text-white/80 prose-code:bg-white/[0.06] prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-a:text-blue-400 prose-a:no-underline hover:prose-a:underline prose-hr:my-5 prose-hr:border-white/10 [&_br]:block [&_br]:content-[''] [&_br]:mt-2.5">
                             <Markdown options={buildMarkdownOverrides(pendingSources)}>{streamResponse}</Markdown>
                             <span className="inline-block w-2 h-5 bg-white/50 ml-1 animate-pulse" />
                           </div>
                         )}
+                        {streamThinking && <ThinkingDropdown thinking={streamThinking} isStreaming={isStillThinking} />}
                       </div>
                     </div>
                   );
