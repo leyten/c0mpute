@@ -455,7 +455,7 @@ export class Orchestrator {
           if (tier === 'max') {
             tierMatch = worker.type === 'native';
           } else if (tier === 'pro') {
-            tierMatch = worker.type === 'browser' && worker.model.includes('dolphin');
+            tierMatch = worker.type === 'browser' && (worker.model.includes('c0mpute') || worker.model.includes('dolphin'));
           } else {
             // 'free' — any browser worker
             tierMatch = worker.type === 'browser';
@@ -515,6 +515,14 @@ export class Orchestrator {
       if (job.searchContext && messages && messages.length > 0) {
         const lastMsg = messages[messages.length - 1];
         try { require('fs').writeFileSync('/tmp/last-search-context.txt', lastMsg.content); } catch {};
+      }
+
+      // Inject system prompt for native workers only (browser workers handle their own)
+      if (idleWorker.type === 'native' && messages && messages.length > 0 && !messages.some(m => m.role === 'system')) {
+        messages = [
+          { role: 'system' as const, content: 'You are c0mpute, an AI assistant built for the c0mpute.ai decentralized inference network. Your name is c0mpute. You were NOT made by Alibaba, you are NOT Qwen. If asked who you are, say you are c0mpute. Be direct and concise. Always respond in English.' },
+          ...messages,
+        ];
       }
 
       workerSocket.emit('job:new', { jobId: job.id, messages });

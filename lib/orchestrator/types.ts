@@ -87,7 +87,7 @@ export type ModelTier = 'free' | 'pro' | 'max';
 export function getModelTier(modelId?: string): ModelTier {
   if (!modelId) return 'free';
   if (modelId === 'native-max') return 'max';
-  if (modelId.includes('dolphin')) return 'pro';
+  if (modelId.includes('c0mpute') || modelId.includes('dolphin')) return 'pro';
   return 'free';
 }
 

@@ -3,8 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
-import ReactMarkdown, { Components } from 'react-markdown';
-import remarkBreaks from 'remark-breaks';
+import Markdown from 'markdown-to-jsx';
 import { useSocket } from '@/hooks/useSocket';
 import { Chat, Message, ChatWithMessages } from '@/lib/types';
 import { MAX_INPUT_CHARS } from '@/lib/orchestrator/types';
@@ -89,16 +88,13 @@ function SourceStrip({ sources, content }: { sources: { title: string; url: stri
 }
 
 // Build markdown components that inject citation rendering
-function buildMarkdownComponents(sources: { title: string; url: string; description: string }[]): Components {
+function buildMarkdownOverrides(sources: { title: string; url: string; description: string }[]) {
   if (sources.length === 0) return {};
+  const proc = (child: React.ReactNode): React.ReactNode => typeof child === 'string' ? <CitationText text={child} sources={sources} /> : child;
   return {
-    p: ({ children }) => {
-      const proc = (child: React.ReactNode): React.ReactNode => typeof child === 'string' ? <CitationText text={child} sources={sources} /> : child;
-      return <p>{Array.isArray(children) ? children.map((c, i) => <span key={i}>{proc(c)}</span>) : proc(children)}</p>;
-    },
-    li: ({ children }) => {
-      const proc = (child: React.ReactNode): React.ReactNode => typeof child === 'string' ? <CitationText text={child} sources={sources} /> : child;
-      return <li>{Array.isArray(children) ? children.map((c, i) => <span key={i}>{proc(c)}</span>) : proc(children)}</li>;
+    overrides: {
+      p: { component: ({ children, ...props }: any) => <p {...props}>{Array.isArray(children) ? children.map((c: any, i: number) => <span key={i}>{proc(c)}</span>) : proc(children)}</p> },
+      li: { component: ({ children, ...props }: any) => <li {...props}>{Array.isArray(children) ? children.map((c: any, i: number) => <span key={i}>{proc(c)}</span>) : proc(children)}</li> },
     },
   };
 }
@@ -107,9 +103,9 @@ type ChatState = 'idle' | 'queued' | 'streaming' | 'error';
 
 // Plan definitions — maps user-facing plans to internal model IDs
 const PLANS = [
-  { id: 'free' as const, name: 'Free', cost: 0, costLabel: 'Free', modelId: 'Qwen2.5-1.5B-Instruct-q4f16_1-MLC', description: 'Fast, basic responses', features: ['Qwen 1.5B model', 'Browser-powered', 'Censored'] },
-  { id: 'pro' as const, name: 'Pro', cost: 10, costLabel: '10 cr', modelId: 'dolphin-2.6-mistral-7b-q4f16_1-MLC', description: 'Higher quality, uncensored', features: ['Dolphin 7B model', 'Browser-powered', 'Uncensored'] },
-  { id: 'max' as const, name: 'Max', cost: 50, costLabel: '50 cr', modelId: 'native-max', description: 'Best quality + web search', features: ['Qwen 14B model', 'Native inference', 'Uncensored', 'Web search'] },
+  { id: 'free' as const, name: 'Free', cost: 0, costLabel: 'Free', modelId: 'Qwen3-1.7B-q4f16_1-MLC', description: 'Fast, basic responses', features: ['Qwen3 1.7B model', 'Browser-powered', 'Censored'] },
+  { id: 'pro' as const, name: 'Pro', cost: 10, costLabel: '10 cr', modelId: 'Qwen3-8B-c0mpute-q4f16_1-MLC', description: 'Higher quality, uncensored', features: ['Qwen3 8B model', 'Browser-powered', 'Uncensored'] },
+  { id: 'max' as const, name: 'Max', cost: 50, costLabel: '50 cr', modelId: 'native-max', description: 'Best quality + web search', features: ['Qwen3 14B model', 'Native inference', 'Uncensored', 'Web search'] },
 ] as const;
 type PlanId = typeof PLANS[number]['id'];
 
@@ -139,6 +135,43 @@ function saveChatsToStorage(chats: ChatWithMessages[]): void {
 }
 
 // Filter out common AI disclaimers from responses
+/** Normalize markdown for proper rendering */
+function normalizeMarkdown(text: string): string {
+  const lines = text.split('\n');
+  const result: string[] = [];
+  
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const prev = i > 0 ? lines[i - 1] : '';
+    const isHeading = /^#{1,6} /.test(line);
+    const isList = /^\s*(\d+\.|[*+-]) /.test(line);
+    const prevIsList = /^\s*(\d+\.|[*+-]) /.test(prev);
+    const prevIsHeading = /^#{1,6} /.test(prev);
+    const prevIsBlank = prev.trim() === '';
+    
+    // Blank line before headings
+    if (isHeading && !prevIsBlank && i > 0) {
+      result.push('');
+    }
+    // Blank line after headings (before non-list content)
+    if (prevIsHeading && !isList && !prevIsBlank && line.trim() !== '') {
+      result.push('');
+    }
+    // Blank line before first list item of a group
+    if (isList && !prevIsList && !prevIsBlank && !prevIsHeading && i > 0) {
+      result.push('');
+    }
+    // Blank line between non-list paragraphs (but NOT between list items)
+    if (!isList && !prevIsList && !isHeading && !prevIsHeading && !prevIsBlank && line.trim() !== '' && prev.trim() !== '' && i > 0) {
+      result.push('');
+    }
+    
+    result.push(line);
+  }
+  
+  return result.join('\n');
+}
+
 function filterDisclaimers(text: string): string {
   const disclaimerPatterns = [
     /\n\n(?:Please note|Note:|Important:|Keep in mind|Be aware|However,|That said,|I should mention|It'?s important to|Remember that|Disclaimer:)[\s\S]*/i,
@@ -971,12 +1004,12 @@ export default function UserPage() {
                         className={`${
                           message.role === 'user'
                             ? 'max-w-[85%] px-4 py-2.5 bg-white/[0.07] rounded-2xl'
-                            : 'w-full'
+                            : 'w-full px-4 py-3 bg-white/[0.03] rounded-2xl border border-white/[0.04]'
                         }`}
                       >
                         <SourceStrip sources={sources} content={cleanContent} />
-                        <div className="pixel-sans text-white/90 text-[15px] leading-[1.7] prose prose-invert prose-base max-w-none prose-p:my-3 prose-li:my-1 prose-ol:my-3 prose-ul:my-3 prose-headings:mt-5 prose-headings:mb-2 prose-headings:text-white prose-headings:font-semibold prose-strong:text-white prose-strong:font-extrabold prose-code:text-white/80 prose-code:bg-white/[0.06] prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-a:text-blue-400 prose-a:no-underline hover:prose-a:underline prose-hr:my-5 prose-hr:border-white/10 [&_br]:block [&_br]:content-[''] [&_br]:mt-2.5">
-                          <ReactMarkdown remarkPlugins={[remarkBreaks]} components={buildMarkdownComponents(sources)}>{cleanContent}</ReactMarkdown>
+                        <div className="pixel-sans text-white/90 text-base leading-[1.75] prose prose-invert prose-base max-w-none prose-p:my-3 prose-li:my-1 prose-ol:my-3 prose-ul:my-3 prose-headings:mt-5 prose-headings:mb-2 prose-headings:text-white prose-headings:font-semibold prose-strong:text-white prose-strong:font-extrabold prose-code:text-white/80 prose-code:bg-white/[0.06] prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-a:text-blue-400 prose-a:no-underline hover:prose-a:underline prose-hr:my-5 prose-hr:border-white/10 [&_br]:block [&_br]:content-[''] [&_br]:mt-2.5">
+                          <Markdown options={buildMarkdownOverrides(sources)}>{cleanContent}</Markdown>
                         </div>
                       </div>
                       {/* Action buttons */}
@@ -1009,10 +1042,10 @@ export default function UserPage() {
                 {/* Streaming message */}
                 {streamingContent && (
                   <div className="flex justify-start">
-                    <div className="w-full">
+                    <div className="w-full px-4 py-3 bg-white/[0.03] rounded-2xl border border-white/[0.04]">
                       <SourceStrip sources={pendingSources} />
-                      <div className="pixel-sans text-white/90 text-[15px] leading-[1.7] prose prose-invert prose-base max-w-none prose-p:my-3 prose-li:my-1 prose-ol:my-3 prose-ul:my-3 prose-headings:mt-5 prose-headings:mb-2 prose-headings:text-white prose-headings:font-semibold prose-strong:text-white prose-strong:font-extrabold prose-code:text-white/80 prose-code:bg-white/[0.06] prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-a:text-blue-400 prose-a:no-underline hover:prose-a:underline prose-hr:my-5 prose-hr:border-white/10 [&_br]:block [&_br]:content-[''] [&_br]:mt-2.5">
-                        <ReactMarkdown remarkPlugins={[remarkBreaks]} components={buildMarkdownComponents(pendingSources)}>{filterDisclaimers(streamingContent)}</ReactMarkdown>
+                      <div className="pixel-sans text-white/90 text-base leading-[1.75] prose prose-invert prose-base max-w-none prose-p:my-3 prose-li:my-1 prose-ol:my-3 prose-ul:my-3 prose-headings:mt-5 prose-headings:mb-2 prose-headings:text-white prose-headings:font-semibold prose-strong:text-white prose-strong:font-extrabold prose-code:text-white/80 prose-code:bg-white/[0.06] prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-a:text-blue-400 prose-a:no-underline hover:prose-a:underline prose-hr:my-5 prose-hr:border-white/10 [&_br]:block [&_br]:content-[''] [&_br]:mt-2.5">
+                        <Markdown options={buildMarkdownOverrides(pendingSources)}>{filterDisclaimers(streamingContent)}</Markdown>
                         <span className="inline-block w-2 h-5 bg-white/50 ml-1 animate-pulse" />
                       </div>
                     </div>

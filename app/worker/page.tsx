@@ -55,16 +55,16 @@ const filterDisclaimers = (text: string): string => {
 
 // Custom model URLs (hosted on HuggingFace)
 const CUSTOM_MODELS = {
-  'dolphin-2.6-mistral-7b-q4f16_1-MLC': {
-    url: 'https://huggingface.co/Leyten/dolphin-2.6-mistral-7b-q4f16_1-MLC/resolve/main',
-    wasm: 'dolphin-2.6-mistral-7b-q4f16_1-webgpu.wasm',
+  'Qwen3-8B-c0mpute-q4f16_1-MLC': {
+    url: 'https://huggingface.co/Leyten/Qwen3-8B-c0mpute-q4f16_1-MLC/resolve/main',
+    wasm: 'https://raw.githubusercontent.com/mlc-ai/binary-mlc-llm-libs/main/web-llm-models/v0_2_80/Qwen3-8B-q4f16_1-ctx4k_cs1k-webgpu.wasm',
   },
 };
 
 // Available models with VRAM requirements
 const AVAILABLE_MODELS = [
-  { id: 'Qwen2.5-1.5B-Instruct-q4f16_1-MLC', name: 'Qwen 1.5B', size: '~900MB', vram: '1.5GB', vramRequired: 1.5, speed: 'Fast', quality: 3, tier: 'standard', note: 'Censored', isCustom: false },
-  { id: 'dolphin-2.6-mistral-7b-q4f16_1-MLC', name: 'Dolphin Mistral 7B', size: '~4GB', vram: '6GB', vramRequired: 6, speed: 'Medium', quality: 5, tier: 'premium', note: 'Uncensored', isCustom: true },
+  { id: 'Qwen3-1.7B-q4f16_1-MLC', name: 'Qwen3 1.7B', size: '~1GB', vram: '2GB', vramRequired: 2, speed: 'Fast', quality: 4, tier: 'standard', note: 'Censored', isCustom: false },
+  { id: 'Qwen3-8B-c0mpute-q4f16_1-MLC', name: 'Qwen3 8B Uncensored', size: '~4.3GB', vram: '6GB', vramRequired: 6, speed: 'Medium', quality: 7, tier: 'premium', note: 'Uncensored', isCustom: true },
 ];
 
 // Check if a model can run on the current hardware
@@ -608,7 +608,7 @@ export default function WorkerPage() {
         }
         
         const modelUrl = customModelConfig.url;
-        const wasmUrl = `${modelUrl}/${customModelConfig.wasm}`;
+        const wasmUrl = customModelConfig.wasm.startsWith('http') ? customModelConfig.wasm : `${modelUrl}/${customModelConfig.wasm}`;
         
         
         engine = await CreateMLCEngine(selectedModel, {
