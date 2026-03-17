@@ -92,4 +92,4 @@ export function getModelTier(modelId?: string): ModelTier {
 }
 
 export const MAX_INPUT_CHARS = 2000;
-export const MAX_OUTPUT_TOKENS = 1024;
+export const MAX_OUTPUT_TOKENS = 4096;

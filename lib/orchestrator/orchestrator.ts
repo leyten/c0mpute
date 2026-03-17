@@ -79,7 +79,7 @@ export class Orchestrator {
 
   private cleanupStaleJobs() {
     const now = Date.now();
-    const JOB_TIMEOUT_MS = 60000;
+    const JOB_TIMEOUT_MS = 180000; // 3 minutes — Qwen3 thinking mode needs more time
 
     this.jobQueue = this.jobQueue.filter(jobId => {
       const job = this.jobs.get(jobId);
