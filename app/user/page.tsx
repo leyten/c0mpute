@@ -194,7 +194,7 @@ function ThinkingDropdown({ thinking, isStreaming }: { thinking: string; isStrea
   const seconds = Math.max(1, Math.round(thinkingTime / 5)); // ~5 words per second estimate
   
   return (
-    <div className="mb-3">
+    <div className="mt-2">
       <button
         onClick={() => setIsOpen(!isOpen)}
         className="flex items-center gap-2 text-white/40 hover:text-white/60 transition-colors text-sm pixel-sans"
@@ -1072,7 +1072,7 @@ export default function UserPage() {
                       {/* Action buttons */}
                       <div className="flex items-center gap-1 mt-1 opacity-0 group-hover/msg:opacity-100 transition-opacity">
                         <button
-                          onClick={() => copyMessage(message.id, message.content)}
+                          onClick={() => copyMessage(message.id, message.role === 'assistant' ? cleanContent : message.content)}
                           className="p-1 rounded hover:bg-white/[0.06] transition-colors"
                           title="Copy"
                         >
