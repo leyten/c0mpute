@@ -172,6 +172,62 @@ function normalizeMarkdown(text: string): string {
   return result.join('\n');
 }
 
+// Parse <think>...</think> tags from Qwen3 model output
+function parseThinking(content: string): { thinking: string | null; response: string } {
+  // Match completed thinking blocks
+  const thinkMatch = content.match(/^<think>([\s\S]*?)<\/think>\s*([\s\S]*)$/);
+  if (thinkMatch) {
+    return { thinking: thinkMatch[1].trim(), response: thinkMatch[2].trim() };
+  }
+  // Match in-progress thinking (no closing tag yet — still streaming)
+  const partialMatch = content.match(/^<think>([\s\S]*)$/);
+  if (partialMatch) {
+    return { thinking: partialMatch[1].trim(), response: '' };
+  }
+  return { thinking: null, response: content };
+}
+
+// Collapsible thinking dropdown component
+function ThinkingDropdown({ thinking, isStreaming }: { thinking: string; isStreaming?: boolean }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const thinkingTime = thinking.split(/\s+/).length; // rough word count as proxy
+  const seconds = Math.max(1, Math.round(thinkingTime / 5)); // ~5 words per second estimate
+  
+  return (
+    <div className="mb-3">
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="flex items-center gap-2 text-white/40 hover:text-white/60 transition-colors text-sm pixel-sans"
+      >
+        <svg
+          width="12"
+          height="12"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          className={`transition-transform ${isOpen ? 'rotate-90' : ''}`}
+        >
+          <path d="M9 18l6-6-6-6" />
+        </svg>
+        {isStreaming ? (
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block w-1.5 h-1.5 bg-blue-400 rounded-full animate-pulse" />
+            Thinking...
+          </span>
+        ) : (
+          <span>Thought for {seconds}s</span>
+        )}
+      </button>
+      {isOpen && (
+        <div className="mt-2 ml-5 pl-3 border-l border-white/10 text-white/40 text-sm leading-relaxed whitespace-pre-wrap">
+          {thinking}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function filterDisclaimers(text: string): string {
   const disclaimerPatterns = [
     /\n\n(?:Please note|Note:|Important:|Keep in mind|Be aware|However,|That said,|I should mention|It'?s important to|Remember that|Disclaimer:)[\s\S]*/i,
@@ -992,9 +1048,12 @@ export default function UserPage() {
                 )}
                 
                 {activeChat.messages.map((message) => {
-                  const { cleanContent, sources } = message.role === 'assistant' 
+                  const { cleanContent: rawContent, sources } = message.role === 'assistant' 
                     ? parseSourcesFromContent(message.content) 
                     : { cleanContent: message.content, sources: [] };
+                  const { thinking, response: cleanContent } = message.role === 'assistant'
+                    ? parseThinking(rawContent)
+                    : { thinking: null, response: rawContent };
                   return (
                     <div
                       key={message.id}
@@ -1008,6 +1067,7 @@ export default function UserPage() {
                         }`}
                       >
                         <SourceStrip sources={sources} content={cleanContent} />
+                        {thinking && <ThinkingDropdown thinking={thinking} />}
                         <div className="pixel-sans text-white/90 text-base leading-[1.75] prose prose-invert prose-base max-w-none prose-p:my-3 prose-li:my-1 prose-ol:my-3 prose-ul:my-3 prose-headings:mt-5 prose-headings:mb-2 prose-headings:text-white prose-headings:font-semibold prose-strong:text-white prose-strong:font-extrabold prose-code:text-white/80 prose-code:bg-white/[0.06] prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-a:text-blue-400 prose-a:no-underline hover:prose-a:underline prose-hr:my-5 prose-hr:border-white/10 [&_br]:block [&_br]:content-[''] [&_br]:mt-2.5">
                           <Markdown options={buildMarkdownOverrides(sources)}>{cleanContent}</Markdown>
                         </div>
@@ -1040,17 +1100,24 @@ export default function UserPage() {
                 })}
                 
                 {/* Streaming message */}
-                {streamingContent && (
-                  <div className="flex justify-start">
-                    <div className="w-full px-4 py-3 bg-white/[0.03] rounded-2xl border border-white/[0.04]">
-                      <SourceStrip sources={pendingSources} />
-                      <div className="pixel-sans text-white/90 text-base leading-[1.75] prose prose-invert prose-base max-w-none prose-p:my-3 prose-li:my-1 prose-ol:my-3 prose-ul:my-3 prose-headings:mt-5 prose-headings:mb-2 prose-headings:text-white prose-headings:font-semibold prose-strong:text-white prose-strong:font-extrabold prose-code:text-white/80 prose-code:bg-white/[0.06] prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-a:text-blue-400 prose-a:no-underline hover:prose-a:underline prose-hr:my-5 prose-hr:border-white/10 [&_br]:block [&_br]:content-[''] [&_br]:mt-2.5">
-                        <Markdown options={buildMarkdownOverrides(pendingSources)}>{filterDisclaimers(streamingContent)}</Markdown>
-                        <span className="inline-block w-2 h-5 bg-white/50 ml-1 animate-pulse" />
+                {streamingContent && (() => {
+                  const { thinking: streamThinking, response: streamResponse } = parseThinking(filterDisclaimers(streamingContent));
+                  const isStillThinking = streamThinking !== null && !streamResponse;
+                  return (
+                    <div className="flex justify-start">
+                      <div className="w-full px-4 py-3 bg-white/[0.03] rounded-2xl border border-white/[0.04]">
+                        <SourceStrip sources={pendingSources} />
+                        {streamThinking && <ThinkingDropdown thinking={streamThinking} isStreaming={isStillThinking} />}
+                        {streamResponse && (
+                          <div className="pixel-sans text-white/90 text-base leading-[1.75] prose prose-invert prose-base max-w-none prose-p:my-3 prose-li:my-1 prose-ol:my-3 prose-ul:my-3 prose-headings:mt-5 prose-headings:mb-2 prose-headings:text-white prose-headings:font-semibold prose-strong:text-white prose-strong:font-extrabold prose-code:text-white/80 prose-code:bg-white/[0.06] prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-a:text-blue-400 prose-a:no-underline hover:prose-a:underline prose-hr:my-5 prose-hr:border-white/10 [&_br]:block [&_br]:content-[''] [&_br]:mt-2.5">
+                            <Markdown options={buildMarkdownOverrides(pendingSources)}>{streamResponse}</Markdown>
+                            <span className="inline-block w-2 h-5 bg-white/50 ml-1 animate-pulse" />
+                          </div>
+                        )}
                       </div>
                     </div>
-                  </div>
-                )}
+                  );
+                })()}
                 
                 {/* Search indicator */}
                 {isSearching && (
