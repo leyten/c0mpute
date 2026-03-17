@@ -543,18 +543,17 @@ export default function UserPage() {
           cleanToken = cleanToken.replace(stopToken, '');
         }
         if (cleanToken) {
+          // Track thinking time outside state updater
+          if (cleanToken.includes('<think>') && !thinkingStartRef.current) {
+            thinkingStartRef.current = Date.now();
+            setThinkingElapsed(null);
+          }
+          if (cleanToken.includes('</think>') && thinkingStartRef.current) {
+            setThinkingElapsed(Math.round((Date.now() - thinkingStartRef.current) / 1000));
+            thinkingStartRef.current = null;
+          }
           setStreamingContent(prev => {
             const updated = prev + cleanToken;
-            // Track thinking time
-            if (updated.includes('<think>') && !thinkingStartRef.current) {
-              thinkingStartRef.current = Date.now();
-              setThinkingElapsed(null);
-            }
-            if (updated.includes('</think>') && thinkingStartRef.current) {
-              setThinkingElapsed(Math.round((Date.now() - thinkingStartRef.current) / 1000));
-              thinkingStartRef.current = null;
-            }
-            // Safety scan on accumulated content
             const safety = scanOutput(updated);
             if (!safety.safe) {
               return BLOCKED_MESSAGE;
