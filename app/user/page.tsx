@@ -188,10 +188,9 @@ function parseThinking(content: string): { thinking: string | null; response: st
 }
 
 // Collapsible thinking dropdown component
-function ThinkingDropdown({ thinking, isStreaming }: { thinking: string; isStreaming?: boolean }) {
+function ThinkingDropdown({ thinking, isStreaming, elapsedSeconds }: { thinking: string; isStreaming?: boolean; elapsedSeconds?: number }) {
   const [isOpen, setIsOpen] = useState(false);
-  const thinkingTime = thinking.split(/\s+/).length; // rough word count as proxy
-  const seconds = Math.max(1, Math.round(thinkingTime / 5)); // ~5 words per second estimate
+  const seconds = elapsedSeconds ?? Math.max(1, Math.round(thinking.split(/\s+/).length / 5));
   
   return (
     <div className="mt-2">
@@ -275,6 +274,8 @@ export default function UserPage() {
   const [streamingContent, setStreamingContent] = useState('');
   const [currentJobId, setCurrentJobId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const thinkingStartRef = useRef<number | null>(null);
+  const [thinkingElapsed, setThinkingElapsed] = useState<number | null>(null);
   
   // UI state
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -497,6 +498,8 @@ export default function UserPage() {
     
     setChatState('queued');
     setStreamingContent('');
+    thinkingStartRef.current = null;
+    setThinkingElapsed(null);
     
     try {
       // Get auth token
@@ -542,6 +545,15 @@ export default function UserPage() {
         if (cleanToken) {
           setStreamingContent(prev => {
             const updated = prev + cleanToken;
+            // Track thinking time
+            if (updated.includes('<think>') && !thinkingStartRef.current) {
+              thinkingStartRef.current = Date.now();
+              setThinkingElapsed(null);
+            }
+            if (updated.includes('</think>') && thinkingStartRef.current) {
+              setThinkingElapsed(Math.round((Date.now() - thinkingStartRef.current) / 1000));
+              thinkingStartRef.current = null;
+            }
             // Safety scan on accumulated content
             const safety = scanOutput(updated);
             if (!safety.safe) {
@@ -1110,7 +1122,7 @@ export default function UserPage() {
                             <span className="inline-block w-2 h-5 bg-white/50 ml-1 animate-pulse" />
                           </div>
                         )}
-                        {streamThinking && <ThinkingDropdown thinking={streamThinking} isStreaming={isStillThinking} />}
+                        {streamThinking && <ThinkingDropdown thinking={streamThinking} isStreaming={isStillThinking} elapsedSeconds={thinkingElapsed ?? undefined} />}
                       </div>
                     </div>
                   );
