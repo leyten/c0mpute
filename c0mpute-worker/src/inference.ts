@@ -81,6 +81,7 @@ export async function runInference(
     stream: true,
     options: {
       num_predict: MAX_OUTPUT_TOKENS,
+      num_gpu: 999,   // Force GPU — workaround for ollama bug #3732
     },
   };
 
@@ -175,6 +176,7 @@ export async function benchmarkInference(tokenCount: number): Promise<number> {
       stream: true,
       options: {
         num_predict: tokenCount,
+        num_gpu: 999,
       },
     }),
   });
