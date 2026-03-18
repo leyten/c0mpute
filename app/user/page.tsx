@@ -173,18 +173,19 @@ function normalizeMarkdown(text: string): string {
 }
 
 // Parse <think>...</think> tags from Qwen3 model output
-function parseThinking(content: string): { thinking: string | null; response: string } {
-  // Match completed thinking blocks
-  const thinkMatch = content.match(/^<think>([\s\S]*?)<\/think>\s*([\s\S]*)$/);
+function parseThinking(content: string): { thinking: string | null; response: string; thinkSeconds: number | null } {
+  // Match completed thinking blocks (with optional embedded time)
+  const thinkMatch = content.match(/^<think>([\s\S]*?)<\/think>(?:<!--think_time:(\d+)-->)?\s*([\s\S]*)$/);
   if (thinkMatch) {
-    return { thinking: thinkMatch[1].trim(), response: thinkMatch[2].trim() };
+    const seconds = thinkMatch[2] ? parseInt(thinkMatch[2], 10) : null;
+    return { thinking: thinkMatch[1].trim(), response: thinkMatch[3].trim(), thinkSeconds: seconds };
   }
   // Match in-progress thinking (no closing tag yet — still streaming)
   const partialMatch = content.match(/^<think>([\s\S]*)$/);
   if (partialMatch) {
-    return { thinking: partialMatch[1].trim(), response: '' };
+    return { thinking: partialMatch[1].trim(), response: '', thinkSeconds: null };
   }
-  return { thinking: null, response: content };
+  return { thinking: null, response: content, thinkSeconds: null };
 }
 
 // Collapsible thinking dropdown component
@@ -275,6 +276,7 @@ export default function UserPage() {
   const [currentJobId, setCurrentJobId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const thinkingStartRef = useRef<number | null>(null);
+  const thinkingElapsedRef = useRef<number | null>(null);
   const [thinkingElapsed, setThinkingElapsed] = useState<number | null>(null);
   
   // UI state
@@ -499,6 +501,7 @@ export default function UserPage() {
     setChatState('queued');
     setStreamingContent('');
     thinkingStartRef.current = null;
+    thinkingElapsedRef.current = null;
     setThinkingElapsed(null);
     
     try {
@@ -549,7 +552,9 @@ export default function UserPage() {
             setThinkingElapsed(null);
           }
           if (cleanToken.includes('</think>') && thinkingStartRef.current) {
-            setThinkingElapsed(Math.round((Date.now() - thinkingStartRef.current) / 1000));
+            const elapsed = Math.round((Date.now() - thinkingStartRef.current) / 1000);
+            thinkingElapsedRef.current = elapsed;
+            setThinkingElapsed(elapsed);
             thinkingStartRef.current = null;
           }
           setStreamingContent(prev => {
@@ -598,6 +603,10 @@ export default function UserPage() {
             finalContent = BLOCKED_MESSAGE;
           }
           
+          // Embed thinking time so it persists
+          if (thinkingElapsedRef.current !== null && finalContent.includes('</think>')) {
+            finalContent = finalContent.replace('</think>', `</think><!--think_time:${thinkingElapsedRef.current}-->`);
+          }
           // Append sources to content so they persist in storage
           const sources = pendingSourcesRef.current;
           if (sources.length > 0) {
@@ -1059,9 +1068,9 @@ export default function UserPage() {
                   const { cleanContent: rawContent, sources } = message.role === 'assistant' 
                     ? parseSourcesFromContent(message.content) 
                     : { cleanContent: message.content, sources: [] };
-                  const { thinking, response: cleanContent } = message.role === 'assistant'
+                  const { thinking, response: cleanContent, thinkSeconds } = message.role === 'assistant'
                     ? parseThinking(rawContent)
-                    : { thinking: null, response: rawContent };
+                    : { thinking: null, response: rawContent, thinkSeconds: null };
                   return (
                     <div
                       key={message.id}
@@ -1078,7 +1087,7 @@ export default function UserPage() {
                         <div className="pixel-sans text-white/90 text-base leading-[1.75] prose prose-invert prose-base max-w-none prose-p:my-3 prose-li:my-1 prose-ol:my-3 prose-ul:my-3 prose-headings:mt-5 prose-headings:mb-2 prose-headings:text-white prose-headings:font-semibold prose-strong:text-white prose-strong:font-extrabold prose-code:text-white/80 prose-code:bg-white/[0.06] prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-a:text-blue-400 prose-a:no-underline hover:prose-a:underline prose-hr:my-5 prose-hr:border-white/10 [&_br]:block [&_br]:content-[''] [&_br]:mt-2.5">
                           <Markdown options={buildMarkdownOverrides(sources)}>{cleanContent}</Markdown>
                         </div>
-                        {thinking && <ThinkingDropdown thinking={thinking} />}
+                        {thinking && <ThinkingDropdown thinking={thinking} elapsedSeconds={thinkSeconds ?? undefined} />}
                       </div>
                       {/* Action buttons */}
                       <div className="flex items-center gap-1 mt-1 opacity-0 group-hover/msg:opacity-100 transition-opacity">
