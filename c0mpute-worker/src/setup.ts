@@ -1,12 +1,8 @@
-import { execSync } from 'child_process';
-import { writeFileSync, mkdirSync } from 'fs';
-import { join } from 'path';
 import {
   OLLAMA_URL,
   OLLAMA_MODEL,
   OLLAMA_BASE_MODEL,
-  MODELFILE_TEMPLATE,
-  DATA_DIR,
+  SYSTEM_PROMPT,
 } from './config.js';
 import { checkOllama, modelExists } from './inference.js';
 
@@ -90,18 +86,21 @@ export async function ensureSetup(): Promise<void> {
     console.log(''); // newline after progress
   }
 
-  // Write Modelfile and create custom model
+  // Create custom model from base model
   console.log(`Creating model: ${OLLAMA_MODEL}`);
-  mkdirSync(DATA_DIR, { recursive: true });
-  const modelfilePath = join(DATA_DIR, 'Modelfile');
-  writeFileSync(modelfilePath, MODELFILE_TEMPLATE);
 
   const createRes = await fetch(`${OLLAMA_URL}/api/create`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      name: OLLAMA_MODEL,
-      modelfile: MODELFILE_TEMPLATE,
+      model: OLLAMA_MODEL,
+      from: OLLAMA_BASE_MODEL,
+      system: SYSTEM_PROMPT,
+      parameters: {
+        temperature: 0.6,
+        top_k: 20,
+        top_p: 0.95,
+      },
       stream: false,
     }),
   });
