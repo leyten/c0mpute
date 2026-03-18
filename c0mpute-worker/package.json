@@ -1,6 +1,6 @@
 {
   "name": "@c0mpute/worker",
-  "version": "2.3.1",
+  "version": "2.3.2",
   "description": "Native CLI worker for the c0mpute.ai distributed inference network. Runs LLM inference via ollama and connects to the orchestrator via Socket.io.",
   "license": "MIT",
   "type": "module",

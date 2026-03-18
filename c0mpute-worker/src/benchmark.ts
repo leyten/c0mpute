@@ -3,22 +3,32 @@ import { BENCHMARK_TOKENS, MIN_TOK_PER_SEC } from './config.js';
 
 /**
  * Run a benchmark generating BENCHMARK_TOKENS tokens and return the speed.
+ * Does a warm-up call first to load the model into memory/VRAM,
+ * then measures actual generation speed on a second call.
  * Exits the process if speed is below minimum threshold.
  */
 export async function runBenchmark(): Promise<number> {
-  console.log(`Running benchmark (${BENCHMARK_TOKENS} tokens)...`);
+  const timeoutMs = 180_000;
 
-  const timeoutMs = 120_000;
-  const result = await Promise.race([
-    benchmarkInference(BENCHMARK_TOKENS),
+  // Warm-up: load model into VRAM (first call is always slow)
+  console.log('Warming up model...');
+  await Promise.race([
+    benchmarkInference(4),
     new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error('Benchmark timed out after 2 minutes')), timeoutMs)
+      setTimeout(() => reject(new Error('Warm-up timed out')), timeoutMs)
     ),
   ]);
 
-  const tokPerSec = result;
-  const rounded = Math.round(tokPerSec * 10) / 10;
+  // Actual benchmark on warm model
+  console.log(`Running benchmark (${BENCHMARK_TOKENS} tokens)...`);
+  const tokPerSec = await Promise.race([
+    benchmarkInference(BENCHMARK_TOKENS),
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('Benchmark timed out')), timeoutMs)
+    ),
+  ]);
 
+  const rounded = Math.round(tokPerSec * 10) / 10;
   console.log(`Benchmark: ${rounded} tok/s`);
 
   if (tokPerSec < MIN_TOK_PER_SEC) {
