@@ -5,6 +5,7 @@ import {
   WorkerCapabilities,
   Job,
   ChatMessage,
+  ToolCall,
   ServerToClientEvents,
   ClientToServerEvents,
   NetworkStats,
@@ -12,25 +13,14 @@ import {
 } from './types';
 import { verifyPrivyToken } from '../privy-server';
 import { incrementPromptsSent, verifyWorkerToken, recordCompletedJob, recordEarning, spendCredits, getCreditBalance, refundCredits } from '../db';
-// Dynamic imports for server-only modules (avoid Turbopack resolution)
-let shouldSearch: (msg: string, prev?: { role: string; content: string }[]) => boolean = () => false;
-let extractQuery: (msg: string, prev?: { role: string; content: string }[]) => string = (msg) => msg;
-let searchBrave: (query: string) => Promise<{title:string;url:string;description:string}[]> = async () => [];
-let enrichResults: (results: {title:string;url:string;description:string}[], topN?: number) => Promise<{title:string;url:string;description:string}[]> = async (r) => r;
-let formatSearchContext: (results: {title:string;url:string;description:string}[]) => string = () => '';
+import { AVAILABLE_TOOLS, executeToolCalls } from './tools';
 
-// Load search modules at runtime (server-only, not during Next.js build)
+// Load search server module for Brave API key initialization
 try {
-  const search = require('../search');
   const searchServer = require('../search-server');
-  shouldSearch = search.shouldSearch;
-  extractQuery = search.extractQuery;
-  searchBrave = searchServer.braveSearch;
-  enrichResults = searchServer.enrichResults;
-  formatSearchContext = searchServer.formatSearchContext;
   searchServer.loadBraveApiKey();
 } catch (e) {
-  console.warn('[Orchestrator] Search modules not available:', (e as Error).message);
+  console.warn('[Orchestrator] Search server module not available:', (e as Error).message);
 }
 
 export class Orchestrator {
@@ -53,16 +43,13 @@ export class Orchestrator {
       if (!token) {
         return next(new Error('Authentication required'));
       }
-      // TODO: Remove dev token before production
-      const isDevToken = false; // dev token disabled
+      const isDevToken = false;
       let userId: string | null = null;
       if (isDevToken) {
         userId = 'dev-worker';
       } else if (token.startsWith('cwt_')) {
-        // Worker token — verify against DB
         userId = verifyWorkerToken(token);
       } else {
-        // Privy JWT
         userId = await verifyPrivyToken(token);
       }
       if (!userId) {
@@ -79,7 +66,7 @@ export class Orchestrator {
 
   private cleanupStaleJobs() {
     const now = Date.now();
-    const JOB_TIMEOUT_MS = 180000; // 3 minutes — Qwen3 thinking mode needs more time
+    const JOB_TIMEOUT_MS = 180000; // 3 minutes
 
     this.jobQueue = this.jobQueue.filter(jobId => {
       const job = this.jobs.get(jobId);
@@ -92,7 +79,6 @@ export class Orchestrator {
       const jobAge = now - job.createdAt.getTime();
       if (jobAge > JOB_TIMEOUT_MS) {
         userSocket.emit('job:error', { jobId, error: 'Job timed out' });
-        // Refund credits for timed-out queued jobs
         if (job.privyUserId && job.requestedModel) {
           const tier = getModelTier(job.requestedModel);
           if (tier === 'pro' || tier === 'max') {
@@ -113,7 +99,6 @@ export class Orchestrator {
           if (userSocket) {
             userSocket.emit('job:error', { jobId, error: 'Job timed out during processing' });
           }
-          // Refund credits for timed-out processing jobs
           if (job.privyUserId && job.requestedModel) {
             const tier = getModelTier(job.requestedModel);
             if (tier === 'pro' || tier === 'max') {
@@ -141,7 +126,7 @@ export class Orchestrator {
           callback({ error: 'Authentication required' });
           return;
         }
-        const isDevToken = false; // dev token disabled
+        const isDevToken = false;
         let privyUserId: string | null = null;
         if (isDevToken) {
           privyUserId = 'dev-worker';
@@ -162,15 +147,17 @@ export class Orchestrator {
         }
         const workerType = data.type || 'browser';
         const capabilities: WorkerCapabilities = data.capabilities || {};
-        // Browser workers never have search capability
+        // Browser workers don't have search/vision/tools
         if (workerType === 'browser') {
           capabilities.search = false;
+          capabilities.vision = false;
+          capabilities.tools = false;
         }
         const workerId = this.registerWorker(socket, data.model, privyUserId, tokPerSec, workerType, capabilities);
         if (workerId) {
           callback({ workerId });
           socket.emit('worker:registered', { workerId });
-          console.log(`[Orchestrator] Worker registered: ${workerId} (${data.model}) ${tokPerSec.toFixed(1)} tok/s type=${workerType} user=${privyUserId}`);
+          console.log(`[Orchestrator] Worker registered: ${workerId} (${data.model}) ${tokPerSec.toFixed(1)} tok/s type=${workerType} caps=${JSON.stringify(capabilities)} user=${privyUserId}`);
           this.broadcastStats();
           if (workerType === 'native' && privyUserId) {
             this.pushNativeStatus(privyUserId);
@@ -185,7 +172,7 @@ export class Orchestrator {
         this.broadcastStats();
       });
 
-      // Job submission — with orchestrator-side web search
+      // Job submission
       socket.on('job:submit', async (data, callback) => {
         if (!data.authToken) {
           callback({ error: 'Authentication required' });
@@ -224,46 +211,12 @@ export class Orchestrator {
           }
         }
 
-        // Only search for Max tier (native worker) jobs
-        const requestedTier = getModelTier(data.model);
-        const isMaxTier = requestedTier === 'max';
-
-        // Check if any search-capable workers are online
-        const hasSearchWorker = isMaxTier && Array.from(this.workers.values()).some(
-          w => w.capabilities.search === true
-        );
-
-        // Check if web search would help (only for Max tier with search-capable workers)
-        let searchContext: string | undefined;
-        let searchResults: { title: string; url: string; description: string }[] | undefined;
-        if (hasSearchWorker && data.messages && data.messages.length > 0) {
-          const lastMessage = data.messages[data.messages.length - 1].content;
-          const previousMessages = data.messages.slice(0, -1).map(m => ({ role: m.role, content: m.content }));
-          if (shouldSearch(lastMessage, previousMessages)) {
-            const searchQuery = extractQuery(lastMessage, previousMessages);
-            // Notify user that we're searching
-            socket.emit('job:searching', { jobId: 'pending' });
-            try {
-              const rawResults = await searchBrave(searchQuery);
-              if (rawResults.length > 0) {
-                // Enrich top 3 results with actual page content for better accuracy
-                const results = await enrichResults(rawResults, 3);
-                searchContext = formatSearchContext(results);
-                searchResults = rawResults; // UI sources use original titles/descriptions
-              }
-            } catch (err) {
-              console.error('[Orchestrator] Search failed:', err);
-            }
-          }
-        }
-
-        const job = this.submitJob(socket.id, data.messages, data.model, privyUserId, searchContext, searchResults);
+        const job = this.submitJob(socket.id, data.messages, data.model, privyUserId);
         if (job) {
           callback({ jobId: job.id });
           console.log(`[Orchestrator] Job submitted: ${job.id} (model: ${data.model || 'any'}) user=${privyUserId}`);
           this.processQueue();
         } else {
-          // Refund credits if job submission failed
           if (requestedTierForCredits === 'pro' || requestedTierForCredits === 'max') {
             const creditCost = requestedTierForCredits === 'max' ? 50 : 10;
             refundCredits(privyUserId, creditCost, 'Job submission failed');
@@ -297,6 +250,16 @@ export class Orchestrator {
         this.handleJobError(data.jobId, data.error);
       });
 
+      // Tool call from worker — model wants to use a tool
+      socket.on('job:tool_call', async (data) => {
+        const job = this.jobs.get(data.jobId);
+        if (!job) return;
+        const worker = this.workers.get(socket.id);
+        if (!worker || worker.id !== job.assignedWorker) return;
+
+        await this.handleToolCall(socket, data.jobId, data.toolCalls);
+      });
+
       socket.on('disconnect', () => {
         const worker = this.workers.get(socket.id);
         const wasNative = worker?.type === 'native';
@@ -311,11 +274,40 @@ export class Orchestrator {
     });
   }
 
+  /**
+   * Handle a tool call from the worker.
+   * Executes the requested tools and sends results back to the worker.
+   */
+  private async handleToolCall(workerSocket: Socket, jobId: string, toolCalls: ToolCall[]) {
+    const job = this.jobs.get(jobId);
+    if (!job) return;
+
+    const userSocket = this.io.sockets.sockets.get(job.userSocketId);
+
+    // Notify user that tools are being used
+    const hasSearch = toolCalls.some(tc => tc.function.name === 'web_search');
+    if (hasSearch && userSocket) {
+      userSocket.emit('job:searching', { jobId });
+    }
+
+    console.log(`[Orchestrator] Job ${jobId}: executing tools — ${toolCalls.map(tc => tc.function.name).join(', ')}`);
+
+    // Execute all tool calls
+    const { messages, sources } = await executeToolCalls(toolCalls);
+
+    // Send sources to user for display
+    if (sources && sources.length > 0 && userSocket) {
+      userSocket.emit('job:sources', { jobId, sources });
+    }
+
+    // Send tool results back to the worker
+    workerSocket.emit(`job:tool_result:${jobId}` as any, { results: messages });
+  }
+
   private cleanupUserJobs(userSocketId: string) {
     this.jobQueue = this.jobQueue.filter(jobId => {
       const job = this.jobs.get(jobId);
       if (job && job.userSocketId === userSocketId) {
-        // Refund credits for queued jobs on disconnect
         if (job.privyUserId && job.requestedModel) {
           const tier = getModelTier(job.requestedModel);
           if (tier === 'pro' || tier === 'max') {
@@ -392,8 +384,6 @@ export class Orchestrator {
     messages: ChatMessage[] | undefined,
     model: string | undefined,
     privyUserId: string,
-    searchContext?: string,
-    searchResults?: { title: string; url: string; description: string }[],
   ): Job | null {
     try {
       const jobId = uuidv4();
@@ -406,8 +396,6 @@ export class Orchestrator {
         requestedModel: model,
         status: 'pending',
         createdAt: new Date(),
-        searchContext,
-        searchResults,
       };
       this.jobs.set(jobId, job);
       this.jobQueue.push(jobId);
@@ -450,21 +438,16 @@ export class Orchestrator {
       const tier = getModelTier(j.requestedModel);
       for (const [socketId, worker] of this.workers) {
         if (worker.status === 'idle') {
-          // Tier-based routing
           let tierMatch = false;
           if (tier === 'max') {
             tierMatch = worker.type === 'native';
           } else if (tier === 'pro') {
             tierMatch = worker.type === 'browser' && (worker.model.includes('c0mpute') || worker.model.includes('dolphin'));
           } else {
-            // 'free' — any browser worker
             tierMatch = worker.type === 'browser';
           }
 
           if (!tierMatch) continue;
-
-          // Jobs with search context require a search-capable worker
-          if (j.searchContext && !worker.capabilities.search) continue;
 
           matchedJob = j;
           matchedJobIndex = i;
@@ -494,28 +477,9 @@ export class Orchestrator {
       const userSocket = this.io.sockets.sockets.get(job.userSocketId);
       if (userSocket) {
         userSocket.emit('job:assigned', { jobId: job.id, workerId: idleWorker.id });
-        // Send search sources to user for display
-        if (job.searchResults && job.searchResults.length > 0) {
-          userSocket.emit('job:sources', { jobId: job.id, sources: job.searchResults });
-        }
       }
 
-      // If search context exists, inject it into the last user message
       let messages = job.messages;
-      if (job.searchContext && messages && messages.length > 0) {
-        messages = [...messages];
-        const lastIdx = messages.length - 1;
-        messages[lastIdx] = {
-          ...messages[lastIdx],
-          content: `${job.searchContext}\n\nUser question: ${messages[lastIdx].content}\n\nINSTRUCTIONS: Read the search results carefully. When you find a date, number, name, or statistic in the results, copy it WORD FOR WORD into your answer. Do not convert, rephrase, or approximate. For example, if a result says "Jan 31, 2026" you must write "Jan 31, 2026" — not "January 2026" or "early 2026". Cite with [1], [2], etc.`,
-        };
-      }
-
-      // Debug: log what the model receives (search context)
-      if (job.searchContext && messages && messages.length > 0) {
-        const lastMsg = messages[messages.length - 1];
-        try { require('fs').writeFileSync('/tmp/last-search-context.txt', lastMsg.content); } catch {};
-      }
 
       // Inject system prompt for native workers only (browser workers handle their own)
       if (idleWorker.type === 'native' && messages && messages.length > 0 && !messages.some(m => m.role === 'system')) {
@@ -525,9 +489,11 @@ export class Orchestrator {
         ];
       }
 
-      workerSocket.emit('job:new', { jobId: job.id, messages });
+      // Send tools to workers that support tool calling
+      const tools = idleWorker.capabilities.tools ? AVAILABLE_TOOLS : undefined;
 
-      // Push native status if native worker started a job
+      workerSocket.emit('job:new', { jobId: job.id, messages, tools });
+
       if (idleWorker.type === 'native' && idleWorker.privyUserId) {
         this.pushNativeStatus(idleWorker.privyUserId);
       }
@@ -539,7 +505,6 @@ export class Orchestrator {
   private handleJobToken(jobId: string, token: string) {
     const job = this.jobs.get(jobId);
     if (!job) return;
-    // Count tokens server-side
     if (!job.serverTokenCount) job.serverTokenCount = 0;
     job.serverTokenCount++;
     const userSocket = this.io.sockets.sockets.get(job.userSocketId);
@@ -552,12 +517,9 @@ export class Orchestrator {
     const job = this.jobs.get(jobId);
     if (!job) return;
 
-    // Use server-counted tokens, NOT worker-reported (anti-fraud)
     const tokensGenerated = job.serverTokenCount || 0;
 
-    // Sanity checks
     if (tokensGenerated === 0) {
-      // Worker claimed completion but sent no tokens — suspicious, don't record
       console.error(`[Orchestrator] Job ${jobId} completed with 0 server-counted tokens — skipping reward`);
       const worker = this.findWorkerById(job.assignedWorker!);
       if (worker) worker.status = 'idle';
@@ -569,7 +531,6 @@ export class Orchestrator {
       return;
     }
 
-    // Cap tokens per job to prevent abuse (max 4096 tokens per job)
     const MAX_TOKENS_PER_JOB = 4096;
     const cappedTokens = Math.min(tokensGenerated, MAX_TOKENS_PER_JOB);
 
@@ -579,7 +540,6 @@ export class Orchestrator {
 
     if (job.startedAt) {
       const duration = job.completedAt.getTime() - job.startedAt.getTime();
-      // Minimum duration check: if job completed in <500ms with >100 tokens, suspicious
       if (duration < 500 && cappedTokens > 100) {
         console.error(`[Orchestrator] Job ${jobId} suspiciously fast: ${cappedTokens} tokens in ${duration}ms — skipping reward`);
         const worker = this.findWorkerById(job.assignedWorker!);
@@ -613,7 +573,6 @@ export class Orchestrator {
       }
     }
 
-    // Persist completed job to DB (skip if worker == user, anti self-farming)
     const isSelfFarm = worker?.privyUserId && job.privyUserId && worker.privyUserId === job.privyUserId;
     if (isSelfFarm) {
       console.error(`[Orchestrator] Self-farm detected: worker ${worker?.privyUserId} completed own job ${jobId} — no reward`);
@@ -653,7 +612,6 @@ export class Orchestrator {
     this.jobs.delete(jobId);
     setTimeout(() => this.processQueue(), 100);
     this.broadcastStats();
-    // Push native status update if the worker was native
     if (worker && worker.type === 'native' && worker.privyUserId) {
       this.pushNativeStatus(worker.privyUserId);
     }
@@ -676,7 +634,6 @@ export class Orchestrator {
 
     console.log(`[Orchestrator] Job ${jobId} failed: ${error}`);
 
-    // Refund credits for failed jobs
     if (job.privyUserId && job.requestedModel) {
       const tier = getModelTier(job.requestedModel);
       if (tier === 'pro' || tier === 'max') {
@@ -719,9 +676,7 @@ export class Orchestrator {
     return Math.round(this.jobDurations.reduce((a, b) => a + b, 0) / this.jobDurations.length);
   }
 
-  /** Push native worker status to all other sockets belonging to the same user */
   private pushNativeStatus(privyUserId: string) {
-    // Find the native worker for this user
     let nativeWorker: WorkerInfo | null = null;
     for (const w of this.workers.values()) {
       if (w.privyUserId === privyUserId && w.type === 'native') {
@@ -741,11 +696,9 @@ export class Orchestrator {
         }
       : { online: false, jobsCompleted: 0, tokensGenerated: 0, tokPerSec: 0 };
 
-    // Emit to all sockets for this user (except the native worker itself)
     for (const [socketId, socket] of this.io.sockets.sockets) {
       const sid = (socket as any).privyUserId;
       if (sid === privyUserId) {
-        // Don't send to the native worker's own socket
         const worker = this.workers.get(socketId);
         if (worker && worker.type === 'native') continue;
         socket.emit('native:status', statusData);

@@ -9,7 +9,7 @@ import { Chat, Message, ChatWithMessages } from '@/lib/types';
 import { MAX_INPUT_CHARS } from '@/lib/orchestrator/types';
 // E2E encryption removed for now — keeping it simple
 import { scanOutput, BLOCKED_MESSAGE } from '@/lib/safety';
-import { shouldSearch, extractQuery } from '@/lib/search';
+// search utilities no longer needed — tool calling handles search via the model
 
 // Parse sources from response content (appended by worker as ---SOURCES---)
 function parseSourcesFromContent(content: string): { cleanContent: string; sources: { title: string; url: string; description: string }[] } {

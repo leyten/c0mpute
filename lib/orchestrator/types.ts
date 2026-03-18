@@ -3,6 +3,8 @@ export interface WorkerCapabilities {
   search?: boolean;
   uncensored?: boolean;
   longContext?: boolean;
+  vision?: boolean;
+  tools?: boolean;
 }
 
 // Worker types
@@ -20,6 +22,25 @@ export interface WorkerInfo {
   privyUserId?: string;
 }
 
+// Tool calling types
+export interface ToolCall {
+  type: 'function';
+  function: {
+    index?: number;
+    name: string;
+    arguments: Record<string, unknown>;
+  };
+}
+
+export interface ToolDefinition {
+  type: 'function';
+  function: {
+    name: string;
+    description: string;
+    parameters: Record<string, unknown>;
+  };
+}
+
 // Job types
 export interface Job {
   id: string;
@@ -35,14 +56,15 @@ export interface Job {
   completedAt?: Date;
   response?: string;
   error?: string;
-  searchContext?: string;
-  searchResults?: { title: string; url: string; description: string }[];
   serverTokenCount?: number;
 }
 
 export interface ChatMessage {
-  role: 'system' | 'user' | 'assistant';
+  role: 'system' | 'user' | 'assistant' | 'tool';
   content: string;
+  images?: string[];
+  tool_calls?: ToolCall[];
+  tool_name?: string;
 }
 
 // Socket event types
@@ -54,7 +76,7 @@ export interface ServerToClientEvents {
   'job:complete': (data: { jobId: string; response: string }) => void;
   'job:error': (data: { jobId: string; error: string }) => void;
   'queue:position': (data: { position: number }) => void;
-  'job:new': (data: { jobId: string; messages?: ChatMessage[]; searchContext?: string }) => void;
+  'job:new': (data: { jobId: string; messages?: ChatMessage[]; tools?: ToolDefinition[] }) => void;
   'job:cancel': (data: { jobId: string }) => void;
   'worker:registered': (data: { workerId: string }) => void;
   'stats:update': (data: NetworkStats) => void;
@@ -68,6 +90,7 @@ export interface ClientToServerEvents {
   'job:token': (data: { jobId: string; token: string }) => void;
   'job:complete': (data: { jobId: string; response: string; tokensGenerated: number }) => void;
   'job:error': (data: { jobId: string; error: string }) => void;
+  'job:tool_call': (data: { jobId: string; toolCalls: ToolCall[] }) => void;
 }
 
 export interface NetworkStats {

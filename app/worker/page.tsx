@@ -472,9 +472,11 @@ export default function WorkerPage() {
       const modelConfig = AVAILABLE_MODELS.find(m => m.id === selectedModelRef.current);
       const systemPrompt = modelConfig?.tier === 'premium' ? SYSTEM_PROMPT_UNCENSORED : SYSTEM_PROMPT_STANDARD;
       
-      const messagesWithSystem = [
-        { role: 'system' as const, content: systemPrompt },
-        ...messages.map(m => ({ role: m.role, content: m.content })),
+      const messagesWithSystem: { role: 'system' | 'user' | 'assistant'; content: string }[] = [
+        { role: 'system', content: systemPrompt },
+        ...messages
+          .filter(m => m.role !== 'tool')
+          .map(m => ({ role: m.role as 'user' | 'assistant', content: m.content })),
       ];
 
       const response = await engineRef.current.chat.completions.create({
