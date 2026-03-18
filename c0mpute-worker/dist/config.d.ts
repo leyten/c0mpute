@@ -9,9 +9,9 @@ export declare const OLLAMA_BASE_MODEL = "huihui_ai/qwen3.5-abliterated:27b";
 /** Human-readable model name sent to orchestrator */
 export declare const DEFAULT_MODEL_NAME = "qwen3.5-27b-abliterated";
 /** Number of tokens to generate during benchmark */
-export declare const BENCHMARK_TOKENS = 32;
+export declare const BENCHMARK_TOKENS = 64;
 /** Minimum tok/s to register with orchestrator */
-export declare const MIN_TOK_PER_SEC = 5;
+export declare const MIN_TOK_PER_SEC = 2;
 /** Maximum output tokens per job */
 export declare const MAX_OUTPUT_TOKENS = 4096;
 /** Maximum tool call rounds per job (prevents infinite loops) */
