@@ -48,7 +48,7 @@ export async function runInference(
     body: JSON.stringify({
       model: OLLAMA_MODEL,
       messages,
-      think: false,
+      think: true,
       stream: true,
       options: {
         num_predict: MAX_OUTPUT_TOKENS,
