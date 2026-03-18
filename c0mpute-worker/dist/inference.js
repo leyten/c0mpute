@@ -29,21 +29,30 @@ export async function modelExists() {
 }
 /**
  * Run chat inference via ollama HTTP API, streaming tokens via callback.
- * Uses think: false to disable thinking mode.
+ * Supports vision (images on messages) and tool calling.
+ *
+ * When the model responds with tool calls instead of text, the result will
+ * have an empty response and toolCalls populated. The caller should execute
+ * the tools and call runInference again with the tool results appended.
  */
-export async function runInference(messages, onToken, signal) {
+export async function runInference(messages, onToken, signal, tools) {
+    const body = {
+        model: OLLAMA_MODEL,
+        messages,
+        think: true,
+        stream: true,
+        options: {
+            num_predict: MAX_OUTPUT_TOKENS,
+        },
+    };
+    // Only include tools if provided (avoids confusing models without tool support)
+    if (tools && tools.length > 0) {
+        body.tools = tools;
+    }
     const res = await fetch(`${OLLAMA_URL}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            model: OLLAMA_MODEL,
-            messages,
-            think: true,
-            stream: true,
-            options: {
-                num_predict: MAX_OUTPUT_TOKENS,
-            },
-        }),
+        body: JSON.stringify(body),
         signal,
     });
     if (!res.ok) {
@@ -55,6 +64,7 @@ export async function runInference(messages, onToken, signal) {
     }
     let response = '';
     let tokensGenerated = 0;
+    let toolCalls;
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
@@ -71,11 +81,16 @@ export async function runInference(messages, onToken, signal) {
                 continue;
             try {
                 const chunk = JSON.parse(line);
+                // Text content — stream to caller
                 if (chunk.message?.content) {
                     const token = chunk.message.content;
                     response += token;
                     tokensGenerated++;
                     onToken(token);
+                }
+                // Tool calls — model wants to use a tool
+                if (chunk.message?.tool_calls?.length) {
+                    toolCalls = chunk.message.tool_calls;
                 }
                 if (chunk.done) {
                     // Use ollama's token count if available
@@ -89,10 +104,11 @@ export async function runInference(messages, onToken, signal) {
             }
         }
     }
-    return { response, tokensGenerated };
+    return { response, tokensGenerated, toolCalls };
 }
 /**
  * Run a short benchmark inference and return tokens per second.
+ * Benchmark runs without thinking or tools for clean speed measurement.
  */
 export async function benchmarkInference(tokenCount) {
     const start = performance.now();

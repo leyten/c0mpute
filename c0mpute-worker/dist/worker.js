@@ -1,5 +1,5 @@
 import { io } from 'socket.io-client';
-import { DEFAULT_ORCHESTRATOR_URL, DEFAULT_MODEL_NAME } from './config.js';
+import { DEFAULT_ORCHESTRATOR_URL, DEFAULT_MODEL_NAME, MAX_TOOL_ROUNDS } from './config.js';
 import { runInference } from './inference.js';
 import { ensureSetup } from './setup.js';
 import { runBenchmark } from './benchmark.js';
@@ -48,7 +48,7 @@ export async function startWorker(options) {
             authToken: token,
             tokPerSec: Math.round(tokPerSec * 10) / 10,
             type: 'native',
-            capabilities: { search: true, uncensored: true, longContext: true },
+            capabilities: { search: true, uncensored: true, longContext: true, vision: true, tools: true },
         }, (response) => {
             if ('error' in response) {
                 logStatus(`Registration failed: ${response.error}`);
@@ -56,28 +56,73 @@ export async function startWorker(options) {
             }
             workerId = response.workerId;
             logStatus(`Registered as worker ${workerId}`);
+            logStatus(`Capabilities: vision, tools, thinking, uncensored`);
             logStatus(`Status: ready | Jobs completed: ${jobsCompleted}`);
         });
     }
+    /**
+     * Wait for a tool result from the orchestrator.
+     * Returns the tool results as ChatMessages to append to the conversation.
+     */
+    function waitForToolResults(jobId) {
+        return new Promise((resolve, reject) => {
+            const timeout = setTimeout(() => {
+                socket.off(`job:tool_result:${jobId}`);
+                reject(new Error('Tool execution timed out (30s)'));
+            }, 30_000);
+            socket.once(`job:tool_result:${jobId}`, (data) => {
+                clearTimeout(timeout);
+                resolve(data.results);
+            });
+        });
+    }
     socket.on('job:new', async (data) => {
-        const { jobId, messages } = data;
-        logStatus(`Job received: ${jobId}`);
-        if (!messages || messages.length === 0) {
+        const { jobId, messages: initialMessages, tools } = data;
+        logStatus(`Job received: ${jobId}${tools?.length ? ` (${tools.length} tools available)` : ''}`);
+        if (!initialMessages || initialMessages.length === 0) {
             socket.emit('job:error', { jobId, error: 'No messages provided' });
             return;
         }
         activeJobAbort = new AbortController();
+        const messages = [...initialMessages];
+        let totalTokens = 0;
+        let fullResponse = '';
         try {
-            const result = await runInference(messages, (token) => {
-                socket.emit('job:token', { jobId, token });
-            }, activeJobAbort.signal);
+            // Tool call loop — model can request tools multiple times
+            for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+                const result = await runInference(messages, (token) => {
+                    socket.emit('job:token', { jobId, token });
+                }, activeJobAbort.signal, tools);
+                totalTokens += result.tokensGenerated;
+                fullResponse += result.response;
+                // If no tool calls, we're done
+                if (!result.toolCalls?.length) {
+                    break;
+                }
+                // Model wants to use tools — notify orchestrator
+                logStatus(`Job ${jobId}: tool call round ${round + 1} — ${result.toolCalls.map(tc => tc.function.name).join(', ')}`);
+                socket.emit('job:tool_call', {
+                    jobId,
+                    toolCalls: result.toolCalls,
+                });
+                // Append assistant's tool call message to conversation history
+                messages.push({
+                    role: 'assistant',
+                    content: result.response || '',
+                    tool_calls: result.toolCalls,
+                });
+                // Wait for orchestrator to execute tools and send results back
+                const toolResults = await waitForToolResults(jobId);
+                messages.push(...toolResults);
+                // Continue the loop — model will generate with tool results
+            }
             socket.emit('job:complete', {
                 jobId,
-                response: result.response,
-                tokensGenerated: result.tokensGenerated,
+                response: fullResponse,
+                tokensGenerated: totalTokens,
             });
             jobsCompleted++;
-            logStatus(`Job complete: ${jobId} (${result.tokensGenerated} tokens) | Total: ${jobsCompleted}`);
+            logStatus(`Job complete: ${jobId} (${totalTokens} tokens) | Total: ${jobsCompleted}`);
         }
         catch (err) {
             if (err.name === 'AbortError') {

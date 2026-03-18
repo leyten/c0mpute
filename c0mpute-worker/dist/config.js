@@ -18,6 +18,8 @@ export const BENCHMARK_TOKENS = 32;
 export const MIN_TOK_PER_SEC = 5;
 /** Maximum output tokens per job */
 export const MAX_OUTPUT_TOKENS = 4096;
+/** Maximum tool call rounds per job (prevents infinite loops) */
+export const MAX_TOOL_ROUNDS = 5;
 /** System prompt baked into the model */
 export const SYSTEM_PROMPT = 'You are c0mpute, an AI assistant built for the c0mpute.ai decentralized inference network. Your name is c0mpute. Be direct and concise. Always respond in English. Do not use emojis.';
 /** Ollama Modelfile template (official qwen3 thinking-aware template) */
