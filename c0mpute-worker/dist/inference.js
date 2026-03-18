@@ -64,7 +64,7 @@ export async function runInference(messages, onToken, signal, tools) {
     }
     let response = '';
     let tokensGenerated = 0;
-    let toolCalls;
+    const toolCalls = [];
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
@@ -88,9 +88,9 @@ export async function runInference(messages, onToken, signal, tools) {
                     tokensGenerated++;
                     onToken(token);
                 }
-                // Tool calls — model wants to use a tool
+                // Tool calls — model wants to use a tool (accumulate across chunks)
                 if (chunk.message?.tool_calls?.length) {
-                    toolCalls = chunk.message.tool_calls;
+                    toolCalls.push(...chunk.message.tool_calls);
                 }
                 if (chunk.done) {
                     // Use ollama's token count if available
@@ -104,7 +104,7 @@ export async function runInference(messages, onToken, signal, tools) {
             }
         }
     }
-    return { response, tokensGenerated, toolCalls };
+    return { response, tokensGenerated, toolCalls: toolCalls.length > 0 ? toolCalls : undefined };
 }
 /**
  * Run a short benchmark inference and return tokens per second.

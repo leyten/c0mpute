@@ -107,7 +107,7 @@ export async function runInference(
 
   let response = '';
   let tokensGenerated = 0;
-  let toolCalls: ToolCall[] | undefined;
+  const toolCalls: ToolCall[] = [];
 
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
@@ -137,9 +137,9 @@ export async function runInference(
           onToken(token);
         }
 
-        // Tool calls — model wants to use a tool
+        // Tool calls — model wants to use a tool (accumulate across chunks)
         if (chunk.message?.tool_calls?.length) {
-          toolCalls = chunk.message.tool_calls;
+          toolCalls.push(...chunk.message.tool_calls);
         }
 
         if (chunk.done) {
@@ -154,7 +154,7 @@ export async function runInference(
     }
   }
 
-  return { response, tokensGenerated, toolCalls };
+  return { response, tokensGenerated, toolCalls: toolCalls.length > 0 ? toolCalls : undefined };
 }
 
 /**

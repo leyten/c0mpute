@@ -36,7 +36,7 @@ export async function ensureSetup(): Promise<void> {
 
   // Need to create the model — first pull the base model
   console.log(`Pulling base model: ${OLLAMA_BASE_MODEL}`);
-  console.log('This may take a while on first run (~9GB download)...');
+  console.log('This may take a while on first run (~17GB download)...');
 
   const pullRes = await fetch(`${OLLAMA_URL}/api/pull`, {
     method: 'POST',

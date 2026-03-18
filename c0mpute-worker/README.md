@@ -25,6 +25,14 @@ On first run, the worker will automatically:
 4. Connects to the c0mpute.ai orchestrator via WebSocket
 5. Accepts and processes inference jobs, streaming tokens back in real time
 
+## Capabilities
+
+- **Thinking** — model uses chain-of-thought reasoning with `<think>` tags
+- **Vision** — accepts images (base64) alongside text messages
+- **Tool calling** — model can invoke tools (web search, etc.) defined by the orchestrator
+- **Uncensored** — abliterated model with no content restrictions
+- **Long context** — 256K context window
+
 ## Options
 
 ```
@@ -52,6 +60,8 @@ The worker delegates all inference to ollama's local HTTP API. This means:
 - **No CUDA/Metal build issues** — ollama handles GPU acceleration
 - **Easy model management** — ollama pulls and caches models
 - **Automatic GPU detection** — ollama picks the best backend for your hardware
+
+The worker is a dumb relay — it passes tool definitions to the model and relays tool calls back to the orchestrator for execution. Tools are defined and managed server-side.
 
 ## Earnings
 
