@@ -211,7 +211,14 @@ function ThinkingDropdown({ thinking, isStreaming, elapsedSeconds }: { thinking:
           <path d="M9 18l6-6-6-6" />
         </svg>
         {isStreaming ? (
-          <span>Thinking...</span>
+          <span className="inline-flex">
+            Thinking
+            <span className="thinking-dots">
+              <span className="dot">.</span>
+              <span className="dot">.</span>
+              <span className="dot">.</span>
+            </span>
+          </span>
         ) : (
           <span>Thought for {seconds}s</span>
         )}
