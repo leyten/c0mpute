@@ -14,10 +14,10 @@ export const OLLAMA_URL = 'http://127.0.0.1:11434';
 export const OLLAMA_MODEL = 'c0mpute-max';
 
 /** Base model to pull from ollama registry */
-export const OLLAMA_BASE_MODEL = 'huihui_ai/qwen3-abliterated:14b';
+export const OLLAMA_BASE_MODEL = 'huihui_ai/qwen3.5-abliterated:27b';
 
 /** Human-readable model name sent to orchestrator */
-export const DEFAULT_MODEL_NAME = 'qwen3-14b-abliterated';
+export const DEFAULT_MODEL_NAME = 'qwen3.5-27b-abliterated';
 
 /** Number of tokens to generate during benchmark */
 export const BENCHMARK_TOKENS = 32;
@@ -26,7 +26,7 @@ export const BENCHMARK_TOKENS = 32;
 export const MIN_TOK_PER_SEC = 5;
 
 /** Maximum output tokens per job */
-export const MAX_OUTPUT_TOKENS = 1024;
+export const MAX_OUTPUT_TOKENS = 4096;
 
 /** System prompt baked into the model */
 export const SYSTEM_PROMPT = 'You are c0mpute, an AI assistant built for the c0mpute.ai decentralized inference network. Your name is c0mpute. Be direct and concise. Always respond in English. Do not use emojis.';

@@ -1,4 +1,4 @@
-FROM jaahas/qwen3-abliterated:14b
+FROM huihui_ai/qwen3.5-abliterated:27b
 TEMPLATE """{{- $lastUserIdx := -1 -}}{{- range $idx, $msg := .Messages -}}{{- if eq $msg.Role "user" }}{{ $lastUserIdx = $idx }}{{ end -}}{{- end }}{{- if or .System .Tools }}<|im_start|>system{{ if .System }} {{ .System }}{{- end }}{{- if .Tools }}
 # Tools
 You may call one or more functions to assist with the user query.

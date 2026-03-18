@@ -1,19 +1,28 @@
 # c0mpute-worker
 
-Native CLI worker for the [c0mpute.ai](https://c0mpute.ai) distributed inference network. Runs LLM inference using node-llama-cpp with full GPU acceleration (CUDA, Metal, Vulkan) and connects to the orchestrator via Socket.io.
+Native CLI worker for the [c0mpute.ai](https://c0mpute.ai) distributed inference network. Runs LLM inference via [ollama](https://ollama.com) and connects to the orchestrator via Socket.io.
 
 ## Quick Start
 
+1. Install [ollama](https://ollama.com/download) and make sure it's running (`ollama serve`)
+2. Run the worker:
+
 ```bash
-npx c0mpute-worker --token <your-token>
+npx @c0mpute/worker --token <your-token>
 ```
 
-## What It Does
+On first run, the worker will automatically:
+- Pull the base model (~17GB download)
+- Create a custom `c0mpute-max` model with optimized settings
+- Run a speed benchmark
+- Connect to the orchestrator and start serving jobs
 
-1. Detects your GPU (CUDA, Metal, Vulkan, or CPU fallback)
-2. Downloads the optimal GGUF model for your hardware (~8GB)
-3. Runs a speed benchmark
-4. Connects to the c0mpute.ai orchestrator
+## How It Works
+
+1. Verifies ollama is running locally
+2. Pulls and configures the model (Qwen 3.5 27B abliterated)
+3. Runs a speed benchmark to measure your hardware
+4. Connects to the c0mpute.ai orchestrator via WebSocket
 5. Accepts and processes inference jobs, streaming tokens back in real time
 
 ## Options
@@ -21,7 +30,6 @@ npx c0mpute-worker --token <your-token>
 ```
 --token <token>   Authentication token from c0mpute.ai (required)
 --url <url>       Orchestrator URL (default: https://c0mpute.ai)
---model <path>    Path to a custom GGUF model file
 --benchmark       Run benchmark only, then exit
 --version         Show version
 --help            Show help
@@ -30,16 +38,21 @@ npx c0mpute-worker --token <your-token>
 ## Requirements
 
 - Node.js 18+
-- 10GB+ disk space for model download
-- GPU with 10GB+ VRAM recommended (NVIDIA, Apple Silicon, or Vulkan-compatible)
-- CPU-only mode available but slower
+- [ollama](https://ollama.com) installed and running
+- GPU with 20GB+ VRAM recommended (NVIDIA RTX 3090/4090, Apple Silicon 32GB+)
+- ~17GB disk space for the model
 
 ## Default Model
 
-Qwen2.5-14B-Instruct (Q4_K_M quantization) from [bartowski/Qwen2.5-14B-Instruct-GGUF](https://huggingface.co/bartowski/Qwen2.5-14B-Instruct-GGUF).
+[Qwen 3.5 27B Abliterated](https://ollama.com/huihui_ai/qwen3.5-abliterated:27b) — an uncensored 27B parameter model with 256K context window, vision support, and thinking capabilities.
 
-Models are stored in `~/.c0mpute/models/`.
+## Architecture
 
-## License
+The worker delegates all inference to ollama's local HTTP API. This means:
+- **No CUDA/Metal build issues** — ollama handles GPU acceleration
+- **Easy model management** — ollama pulls and caches models
+- **Automatic GPU detection** — ollama picks the best backend for your hardware
 
-MIT
+## Earnings
+
+Workers earn credits for completing inference jobs. Earnings are based on tokens generated and your hardware tier. Check your earnings at [c0mpute.ai](https://c0mpute.ai).
