@@ -27,6 +27,7 @@ export interface Message {
   chat_id: string;
   role: 'system' | 'user' | 'assistant';
   content: string;
+  images?: string[];  // base64-encoded images (vision)
   job_id: string | null;
   created_at: string;
 }

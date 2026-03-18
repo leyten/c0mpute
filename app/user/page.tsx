@@ -105,7 +105,7 @@ type ChatState = 'idle' | 'queued' | 'streaming' | 'error';
 const PLANS = [
   { id: 'free' as const, name: 'Free', cost: 0, costLabel: 'Free', modelId: 'Qwen3-1.7B-q4f16_1-MLC', description: 'Fast, basic responses', features: ['Qwen3 1.7B model', 'Browser-powered', 'Censored'] },
   { id: 'pro' as const, name: 'Pro', cost: 10, costLabel: '10 cr', modelId: 'Qwen3-8B-c0mpute-q4f16_1-MLC', description: 'Higher quality, uncensored', features: ['Qwen3 8B model', 'Browser-powered', 'Uncensored'] },
-  { id: 'max' as const, name: 'Max', cost: 50, costLabel: '50 cr', modelId: 'native-max', description: 'Best quality + web search', features: ['Qwen3 14B model', 'Native inference', 'Uncensored', 'Web search'] },
+  { id: 'max' as const, name: 'Max', cost: 50, costLabel: '50 cr', modelId: 'native-max', description: 'Best quality + tools + vision', features: ['Qwen3.5 27B model', 'Native inference', 'Uncensored', 'Web search (tool calling)', 'Vision (image input)', 'Thinking mode'] },
 ] as const;
 type PlanId = typeof PLANS[number]['id'];
 
@@ -289,6 +289,8 @@ export default function UserPage() {
   // UI state
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [inputValue, setInputValue] = useState('');
+  const [pendingImages, setPendingImages] = useState<string[]>([]);
+  const imageInputRef = useRef<HTMLInputElement>(null);
   const [loadingChats, setLoadingChats] = useState(true);
   const [selectedPlan, setSelectedPlan] = useState<PlanId>('free');
   const [pendingPlan, setPendingPlan] = useState<PlanId | null>(null); // for confirmation modal
@@ -417,12 +419,13 @@ export default function UserPage() {
   }, [chats, activeChat?.id]);
 
   // Save message to local chat
-  const saveMessage = useCallback((chatId: string, role: 'user' | 'assistant', content: string, jobId?: string): Message => {
+  const saveMessage = useCallback((chatId: string, role: 'user' | 'assistant', content: string, jobId?: string, images?: string[]): Message => {
     const message: Message = {
       id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       chat_id: chatId,
       role,
       content,
+      images: images && images.length > 0 ? images : undefined,
       job_id: jobId || null,
       created_at: new Date().toISOString(),
     };
@@ -486,24 +489,33 @@ export default function UserPage() {
   }, [activeChat, chatState]);
 
   const sendMessage = useCallback(async () => {
-    if (!inputValue.trim() || !activeChat || chatState !== 'idle' || !isConnected) return;
+    if ((!inputValue.trim() && pendingImages.length === 0) || !activeChat || chatState !== 'idle' || !isConnected) return;
     if (inputValue.length > MAX_INPUT_CHARS) {
       setError(`Message too long. Maximum ${MAX_INPUT_CHARS} characters.`);
       return;
     }
     
-    const content = inputValue.trim();
+    const content = inputValue.trim() || (pendingImages.length > 0 ? 'What is in this image?' : '');
     setInputValue('');
     setError(null);
     
-    // Save user message to local storage
-    const userMessage = saveMessage(activeChat.id, 'user', content);
+    // Save user message to local storage (with images if any)
+    const images = pendingImages.length > 0 ? [...pendingImages] : undefined;
+    const userMessage = saveMessage(activeChat.id, 'user', content, undefined, images);
+    setPendingImages([]);
     
-    // Build messages for context (last 10 messages)
-    const contextMessages = [...(activeChat.messages || []).slice(-10), userMessage].map(m => ({
-      role: m.role,
-      content: m.content,
-    }));
+    // Build messages for context (last 10 messages) — include images for vision
+    const contextMessages: { role: 'system' | 'user' | 'assistant' | 'tool'; content: string; images?: string[] }[] = 
+      [...(activeChat.messages || []).slice(-10), userMessage].map(m => {
+        const msg: { role: 'system' | 'user' | 'assistant' | 'tool'; content: string; images?: string[] } = {
+          role: m.role as 'system' | 'user' | 'assistant',
+          content: m.content,
+        };
+        if (m.images && m.images.length > 0) {
+          msg.images = m.images;
+        }
+        return msg;
+      });
     
     setChatState('queued');
     setStreamingContent('');
@@ -1090,6 +1102,14 @@ export default function UserPage() {
                             : 'w-full px-4 py-3 bg-white/[0.03] rounded-2xl border border-white/[0.04]'
                         }`}
                       >
+                        {/* Display images if present */}
+                        {message.images && message.images.length > 0 && (
+                          <div className="flex flex-wrap gap-2 mb-2">
+                            {message.images.map((img, imgIdx) => (
+                              <img key={imgIdx} src={`data:image/jpeg;base64,${img}`} alt="Uploaded" className="max-w-[200px] max-h-[200px] rounded-lg object-cover" />
+                            ))}
+                          </div>
+                        )}
                         <SourceStrip sources={sources} content={cleanContent} />
                         <div className="pixel-sans text-white/90 text-base leading-[1.75] prose prose-invert prose-base max-w-none prose-p:my-3 prose-li:my-1 prose-ol:my-3 prose-ul:my-3 prose-headings:mt-5 prose-headings:mb-2 prose-headings:text-white prose-headings:font-semibold prose-strong:text-white prose-strong:font-extrabold prose-code:text-white/80 prose-code:bg-white/[0.06] prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-a:text-blue-400 prose-a:no-underline hover:prose-a:underline prose-hr:my-5 prose-hr:border-white/10 [&_br]:block [&_br]:content-[''] [&_br]:mt-2.5">
                           <Markdown options={buildMarkdownOverrides(sources)}>{cleanContent}</Markdown>
@@ -1226,7 +1246,62 @@ export default function UserPage() {
                     }
                     return null;
                   })()}
+                  {/* Image preview */}
+                  {pendingImages.length > 0 && (
+                    <div className="flex flex-wrap gap-2 mb-2">
+                      {pendingImages.map((img, idx) => (
+                        <div key={idx} className="relative group">
+                          <img src={`data:image/jpeg;base64,${img}`} alt="Upload preview" className="w-16 h-16 rounded-lg object-cover border border-white/10" />
+                          <button
+                            onClick={() => setPendingImages(prev => prev.filter((_, i) => i !== idx))}
+                            className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-500 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                          >
+                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3"><path d="M18 6L6 18M6 6l12 12" /></svg>
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   <div className="flex gap-3">
+                    {/* Image upload button — only for Max tier */}
+                    {selectedPlan === 'max' && (
+                      <>
+                        <input
+                          ref={imageInputRef}
+                          type="file"
+                          accept="image/*"
+                          multiple
+                          className="hidden"
+                          onChange={(e) => {
+                            const files = e.target.files;
+                            if (!files) return;
+                            Array.from(files).slice(0, 4 - pendingImages.length).forEach(file => {
+                              const reader = new FileReader();
+                              reader.onload = () => {
+                                const base64 = (reader.result as string).split(',')[1];
+                                if (base64) {
+                                  setPendingImages(prev => prev.length < 4 ? [...prev, base64] : prev);
+                                }
+                              };
+                              reader.readAsDataURL(file);
+                            });
+                            e.target.value = '';
+                          }}
+                        />
+                        <button
+                          onClick={() => imageInputRef.current?.click()}
+                          disabled={chatState !== 'idle' || !isConnected || pendingImages.length >= 4}
+                          className="bg-black border border-white/10 rounded-xl px-3 flex items-center justify-center hover:bg-white/5 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                          title="Upload image (Max tier)"
+                        >
+                          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-white/50">
+                            <rect x="3" y="3" width="18" height="18" rx="2" />
+                            <circle cx="8.5" cy="8.5" r="1.5" />
+                            <path d="M21 15l-5-5L5 21" />
+                          </svg>
+                        </button>
+                      </>
+                    )}
                     <div className="flex-1 relative">
                       <input
                         ref={inputRef}
@@ -1237,7 +1312,7 @@ export default function UserPage() {
                             setInputValue(e.target.value);
                           }
                         }}
-                        placeholder={isConnected ? "Type your message..." : "Connecting to network..."}
+                        placeholder={isConnected ? (pendingImages.length > 0 ? "Describe the image..." : "Type your message...") : "Connecting to network..."}
                         disabled={chatState !== 'idle' || !isConnected}
                         className="w-full bg-white/[0.02] border border-white/10 rounded-xl px-5 py-4 pixel-sans text-white text-base placeholder:text-white/30 focus:outline-none focus:border-white/30 disabled:opacity-50"
                       />
@@ -1254,7 +1329,7 @@ export default function UserPage() {
                     </div>
                     <button
                       onClick={sendMessage}
-                      disabled={!inputValue.trim() || inputValue.length > MAX_INPUT_CHARS || chatState !== 'idle' || !isConnected}
+                      disabled={(!inputValue.trim() && pendingImages.length === 0) || inputValue.length > MAX_INPUT_CHARS || chatState !== 'idle' || !isConnected}
                       className="bg-black border border-white/10 rounded-xl px-5 flex items-center justify-center hover:bg-white/5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                       aria-label="Send"
                     >
