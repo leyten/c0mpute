@@ -189,8 +189,8 @@ function parseThinking(content: string): { thinking: string | null; response: st
 }
 
 // Collapsible thinking dropdown component
-function ThinkingDropdown({ thinking, isStreaming, elapsedSeconds }: { thinking: string; isStreaming?: boolean; elapsedSeconds?: number }) {
-  const [isOpen, setIsOpen] = useState(false);
+function ThinkingDropdown({ thinking, isStreaming, elapsedSeconds, defaultOpen }: { thinking: string; isStreaming?: boolean; elapsedSeconds?: number; defaultOpen?: boolean }) {
+  const [isOpen, setIsOpen] = useState(defaultOpen ?? false);
   const seconds = elapsedSeconds ?? Math.max(1, Math.round(thinking.split(/\s+/).length / 5));
   
   return (

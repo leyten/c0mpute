@@ -243,7 +243,8 @@ function ensureEarningsTables() {
   `);
 }
 
-const DAILY_CAPS: Record<string, number> = { free: 20, pro: 50, max: 100 };
+const DAILY_CAPS: Record<string, number> = { free: 5, pro: 15, max: 30 };
+const RATE_PER_TOKEN: Record<string, number> = { free: 0.0005, pro: 0.001, max: 0.002 };
 
 export function recordEarning(data: {
   privyId: string;
@@ -257,7 +258,7 @@ export function recordEarning(data: {
   const todayEarnings = getTodayEarnings(data.privyId);
   if (todayEarnings >= cap) return 0;
 
-  let earning = data.tokensGenerated * 0.01;
+  let earning = data.tokensGenerated * (RATE_PER_TOKEN[data.tier] || 0.0005);
   const remaining = cap - todayEarnings;
   if (earning > remaining) earning = remaining;
 

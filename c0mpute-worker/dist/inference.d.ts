@@ -3,27 +3,22 @@ export interface ChatMessage {
     content: string;
 }
 /**
- * Download the default GGUF model if not already present.
- * Returns the local file path.
+ * Check if ollama is running and accessible.
  */
-export declare function downloadModel(customPath?: string): Promise<string>;
+export declare function checkOllama(): Promise<boolean>;
 /**
- * Load the GGUF model into memory and prepare for inference.
+ * Check if our model exists in ollama.
  */
-export declare function loadModel(modelPath: string): Promise<void>;
+export declare function modelExists(): Promise<boolean>;
 /**
- * Run chat inference, streaming tokens via callback.
- * Returns the full response string.
+ * Run chat inference via ollama HTTP API, streaming tokens via callback.
+ * Uses think: false to disable thinking mode.
  */
 export declare function runInference(messages: ChatMessage[], onToken: (token: string) => void, signal?: AbortSignal): Promise<{
     response: string;
     tokensGenerated: number;
 }>;
 /**
- * Generate a short completion for benchmarking. Returns tokens per second.
+ * Run a short benchmark inference and return tokens per second.
  */
 export declare function benchmarkInference(tokenCount: number): Promise<number>;
-/**
- * Dispose of the model and llama instance.
- */
-export declare function disposeModel(): Promise<void>;

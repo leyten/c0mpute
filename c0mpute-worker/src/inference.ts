@@ -1,157 +1,167 @@
-import { getLlama, LlamaModel, LlamaContext, LlamaChatSession, LlamaLogLevel, resolveModelFile } from 'node-llama-cpp';
-import { mkdirSync } from 'fs';
-import {
-  MODELS_DIR,
-  DEFAULT_MODEL_REPO,
-  DEFAULT_MODEL_FILENAME,
-  MAX_OUTPUT_TOKENS,
-} from './config.js';
+import { OLLAMA_URL, OLLAMA_MODEL, MAX_OUTPUT_TOKENS } from './config.js';
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
   content: string;
 }
 
-let llamaInstance: Awaited<ReturnType<typeof getLlama>> | null = null;
-let model: LlamaModel | null = null;
-
 /**
- * Download the default GGUF model if not already present.
- * Returns the local file path.
+ * Check if ollama is running and accessible.
  */
-export async function downloadModel(customPath?: string): Promise<string> {
-  if (customPath) return customPath;
-
-  mkdirSync(MODELS_DIR, { recursive: true });
-
-  console.log(`Downloading model: ${DEFAULT_MODEL_REPO}/${DEFAULT_MODEL_FILENAME}`);
-  console.log(`Storage: ${MODELS_DIR}`);
-
-  const modelPath = await resolveModelFile(
-    `hf:${DEFAULT_MODEL_REPO}/${DEFAULT_MODEL_FILENAME}`,
-    {
-      directory: MODELS_DIR,
-      fileName: DEFAULT_MODEL_FILENAME,
-    }
-  );
-
-  return modelPath;
+export async function checkOllama(): Promise<boolean> {
+  try {
+    const res = await fetch(`${OLLAMA_URL}/api/version`);
+    return res.ok;
+  } catch {
+    return false;
+  }
 }
 
 /**
- * Load the GGUF model into memory and prepare for inference.
+ * Check if our model exists in ollama.
  */
-export async function loadModel(modelPath: string): Promise<void> {
-  llamaInstance = await getLlama({
-    logLevel: LlamaLogLevel.warn,
-  });
-
-  model = await llamaInstance.loadModel({ modelPath });
+export async function modelExists(): Promise<boolean> {
+  try {
+    const res = await fetch(`${OLLAMA_URL}/api/show`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: OLLAMA_MODEL }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
 }
 
 /**
- * Run chat inference, streaming tokens via callback.
- * Returns the full response string.
+ * Run chat inference via ollama HTTP API, streaming tokens via callback.
+ * Uses think: false to disable thinking mode.
  */
 export async function runInference(
   messages: ChatMessage[],
   onToken: (token: string) => void,
   signal?: AbortSignal,
 ): Promise<{ response: string; tokensGenerated: number }> {
-  if (!llamaInstance || !model) {
-    throw new Error('Model not loaded');
+  const res = await fetch(`${OLLAMA_URL}/api/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: OLLAMA_MODEL,
+      messages,
+      think: false,
+      stream: true,
+      options: {
+        num_predict: MAX_OUTPUT_TOKENS,
+      },
+    }),
+    signal,
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Ollama error (${res.status}): ${text}`);
   }
 
-  const context = await model.createContext();
-  const session = new LlamaChatSession({ contextSequence: context.getSequence() });
-
-  // Build conversation history (all messages except the last user message)
-  const systemMessages = messages.filter(m => m.role === 'system');
-  const conversationMessages = messages.filter(m => m.role !== 'system');
-
-  // Set system prompt if present
-  if (systemMessages.length > 0) {
-    session.setChatHistory([{
-      type: 'system',
-      text: systemMessages.map(m => m.content).join('\n'),
-    }]);
+  if (!res.body) {
+    throw new Error('No response body from ollama');
   }
 
-  // Add conversation history (pairs of user/assistant before the final user message)
-  for (let i = 0; i < conversationMessages.length - 1; i++) {
-    const msg = conversationMessages[i];
-    if (msg.role === 'user') {
-      const nextMsg = conversationMessages[i + 1];
-      if (nextMsg && nextMsg.role === 'assistant') {
-        session.setChatHistory([
-          ...session.getChatHistory(),
-          { type: 'user', text: msg.content },
-          { type: 'model', response: [nextMsg.content] },
-        ]);
-        i++; // skip assistant message
+  let response = '';
+  let tokensGenerated = 0;
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+
+    // ollama streams newline-delimited JSON
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+
+    for (const line of lines) {
+      if (!line.trim()) continue;
+
+      try {
+        const chunk = JSON.parse(line);
+
+        if (chunk.message?.content) {
+          const token = chunk.message.content;
+          response += token;
+          tokensGenerated++;
+          onToken(token);
+        }
+
+        if (chunk.done) {
+          // Use ollama's token count if available
+          if (chunk.eval_count) {
+            tokensGenerated = chunk.eval_count;
+          }
+        }
+      } catch {
+        // Skip malformed lines
       }
     }
   }
-
-  const lastMessage = conversationMessages[conversationMessages.length - 1];
-  if (!lastMessage || lastMessage.role !== 'user') {
-    await context.dispose();
-    throw new Error('Last message must be from user');
-  }
-
-  let tokensGenerated = 0;
-  let response = '';
-
-  response = await session.prompt(lastMessage.content, {
-    maxTokens: MAX_OUTPUT_TOKENS,
-    signal,
-    onTextChunk: (text: string) => {
-      tokensGenerated++;
-      response += text;
-      onToken(text);
-    },
-  });
-
-  await context.dispose();
 
   return { response, tokensGenerated };
 }
 
 /**
- * Generate a short completion for benchmarking. Returns tokens per second.
+ * Run a short benchmark inference and return tokens per second.
  */
 export async function benchmarkInference(tokenCount: number): Promise<number> {
-  if (!llamaInstance || !model) {
-    throw new Error('Model not loaded');
-  }
-
-  const context = await model.createContext();
-  const session = new LlamaChatSession({ contextSequence: context.getSequence() });
-
-  let tokens = 0;
   const start = performance.now();
+  let tokens = 0;
 
-  await session.prompt('Write a short paragraph about distributed computing.', {
-    maxTokens: tokenCount,
-    onTextChunk: () => { tokens++; },
+  const res = await fetch(`${OLLAMA_URL}/api/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: OLLAMA_MODEL,
+      messages: [{ role: 'user', content: 'Write a short paragraph about distributed computing.' }],
+      think: false,
+      stream: true,
+      options: {
+        num_predict: tokenCount,
+      },
+    }),
   });
 
+  if (!res.ok) {
+    throw new Error(`Benchmark failed: ollama returned ${res.status}`);
+  }
+
+  if (!res.body) {
+    throw new Error('No response body');
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      try {
+        const chunk = JSON.parse(line);
+        if (chunk.message?.content) tokens++;
+        if (chunk.done && chunk.eval_count) tokens = chunk.eval_count;
+      } catch { /* skip */ }
+    }
+  }
+
   const elapsed = (performance.now() - start) / 1000;
-  await context.dispose();
-
   return tokens / elapsed;
-}
-
-/**
- * Dispose of the model and llama instance.
- */
-export async function disposeModel(): Promise<void> {
-  if (model) {
-    await model.dispose?.();
-    model = null;
-  }
-  if (llamaInstance) {
-    await llamaInstance.dispose();
-    llamaInstance = null;
-  }
 }

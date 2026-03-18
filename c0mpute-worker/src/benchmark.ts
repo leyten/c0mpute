@@ -8,7 +8,7 @@ import { BENCHMARK_TOKENS, MIN_TOK_PER_SEC } from './config.js';
 export async function runBenchmark(): Promise<number> {
   console.log(`Running benchmark (${BENCHMARK_TOKENS} tokens)...`);
 
-  const timeoutMs = 120_000; // 2 minutes max
+  const timeoutMs = 120_000;
   const result = await Promise.race([
     benchmarkInference(BENCHMARK_TOKENS),
     new Promise<never>((_, reject) =>

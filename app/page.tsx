@@ -103,6 +103,7 @@ export default function Home() {
             <div className="hidden md:flex items-center gap-8">
               <a href="/user" className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide">User</a>
               <a href="/worker" className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide">Worker</a>
+              <a href="https://docs.c0mpute.ai" target="_blank" rel="noopener noreferrer" className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide">Docs</a>
             </div>
             
             {/* Right: X + Login (desktop) + Hamburger (mobile) */}
@@ -197,6 +198,15 @@ export default function Home() {
                 onClick={() => setMenuOpen(false)}
               >
                 Worker
+              </a>
+              <a 
+                href="https://docs.c0mpute.ai" 
+                target="_blank"
+                rel="noopener noreferrer"
+                className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide"
+                onClick={() => setMenuOpen(false)}
+              >
+                Docs
               </a>
               <a 
                 href="https://x.com/c0mpute" 
@@ -509,6 +519,14 @@ export default function Home() {
             <p className="pixel-sans text-white/30 text-xs md:text-sm max-w-xl mx-auto">
               Token trading funds the network. AI for the people, by the people.
             </p>
+            <a 
+              href="https://docs.c0mpute.ai/zero-token" 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="cursor-pointer pixel-sans text-[#80a0c1]/50 hover:text-[#80a0c1] text-xs md:text-sm mt-3 inline-block transition-colors"
+            >
+              Learn more about <span className="dollar">$</span>ZERO →
+            </a>
           </div>
         </div>
       </section>

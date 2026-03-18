@@ -4,7 +4,6 @@ export interface GpuInfo {
     vram: number | null;
 }
 /**
- * Detect available GPU and return backend info.
- * Tries CUDA, Metal, Vulkan in order, falls back to CPU.
+ * Detect GPU info from ollama's system info.
  */
 export declare function detectGpu(): Promise<GpuInfo>;

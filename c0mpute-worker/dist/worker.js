@@ -1,21 +1,19 @@
 import { io } from 'socket.io-client';
 import { DEFAULT_ORCHESTRATOR_URL, DEFAULT_MODEL_NAME } from './config.js';
-import { downloadModel, loadModel, runInference, disposeModel } from './inference.js';
+import { runInference } from './inference.js';
+import { ensureSetup } from './setup.js';
 import { runBenchmark } from './benchmark.js';
 /**
- * Main worker lifecycle: download model, benchmark, connect, and serve jobs.
+ * Main worker lifecycle: ensure ollama setup, benchmark, connect, and serve jobs.
  */
 export async function startWorker(options) {
-    const { token, orchestratorUrl, modelPath, benchmarkOnly } = options;
+    const { token, orchestratorUrl, benchmarkOnly } = options;
     const url = orchestratorUrl || DEFAULT_ORCHESTRATOR_URL;
-    // Step 1: Download and load model
-    const resolvedPath = await downloadModel(modelPath);
-    console.log(`Model: ${resolvedPath.split('/').pop()}`);
-    await loadModel(resolvedPath);
+    // Step 1: Ensure ollama is running and model is ready
+    await ensureSetup();
     // Step 2: Benchmark
     const tokPerSec = await runBenchmark();
     if (benchmarkOnly) {
-        await disposeModel();
         return;
     }
     // Step 3: Connect to orchestrator
@@ -50,7 +48,7 @@ export async function startWorker(options) {
             authToken: token,
             tokPerSec: Math.round(tokPerSec * 10) / 10,
             type: 'native',
-            capabilities: { search: true, uncensored: false, longContext: true },
+            capabilities: { search: true, uncensored: true, longContext: true },
         }, (response) => {
             if ('error' in response) {
                 logStatus(`Registration failed: ${response.error}`);
@@ -107,7 +105,6 @@ export async function startWorker(options) {
             activeJobAbort.abort();
         socket.emit('worker:unregister');
         socket.disconnect();
-        await disposeModel();
         logStatus('Goodbye');
         process.exit(0);
     }

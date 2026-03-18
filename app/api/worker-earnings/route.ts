@@ -23,7 +23,7 @@ export async function GET(req: NextRequest) {
   }
 
   // TODO: determine tier from user profile; default to 'free' for now
-  const dailyCap = 20;
+  const dailyCap = 5;
   const tier = 'free';
 
   return NextResponse.json({

@@ -13,7 +13,6 @@ program
     .version(pkg.version)
     .requiredOption('--token <token>', 'Authentication token from c0mpute.ai')
     .option('--url <url>', 'Orchestrator URL', 'https://c0mpute.ai')
-    .option('--model <path>', 'Path to a custom GGUF model file')
     .option('--benchmark', 'Run benchmark only, then exit')
     .action(async (opts) => {
     console.log(`c0mpute worker v${pkg.version}`);
@@ -21,7 +20,6 @@ program
         await startWorker({
             token: opts.token,
             orchestratorUrl: opts.url,
-            modelPath: opts.model,
             benchmarkOnly: opts.benchmark || false,
         });
     }
