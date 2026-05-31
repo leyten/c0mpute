@@ -49,6 +49,8 @@ export interface Job {
   privyUserId?: string;
   messages?: ChatMessage[];
   requestedModel?: string;
+  think?: boolean;
+  creditsCharged?: number;
   status: 'pending' | 'assigned' | 'processing' | 'completed' | 'failed';
   assignedWorker?: string;
   createdAt: Date;
@@ -76,7 +78,7 @@ export interface ServerToClientEvents {
   'job:complete': (data: { jobId: string; response: string }) => void;
   'job:error': (data: { jobId: string; error: string }) => void;
   'queue:position': (data: { position: number }) => void;
-  'job:new': (data: { jobId: string; messages?: ChatMessage[]; tools?: ToolDefinition[] }) => void;
+  'job:new': (data: { jobId: string; messages?: ChatMessage[]; tools?: ToolDefinition[]; think?: boolean }) => void;
   'job:cancel': (data: { jobId: string }) => void;
   'worker:registered': (data: { workerId: string }) => void;
   'stats:update': (data: NetworkStats) => void;
@@ -84,7 +86,7 @@ export interface ServerToClientEvents {
 }
 
 export interface ClientToServerEvents {
-  'job:submit': (data: { messages?: ChatMessage[]; model?: string; authToken?: string }, callback: (response: { jobId: string } | { error: string }) => void) => void;
+  'job:submit': (data: { messages?: ChatMessage[]; model?: string; authToken?: string; think?: boolean }, callback: (response: { jobId: string } | { error: string }) => void) => void;
   'worker:register': (data: { model: string; authToken?: string; tokPerSec?: number; type?: 'browser' | 'native'; capabilities?: WorkerCapabilities }, callback: (response: { workerId: string } | { error: string }) => void) => void;
   'worker:unregister': () => void;
   'job:token': (data: { jobId: string; token: string }) => void;

@@ -552,6 +552,7 @@ export default function UserPage() {
         messages: contextMessages,
         model: selectedModel,
         authToken,
+        think: selectedModel === 'native-max' ? deepThinking : false,
       });
       
       currentJobIdRef.current = jobId;
@@ -564,7 +565,7 @@ export default function UserPage() {
     }
     
     setTimeout(scrollToBottom, 100);
-  }, [inputValue, activeChat, chatState, isConnected, submitJob, saveMessage, scrollToBottom, getAccessToken, selectedModel]);
+  }, [inputValue, activeChat, chatState, isConnected, submitJob, saveMessage, scrollToBottom, getAccessToken, selectedModel, deepThinking]);
 
   // Handle job token (streaming) — decrypt E2E + safety scan
   useEffect(() => {
@@ -800,6 +801,7 @@ export default function UserPage() {
           messages: [{ role: 'user', content: pendingPrompt }],
           model: selectedModel,
           authToken,
+          think: selectedModel === 'native-max' ? deepThinking : false,
         });
       })
         .then((jobId) => {
@@ -823,6 +825,7 @@ export default function UserPage() {
     submitJob,
     getAccessToken,
     selectedModel,
+    deepThinking,
   ]);
 
   // Auto-focus input when chat is selected or created

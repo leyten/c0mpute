@@ -20,7 +20,7 @@ interface UseSocketReturn {
   completeJob: (jobId: string, response: string, tokensGenerated: number) => void;
   failJob: (jobId: string, error: string) => void;
   
-  submitJob: (data: { messages?: ChatMessage[]; model?: string; authToken: string }) => Promise<string>;
+  submitJob: (data: { messages?: ChatMessage[]; model?: string; authToken: string; think?: boolean }) => Promise<string>;
   
   setOnNewJob: (handler: ((jobId: string, messages?: ChatMessage[]) => void) | null) => void;
   setOnJobToken: (handler: ((jobId: string, token: string) => void) | null) => void;
@@ -176,7 +176,7 @@ export function useSocket(authToken?: string | null): UseSocketReturn {
     if (socketRef.current) socketRef.current.emit('job:error', { jobId, error });
   }, []);
 
-  const submitJob = useCallback(async (data: { messages?: ChatMessage[]; model?: string; authToken: string }): Promise<string> => {
+  const submitJob = useCallback(async (data: { messages?: ChatMessage[]; model?: string; authToken: string; think?: boolean }): Promise<string> => {
     return new Promise((resolve, reject) => {
       if (!socketRef.current) {
         reject(new Error('Socket not connected'));
@@ -186,6 +186,7 @@ export function useSocket(authToken?: string | null): UseSocketReturn {
         messages: data.messages,
         model: data.model,
         authToken: data.authToken,
+        think: data.think,
       }, (response) => {
         if ('jobId' in response) {
           resolve(response.jobId);

@@ -79,11 +79,8 @@ export class Orchestrator {
       const jobAge = now - job.createdAt.getTime();
       if (jobAge > JOB_TIMEOUT_MS) {
         userSocket.emit('job:error', { jobId, error: 'Job timed out' });
-        if (job.privyUserId && job.requestedModel) {
-          const tier = getModelTier(job.requestedModel);
-          if (tier === 'pro' || tier === 'max') {
-            refundCredits(job.privyUserId, tier === 'max' ? 50 : 10, 'Job timed out in queue');
-          }
+        if (job.privyUserId && job.creditsCharged) {
+          refundCredits(job.privyUserId, job.creditsCharged, 'Job timed out in queue');
         }
         this.jobs.delete(jobId);
         return false;
@@ -99,11 +96,8 @@ export class Orchestrator {
           if (userSocket) {
             userSocket.emit('job:error', { jobId, error: 'Job timed out during processing' });
           }
-          if (job.privyUserId && job.requestedModel) {
-            const tier = getModelTier(job.requestedModel);
-            if (tier === 'pro' || tier === 'max') {
-              refundCredits(job.privyUserId, tier === 'max' ? 50 : 10, 'Job timed out during processing');
-            }
+          if (job.privyUserId && job.creditsCharged) {
+            refundCredits(job.privyUserId, job.creditsCharged, 'Job timed out during processing');
           }
           if (job.assignedWorker) {
             const worker = this.findWorkerById(job.assignedWorker);
@@ -195,30 +189,34 @@ export class Orchestrator {
         recentJobs.push(now);
         this.rateLimits.set(privyUserId, recentJobs);
 
-        // Credit check for Pro/Max tiers
+        // Credit check for Pro/Max tiers. Deep thinking (Max only) costs more
+        // because the worker generates ~10x the tokens and earns accordingly.
         const requestedTierForCredits = getModelTier(data.model);
-        if (requestedTierForCredits === 'pro' || requestedTierForCredits === 'max') {
-          const creditCost = requestedTierForCredits === 'max' ? 50 : 10;
+        const deepThinking = data.think === true && requestedTierForCredits === 'max';
+        let creditCost = 0;
+        if (requestedTierForCredits === 'max') creditCost = deepThinking ? 100 : 50;
+        else if (requestedTierForCredits === 'pro') creditCost = 10;
+
+        if (creditCost > 0) {
           const creditBalance = getCreditBalance(privyUserId);
           if (creditBalance.balance < creditCost) {
             callback({ error: `Insufficient credits. Need ${creditCost} credits, have ${creditBalance.balance.toFixed(0)}. Top up with $ZERO.` });
             return;
           }
-          const spent = spendCredits(privyUserId, creditCost, `${requestedTierForCredits} prompt`);
+          const spent = spendCredits(privyUserId, creditCost, `${requestedTierForCredits}${deepThinking ? ' deep-thinking' : ''} prompt`);
           if (!spent) {
             callback({ error: 'Failed to deduct credits. Try again.' });
             return;
           }
         }
 
-        const job = this.submitJob(socket.id, data.messages, data.model, privyUserId);
+        const job = this.submitJob(socket.id, data.messages, data.model, privyUserId, deepThinking, creditCost);
         if (job) {
           callback({ jobId: job.id });
-          console.log(`[Orchestrator] Job submitted: ${job.id} (model: ${data.model || 'any'}) user=${privyUserId}`);
+          console.log(`[Orchestrator] Job submitted: ${job.id} (model: ${data.model || 'any'}${deepThinking ? ', deep-thinking' : ''}) user=${privyUserId}`);
           this.processQueue();
         } else {
-          if (requestedTierForCredits === 'pro' || requestedTierForCredits === 'max') {
-            const creditCost = requestedTierForCredits === 'max' ? 50 : 10;
+          if (creditCost > 0) {
             refundCredits(privyUserId, creditCost, 'Job submission failed');
           }
           callback({ error: 'Failed to submit job' });
@@ -308,11 +306,8 @@ export class Orchestrator {
     this.jobQueue = this.jobQueue.filter(jobId => {
       const job = this.jobs.get(jobId);
       if (job && job.userSocketId === userSocketId) {
-        if (job.privyUserId && job.requestedModel) {
-          const tier = getModelTier(job.requestedModel);
-          if (tier === 'pro' || tier === 'max') {
-            refundCredits(job.privyUserId, tier === 'max' ? 50 : 10, 'User disconnected while queued');
-          }
+        if (job.privyUserId && job.creditsCharged) {
+          refundCredits(job.privyUserId, job.creditsCharged, 'User disconnected while queued');
         }
         this.jobs.delete(jobId);
         return false;
@@ -384,6 +379,8 @@ export class Orchestrator {
     messages: ChatMessage[] | undefined,
     model: string | undefined,
     privyUserId: string,
+    think: boolean = false,
+    creditsCharged: number = 0,
   ): Job | null {
     try {
       const jobId = uuidv4();
@@ -394,6 +391,8 @@ export class Orchestrator {
         privyUserId,
         messages,
         requestedModel: model,
+        think,
+        creditsCharged,
         status: 'pending',
         createdAt: new Date(),
       };
@@ -492,7 +491,7 @@ export class Orchestrator {
       // Send tools to workers that support tool calling
       const tools = idleWorker.capabilities.tools ? AVAILABLE_TOOLS : undefined;
 
-      workerSocket.emit('job:new', { jobId: job.id, messages, tools });
+      workerSocket.emit('job:new', { jobId: job.id, messages, tools, think: job.think ?? false });
 
       if (idleWorker.type === 'native' && idleWorker.privyUserId) {
         this.pushNativeStatus(idleWorker.privyUserId);
@@ -634,11 +633,8 @@ export class Orchestrator {
 
     console.log(`[Orchestrator] Job ${jobId} failed: ${error}`);
 
-    if (job.privyUserId && job.requestedModel) {
-      const tier = getModelTier(job.requestedModel);
-      if (tier === 'pro' || tier === 'max') {
-        refundCredits(job.privyUserId, tier === 'max' ? 50 : 10, 'Job failed: ' + error.slice(0, 50));
-      }
+    if (job.privyUserId && job.creditsCharged) {
+      refundCredits(job.privyUserId, job.creditsCharged, 'Job failed: ' + error.slice(0, 50));
     }
 
     this.jobs.delete(jobId);
