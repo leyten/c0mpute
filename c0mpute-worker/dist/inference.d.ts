@@ -42,7 +42,7 @@ export declare function modelExists(): Promise<boolean>;
  * have an empty response and toolCalls populated. The caller should execute
  * the tools and call runInference again with the tool results appended.
  */
-export declare function runInference(messages: ChatMessage[], onToken: (token: string) => void, signal?: AbortSignal, tools?: ToolDefinition[]): Promise<InferenceResult>;
+export declare function runInference(messages: ChatMessage[], onToken: (token: string) => void, signal?: AbortSignal, tools?: ToolDefinition[], think?: boolean): Promise<InferenceResult>;
 /**
  * Run a short benchmark inference and return tokens per second.
  * Benchmark runs without thinking or tools for clean speed measurement.

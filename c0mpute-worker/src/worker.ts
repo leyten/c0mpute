@@ -14,6 +14,7 @@ interface JobData {
   jobId: string;
   messages?: ChatMessage[];
   tools?: ToolDefinition[];
+  think?: boolean;
   searchContext?: string; // legacy — kept for backwards compat
 }
 
@@ -109,7 +110,7 @@ export async function startWorker(options: WorkerOptions): Promise<void> {
   }
 
   socket.on('job:new', async (data: JobData) => {
-    const { jobId, messages: initialMessages, tools } = data;
+    const { jobId, messages: initialMessages, tools, think } = data;
     logStatus(`Job received: ${jobId}${tools?.length ? ` (${tools.length} tools available)` : ''}`);
 
     if (!initialMessages || initialMessages.length === 0) {
@@ -132,6 +133,7 @@ export async function startWorker(options: WorkerOptions): Promise<void> {
           },
           activeJobAbort.signal,
           tools,
+          think ?? false,
         );
 
         totalTokens += result.tokensGenerated;

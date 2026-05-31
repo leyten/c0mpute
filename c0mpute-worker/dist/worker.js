@@ -77,7 +77,7 @@ export async function startWorker(options) {
         });
     }
     socket.on('job:new', async (data) => {
-        const { jobId, messages: initialMessages, tools } = data;
+        const { jobId, messages: initialMessages, tools, think } = data;
         logStatus(`Job received: ${jobId}${tools?.length ? ` (${tools.length} tools available)` : ''}`);
         if (!initialMessages || initialMessages.length === 0) {
             socket.emit('job:error', { jobId, error: 'No messages provided' });
@@ -92,7 +92,7 @@ export async function startWorker(options) {
             for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
                 const result = await runInference(messages, (token) => {
                     socket.emit('job:token', { jobId, token });
-                }, activeJobAbort.signal, tools);
+                }, activeJobAbort.signal, tools, think ?? false);
                 totalTokens += result.tokensGenerated;
                 fullResponse += result.response;
                 // If no tool calls, we're done
