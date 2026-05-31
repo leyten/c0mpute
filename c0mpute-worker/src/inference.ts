@@ -73,11 +73,12 @@ export async function runInference(
   onToken: (token: string) => void,
   signal?: AbortSignal,
   tools?: ToolDefinition[],
+  think: boolean = false,
 ): Promise<InferenceResult> {
   const body: Record<string, unknown> = {
     model: OLLAMA_MODEL,
     messages,
-    think: true,
+    think,
     stream: true,
     options: {
       num_predict: MAX_OUTPUT_TOKENS,
@@ -109,6 +110,9 @@ export async function runInference(
   let response = '';
   let tokensGenerated = 0;
   const toolCalls: ToolCall[] = [];
+  // When think is on, ollama returns reasoning in a separate `thinking` field.
+  // The frontend renders it from inline <think>...</think> tags, so re-wrap it.
+  let thinkingOpen = false;
 
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
@@ -130,8 +134,25 @@ export async function runInference(
       try {
         const chunk = JSON.parse(line);
 
+        // Reasoning tokens — wrap in <think> tags for the frontend
+        if (chunk.message?.thinking) {
+          if (!thinkingOpen) {
+            response += '<think>';
+            onToken('<think>');
+            thinkingOpen = true;
+          }
+          const token = chunk.message.thinking;
+          response += token;
+          onToken(token);
+        }
+
         // Text content — stream to caller
         if (chunk.message?.content) {
+          if (thinkingOpen) {
+            response += '</think>';
+            onToken('</think>');
+            thinkingOpen = false;
+          }
           const token = chunk.message.content;
           response += token;
           tokensGenerated++;
@@ -144,6 +165,12 @@ export async function runInference(
         }
 
         if (chunk.done) {
+          // Close an unterminated thinking block (no content followed)
+          if (thinkingOpen) {
+            response += '</think>';
+            onToken('</think>');
+            thinkingOpen = false;
+          }
           // Use ollama's token count if available
           if (chunk.eval_count) {
             tokensGenerated = chunk.eval_count;
@@ -153,6 +180,12 @@ export async function runInference(
         // Skip malformed lines
       }
     }
+  }
+
+  // Safety: close thinking if the stream ended without a done chunk
+  if (thinkingOpen) {
+    response += '</think>';
+    onToken('</think>');
   }
 
   return { response, tokensGenerated, toolCalls: toolCalls.length > 0 ? toolCalls : undefined };
