@@ -4,6 +4,8 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 import Markdown from 'markdown-to-jsx';
+import katex from 'katex';
+import 'katex/dist/katex.min.css';
 import { useSocket } from '@/hooks/useSocket';
 import { Chat, Message, ChatWithMessages } from '@/lib/types';
 import { MAX_INPUT_CHARS } from '@/lib/orchestrator/types';
@@ -87,12 +89,57 @@ function SourceStrip({ sources, content }: { sources: { title: string; url: stri
   );
 }
 
-// Build markdown components that inject citation rendering
+// LaTeX is base64-encoded into a tag attribute so markdown-to-jsx passes it
+// through untouched — otherwise `_`, `^`, `{}` in formulas get parsed as markdown.
+function encodeTex(tex: string): string {
+  try { return btoa(encodeURIComponent(tex)); } catch { return ''; }
+}
+function decodeTex(enc: string): string {
+  try { return decodeURIComponent(atob(enc)); } catch { return ''; }
+}
+
+// Convert $...$ and $$...$$ into custom tags carrying the encoded LaTeX. Code
+// spans/fences are skipped so a literal $ inside code stays untouched.
+function mathToTags(text: string): string {
+  return text.split(/(```[\s\S]*?```|`[^`\n]*`)/g).map((seg, i) => {
+    if (i % 2 === 1) return seg; // code segment
+    seg = seg.replace(/\$\$([\s\S]+?)\$\$/g, (_m, tex) => `<mathblock data-tex="${encodeTex(tex.trim())}"></mathblock>`);
+    seg = seg.replace(/\$(?![\s$])([^\n$]*?)(?<!\s)\$/g, (_m, tex) => `<mathinline data-tex="${encodeTex(tex)}"></mathinline>`);
+    return seg;
+  }).join('');
+}
+
+function MathInline({ 'data-tex': enc }: any) {
+  const tex = decodeTex(enc || '');
+  try {
+    const html = katex.renderToString(tex, { throwOnError: false, displayMode: false });
+    return <span dangerouslySetInnerHTML={{ __html: html }} />;
+  } catch {
+    return <span>{tex}</span>;
+  }
+}
+
+function MathBlock({ 'data-tex': enc }: any) {
+  const tex = decodeTex(enc || '');
+  try {
+    const html = katex.renderToString(tex, { throwOnError: false, displayMode: true });
+    return <div className="my-3 overflow-x-auto" dangerouslySetInnerHTML={{ __html: html }} />;
+  } catch {
+    return <div>{tex}</div>;
+  }
+}
+
+// Build markdown components that inject KaTeX math and citation rendering
 function buildMarkdownOverrides(sources: { title: string; url: string; description: string }[]) {
-  if (sources.length === 0) return {};
+  const mathOverrides = {
+    mathinline: { component: MathInline },
+    mathblock: { component: MathBlock },
+  };
+  if (sources.length === 0) return { overrides: mathOverrides };
   const proc = (child: React.ReactNode): React.ReactNode => typeof child === 'string' ? <CitationText text={child} sources={sources} /> : child;
   return {
     overrides: {
+      ...mathOverrides,
       p: { component: ({ children, ...props }: any) => <p {...props}>{Array.isArray(children) ? children.map((c: any, i: number) => <span key={i}>{proc(c)}</span>) : proc(children)}</p> },
       li: { component: ({ children, ...props }: any) => <li {...props}>{Array.isArray(children) ? children.map((c: any, i: number) => <span key={i}>{proc(c)}</span>) : proc(children)}</li> },
     },
@@ -172,20 +219,29 @@ function normalizeMarkdown(text: string): string {
   return result.join('\n');
 }
 
-// Parse <think>...</think> tags from Qwen3 model output
+// Parse <think>...</think> tags from Qwen3 model output. Tool-calling produces
+// multiple thinking rounds (think → tool call → think → answer), so collect
+// every block into the dropdown and leave only the real answer in the response.
 function parseThinking(content: string): { thinking: string | null; response: string; thinkSeconds: number | null } {
-  // Match completed thinking blocks (with optional embedded time)
-  const thinkMatch = content.match(/^<think>([\s\S]*?)<\/think>(?:<!--think_time:(\d+)-->)?\s*([\s\S]*)$/);
-  if (thinkMatch) {
-    const seconds = thinkMatch[2] ? parseInt(thinkMatch[2], 10) : null;
-    return { thinking: thinkMatch[1].trim(), response: thinkMatch[3].trim(), thinkSeconds: seconds };
+  const timeMatch = content.match(/<!--think_time:(\d+)-->/);
+  const thinkSeconds = timeMatch ? parseInt(timeMatch[1], 10) : null;
+  let response = content.replace(/<!--think_time:\d+-->/g, '');
+
+  const thoughts: string[] = [];
+  response = response.replace(/<think>([\s\S]*?)<\/think>/g, (_m, inner) => {
+    thoughts.push(inner.trim());
+    return '';
+  });
+
+  // An unclosed <think> at the tail means thinking is still streaming
+  const open = response.indexOf('<think>');
+  if (open !== -1) {
+    thoughts.push(response.slice(open + '<think>'.length).trim());
+    response = response.slice(0, open);
   }
-  // Match in-progress thinking (no closing tag yet — still streaming)
-  const partialMatch = content.match(/^<think>([\s\S]*)$/);
-  if (partialMatch) {
-    return { thinking: partialMatch[1].trim(), response: '', thinkSeconds: null };
-  }
-  return { thinking: null, response: content, thinkSeconds: null };
+
+  const thinking = thoughts.filter(Boolean).join('\n\n').trim();
+  return { thinking: thinking || null, response: response.trim(), thinkSeconds };
 }
 
 // Collapsible thinking dropdown component
@@ -1107,7 +1163,7 @@ export default function UserPage() {
                         )}
                         <SourceStrip sources={sources} content={cleanContent} />
                         <div className="pixel-sans text-white/90 text-base leading-[1.75] prose prose-invert prose-base max-w-none prose-p:my-3 prose-li:my-1 prose-ol:my-3 prose-ul:my-3 prose-headings:mt-5 prose-headings:mb-2 prose-headings:text-white prose-headings:font-semibold prose-strong:text-white prose-strong:font-extrabold prose-code:text-white/80 prose-code:bg-white/[0.06] prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-a:text-blue-400 prose-a:no-underline hover:prose-a:underline prose-hr:my-5 prose-hr:border-white/10 [&_br]:block [&_br]:content-[''] [&_br]:mt-2.5">
-                          <Markdown options={buildMarkdownOverrides(sources)}>{cleanContent}</Markdown>
+                          <Markdown options={buildMarkdownOverrides(sources)}>{mathToTags(cleanContent)}</Markdown>
                         </div>
                         {thinking && <ThinkingDropdown thinking={thinking} elapsedSeconds={thinkSeconds ?? undefined} />}
                       </div>
@@ -1148,7 +1204,7 @@ export default function UserPage() {
                         <SourceStrip sources={pendingSources} />
                         {streamResponse && (
                           <div className="pixel-sans text-white/90 text-base leading-[1.75] prose prose-invert prose-base max-w-none prose-p:my-3 prose-li:my-1 prose-ol:my-3 prose-ul:my-3 prose-headings:mt-5 prose-headings:mb-2 prose-headings:text-white prose-headings:font-semibold prose-strong:text-white prose-strong:font-extrabold prose-code:text-white/80 prose-code:bg-white/[0.06] prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-a:text-blue-400 prose-a:no-underline hover:prose-a:underline prose-hr:my-5 prose-hr:border-white/10 [&_br]:block [&_br]:content-[''] [&_br]:mt-2.5">
-                            <Markdown options={buildMarkdownOverrides(pendingSources)}>{streamResponse}</Markdown>
+                            <Markdown options={buildMarkdownOverrides(pendingSources)}>{mathToTags(streamResponse)}</Markdown>
                             <span className="inline-block w-2 h-5 bg-white/50 ml-1 animate-pulse" />
                           </div>
                         )}
