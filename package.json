@@ -6,7 +6,8 @@
     "dev": "next dev",
     "dev:server": "tsx watch server/index.ts",
     "dev:all": "concurrently \"npm run dev\" \"npm run dev:server\"",
-    "build": "next build",
+    "build": "bash scripts/build.sh",
+    "build:raw": "next build",
     "start": "next start",
     "start:server": "tsx server/index.ts",
     "lint": "eslint"
