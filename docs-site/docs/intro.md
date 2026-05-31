@@ -18,9 +18,9 @@ You send a message. The orchestrator finds an available worker. The worker runs 
 
 | Tier | Model | Cost | Where it runs | Notes |
 |------|-------|------|---------------|-------|
-| **Free** | Qwen 1.5B | 0 credits | Browser (WebGPU) | ~900MB, fast, basic |
-| **Pro** | Dolphin Mistral 7B | 10 credits | Browser (WebGPU) | ~4GB VRAM, uncensored |
-| **Max** | Qwen2.5 14B abliterated | 50 credits | Native workers | ~9GB, uncensored + web search |
+| **Free** | Qwen3 1.7B | 0 credits | Browser (WebGPU) | ~1GB, fast, basic |
+| **Pro** | Qwen3 8B Uncensored | 10 credits | Browser (WebGPU) | ~4.3GB / 6GB VRAM, uncensored |
+| **Max** | Qwen3.5 27B abliterated | 50 credits | Native workers | uncensored + web search + vision |
 
 ## The <span class="dollar">$</span>ZERO token
 

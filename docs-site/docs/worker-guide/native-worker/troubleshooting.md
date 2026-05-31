@@ -41,9 +41,9 @@ Metal auto-detects on Apple Silicon. If performance is unexpectedly low:
 
 ## Model download fails
 
-The model (~9GB) downloads from HuggingFace on first run.
+The model (~17GB) is pulled via ollama on first run.
 
-- **Check disk space**: you need ~10GB free in `~/.c0mpute/models/`
+- **Check disk space**: you need ~17GB free where ollama stores models (`~/.ollama` by default)
 - **Check internet**: try `curl -I https://huggingface.co` to verify connectivity
 - **Retry**: HuggingFace occasionally has temporary issues. Just run the command again.
 - **Behind a proxy?** Set `HTTPS_PROXY` environment variable

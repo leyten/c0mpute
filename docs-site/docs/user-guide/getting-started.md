@@ -32,9 +32,9 @@ Select your model tier from the dropdown before sending a message:
 
 | Tier | Model | Cost | Notes |
 |------|-------|------|-------|
-| **Free** | Qwen 1.5B | 0 cr/msg | Fast, basic, runs in browser workers |
-| **Pro** | Dolphin Mistral 7B | 10 cr/msg | Higher quality, uncensored |
-| **Max** | Qwen2.5 14B | 50 cr/msg | Best quality, uncensored, web search |
+| **Free** | Qwen3 1.7B | 0 cr/msg | Fast, basic, runs in browser workers |
+| **Pro** | Qwen3 8B Uncensored | 10 cr/msg | Higher quality, uncensored |
+| **Max** | Qwen3.5 27B abliterated | 50 cr/msg | Best quality, uncensored, web search + vision |
 
 See [Model tiers](/user-guide/model-tiers) for a detailed comparison.
 

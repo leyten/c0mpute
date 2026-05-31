@@ -5,23 +5,24 @@ title: Overview
 
 # Native worker overview
 
-Native workers run Qwen2.5 14B (abliterated/uncensored) on your machine using node-llama-cpp. They serve Max tier requests and earn **3-5x more** than browser workers.
+Native workers run Qwen3.5 27B (abliterated/uncensored) on your machine via ollama. They serve Max tier requests and earn **3-5x more** than browser workers.
 
 ## Why go native?
 
 - **Higher earnings** — Max tier jobs pay significantly more than Free or Pro
-- **Better model** — 14B parameter model produces higher quality responses
+- **Better model** — 27B parameter model produces higher quality responses
 - **Real GPU utilization** — uses CUDA, Metal, or Vulkan for full hardware acceleration
 - **Runs headless** — no browser tab needed, runs as a background process or service
 
 ## Requirements
 
 - **Node.js 18+** (22+ recommended)
-- **GPU with 10GB+ VRAM:**
-  - NVIDIA: GTX 1080 Ti, RTX 3060 12GB, RTX 3080, RTX 4070+, etc.
-  - Apple Silicon: M1 (16GB RAM), M2, M3, M4
-  - AMD: RX 6800+, RX 7800+ (via Vulkan)
-- **~10GB disk space** for the model (downloaded on first run)
+- **ollama** installed (the worker pulls and runs the model through it)
+- **GPU with 20GB+ VRAM recommended** (or 32GB+ unified memory on Apple Silicon):
+  - NVIDIA: RTX 3090, RTX 4090, etc.
+  - Apple Silicon: M1 Max/Ultra, M2/M3/M4 Max (32GB+ RAM)
+  - AMD: RX 7900 XTX (via Vulkan)
+- **~17GB disk space** for the model (downloaded on first run)
 - **Stable internet connection**
 
 ## Quick start

@@ -8,7 +8,7 @@ title: macOS
 ## Requirements
 
 - **Apple Silicon** (M1, M2, M3, M4) — Intel Macs are not recommended (no Metal acceleration, very slow)
-- **16GB RAM minimum** — the model needs ~10GB
+- **32GB RAM minimum** — the model needs ~17GB
 - **Node.js 18+**
 
 ## Install Node.js
@@ -29,7 +29,7 @@ npx @c0mpute/worker --token <your-token>
 
 That's it. node-llama-cpp automatically detects Metal on Apple Silicon — no extra drivers or configuration needed.
 
-On first run, the model downloads (~9GB) and a benchmark runs to verify performance.
+On first run, the model downloads (~17GB) and a benchmark runs to verify performance.
 
 ## Expected performance
 

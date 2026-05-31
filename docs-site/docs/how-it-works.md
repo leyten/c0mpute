@@ -34,24 +34,24 @@ The orchestrator does not store conversations. It routes traffic and moves on.
 Browser workers run LLMs directly in your browser tab using [WebGPU](https://developer.mozilla.org/en-US/docs/Web/API/WebGPU_API) through the WebLLM library. No installation required — just open the page and click start.
 
 Two models are available for browser workers:
-- **Qwen 1.5B** — serves Free tier requests. ~900MB download, runs on most modern GPUs.
-- **Dolphin Mistral 7B** — serves Pro tier requests. ~4GB VRAM required, uncensored.
+- **Qwen3 1.7B** — serves Free tier requests. ~1GB download, runs on most modern GPUs.
+- **Qwen3 8B Uncensored** — serves Pro tier requests. ~4.3GB download, ~6GB VRAM required, uncensored.
 
 The model downloads once and caches in the browser. Subsequent starts are instant.
 
 ## Native workers
 
-Native workers run on your machine using [node-llama-cpp](https://github.com/withcatai/node-llama-cpp), which supports CUDA (NVIDIA), Metal (Apple Silicon), and Vulkan (AMD/Intel) acceleration.
+Native workers run on your machine using [ollama](https://ollama.com), which supports CUDA (NVIDIA), Metal (Apple Silicon), and Vulkan (AMD/Intel) acceleration.
 
-Native workers run **Qwen2.5 14B abliterated** and serve Max tier requests exclusively. They require a GPU with 10GB+ VRAM and deliver 30-100+ tokens per second depending on hardware.
+Native workers run **Qwen3.5 27B abliterated** and serve Max tier requests exclusively. They require a high-VRAM GPU (20GB+ recommended, e.g. RTX 3090/4090) and deliver 30+ tokens per second depending on hardware.
 
 ## Job routing
 
 | Tier | Worker type | Model |
 |------|-------------|-------|
-| Free | Browser (WebGPU) | Qwen 1.5B |
-| Pro | Browser (WebGPU) | Dolphin Mistral 7B |
-| Max | Native (node-llama-cpp) | Qwen2.5 14B abliterated |
+| Free | Browser (WebGPU) | Qwen3 1.7B |
+| Pro | Browser (WebGPU) | Qwen3 8B Uncensored |
+| Max | Native (ollama) | Qwen3.5 27B abliterated |
 
 ## Web search (Max tier only)
 

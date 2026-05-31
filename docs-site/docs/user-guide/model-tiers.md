@@ -7,34 +7,36 @@ title: Model tiers
 
 c0mpute offers three tiers, each running a different model on different infrastructure.
 
-## Free — Qwen 1.5B
+## Free — Qwen3 1.7B
 
 - **Cost:** 0 credits per message
 - Runs in **browser workers** via WebGPU
-- ~900MB model download
+- ~1GB model download, ~2GB VRAM
 - Fast responses, low VRAM requirements
 - Standard model with default safety filters
 - Good for: simple questions, quick lookups, casual use
 
 This is the default tier. It works on most modern devices with WebGPU support. No $ZERO needed.
 
-## Pro — Dolphin Mistral 7B
+## Pro — Qwen3 8B Uncensored
 
 - **Cost:** 10 credits per message
 - Runs in **browser workers** via WebGPU
-- ~4GB VRAM required
+- ~4.3GB model download, ~6GB VRAM required
 - **Uncensored** — won't refuse topics based on corporate content policies
 - Higher quality reasoning and longer, more detailed responses
 
-Pro uses the Dolphin fine-tune of Mistral 7B, which has been trained without artificial refusal behavior. It answers what you ask without moralizing or deflecting.
+Pro uses a custom abliterated build of Qwen3 8B, with refusal behavior removed. It answers what you ask without moralizing or deflecting.
 
-## Max — Qwen2.5 14B abliterated
+## Max — Qwen3.5 27B abliterated
 
 - **Cost:** 50 credits per message
-- Runs on **native workers** via node-llama-cpp
-- ~9GB VRAM required on the worker's GPU
+- Runs on **native workers** via ollama
+- High-VRAM GPU required on the worker's machine (20GB+ recommended, e.g. RTX 3090/4090)
 - **Uncensored** — abliterated (refusal behavior surgically removed)
 - **Web search** — can search the internet and cite sources
+- **Vision** — accepts image input
+- **Thinking mode** — extended reasoning before answering
 - Best quality responses across all tiers
 
 Max is the premium tier. It runs on dedicated native workers with powerful GPUs, delivering the highest quality responses in the network.
@@ -53,7 +55,7 @@ Credits are deducted when you send a message. If a job fails or you disconnect, 
 
 Corporate AI models (ChatGPT, Claude, Gemini) are trained to refuse certain topics. Ask about anything the company considers sensitive and you get a refusal. These aren't safety features — they're content policies imposed by corporations.
 
-Uncensored models like Dolphin and abliterated Qwen have had this refusal training removed. They answer your questions directly without corporate-imposed restrictions.
+Uncensored models like the abliterated Qwen builds c0mpute runs have had this refusal training removed. They answer your questions directly without corporate-imposed restrictions.
 
 ## Web search (Max only)
 
