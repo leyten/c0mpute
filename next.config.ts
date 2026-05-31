@@ -1,6 +1,13 @@
 import type { NextConfig } from "next";
+import path from "path";
 
 const nextConfig: NextConfig = {
+  // Pin the build root to this dir — a stray package-lock.json at the workspace
+  // root made Turbopack treat the whole workspace as root and scan every sibling
+  // project, stalling the build.
+  turbopack: {
+    root: path.join(__dirname),
+  },
   // Enable proper headers for WebLLM model files
   async headers() {
     return [
