@@ -101,7 +101,7 @@ export async function ensureSetup(): Promise<void> {
         top_k: 20,
         top_p: 0.95,
         num_gpu: 999,     // Force GPU offloading — ollama bug #3732: derived models lose GPU layers
-        num_ctx: 16384,   // Sane default — 256K default eats too much VRAM for KV cache
+        num_ctx: 8192,    // 16384 + 27B weights overflow 24GB VRAM → sysmem fallback → ~4 tok/s
       },
       stream: false,
     }),
