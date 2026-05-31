@@ -8,7 +8,7 @@ title: Linux
 ## Prerequisites
 
 - **Node.js 18+** — install via [NodeSource](https://github.com/nodesource/distributions) or your package manager
-- **NVIDIA GPU with 10GB+ VRAM**
+- **NVIDIA GPU with 20GB+ VRAM recommended**
 - **CUDA Toolkit**
 
 ## Install CUDA
@@ -51,8 +51,8 @@ npx @c0mpute/worker --token <your-token>
 ```
 
 On first run:
-1. node-llama-cpp compiles with CUDA support
-2. The Qwen2.5 14B model downloads (~9GB)
+1. ollama is configured with CUDA support
+2. The Qwen3.5 27B model downloads (~17GB)
 3. A benchmark runs to verify GPU performance
 4. The worker connects to the network and starts accepting jobs
 
