@@ -293,7 +293,9 @@ export default function UserPage() {
   const imageInputRef = useRef<HTMLInputElement>(null);
   const [loadingChats, setLoadingChats] = useState(true);
   const [selectedPlan, setSelectedPlan] = useState<PlanId>('free');
-  const [pendingPlan, setPendingPlan] = useState<PlanId | null>(null); // for confirmation modal
+  const [deepThinking, setDeepThinking] = useState(false);
+  const [modelMenuOpen, setModelMenuOpen] = useState(false);
+  const modelMenuRef = useRef<HTMLDivElement>(null);
   const [editingChatId, setEditingChatId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState('');
   const [pendingPromptProcessed, setPendingPromptProcessed] = useState(false);
@@ -331,7 +333,8 @@ export default function UserPage() {
   // Save plan to DB
   const savePlan = async (plan: PlanId) => {
     setSelectedPlan(plan);
-    setPendingPlan(null);
+    if (plan !== 'max') setDeepThinking(false);
+    setModelMenuOpen(false);
     if (!socketAuthToken) return;
     fetch('/api/plan', {
       method: 'POST',
@@ -342,6 +345,19 @@ export default function UserPage() {
 
   // Derive model ID from plan
   const selectedModel = PLANS.find(p => p.id === selectedPlan)?.modelId ?? PLANS[0].modelId;
+  const selectedPlanObj = PLANS.find(p => p.id === selectedPlan) ?? PLANS[0];
+
+  // Close the composer model menu on outside click
+  useEffect(() => {
+    if (!modelMenuOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (modelMenuRef.current && !modelMenuRef.current.contains(e.target as Node)) {
+        setModelMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [modelMenuOpen]);
   
   // Refs
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -891,30 +907,6 @@ export default function UserPage() {
           </div>
           
           <div className="flex items-center gap-4">
-            {/* Plan Switcher */}
-            <div className="flex items-center border border-white/10 rounded-lg overflow-hidden">
-              {PLANS.map((plan) => {
-                const isSelected = selectedPlan === plan.id;
-                return (
-                  <button
-                    key={plan.id}
-                    onClick={() => {
-                      if (plan.id === selectedPlan) return;
-                      setPendingPlan(plan.id);
-                    }}
-                    className={`cursor-pointer pixel-sans text-xs px-3 py-2 transition-colors ${
-                      isSelected 
-                        ? 'bg-[#80a0c1]/20 text-[#80a0c1]' 
-                        : 'text-white/50 hover:text-white/70 hover:bg-white/5'
-                    }`}
-                    title={plan.description}
-                  >
-                    {plan.name} {plan.cost > 0 && <span className={`${isSelected ? 'text-[#80a0c1]/60' : 'text-white/25'}`}>· {plan.costLabel}</span>}
-                  </button>
-                );
-              })}
-            </div>
-            
             {/* Credit balance — always visible */}
             <button
               onClick={() => router.push('/settings#usage')}
@@ -1262,47 +1254,93 @@ export default function UserPage() {
                       ))}
                     </div>
                   )}
-                  <div className="flex gap-3">
-                    {/* Image upload button — only for Max tier */}
+                  {/* Model picker + options — composer bar */}
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="relative" ref={modelMenuRef}>
+                      <button
+                        onClick={() => setModelMenuOpen(o => !o)}
+                        className="cursor-pointer flex items-center gap-2 pixel-sans text-xs px-3 py-2 rounded-lg border border-white/10 bg-white/[0.03] text-white/70 hover:bg-white/[0.06] transition-colors"
+                      >
+                        <span className="text-white/90">{selectedPlanObj.name}</span>
+                        <span className="text-white/30">{selectedPlanObj.cost > 0 ? `${selectedPlanObj.cost} cr/msg` : 'Free'}</span>
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={`transition-transform ${modelMenuOpen ? 'rotate-180' : ''}`}><path d="M6 9l6 6 6-6" /></svg>
+                      </button>
+                      {modelMenuOpen && (
+                        <div className="absolute bottom-full left-0 mb-2 w-60 bg-[#0a0a0a] border border-white/10 rounded-xl p-1 z-50 shadow-xl">
+                          {PLANS.map((plan) => {
+                            const isSel = plan.id === selectedPlan;
+                            return (
+                              <button
+                                key={plan.id}
+                                onClick={() => savePlan(plan.id)}
+                                className={`cursor-pointer w-full text-left px-3 py-2.5 rounded-lg transition-colors ${isSel ? 'bg-[#80a0c1]/15' : 'hover:bg-white/5'}`}
+                              >
+                                <div className="flex items-center justify-between">
+                                  <span className={`pixel-sans text-sm ${isSel ? 'text-[#80a0c1]' : 'text-white/80'}`}>{plan.name}</span>
+                                  <span className={`pixel-sans text-xs ${isSel ? 'text-[#80a0c1]/60' : 'text-white/30'}`}>{plan.cost > 0 ? `${plan.cost} cr/msg` : 'Free'}</span>
+                                </div>
+                                <div className="pixel-sans text-white/30 text-xs mt-0.5">{plan.description}</div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
                     {selectedPlan === 'max' && (
-                      <>
-                        <input
-                          ref={imageInputRef}
-                          type="file"
-                          accept="image/*"
-                          multiple
-                          className="hidden"
-                          onChange={(e) => {
-                            const files = e.target.files;
-                            if (!files) return;
-                            Array.from(files).slice(0, 4 - pendingImages.length).forEach(file => {
-                              const reader = new FileReader();
-                              reader.onload = () => {
-                                const base64 = (reader.result as string).split(',')[1];
-                                if (base64) {
-                                  setPendingImages(prev => prev.length < 4 ? [...prev, base64] : prev);
-                                }
-                              };
-                              reader.readAsDataURL(file);
-                            });
-                            e.target.value = '';
-                          }}
-                        />
+                      <button
+                        onClick={() => setDeepThinking(v => !v)}
+                        className={`cursor-pointer flex items-center gap-2 pixel-sans text-xs px-3 py-2 rounded-lg border transition-colors ${deepThinking ? 'border-[#80a0c1]/40 bg-[#80a0c1]/15 text-[#80a0c1]' : 'border-white/10 bg-white/[0.03] text-white/50 hover:bg-white/[0.06]'}`}
+                        title="Deep thinking: the model reasons step-by-step before answering. Slower, costs 100 cr/msg."
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2a7 7 0 0 0-4 12.7V17a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v-2.3A7 7 0 0 0 12 2z" /><path d="M9 21h6" /></svg>
+                        Deep thinking
+                        <span className="text-[10px]">{deepThinking ? 'ON · 100 cr' : 'OFF'}</span>
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex gap-3">
+                    {/* Hidden file input for image uploads — only mounted on Max tier */}
+                    {selectedPlan === 'max' && (
+                      <input
+                        ref={imageInputRef}
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        className="hidden"
+                        onChange={(e) => {
+                          const files = e.target.files;
+                          if (!files) return;
+                          Array.from(files).slice(0, 4 - pendingImages.length).forEach(file => {
+                            const reader = new FileReader();
+                            reader.onload = () => {
+                              const base64 = (reader.result as string).split(',')[1];
+                              if (base64) {
+                                setPendingImages(prev => prev.length < 4 ? [...prev, base64] : prev);
+                              }
+                            };
+                            reader.readAsDataURL(file);
+                          });
+                          e.target.value = '';
+                        }}
+                      />
+                    )}
+                    <div className="flex-1 relative">
+                      {/* Image upload icon — inline left, only on Max tier */}
+                      {selectedPlan === 'max' && (
                         <button
                           onClick={() => imageInputRef.current?.click()}
                           disabled={chatState !== 'idle' || !isConnected || pendingImages.length >= 4}
-                          className="bg-black border border-white/10 rounded-xl px-3 flex items-center justify-center hover:bg-white/5 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                          className="absolute left-4 top-1/2 -translate-y-1/2 text-white/40 hover:text-white/80 transition-colors disabled:opacity-20 disabled:cursor-not-allowed"
                           title="Upload image (Max tier)"
+                          aria-label="Upload image"
                         >
-                          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-white/50">
+                          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                             <rect x="3" y="3" width="18" height="18" rx="2" />
                             <circle cx="8.5" cy="8.5" r="1.5" />
                             <path d="M21 15l-5-5L5 21" />
                           </svg>
                         </button>
-                      </>
-                    )}
-                    <div className="flex-1 relative">
+                      )}
                       <input
                         ref={inputRef}
                         type="text"
@@ -1314,7 +1352,7 @@ export default function UserPage() {
                         }}
                         placeholder={isConnected ? (pendingImages.length > 0 ? "Describe the image..." : "Type your message...") : "Connecting to network..."}
                         disabled={chatState !== 'idle' || !isConnected}
-                        className="w-full bg-white/[0.02] border border-white/10 rounded-xl px-5 py-4 pixel-sans text-white text-base placeholder:text-white/30 focus:outline-none focus:border-white/30 disabled:opacity-50"
+                        className={`w-full bg-white/[0.02] border border-white/10 rounded-xl ${selectedPlan === 'max' ? 'pl-12' : 'pl-5'} pr-5 py-4 pixel-sans text-white text-base placeholder:text-white/30 focus:outline-none focus:border-white/30 disabled:opacity-50`}
                       />
                       {/* Character counter */}
                       <span className={`absolute top-1/2 -translate-y-1/2 right-4 pixel-sans text-xs ${
@@ -1345,48 +1383,6 @@ export default function UserPage() {
           )}
         </main>
       </div>
-
-      {/* Plan Switch Confirmation Modal */}
-      {pendingPlan && (() => {
-        const plan = PLANS.find(p => p.id === pendingPlan)!;
-        const currentPlan = PLANS.find(p => p.id === selectedPlan)!;
-        return (
-          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[100] flex items-center justify-center p-4" onClick={() => setPendingPlan(null)}>
-            <div className="bg-[#0a0a0a] border border-white/10 rounded-2xl p-6 max-w-sm w-full" onClick={e => e.stopPropagation()}>
-              <h3 className="pixel-serif text-white text-lg mb-2">Switch to {plan.name}?</h3>
-              <p className="pixel-sans text-white/50 text-sm mb-4">
-                {plan.cost > 0
-                  ? `Each message will cost ${plan.cost} credits.`
-                  : 'Messages will be free.'}
-              </p>
-              <div className="bg-white/[0.03] border border-white/5 rounded-xl p-4 mb-5">
-                <div className="pixel-sans text-white/70 text-sm font-medium mb-2">{plan.name} includes:</div>
-                <ul className="space-y-1.5">
-                  {plan.features.map((f, i) => (
-                    <li key={i} className="pixel-sans text-white/40 text-xs flex items-center gap-2">
-                      <span className="text-[#80a0c1]">✓</span> {f}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setPendingPlan(null)}
-                  className="cursor-pointer flex-1 pixel-sans text-sm py-2.5 rounded-xl border border-white/10 text-white/50 hover:bg-white/5 transition-colors"
-                >
-                  Stay on {currentPlan.name}
-                </button>
-                <button
-                  onClick={() => savePlan(pendingPlan)}
-                  className="cursor-pointer flex-1 pixel-sans text-sm py-2.5 rounded-xl bg-[#80a0c1]/20 border border-[#80a0c1]/30 text-[#80a0c1] hover:bg-[#80a0c1]/30 transition-colors"
-                >
-                  Switch
-                </button>
-              </div>
-            </div>
-          </div>
-        );
-      })()}
     </div>
   );
 }
