@@ -27,7 +27,7 @@ Or download from [nodejs.org](https://nodejs.org/).
 npx @c0mpute/worker --token <your-token>
 ```
 
-That's it. node-llama-cpp automatically detects Metal on Apple Silicon — no extra drivers or configuration needed.
+That's it. ollama automatically detects Metal on Apple Silicon — no extra drivers or configuration needed.
 
 On first run, the model downloads (~17GB) and a benchmark runs to verify performance.
 

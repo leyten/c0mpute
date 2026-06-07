@@ -9,7 +9,7 @@ Native workers run Qwen3.5 27B (abliterated/uncensored) on your machine via olla
 
 ## Why go native?
 
-- **Higher earnings** — Max tier jobs pay significantly more than Free or Pro
+- **Higher earnings** — Max tier jobs pay significantly more than Pro
 - **Better model** — 27B parameter model produces higher quality responses
 - **Real GPU utilization** — uses CUDA, Metal, or Vulkan for full hardware acceleration
 - **Runs headless** — no browser tab needed, runs as a background process or service
@@ -31,12 +31,12 @@ Native workers run Qwen3.5 27B (abliterated/uncensored) on your machine via olla
 npx @c0mpute/worker --token <your-token>
 ```
 
-That's it. One command. node-llama-cpp handles model download, GPU detection, and compilation automatically.
+That's it. One command. ollama handles model download and GPU detection automatically.
 
 ## Get your token
 
 1. Go to [c0mpute.ai/worker](https://c0mpute.ai/worker)
-2. Login with Privy
+2. Log in with your X (Twitter) account
 3. Scroll to **Native Worker** section
 4. Click **Get Worker Token**
 5. Copy and save the token — it's shown only once

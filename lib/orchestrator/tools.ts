@@ -7,8 +7,9 @@
 import { ToolDefinition, ToolCall, ChatMessage } from './types';
 
 // Dynamic imports for server-only modules
-let braveSearch: (query: string) => Promise<{ title: string; url: string; description: string }[]> = async () => [];
-let enrichResults: (results: { title: string; url: string; description: string }[], topN?: number) => Promise<{ title: string; url: string; description: string }[]> = async (r) => r;
+type SearchHit = { title: string; url: string; description: string; age?: string };
+let braveSearch: (query: string, freshness?: string) => Promise<SearchHit[]> = async () => [];
+let enrichResults: (results: SearchHit[], topN?: number, maxChars?: number) => Promise<SearchHit[]> = async (r) => r;
 
 try {
   const searchServer = require('../search-server');
@@ -34,7 +35,12 @@ export const AVAILABLE_TOOLS: ToolDefinition[] = [
         properties: {
           query: {
             type: 'string',
-            description: 'The search query. Be specific and concise.',
+            description: 'The search query. Be specific and concise. For recent events, build the query around the current date rather than your training data.',
+          },
+          freshness: {
+            type: 'string',
+            enum: ['day', 'week', 'month', 'year', 'all'],
+            description: 'How recent results must be. Use "day" or "week" for breaking news or things just announced, "month" for recent topics, "year" for the past year, "all" (default) for general questions.',
           },
         },
       },
@@ -51,6 +57,7 @@ export async function executeTool(toolCall: ToolCall): Promise<{ message: ChatMe
   switch (name) {
     case 'web_search': {
       const query = (args.query as string) || '';
+      const freshness = (args.freshness as string) || undefined;
       if (!query) {
         return {
           message: {
@@ -61,10 +68,10 @@ export async function executeTool(toolCall: ToolCall): Promise<{ message: ChatMe
         };
       }
 
-      console.log(`[Tools] web_search: "${query}"`);
+      console.log(`[Tools] web_search: "${query}"${freshness ? ` (freshness=${freshness})` : ''}`);
 
       try {
-        const rawResults = await braveSearch(query);
+        const rawResults = await braveSearch(query, freshness);
         if (rawResults.length === 0) {
           return {
             message: {
@@ -75,13 +82,15 @@ export async function executeTool(toolCall: ToolCall): Promise<{ message: ChatMe
           };
         }
 
-        // Enrich top 3 results with page content
-        const results = await enrichResults(rawResults, 3);
+        // Enrich top 3 results with trimmed page content to keep the
+        // model's context budget free for reasoning + answer
+        const results = await enrichResults(rawResults, 3, 1200);
 
-        // Format results for the model
+        // Feed only the top 5 to the model (3 enriched + 2 snippets);
+        // the rest are still sent to the frontend for display
         let content = '';
-        results.forEach((r, i) => {
-          content += `[${i + 1}] ${r.title}\nURL: ${r.url}\n${r.description}\n\n`;
+        results.slice(0, 5).forEach((r, i) => {
+          content += `[${i + 1}] ${r.title}\n${r.age ? `Published: ${r.age}\n` : ''}URL: ${r.url}\n${r.description}\n\n`;
         });
 
         return {

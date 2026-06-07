@@ -20,6 +20,15 @@ export interface WorkerInfo {
   tokensGenerated: number;
   tokPerSec: number;
   privyUserId?: string;
+  // Real throughput measured from completed jobs (server tokens / wall time).
+  // Rolling window used to catch workers that pass the signup benchmark then degrade.
+  measuredTokPerSec?: number[];
+  // Count of jobs returned at physically-impossible speed (fake-output signal).
+  fakeStrikes?: number;
+  // Real jobs completed since the last canary challenge was sent to this worker.
+  jobsSinceCanary?: number;
+  // Epoch ms of the last canary dispatched to this worker.
+  lastCanaryAt?: number;
 }
 
 // Tool calling types
@@ -51,6 +60,10 @@ export interface Job {
   requestedModel?: string;
   think?: boolean;
   creditsCharged?: number;
+  // Worker-pay basis (tier list price in credits) for a free-prompt job, where
+  // creditsCharged is 0 but the worker is still paid out of the treasury. 0 for
+  // paid jobs (they pay from creditsCharged).
+  subsidyCredits?: number;
   status: 'pending' | 'assigned' | 'processing' | 'completed' | 'failed';
   assignedWorker?: string;
   createdAt: Date;
@@ -59,6 +72,19 @@ export interface Job {
   response?: string;
   error?: string;
   serverTokenCount?: number;
+  // Rolling tail of streamed output, for the server-side safety scan.
+  streamBuffer?: string;
+  // Canary challenge: a synthetic known-answer job injected by the orchestrator to
+  // verify the worker is really running a model. Never billed or shown to a user.
+  isCanary?: boolean;
+  canaryExpected?: { sum: number; nonce: string };
+  // API tools passthrough: when the public API submits a job with the caller's
+  // own tools, the orchestrator passes them to the worker and, when the model
+  // emits a tool call, RETURNS it to the API client (finish_reason tool_calls)
+  // instead of executing it server-side — the agent runs its own tools.
+  clientTools?: ToolDefinition[];
+  toolPassthrough?: boolean;
+  pendingToolCalls?: ToolCall[];
 }
 
 export interface ChatMessage {
@@ -76,17 +102,19 @@ export interface ServerToClientEvents {
   'job:assigned': (data: { jobId: string; workerId: string }) => void;
   'job:token': (data: { jobId: string; token: string }) => void;
   'job:complete': (data: { jobId: string; response: string }) => void;
+  'job:tool_calls': (data: { jobId: string; toolCalls: ToolCall[] }) => void;
   'job:error': (data: { jobId: string; error: string }) => void;
   'queue:position': (data: { position: number }) => void;
   'job:new': (data: { jobId: string; messages?: ChatMessage[]; tools?: ToolDefinition[]; think?: boolean }) => void;
   'job:cancel': (data: { jobId: string }) => void;
+  'job:counted': (data: { jobId: string; tokensGenerated: number }) => void;
   'worker:registered': (data: { workerId: string }) => void;
   'stats:update': (data: NetworkStats) => void;
   'native:status': (data: { online: boolean; workerId?: string; jobsCompleted: number; tokensGenerated: number; tokPerSec: number; currentJob?: string }) => void;
 }
 
 export interface ClientToServerEvents {
-  'job:submit': (data: { messages?: ChatMessage[]; model?: string; authToken?: string; think?: boolean }, callback: (response: { jobId: string } | { error: string }) => void) => void;
+  'job:submit': (data: { messages?: ChatMessage[]; model?: string; authToken?: string; think?: boolean; privyUserId?: string; tools?: ToolDefinition[] }, callback: (response: { jobId: string } | { error: string }) => void) => void;
   'worker:register': (data: { model: string; authToken?: string; tokPerSec?: number; type?: 'browser' | 'native'; capabilities?: WorkerCapabilities }, callback: (response: { workerId: string } | { error: string }) => void) => void;
   'worker:unregister': () => void;
   'job:token': (data: { jobId: string; token: string }) => void;
@@ -106,14 +134,12 @@ export interface NetworkStats {
 }
 
 /** Model tier as selected by the user */
-export type ModelTier = 'free' | 'pro' | 'max';
+export type ModelTier = 'pro' | 'max';
 
 /** Map user-facing model IDs to tiers */
 export function getModelTier(modelId?: string): ModelTier {
-  if (!modelId) return 'free';
   if (modelId === 'native-max') return 'max';
-  if (modelId.includes('c0mpute') || modelId.includes('dolphin')) return 'pro';
-  return 'free';
+  return 'pro';
 }
 
 export const MAX_INPUT_CHARS = 2000;

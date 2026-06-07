@@ -19,7 +19,6 @@ The central routing layer. A Node.js server using Socket.io that coordinates eve
 - **Job queue** — receives user requests, queues them by tier, and matches them to available workers
 - **Worker registry** — tracks all connected workers: type (browser/native), model, status (idle/busy), performance stats
 - **Tier routing** — directs jobs to the correct worker type:
-  - Free → browser workers running Qwen3 1.7B
   - Pro → browser workers running Qwen3 8B Uncensored
   - Max → native workers running Qwen3.5 27B abliterated
 - **Search** — for Max tier, runs Brave Search API queries, fetches and extracts content from the top 3 results, and injects summarized context into the prompt
@@ -31,9 +30,8 @@ The orchestrator does **not** store conversations or prompt content. It routes t
 
 ### Browser workers (WebGPU)
 
-Run in a browser tab using WebLLM, which leverages WebGPU for GPU-accelerated inference. Two models available:
+Run in a browser tab using WebLLM, which leverages WebGPU for GPU-accelerated inference:
 
-- **Qwen3 1.7B** (~1GB) — serves Free tier
 - **Qwen3 8B Uncensored** (~4.3GB) — serves Pro tier
 
 Models download once and cache in the browser. Workers connect to the orchestrator via Socket.io, receive job assignments, run inference, and stream tokens back.

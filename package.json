@@ -10,12 +10,15 @@
     "build:raw": "next build",
     "start": "next start",
     "start:server": "tsx server/index.ts",
+    "start:keeper": "tsx scripts/keeper.ts",
     "lint": "eslint"
   },
   "dependencies": {
+    "@coral-xyz/anchor": "^0.32.1",
     "@mlc-ai/web-llm": "^0.2.80",
     "@privy-io/react-auth": "^3.11.0",
     "@privy-io/server-auth": "^1.32.5",
+    "@pump-fun/pump-swap-sdk": "^1.17.0",
     "@solana-program/memo": "^0.10.0",
     "@solana/kit": "^5.4.0",
     "@solana/spl-token": "^0.4.14",

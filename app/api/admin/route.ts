@@ -46,6 +46,31 @@ export async function GET(req: NextRequest) {
     });
   }
 
+  if (action === 'reputation') {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS worker_reputation (
+        privy_id TEXT PRIMARY KEY,
+        canary_passed INTEGER DEFAULT 0,
+        canary_failed INTEGER DEFAULT 0,
+        coherence_failed INTEGER DEFAULT 0,
+        speed_strikes INTEGER DEFAULT 0,
+        total_strikes INTEGER DEFAULT 0,
+        banned INTEGER DEFAULT 0,
+        ban_reason TEXT,
+        banned_at TEXT,
+        first_seen TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+    `);
+    const reputation = db.prepare(`
+      SELECT r.*, p.x_username
+      FROM worker_reputation r
+      LEFT JOIN profiles p ON p.privy_id = r.privy_id
+      ORDER BY r.banned DESC, r.total_strikes DESC, r.updated_at DESC
+    `).all();
+    return NextResponse.json({ reputation });
+  }
+
   if (action === 'users') {
     const users = db.prepare(`
       SELECT p.privy_id, p.x_username, p.wallet_address, p.created_at,
@@ -116,6 +141,15 @@ export async function POST(req: NextRequest) {
 
     const newBalance = (db.prepare('SELECT balance FROM user_credits WHERE privy_id = ?').get(privyId) as any)?.balance || 0;
     return NextResponse.json({ ok: true, newBalance });
+  }
+
+  if (action === 'unban_worker') {
+    const { privyId } = body;
+    if (!privyId) return NextResponse.json({ error: 'privyId required' }, { status: 400 });
+    const now = new Date().toISOString();
+    // Lift the ban and reset strikes so a false-positive worker gets a clean slate.
+    db.prepare('UPDATE worker_reputation SET banned = 0, ban_reason = NULL, banned_at = NULL, total_strikes = 0, updated_at = ? WHERE privy_id = ?').run(now, privyId);
+    return NextResponse.json({ ok: true });
   }
 
   if (action === 'update_payout_status') {

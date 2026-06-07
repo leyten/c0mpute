@@ -64,21 +64,41 @@ export async function startWorker(options) {
      * Wait for a tool result from the orchestrator.
      * Returns the tool results as ChatMessages to append to the conversation.
      */
-    function waitForToolResults(jobId) {
+    function waitForToolResults(jobId, signal) {
         return new Promise((resolve, reject) => {
-            const timeout = setTimeout(() => {
+            const cleanup = () => {
+                clearTimeout(timeout);
                 socket.off(`job:tool_result:${jobId}`);
+                signal.removeEventListener('abort', onAbort);
+            };
+            // Abort immediately when the job is cancelled — e.g. the API tools
+            // passthrough returns the call to the agent and cancels us, so no result is
+            // coming. Without this the worker would block the full 30s for nothing.
+            const onAbort = () => {
+                cleanup();
+                const e = new Error('Aborted');
+                e.name = 'AbortError';
+                reject(e);
+            };
+            if (signal.aborted) {
+                const e = new Error('Aborted');
+                e.name = 'AbortError';
+                reject(e);
+                return;
+            }
+            const timeout = setTimeout(() => {
+                cleanup();
                 reject(new Error('Tool execution timed out (30s)'));
             }, 30_000);
             socket.once(`job:tool_result:${jobId}`, (data) => {
-                clearTimeout(timeout);
+                cleanup();
                 resolve(data.results);
             });
+            signal.addEventListener('abort', onAbort, { once: true });
         });
     }
     socket.on('job:new', async (data) => {
         const { jobId, messages: initialMessages, tools, think } = data;
-        logStatus(`Job received: ${jobId}${tools?.length ? ` (${tools.length} tools available)` : ''}`);
         if (!initialMessages || initialMessages.length === 0) {
             socket.emit('job:error', { jobId, error: 'No messages provided' });
             return;
@@ -112,7 +132,7 @@ export async function startWorker(options) {
                     tool_calls: result.toolCalls,
                 });
                 // Wait for orchestrator to execute tools and send results back
-                const toolResults = await waitForToolResults(jobId);
+                const toolResults = await waitForToolResults(jobId, activeJobAbort.signal);
                 messages.push(...toolResults);
                 // Continue the loop — model will generate with tool results
             }
@@ -121,8 +141,8 @@ export async function startWorker(options) {
                 response: fullResponse,
                 tokensGenerated: totalTokens,
             });
-            jobsCompleted++;
-            logStatus(`Job complete: ${jobId} (${totalTokens} tokens) | Total: ${jobsCompleted}`);
+            // No local logging here: the orchestrator emits `job:counted` only for real
+            // (paid) jobs, so canaries never surface on the worker terminal.
         }
         catch (err) {
             if (err.name === 'AbortError') {
@@ -142,6 +162,12 @@ export async function startWorker(options) {
         if (activeJobAbort) {
             activeJobAbort.abort();
         }
+    });
+    // Server confirms a real, paid job completed. Canaries return early server-side
+    // and never emit this, so the terminal only ever shows genuine work.
+    socket.on('job:counted', (data) => {
+        jobsCompleted++;
+        logStatus(`Job complete: ${data.jobId} (${data.tokensGenerated} tokens) | Total: ${jobsCompleted}`);
     });
     // Graceful shutdown
     async function shutdown() {

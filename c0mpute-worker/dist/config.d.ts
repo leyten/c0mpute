@@ -14,6 +14,8 @@ export declare const BENCHMARK_TOKENS = 64;
 export declare const MIN_TOK_PER_SEC = 2;
 /** Maximum output tokens per job */
 export declare const MAX_OUTPUT_TOKENS = 4096;
+/** Larger budget when thinking is on — reasoning + final answer must both fit */
+export declare const MAX_OUTPUT_TOKENS_THINKING = 8192;
 /** Maximum tool call rounds per job (prevents infinite loops) */
 export declare const MAX_TOOL_ROUNDS = 5;
 /** System prompt baked into the model */

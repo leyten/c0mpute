@@ -5,18 +5,7 @@ title: Model tiers
 
 # Model tiers
 
-c0mpute offers three tiers, each running a different model on different infrastructure.
-
-## Free — Qwen3 1.7B
-
-- **Cost:** 0 credits per message
-- Runs in **browser workers** via WebGPU
-- ~1GB model download, ~2GB VRAM
-- Fast responses, low VRAM requirements
-- Standard model with default safety filters
-- Good for: simple questions, quick lookups, casual use
-
-This is the default tier. It works on most modern devices with WebGPU support. No $ZERO needed.
+c0mpute offers two tiers, each running a different model on different infrastructure.
 
 ## Pro — Qwen3 8B Uncensored
 
@@ -26,11 +15,11 @@ This is the default tier. It works on most modern devices with WebGPU support. N
 - **Uncensored** — won't refuse topics based on corporate content policies
 - Higher quality reasoning and longer, more detailed responses
 
-Pro uses a custom abliterated build of Qwen3 8B, with refusal behavior removed. It answers what you ask without moralizing or deflecting.
+Pro uses a custom abliterated build of Qwen3 8B, with refusal behavior removed. It answers what you ask without moralizing or deflecting. This is the default tier.
 
 ## Max — Qwen3.5 27B abliterated
 
-- **Cost:** 50 credits per message
+- **Cost:** 15 credits per message (20 with deep thinking)
 - Runs on **native workers** via ollama
 - High-VRAM GPU required on the worker's machine (20GB+ recommended, e.g. RTX 3090/4090)
 - **Uncensored** — abliterated (refusal behavior surgically removed)
@@ -43,11 +32,12 @@ Max is the premium tier. It runs on dedicated native workers with powerful GPUs,
 
 ## Credit costs at a glance
 
-| Tier | Credits/msg | $ZERO needed |
-|------|-------------|-------------|
-| Free | 0 | None |
-| Pro | 10 | 10 $ZERO per message |
-| Max | 50 | 50 $ZERO per message |
+| Tier | Credits/msg | USD cost |
+|------|-------------|----------|
+| Pro | 10 | $0.10 per message |
+| Max | 15 (20 w/ deep thinking) | $0.15 per message ($0.20 w/ deep thinking) |
+
+Credits are priced at $0.01 each and bought with USDC.
 
 Credits are deducted when you send a message. If a job fails or you disconnect, credits are refunded automatically.
 

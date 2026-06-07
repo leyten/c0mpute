@@ -6,6 +6,7 @@ const sidebars = {
     'how-it-works',
     'architecture',
     'zero-token',
+    'api-reference',
     {
       type: 'category',
       label: 'User Guide',

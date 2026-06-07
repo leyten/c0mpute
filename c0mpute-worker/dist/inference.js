@@ -1,4 +1,4 @@
-import { OLLAMA_URL, OLLAMA_MODEL, MAX_OUTPUT_TOKENS } from './config.js';
+import { OLLAMA_URL, OLLAMA_MODEL, MAX_OUTPUT_TOKENS, MAX_OUTPUT_TOKENS_THINKING } from './config.js';
 /**
  * Check if ollama is running and accessible.
  */
@@ -42,7 +42,7 @@ export async function runInference(messages, onToken, signal, tools, think = fal
         think,
         stream: true,
         options: {
-            num_predict: MAX_OUTPUT_TOKENS,
+            num_predict: think ? MAX_OUTPUT_TOKENS_THINKING : MAX_OUTPUT_TOKENS,
             num_gpu: 999, // Force GPU — workaround for ollama bug #3732
         },
     };

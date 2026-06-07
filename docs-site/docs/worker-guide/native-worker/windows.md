@@ -73,7 +73,7 @@ npx @c0mpute/worker --token <your-token>
 
 ## Common issue: low tok/s on Windows
 
-If you see ~5 tok/s instead of 30+, **CUDA is not being detected**. node-llama-cpp is falling back to CPU inference, which is extremely slow.
+If you see ~5 tok/s instead of 30+, **CUDA is not being detected**. ollama is falling back to CPU inference, which is extremely slow.
 
 Fixes:
 1. Make sure `nvcc --version` works in your terminal

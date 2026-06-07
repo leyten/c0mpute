@@ -287,13 +287,13 @@ export default function OrchestratorFlow() {
           ))}
 
           {/* Labels */}
-          <span className="absolute pixel-sans text-white/30 text-[10px] tracking-wider" style={{ left: 8, top: 145 }}>
+          <span className="absolute pixel-sans text-white/60 text-[10px] tracking-wider" style={{ left: 8, top: 145 }}>
             USERS
           </span>
-          <span className="absolute pixel-sans text-white/30 text-[10px] tracking-wider" style={{ left: centerX - 12, top: 145 }}>
+          <span className="absolute pixel-sans text-white/60 text-[10px] tracking-wider" style={{ left: centerX - 12, top: 145 }}>
             QUEUE
           </span>
-          <span className="absolute pixel-sans text-white/30 text-[10px] tracking-wider" style={{ left: 280, top: 145 }}>
+          <span className="absolute pixel-sans text-white/60 text-[10px] tracking-wider" style={{ left: 280, top: 145 }}>
             WORKERS
           </span>
         </div>

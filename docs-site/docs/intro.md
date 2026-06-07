@@ -12,31 +12,30 @@ c0mpute is a decentralized AI inference network. Instead of routing your prompts
 
 ## How it works
 
-You send a message. The orchestrator finds an available worker. The worker runs the model on their GPU and streams tokens back to you in real-time. No middleman logging your prompts. No corporate filter deciding what you're allowed to ask.
+You send a message. The orchestrator finds an available worker. The worker runs the model on their GPU and streams tokens back to you in real-time. Your prompts aren't stored, and the worker never sees who you are — it gets the text and nothing else. No corporate filter deciding what you're allowed to ask.
 
-## Three tiers
+## Two tiers
 
 | Tier | Model | Cost | Where it runs | Notes |
 |------|-------|------|---------------|-------|
-| **Free** | Qwen3 1.7B | 0 credits | Browser (WebGPU) | ~1GB, fast, basic |
 | **Pro** | Qwen3 8B Uncensored | 10 credits | Browser (WebGPU) | ~4.3GB / 6GB VRAM, uncensored |
-| **Max** | Qwen3.5 27B abliterated | 50 credits | Native workers | uncensored + web search + vision |
+| **Max** | Qwen3.5 27B abliterated | 15 credits (20 with deep thinking) | Native workers | uncensored + web search + vision |
 
-## The <span class="dollar">$</span>ZERO token
+## Credits and the <span class="dollar">$</span>ZERO token
 
-<span class="dollar">$</span>ZERO is the credit token that powers c0mpute. **1 <span class="dollar">$</span>ZERO = 1 credit.**
+Inference is paid for with credits. **1 credit = $0.01**, bought with USDC. You don't need any token to use c0mpute.
 
-- Deposit <span class="dollar">$</span>ZERO to your c0mpute account to get credits
-- Credits are spent per message based on your selected tier
-- Transaction fees from <span class="dollar">$</span>ZERO trading fund the worker reward pool
-- Workers earn SOL for every job they complete
+- Top up credits with USDC; they're spent per message based on your selected tier
+- Workers earn 70% of the USD value of the credits spent on jobs they complete (80% if they stake), paid in USDC
+
+<span class="dollar">$</span>ZERO is a separate, value-accrual token. Network revenue automatically buys it back and burns it, and pays a share to everyone who stakes it.
 
 See [The <span class="dollar">$</span>ZERO Token](/zero-token) for the full breakdown.
 
 ## The stack
 
 - **Browser workers** use [WebGPU](https://developer.mozilla.org/en-US/docs/Web/API/WebGPU_API) via WebLLM to run models directly in the browser tab
-- **Native workers** use [node-llama-cpp](https://github.com/withcatai/node-llama-cpp) with CUDA, Metal, or Vulkan acceleration
+- **Native workers** use [ollama](https://ollama.com) with CUDA, Metal, or Vulkan acceleration
 - The **orchestrator** is a Socket.io server that handles job routing, worker matching, and real-time token streaming
 
 ## Why?

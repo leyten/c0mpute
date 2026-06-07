@@ -1,0 +1,65 @@
+\documentclass[12pt]{article}
+\usepackage[a4paper,margin=2.2cm]{geometry}
+\usepackage{parskip}
+\usepackage{xcolor}
+\usepackage{microtype}
+
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.9em}
+\linespread{1.35}
+
+\definecolor{stagecolor}{HTML}{6A6A6A}
+\newcommand{\stage}[1]{{\itshape\color{stagecolor}#1}}
+
+\pagestyle{empty}
+
+\begin{document}
+
+{\Large\bfseries c0mpute --- Pitch Video Script}\\[0.4em]
+{\small Target: $\sim$100 seconds spoken. Cap: 120s. One take. Phone propped, lens-level.}
+
+\vspace{1em}\hrule\vspace{1em}
+
+\stage{[On camera. Phone propped up. Look at the lens, not the screen.]}
+
+\vspace{0.5em}
+
+I'm Leyten. I'm building c0mpute. Solo.
+
+\vspace{0.5em}
+
+\stage{[Beat.]}
+
+\vspace{0.5em}
+
+Easiest way to explain it: torrents, but for AI inference.
+
+Right now, AI runs through three companies. They decide what you're allowed to ask. They log every prompt. They charge whatever they want. Meanwhile gamers, hobbyists, anyone with a half-decent GPU --- that hardware sits idle most of the day.
+
+c0mpute connects those two sides. You open a browser tab to chat. Someone else opens a browser tab to run the model on their GPU. They earn SOL. You get an answer. No accounts. No logs. No install --- on either side.
+
+Every other decentralized compute project needs Docker, CUDA drivers, a rented server. That's an audience of devops engineers. c0mpute runs in a browser through WebGPU, which just shipped in every major browser this year. The unlock is real --- consumer GPUs can run 14-billion-parameter models now. We just needed something where participating doesn't require a CLI.
+
+\vspace{0.4em}
+
+\stage{[Slight shift --- this is the ``why me'' beat.]}
+
+\vspace{0.4em}
+
+I'm building it alone, on purpose. The orchestrator, the browser inference, the worker package, the credit system, the payouts --- one repo, one person. No board telling me to add content moderation. No co-founder I have to talk into things. Every decision so far has been ``what makes this actually work for users and workers.'' That's why it does.
+
+\vspace{0.4em}
+
+c0mpute.ai. One tab away.
+
+\vspace{1.5em}\hrule\vspace{1em}
+
+{\small
+\textbf{Recording notes}\\[0.3em]
+\stage{Read once out loud before recording --- adjust any phrase that doesn't sound like your normal voice.}\\[0.2em]
+\stage{Don't memorize. Glance, read, look up, deliver.}\\[0.2em]
+\stage{Phone on a stack of books. Window light from the side, not behind you.}\\[0.2em]
+\stage{One take is fine. Sincerity reads better than polish --- judges have watched 500 of these.}
+}
+
+\end{document}

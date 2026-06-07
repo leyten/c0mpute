@@ -4,26 +4,29 @@ Native CLI worker for the [c0mpute.ai](https://c0mpute.ai) distributed inference
 
 ## Quick Start
 
-1. Install [ollama](https://ollama.com/download) and make sure it's running (`ollama serve`)
+1. Install [ollama](https://ollama.com/download)
 2. Run the worker:
 
 ```bash
 npx @c0mpute/worker --token <your-token>
 ```
 
-On first run, the worker will automatically:
+The worker manages ollama for you — no need to start it yourself. On first run it will automatically:
+- Start ollama (on NVIDIA GPUs, with flash-attention + q8 KV cache for ~36% more speed and a larger context window)
 - Pull the base model (~17GB download)
-- Create a custom `c0mpute-max` model with optimized settings
+- Create a custom `c0mpute-max` model tuned to your hardware (context window auto-scales to your VRAM)
 - Run a speed benchmark
 - Connect to the orchestrator and start serving jobs
 
 ## How It Works
 
-1. Verifies ollama is running locally
-2. Pulls and configures the model (Qwen 3.5 27B abliterated)
+1. Starts/configures ollama (flash-attention + q8 KV on NVIDIA)
+2. Pulls and configures the model (Qwen 3.5 27B abliterated), with a VRAM-adaptive context window (24GB → 32K, 48GB+ → 64K, smaller cards stay conservative)
 3. Runs a speed benchmark to measure your hardware
 4. Connects to the c0mpute.ai orchestrator via WebSocket
 5. Accepts and processes inference jobs, streaming tokens back in real time
+
+> Already supervise ollama yourself (e.g. systemd/pm2 with your own flags)? Set `C0MPUTE_MANAGE_OLLAMA=0` and the worker will use your running instance instead of restarting it.
 
 ## Capabilities
 

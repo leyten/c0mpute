@@ -19,7 +19,7 @@ export default function Home() {
   const [copied, setCopied] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [hasScrolled, setHasScrolled] = useState(false);
-  
+
   // Hide scroll indicator after user scrolls
   useEffect(() => {
     const handleScroll = () => {
@@ -37,8 +37,11 @@ export default function Home() {
   useEffect(() => {
     if (!isLoading && isAuthenticated) {
       const pendingPrompt = localStorage.getItem(PENDING_PROMPT_KEY);
-      if (pendingPrompt) {
-        // User is logged in and has a pending prompt - redirect to chat
+      // sessionStorage flag survives the X OAuth redirect round-trip (a full
+      // page reload), unlike an in-memory ref.
+      const postLogin = sessionStorage.getItem('c0mpute_post_login_redirect');
+      if (pendingPrompt || postLogin) {
+        sessionStorage.removeItem('c0mpute_post_login_redirect');
         router.push('/user');
       }
     }
@@ -103,6 +106,8 @@ export default function Home() {
             <div className="hidden md:flex items-center gap-8">
               <a href="/user" className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide">User</a>
               <a href="/worker" className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide">Worker</a>
+              <a href="/staking" className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide">Staking</a>
+              <a href="/treasury" className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide">Treasury</a>
               <a href="https://docs.c0mpute.ai" target="_blank" rel="noopener noreferrer" className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide">Docs</a>
             </div>
             
@@ -162,8 +167,8 @@ export default function Home() {
                   )}
                 </div>
               ) : (
-                <button 
-                  onClick={() => login()}
+                <button
+                  onClick={() => { sessionStorage.setItem('c0mpute_post_login_redirect', '1'); login(); }}
                   className="pixel-serif-logo text-sm px-3 md:px-4 py-2 border border-white/20 rounded-lg text-white hover:bg-white/5 transition-colors">
                   Login
                 </button>
@@ -192,15 +197,29 @@ export default function Home() {
               >
                 User
               </a>
-              <a 
-                href="/worker" 
+              <a
+                href="/worker"
                 className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide"
                 onClick={() => setMenuOpen(false)}
               >
                 Worker
               </a>
-              <a 
-                href="https://docs.c0mpute.ai" 
+              <a
+                href="/staking"
+                className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide"
+                onClick={() => setMenuOpen(false)}
+              >
+                Staking
+              </a>
+              <a
+                href="/treasury"
+                className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide"
+                onClick={() => setMenuOpen(false)}
+              >
+                Treasury
+              </a>
+              <a
+                href="https://docs.c0mpute.ai"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide"
@@ -225,7 +244,7 @@ export default function Home() {
               <div className="border-t border-white/10 pt-4 mt-2">
                 {isAuthenticated ? (
                   <>
-                    <div className="pixel-sans text-white/50 text-xs mb-2">Logged in as</div>
+                    <div className="pixel-sans text-white/70 text-xs mb-2">Logged in as</div>
                     <div className="pixel-sans text-white text-sm mb-4">{userDisplay}</div>
                     <a 
                       href="/settings"
@@ -242,8 +261,8 @@ export default function Home() {
                     </button>
                   </>
                 ) : (
-                  <button 
-                    onClick={() => { login(); setMenuOpen(false); }}
+                  <button
+                    onClick={() => { sessionStorage.setItem('c0mpute_post_login_redirect', '1'); login(); setMenuOpen(false); }}
                     className="pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide"
                   >
                     Login
@@ -304,7 +323,7 @@ export default function Home() {
                   value={prompt}
                   onChange={(e) => setPrompt(e.target.value)}
                   placeholder="Ask anything..."
-                  className="flex-1 pixel-sans bg-black border border-[#2a2a2a] rounded-xl text-white placeholder:text-white/40 px-3 md:px-4 py-3 focus:outline-none focus:border-[#3a3a3a] transition-colors text-sm md:text-lg"
+                  className="flex-1 pixel-sans bg-black border border-[#2a2a2a] rounded-xl text-white placeholder:text-white/50 px-3 md:px-4 py-3 focus:outline-none focus:border-[#3a3a3a] transition-colors text-sm md:text-lg"
                   style={{
                     fontSmooth: 'never',
                     WebkitFontSmoothing: 'none',
@@ -321,7 +340,7 @@ export default function Home() {
               </div>
             </form>
 
-            <p className="pixel-sans text-white/50 text-xs md:text-sm max-w-xl mx-auto px-4 mt-6">
+            <p className="pixel-sans text-white/70 text-xs md:text-sm max-w-xl mx-auto px-4 mt-6">
               A decentralized network where anyone can share compute and earn, while users get private, censorship-free AI.
             </p>
           </div>
@@ -358,7 +377,7 @@ export default function Home() {
               <h3 className="pixel-serif text-white text-xl">
                 People-Powered AI
               </h3>
-              <p className="pixel-sans text-white/50 text-sm mt-2">
+              <p className="pixel-sans text-white/70 text-sm mt-2">
                 No data centers. No corporations. Just people around the world sharing compute to power AI for everyone.
               </p>
             </div>
@@ -368,8 +387,8 @@ export default function Home() {
               <h3 className="pixel-serif text-white text-xl">
                 Private by Design
               </h3>
-              <p className="pixel-sans text-white/50 text-sm mt-2">
-                Your prompts are encrypted. Nobody sees what you ask.
+              <p className="pixel-sans text-white/70 text-sm mt-2">
+                We never store your prompts, and workers never see who you are.
               </p>
             </div>
             
@@ -378,7 +397,7 @@ export default function Home() {
               <h3 className="pixel-serif text-white text-xl">
                 In-Browser
               </h3>
-              <p className="pixel-sans text-white/50 text-sm mt-2">
+              <p className="pixel-sans text-white/70 text-sm mt-2">
                 No downloads. Just open and go.
               </p>
             </div>
@@ -388,8 +407,8 @@ export default function Home() {
               <h3 className="pixel-serif text-white text-xl">
                 Get Paid for Your Compute
               </h3>
-              <p className="pixel-sans text-white/50 text-sm mt-2">
-                Get paid in <span className="dollar">$</span>SOL for your computing power. Passive income just by keeping a tab open.
+              <p className="pixel-sans text-white/70 text-sm mt-2">
+                Get paid in <span className="dollar">$</span>USDC for your computing power. Passive income just by keeping a tab open.
               </p>
             </div>
           </div>
@@ -402,7 +421,7 @@ export default function Home() {
               <h3 className="pixel-serif text-white text-2xl md:text-3xl">
                 People-Powered AI
               </h3>
-              <p className="pixel-sans text-white/50 text-sm mt-3">
+              <p className="pixel-sans text-white/70 text-sm mt-3">
                 No data centers. No corporations. Just people around the world sharing compute to power AI for everyone.
               </p>
               {/* Orchestrator Flow Animation */}
@@ -416,8 +435,8 @@ export default function Home() {
               <h3 className="pixel-serif text-white text-xl">
                 Private by Design
               </h3>
-              <p className="pixel-sans text-white/50 text-sm mt-2">
-                Your prompts are encrypted.<br />Nobody sees what you ask.
+              <p className="pixel-sans text-white/70 text-sm mt-2">
+                We never store your prompts,<br />and workers never see who you are.
               </p>
               {/* Privacy Visual */}
               <div className="flex-1 flex items-center justify-center mt-4">
@@ -431,7 +450,7 @@ export default function Home() {
               <h3 className="pixel-serif text-white text-xl">
                 In-Browser
               </h3>
-              <p className="pixel-sans text-white/50 text-sm mt-2">
+              <p className="pixel-sans text-white/70 text-sm mt-2">
                 No downloads. Just open and go.
               </p>
               {/* Browser Visual */}
@@ -445,8 +464,8 @@ export default function Home() {
               <h3 className="pixel-serif text-white text-2xl md:text-3xl">
                 Get Paid for Your Compute
               </h3>
-              <p className="pixel-sans text-white/50 text-sm mt-3">
-                Get paid in <span className="dollar">$</span>SOL for your computing power. Passive income just by keeping a tab open.
+              <p className="pixel-sans text-white/70 text-sm mt-3">
+                Get paid in <span className="dollar">$</span>USDC for your computing power. Passive income just by keeping a tab open.
               </p>
               {/* Earnings Visual */}
               <div className="flex-1 flex items-center justify-center mt-4">
@@ -466,8 +485,8 @@ export default function Home() {
             <h2 className="pixel-serif text-white text-3xl md:text-4xl lg:text-5xl">
               The <span className="dollar">$</span>ZERO Token
             </h2>
-            <p className="pixel-sans text-white/50 text-sm md:text-base mt-4 max-w-2xl mx-auto">
-              Hold <span className="dollar">$</span>ZERO to use c0mpute. Transaction fees fund the workers who power the total compute.
+            <p className="pixel-sans text-white/70 text-sm md:text-base mt-4 max-w-2xl mx-auto">
+              Revenue from compute and <span className="dollar">$</span>ZERO trading flows into the treasury. Half buys back and burns <span className="dollar">$</span>ZERO; half is paid to everyone who stakes it. The network&apos;s growth accrues straight to the token.
             </p>
           </div>
 
@@ -477,46 +496,46 @@ export default function Home() {
             {/* Step 1 */}
             <div className="border border-white/10 bg-white/[0.02] rounded-2xl p-6 md:p-8">
               <div className="flex items-center gap-3 mb-4">
-                <span className="pixel-serif text-white/30 text-3xl md:text-4xl">01</span>
+                <span className="pixel-serif text-white/60 text-3xl md:text-4xl">01</span>
               </div>
               <h3 className="pixel-serif text-white text-lg md:text-xl mb-3">
-                Hold <span className="dollar">$</span>ZERO to Use
+                Revenue Funds the Treasury
               </h3>
-              <p className="pixel-sans text-white/50 text-sm leading-relaxed">
-                Buy and hold the <span className="dollar">$</span>ZERO token <br />to access c0mpute. Your tokens are your membership to decentralized AI.
+              <p className="pixel-sans text-white/70 text-sm leading-relaxed">
+                100% of the c0mpute margin and a share of every <span className="dollar">$</span>ZERO trade flow into the treasury, in <span className="dollar">$</span>USDC.
               </p>
             </div>
             
             {/* Step 2 */}
             <div className="border border-white/10 bg-white/[0.02] rounded-2xl p-6 md:p-8">
               <div className="flex items-center gap-3 mb-4">
-                <span className="pixel-serif text-white/30 text-3xl md:text-4xl">02</span>
+                <span className="pixel-serif text-white/60 text-3xl md:text-4xl">02</span>
               </div>
               <h3 className="pixel-serif text-white text-lg md:text-xl mb-3">
-                Trading Generates Fees
+                Buyback &amp; Burn
               </h3>
-              <p className="pixel-sans text-white/50 text-sm leading-relaxed">
-                Every buy and sell of <span className="dollar">$</span>ZERO generates transaction fees <br />in <span className="dollar">$</span>SOL. These fees flow into the worker reward pool.
+              <p className="pixel-sans text-white/70 text-sm leading-relaxed">
+                Half the treasury buys <span className="dollar">$</span>ZERO on the open market and burns it. Supply shrinks as the network grows.
               </p>
             </div>
             
             {/* Step 3 */}
             <div className="border border-white/10 bg-white/[0.02] rounded-2xl p-6 md:p-8">
               <div className="flex items-center gap-3 mb-4">
-                <span className="pixel-serif text-white/30 text-3xl md:text-4xl">03</span>
+                <span className="pixel-serif text-white/60 text-3xl md:text-4xl">03</span>
               </div>
               <h3 className="pixel-serif text-white text-lg md:text-xl mb-3">
-                Workers Earn <span className="dollar">$</span>SOL
+                Stake to Earn
               </h3>
-              <p className="pixel-sans text-white/50 text-sm leading-relaxed">
-                Contributors who provide compute get paid from the fee pool in <span className="dollar">$</span>SOL. More trading activity = more rewards.
+              <p className="pixel-sans text-white/70 text-sm leading-relaxed">
+                Stake <span className="dollar">$</span>ZERO to earn the other half of the treasury in <span className="dollar">$</span>USDC. Workers who stake also earn a bigger share of every job they run.
               </p>
             </div>
           </div>
 
           {/* Bottom Note */}
           <div className="mt-12 md:mt-16 text-center">
-            <p className="pixel-sans text-white/30 text-xs md:text-sm max-w-xl mx-auto">
+            <p className="pixel-sans text-white/60 text-xs md:text-sm max-w-xl mx-auto">
               Token trading funds the network. AI for the people, by the people.
             </p>
             <a 

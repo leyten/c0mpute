@@ -33,9 +33,7 @@ The orchestrator does not store conversations. It routes traffic and moves on.
 
 Browser workers run LLMs directly in your browser tab using [WebGPU](https://developer.mozilla.org/en-US/docs/Web/API/WebGPU_API) through the WebLLM library. No installation required — just open the page and click start.
 
-Two models are available for browser workers:
-- **Qwen3 1.7B** — serves Free tier requests. ~1GB download, runs on most modern GPUs.
-- **Qwen3 8B Uncensored** — serves Pro tier requests. ~4.3GB download, ~6GB VRAM required, uncensored.
+Browser workers run **Qwen3 8B Uncensored** to serve Pro tier requests. ~4.3GB download, ~6GB VRAM required, uncensored.
 
 The model downloads once and caches in the browser. Subsequent starts are instant.
 
@@ -49,7 +47,6 @@ Native workers run **Qwen3.5 27B abliterated** and serve Max tier requests exclu
 
 | Tier | Worker type | Model |
 |------|-------------|-------|
-| Free | Browser (WebGPU) | Qwen3 1.7B |
 | Pro | Browser (WebGPU) | Qwen3 8B Uncensored |
 | Max | Native (ollama) | Qwen3.5 27B abliterated |
 

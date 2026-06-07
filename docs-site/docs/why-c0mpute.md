@@ -19,7 +19,12 @@ The refusal list grows with every update. Topics that worked last month get bloc
 
 When you use ChatGPT, Claude, or Gemini, your prompts travel to their servers, get logged, and are potentially reviewed by employees or used for training. You're handing your thoughts to a corporation and hoping they treat them well.
 
-c0mpute is different. Your prompts go directly to a worker's GPU, get processed, and the response streams back. The orchestrator routes traffic but doesn't store conversations. Workers process jobs and move on.
+c0mpute is different, and the privacy comes from two things working together:
+
+- **We never store your prompts.** Jobs are processed in memory and discarded the moment they finish — there's no conversation database. Only token counts are kept, for billing.
+- **Workers never see who you are.** A worker receives the prompt text and nothing else: no name, no wallet, no account, no way to know who they're answering. The orchestrator routes the job but strips your identity from it.
+
+So your prompts aren't kept, and the person whose GPU runs them has no idea it's you. (Note: this is ephemeral + anonymous, not end-to-end encrypted — the orchestrator sees prompt text in transit to route it. We don't claim otherwise.)
 
 ## Single points of failure
 
@@ -29,7 +34,7 @@ A decentralized network has no single point of failure. Workers join and leave f
 
 ## The c0mpute model
 
-- **Workers** are regular people sharing their GPU power. They earn SOL for every job completed.
+- **Workers** are regular people sharing their GPU power. They earn USDC for every job completed.
 - **Users** get private, uncensored AI without accounts being tracked or prompts being logged.
 - **The network** is censorship-resistant by design — there's no central authority to pressure into blocking content.
 

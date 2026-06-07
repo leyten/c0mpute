@@ -10,7 +10,7 @@ Worker tokens authenticate your native worker with the c0mpute network. They lin
 ## Generating a token
 
 1. Go to [c0mpute.ai/worker](https://c0mpute.ai/worker)
-2. Login with Privy
+2. Log in with your X (Twitter) account
 3. Scroll to **Native Worker**
 4. Click **Get Worker Token**
 5. **Copy and save the token immediately** — it's shown only once

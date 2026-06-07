@@ -13,9 +13,23 @@ cd "$(dirname "$0")/.."
 
 NEXT_BIN="./node_modules/.bin/next"
 HEAP="--max-old-space-size=4096"
+WEB_SERVICE="c0mpute-web"
 
 run_build() {
   NODE_OPTIONS="$HEAP" "$NEXT_BIN" build --webpack "$@"
+}
+
+# `next start` reads .next once at boot. Rebuilding under a running server leaves
+# it serving HTML that references chunk hashes no longer on disk -> 500s, the
+# browser refuses the JS, and pages hang on a blank/loading screen. So after a
+# successful build we bounce the web service to load the fresh build. Guarded so
+# it's a no-op on a machine that doesn't have the service (e.g. a dev laptop).
+# Reached only on build success: set -e aborts the script before here on failure.
+restart_web() {
+  if command -v systemctl >/dev/null 2>&1 && systemctl cat "$WEB_SERVICE" >/dev/null 2>&1; then
+    echo "[build] build succeeded; restarting $WEB_SERVICE to load the new build"
+    systemctl restart "$WEB_SERVICE"
+  fi
 }
 
 # Read this process's memory.high ceiling from cgroup v2. If it's set and below
@@ -29,13 +43,16 @@ fi
 if [ "$ceiling" != "max" ] && [ "$ceiling" -lt 5368709120 ] 2>/dev/null; then
   if command -v systemd-run >/dev/null 2>&1 && [ -z "${C0MPUTE_BUILD_ESCAPED:-}" ]; then
     echo "[build] cgroup memory cap detected (memory.high=$ceiling); escaping into a 6G systemd scope"
-    exec systemd-run --scope --quiet \
+    systemd-run --scope --quiet \
       --unit="c0mpute-build-$$" \
       --slice=user.slice \
       -p MemoryMax=6G -p MemoryHigh=6G \
       env C0MPUTE_BUILD_ESCAPED=1 NODE_OPTIONS="$HEAP" \
       "$NEXT_BIN" build --webpack "$@"
+    restart_web
+    exit 0
   fi
 fi
 
 run_build "$@"
+restart_web
