@@ -24,7 +24,7 @@ function countdown(ts: number | null): string {
 
 export default function OnchainStakingPage() {
   const router = useRouter();
-  const { ready, authenticated, login, user } = usePrivy();
+  const { ready, authenticated, login, user, getAccessToken } = usePrivy();
   const { linkWallet } = useLinkAccount();
   const { connectWallet } = useConnectWallet();
   const { wallets } = useWallets();
@@ -41,6 +41,9 @@ export default function OnchainStakingPage() {
   const [chunks, setChunks] = useState<StakeChunks>({ staked: 0, mature: 0, cooling: 0, nextMatureAt: null });
   const [claimable, setClaimable] = useState(0);
   const [autoTried, setAutoTried] = useState(false);
+  const [custodial, setCustodial] = useState(0); // legacy custodial stake awaiting migration
+  const [migrating, setMigrating] = useState(false);
+  const [migrateMsg, setMigrateMsg] = useState<string | null>(null);
   const [stakeAmt, setStakeAmt] = useState('');
   const [unstakeAmt, setUnstakeAmt] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
@@ -53,7 +56,26 @@ export default function OnchainStakingPage() {
       const [ch, c] = await Promise.all([readStakeChunks(owner), readClaimable(owner)]);
       setChunks(ch); setClaimable(c);
     } catch {}
-  }, [owner?.toBase58()]);
+    try {
+      const t = await getAccessToken();
+      if (t) {
+        const r = await fetch('/api/staking/status', { headers: { Authorization: `Bearer ${t}` } });
+        if (r.ok) { const d = await r.json(); setCustodial(d.stakedAmount ?? 0); }
+      }
+    } catch {}
+  }, [owner?.toBase58(), getAccessToken]);
+
+  const handleMigrate = async () => {
+    setMigrating(true); setMigrateMsg(null);
+    try {
+      const t = await getAccessToken();
+      const r = await fetch('/api/staking/migrate', { method: 'POST', headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' }, body: '{}' });
+      const d = await r.json();
+      if (r.ok) { setMigrateMsg(`Migrated ${intnum(d.migrated)} ZERO to self-custody`); setCustodial(0); setTimeout(refresh, 2500); }
+      else setMigrateMsg(d.error || 'Migration failed');
+    } catch (e) { setMigrateMsg(e instanceof Error ? e.message : 'Migration failed'); }
+    finally { setMigrating(false); }
+  };
 
   useEffect(() => { refresh(); }, [refresh]);
 
@@ -127,6 +149,19 @@ export default function OnchainStakingPage() {
           ) : (
             <div className="space-y-6">
               <div className="pixel-sans text-white/50 text-xs">wallet: <span className="font-mono text-[#80a0c1]">{wallet.address.slice(0, 6)}…{wallet.address.slice(-6)}</span></div>
+
+              {custodial > 0 && (
+                <section className="border border-[#80a0c1]/40 bg-[#80a0c1]/[0.08] p-6 rounded-2xl">
+                  <h2 className="pixel-serif text-white text-xl mb-2">Migrate to self-custody</h2>
+                  <p className="pixel-sans text-white/70 text-sm mb-4">
+                    You have <span className="text-white">{intnum(custodial)} ZERO</span> in the old custodial staking. Move it into your own on-chain vault — one click, no unstake/restake, and your 24h earning status carries over.
+                  </p>
+                  <button disabled={migrating} onClick={handleMigrate} className={btn}>
+                    {migrating ? 'Migrating…' : 'Migrate to self-custody'}
+                  </button>
+                  {migrateMsg && <p className="pixel-sans text-green-400/80 text-xs mt-2">{migrateMsg}</p>}
+                </section>
+              )}
 
               <section className={card}>
                 <div className="grid grid-cols-3 gap-3 mb-3">
