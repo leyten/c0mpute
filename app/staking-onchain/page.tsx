@@ -9,7 +9,7 @@ import { usePrivy, useLinkAccount, useConnectWallet } from '@privy-io/react-auth
 import { useWallets, useSignAndSendTransaction } from '@privy-io/react-auth/solana';
 import { PublicKey } from '@solana/web3.js';
 import {
-  buildStakeTx, buildUnstakeTx, buildClaimTx, readStakeChunks, readClaimable,
+  buildStakeTx, buildUnstakeTx, buildClaimTx,
   mintsConfigured, SOLANA_CHAIN, RPC_URL, type StakeChunks,
 } from '@/lib/onchain-staking';
 
@@ -51,19 +51,21 @@ export default function OnchainStakingPage() {
   const [err, setErr] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
-    if (!owner) return;
-    try {
-      const [ch, c] = await Promise.all([readStakeChunks(owner), readClaimable(owner)]);
-      setChunks(ch); setClaimable(c);
-    } catch {}
     try {
       const t = await getAccessToken();
-      if (t) {
-        const r = await fetch('/api/staking/status', { headers: { Authorization: `Bearer ${t}` } });
-        if (r.ok) { const d = await r.json(); setCustodial(d.stakedAmount ?? 0); }
+      if (!t) return;
+      // reliable on-chain view from the server (Helius RPC + preserved maturity),
+      // not the flaky public-RPC client read that could falsely show 0.
+      const r = await fetch('/api/staking/onchain-status', { headers: { Authorization: `Bearer ${t}` } });
+      if (r.ok) {
+        const d = await r.json();
+        setChunks({ staked: d.staked ?? 0, mature: d.mature ?? 0, cooling: d.cooling ?? 0, nextMatureAt: d.nextMatureAt ?? null });
+        setClaimable(d.claimable ?? 0);
       }
+      const rc = await fetch('/api/staking/status', { headers: { Authorization: `Bearer ${t}` } });
+      if (rc.ok) { const dc = await rc.json(); setCustodial(dc.stakedAmount ?? 0); }
     } catch {}
-  }, [owner?.toBase58(), getAccessToken]);
+  }, [getAccessToken]);
 
   const handleMigrate = async () => {
     setMigrating(true); setMigrateMsg(null);
