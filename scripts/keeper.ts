@@ -44,6 +44,7 @@ import {
   realizeFees,
 } from '../lib/treasury-ledger';
 import { distributeEpochRewards, getEligibleStakers, getAllStakingWallets, syncStake } from '../lib/staking';
+import { getEligibleOnchainStakers, distributeOnchainRewards, resyncOnchainStakesFromChain } from '../lib/keeper/onchain-rewards';
 import { getTokenUiBalance } from '../lib/payout';
 import {
   isDryRun,
@@ -126,19 +127,26 @@ async function resyncStakesFromChain(): Promise<void> {
 
 async function runStakerRewards(): Promise<void> {
   await resyncStakesFromChain();
+  await step('resync on-chain stakes', resyncOnchainStakesFromChain);
   const pool = getBucket('staker_rewards');
   if (pool <= 0) {
     console.log('[Keeper] Staker-reward bucket empty');
     return;
   }
-  if (getEligibleStakers().length === 0) {
+
+  // Pay BOTH populations during the custodial->self-custody transition, pro-rata
+  // over their COMBINED mature stake so the split between groups is fair.
+  const custodial = getEligibleStakers();
+  const onchain = getEligibleOnchainStakers();
+  const custMature = custodial.reduce((s, x) => s + x.stakedAmount, 0);
+  const ocMature = onchain.reduce((s, x) => s + x.mature, 0);
+  const totalMature = custMature + ocMature;
+  if (totalMature <= 0) {
     console.log(`[Keeper] No eligible stakers — rolling $${pool.toFixed(2)} to next epoch`);
     return;
   }
   if (isDryRun()) {
-    // Distribution credits real claimable balances (withdrawable as USDC), so
-    // treat it as a money-move and skip it in dry-run.
-    console.log(`[Keeper] DRY RUN — would distribute $${pool.toFixed(2)} to ${getEligibleStakers().length} stakers`);
+    console.log(`[Keeper] DRY RUN — would distribute $${pool.toFixed(2)} across ${custodial.length} custodial + ${onchain.length} on-chain stakers`);
     return;
   }
 
@@ -146,12 +154,16 @@ async function runStakerRewards(): Promise<void> {
   const reserved = reserveStakerRewards(pool);
   if (reserved <= 0) return;
 
-  const distributed = distributeEpochRewards(reserved);
+  const custUsd = reserved * (custMature / totalMature);
+  const ocUsd = reserved * (ocMature / totalMature);
+  const distCust = distributeEpochRewards(custUsd);            // DB claimable (custodial)
+  const distOc = await distributeOnchainRewards(ocUsd);        // fund on-chain reward vaults
+  const distributed = distCust + distOc;
   if (distributed < reserved) {
     creditStakerRewards(reserved - distributed, 'epoch_rounding');
   }
   recordStakerPayout(distributed);
-  console.log(`[Keeper] Distributed $${distributed.toFixed(2)} to stakers`);
+  console.log(`[Keeper] Distributed $${distributed.toFixed(2)} (custodial $${distCust.toFixed(2)} + on-chain $${distOc.toFixed(2)})`);
 }
 
 async function runCycle(): Promise<void> {
