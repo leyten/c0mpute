@@ -3,14 +3,14 @@ import { verifyPrivyToken } from '@/lib/privy-server';
 import { getStakingWalletSecret } from '@/lib/staking';
 import { isTreasuryConfigured, getTokenUiBalance, loadTreasuryKeypair } from '@/lib/payout';
 import { getZeroMint, isZeroLaunched } from '@/lib/tokenomics';
-import { migrateLotsToOnchain, fundStakerRewardVault } from '@/lib/keeper/onchain-rewards';
+import { migrateLotsToOnchain, fundStakerRewardVault, rewardVault } from '@/lib/keeper/onchain-rewards';
 import Database from 'better-sqlite3';
 import path from 'path';
 import {
   Connection, Keypair, PublicKey, Transaction, TransactionInstruction, sendAndConfirmTransaction,
 } from '@solana/web3.js';
 import {
-  TOKEN_2022_PROGRAM_ID, getAssociatedTokenAddressSync,
+  TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, getAssociatedTokenAddressSync,
   createAssociatedTokenAccountIdempotentInstruction, getAccount,
 } from '@solana/spl-token';
 
@@ -116,10 +116,20 @@ export async function POST(req: NextRequest) {
     let migratedRewards = 0;
     const claimable = readClaimableUsd(privyId);
     if (claimable > 0.000001) {
-      // fundStakerRewardVault verifies the vault balance increased by exactly `claimable`
-      // (throws otherwise), so we only clear the DB ledger after it succeeds.
-      await fundStakerRewardVault(conn, treasury, owner, claimable);
-      clearClaimableUsd(privyId, claimable);
+      // Idempotent: only top up the SHORTFALL between what's owed and what's already in
+      // the reward vault, so a retry (or a prior lag-induced false-fail) can't double-fund.
+      const usdcMint = process.env.NEXT_PUBLIC_ONCHAIN_USDC_MINT || process.env.ONCHAIN_USDC_MINT;
+      let inVault = 0;
+      if (usdcMint) {
+        const rv = rewardVault(owner, new PublicKey(usdcMint));
+        try { inVault = Number((await getAccount(conn, rv, 'confirmed', TOKEN_PROGRAM_ID)).amount) / 1e6; } catch {}
+      }
+      const needed = claimable - inVault;
+      if (needed > 0.000001) {
+        // fundStakerRewardVault verifies (with retry) the vault increased by `needed`.
+        await fundStakerRewardVault(conn, treasury, owner, needed);
+      }
+      clearClaimableUsd(privyId, claimable); // clear ledger only after vault holds >= owed
       migratedRewards = claimable;
     }
 
