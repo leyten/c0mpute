@@ -51,6 +51,7 @@ export default function StakingPage() {
   const [custodialRewards, setCustodialRewards] = useState(0);
   const [migrating, setMigrating] = useState(false);
   const [migrateMsg, setMigrateMsg] = useState<string | null>(null);
+  const [boost, setBoost] = useState<{ active: boolean; threshold: number; mature: number }>({ active: false, threshold: 0, mature: 0 });
   const [stakeAmt, setStakeAmt] = useState('');
   const [unstakeAmt, setUnstakeAmt] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
@@ -68,6 +69,7 @@ export default function StakingPage() {
         const d = await r.json();
         setChunks({ staked: d.staked ?? 0, mature: d.mature ?? 0, cooling: d.cooling ?? 0, nextMatureAt: d.nextMatureAt ?? null });
         setClaimable(d.claimable ?? 0);
+        setBoost({ active: !!d.workerBoostActive, threshold: d.workerThreshold ?? 0, mature: d.matureForBoost ?? 0 });
       }
       const rc = await fetch('/api/staking/status', { headers: { Authorization: `Bearer ${t}` } });
       if (rc.ok) { const dc = await rc.json(); setCustodial(dc.stakedAmount ?? 0); setCustodialRewards(dc.claimableUsd ?? 0); }
@@ -197,6 +199,19 @@ export default function StakingPage() {
                 </div>
                 <p className="pixel-sans text-white/45 text-[11px] mt-3">Stake earns rewards after 24h (anti-snipe). Unstaking pulls your newest deposits first, so aged stake keeps earning.</p>
               </section>
+
+              {boost.threshold > 0 && (
+                <section className={boost.active ? 'border border-green-500/30 bg-green-500/[0.05] p-5 rounded-2xl' : card}>
+                  {boost.active ? (
+                    <p className="pixel-sans text-green-400/90 text-sm">Worker boost active — you earn <span className="text-white">80%</span> on jobs you complete (vs 70%).</p>
+                  ) : (
+                    <p className="pixel-sans text-white/70 text-sm">
+                      Staking {intnum(boost.threshold)} ZERO for 24h boosts your worker payout to 80% (from 70%).
+                      {boost.mature > 0 && boost.mature < boost.threshold ? <> <span className="text-white">{intnum(boost.threshold - boost.mature)} more</span> to go.</> : ''}
+                    </p>
+                  )}
+                </section>
+              )}
 
               <section className={card}>
                 <h2 className="pixel-serif text-white text-xl mb-4">Stake</h2>
