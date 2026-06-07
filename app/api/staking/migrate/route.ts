@@ -3,7 +3,7 @@ import { verifyPrivyToken } from '@/lib/privy-server';
 import { getStakingWalletSecret } from '@/lib/staking';
 import { isTreasuryConfigured, getTokenUiBalance, loadTreasuryKeypair } from '@/lib/payout';
 import { getZeroMint, isZeroLaunched } from '@/lib/tokenomics';
-import { migrateLotsToOnchain } from '@/lib/keeper/onchain-rewards';
+import { migrateLotsToOnchain, fundStakerRewardVault } from '@/lib/keeper/onchain-rewards';
 import Database from 'better-sqlite3';
 import path from 'path';
 import {
@@ -31,6 +31,19 @@ function custodialPubkey(privyId: string): string | null {
   const row = db.prepare('SELECT public_key FROM staking_wallets WHERE privy_id = ?').get(privyId) as { public_key: string } | undefined;
   db.close();
   return row?.public_key ?? null;
+}
+function readClaimableUsd(privyId: string): number {
+  const db = new Database(path.join(process.cwd(), 'data', 'c0mpute.db'), { readonly: true });
+  const row = db.prepare('SELECT claimable_usd FROM staking_rewards WHERE privy_id = ?').get(privyId) as { claimable_usd: number } | undefined;
+  db.close();
+  return row?.claimable_usd ?? 0;
+}
+// Zero the custodial claimable AFTER the on-chain reward vault is funded + verified.
+function clearClaimableUsd(privyId: string, amount: number): void {
+  const db = new Database(path.join(process.cwd(), 'data', 'c0mpute.db'));
+  db.prepare('UPDATE staking_rewards SET claimable_usd = MAX(0, claimable_usd - ?), updated_at = ? WHERE privy_id = ?')
+    .run(amount, new Date().toISOString(), privyId);
+  db.close();
 }
 
 // POST /api/staking/migrate — move the caller's custodial staked ZERO into their own
@@ -64,41 +77,56 @@ export async function POST(req: NextRequest) {
 
     const custodialAta = getAssociatedTokenAddressSync(mint, custodial.publicKey, false, TOKEN_2022_PROGRAM_ID);
     const rawBal = async (a: PublicKey): Promise<bigint> => { try { return BigInt((await getAccount(conn, a, 'confirmed', TOKEN_2022_PROGRAM_ID)).amount); } catch { return BigInt(0); } };
-    const amount = await rawBal(custodialAta);
-    if (amount <= BigInt(0)) return NextResponse.json({ migrated: 0, message: 'Nothing to migrate' });
-
-    const [stakeAuth] = PublicKey.findProgramAddressSync([Buffer.from('stake'), owner.toBuffer()], stakingProgramId());
-    const vault = getAssociatedTokenAddressSync(mint, stakeAuth, true, TOKEN_2022_PROGRAM_ID);
-    const before = await rawBal(vault);
-
     const treasury = loadTreasuryKeypair();
-    const amtBuf = Buffer.alloc(8); amtBuf.writeBigUInt64LE(amount);
-    const stakeIx = new TransactionInstruction({
-      programId: stakingProgramId(),
-      keys: [
-        { pubkey: owner, isSigner: false, isWritable: false },
-        { pubkey: stakeAuth, isSigner: false, isWritable: false },
-        { pubkey: vault, isSigner: false, isWritable: true },
-        { pubkey: custodial.publicKey, isSigner: true, isWritable: false },
-        { pubkey: custodialAta, isSigner: false, isWritable: true },
-        { pubkey: mint, isSigner: false, isWritable: false },
-        { pubkey: TOKEN_2022_PROGRAM_ID, isSigner: false, isWritable: false },
-      ],
-      data: Buffer.concat([Buffer.from([0]), amtBuf]),
-    });
-    const ensureVault = createAssociatedTokenAccountIdempotentInstruction(treasury.publicKey, vault, stakeAuth, mint, TOKEN_2022_PROGRAM_ID);
-    const tx = new Transaction().add(ensureVault, stakeIx);
-    tx.feePayer = treasury.publicKey;
-    await sendAndConfirmTransaction(conn, tx, [treasury, custodial]);
 
-    // verify on-chain or fail loudly (keys are kept, funds are recoverable)
-    const after = await rawBal(vault), left = await rawBal(custodialAta);
-    if (after !== before + amount || left !== BigInt(0)) {
-      return NextResponse.json({ error: 'Migration verification failed — funds are safe, support notified' }, { status: 500 });
+    // ── 1. migrate staked ZERO (if any still custodial) ──
+    const amount = await rawBal(custodialAta);
+    let migratedZero = 0;
+    if (amount > BigInt(0)) {
+      const [stakeAuth] = PublicKey.findProgramAddressSync([Buffer.from('stake'), owner.toBuffer()], stakingProgramId());
+      const vault = getAssociatedTokenAddressSync(mint, stakeAuth, true, TOKEN_2022_PROGRAM_ID);
+      const before = await rawBal(vault);
+      const amtBuf = Buffer.alloc(8); amtBuf.writeBigUInt64LE(amount);
+      const stakeIx = new TransactionInstruction({
+        programId: stakingProgramId(),
+        keys: [
+          { pubkey: owner, isSigner: false, isWritable: false },
+          { pubkey: stakeAuth, isSigner: false, isWritable: false },
+          { pubkey: vault, isSigner: false, isWritable: true },
+          { pubkey: custodial.publicKey, isSigner: true, isWritable: false },
+          { pubkey: custodialAta, isSigner: false, isWritable: true },
+          { pubkey: mint, isSigner: false, isWritable: false },
+          { pubkey: TOKEN_2022_PROGRAM_ID, isSigner: false, isWritable: false },
+        ],
+        data: Buffer.concat([Buffer.from([0]), amtBuf]),
+      });
+      const ensureVault = createAssociatedTokenAccountIdempotentInstruction(treasury.publicKey, vault, stakeAuth, mint, TOKEN_2022_PROGRAM_ID);
+      const tx = new Transaction().add(ensureVault, stakeIx);
+      tx.feePayer = treasury.publicKey;
+      await sendAndConfirmTransaction(conn, tx, [treasury, custodial]);
+      const after = await rawBal(vault), left = await rawBal(custodialAta);
+      if (after !== before + amount || left !== BigInt(0)) {
+        return NextResponse.json({ error: 'Stake migration verification failed — funds are safe, support notified' }, { status: 500 });
+      }
+      migrateLotsToOnchain(privyId, linked); // preserve 24h maturity
+      migratedZero = Number(amount) / 1e6;
     }
 
-    migrateLotsToOnchain(privyId, linked); // preserve 24h maturity
-    return NextResponse.json({ migrated: Number(amount) / 1e6, owner: linked });
+    // ── 2. migrate pending USDC rewards into the on-chain reward vault ──
+    let migratedRewards = 0;
+    const claimable = readClaimableUsd(privyId);
+    if (claimable > 0.000001) {
+      // fundStakerRewardVault verifies the vault balance increased by exactly `claimable`
+      // (throws otherwise), so we only clear the DB ledger after it succeeds.
+      await fundStakerRewardVault(conn, treasury, owner, claimable);
+      clearClaimableUsd(privyId, claimable);
+      migratedRewards = claimable;
+    }
+
+    if (migratedZero === 0 && migratedRewards === 0) {
+      return NextResponse.json({ migrated: 0, message: 'Nothing to migrate' });
+    }
+    return NextResponse.json({ migrated: migratedZero, migratedRewards, owner: linked });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : 'Migration failed' }, { status: 500 });
   } finally {
