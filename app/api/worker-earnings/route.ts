@@ -22,16 +22,10 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  // TODO: determine tier from user profile; default to 'free' for now
-  const dailyCap = 5;
-  const tier = 'free';
-
   return NextResponse.json({
     pendingBalance: getPendingBalance(privyId),
     todayEarnings: getTodayEarnings(privyId),
     totalEarnings: getTotalEarnings(privyId),
-    dailyCap,
-    tier,
     wallet: getWorkerWallet(privyId),
     recentEarnings: getRecentEarnings(privyId, 20),
     payoutHistory: getPayoutHistory(privyId, 10),

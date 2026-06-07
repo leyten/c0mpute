@@ -1,6 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyPrivyToken } from '@/lib/privy-server';
-import { getCreditBalance, getOrCreateDepositWallet, addCredits } from '@/lib/db';
+import {
+  getCreditBalance,
+  getOrCreateDepositWallet,
+  getDepositWalletSecret,
+  addCredits,
+  getDepositProgress,
+  setDepositProgress,
+} from '@/lib/db';
+import {
+  CREDITS_PER_USD,
+  getConfiguredDepositTokens,
+  getTokenUsdPrice,
+} from '@/lib/token-price';
+import { isTreasuryConfigured, sweepDepositToken } from '@/lib/payout';
 
 // Rate limit: 1 check per 10 seconds per user
 const lastCheck: Map<string, number> = new Map();
@@ -43,42 +56,81 @@ export async function POST(req: NextRequest) {
 
   try {
     const depositWallet = getOrCreateDepositWallet(privyId);
-    const balance = getCreditBalance(privyId);
 
-    // Check on-chain SPL token balance
     const { Connection, PublicKey } = require('@solana/web3.js');
+    const { getAssociatedTokenAddress } = require('@solana/spl-token');
     const rpcUrl = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
     const connection = new Connection(rpcUrl);
-    const mintAddress = process.env.ZERO_TOKEN_MINT;
-
-    if (!mintAddress) {
-      // No mint configured yet — return current balance
-      return NextResponse.json({ credited: 0, balance: balance.balance, message: 'Token mint not configured yet' });
-    }
-
-    // Find the associated token account
-    const { getAssociatedTokenAddress } = require('@solana/spl-token');
     const walletPubkey = new PublicKey(depositWallet);
-    const mintPubkey = new PublicKey(mintAddress);
-    const ata = await getAssociatedTokenAddress(mintPubkey, walletPubkey);
 
-    let onChainBalance = 0;
-    try {
-      const tokenAccountInfo = await connection.getTokenAccountBalance(ata);
-      onChainBalance = Number(tokenAccountInfo.value.uiAmount || 0);
-    } catch {
-      // Token account doesn't exist yet (no deposits)
-      onChainBalance = 0;
+    const tokens = getConfiguredDepositTokens();
+
+    let totalCredited = 0;
+    const notes: string[] = [];
+
+    for (const token of tokens) {
+      const mintPubkey = new PublicKey(token.mint);
+      const ata = await getAssociatedTokenAddress(mintPubkey, walletPubkey);
+
+      let onChainBalance = 0;
+      try {
+        const info = await connection.getTokenAccountBalance(ata);
+        onChainBalance = Number(info.value.uiAmount || 0);
+      } catch {
+        onChainBalance = 0; // ATA not created yet → no deposits of this token
+      }
+
+      const alreadyCredited = getDepositProgress(privyId, token.mint);
+      const newTokens = onChainBalance - alreadyCredited;
+
+      // Has every on-chain token been converted to credits? Only then is it
+      // safe to sweep — otherwise we'd move uncredited funds and the user
+      // would lose them.
+      let fullyCredited = newTokens <= 0;
+
+      if (newTokens > 0) {
+        const priceUsd = await getTokenUsdPrice(token.mint);
+        if (priceUsd === null) {
+          notes.push(`${token.kind} price unavailable, try again shortly`);
+        } else {
+          const usdValue = newTokens * priceUsd;
+          const credits = Math.floor(usdValue * CREDITS_PER_USD);
+          if (credits > 0) {
+            addCredits(privyId, credits, undefined, `${token.kind} deposit`);
+            setDepositProgress(privyId, token.mint, onChainBalance);
+            totalCredited += credits;
+            fullyCredited = true;
+          }
+        }
+      }
+
+      // Sweep credited funds into the treasury so the payout float stays funded.
+      // Treasury pays the fee + co-signs with the deposit wallet (no SOL needed
+      // in the deposit wallet). On success the wallet is empty, so reset
+      // progress to 0; on failure we leave progress as-is and retry next check.
+      if (fullyCredited && onChainBalance > 0 && isTreasuryConfigured()) {
+        try {
+          const secret = getDepositWalletSecret(privyId);
+          if (secret) {
+            await sweepDepositToken(secret, token.mint);
+            setDepositProgress(privyId, token.mint, 0);
+          }
+        } catch (sweepErr) {
+          console.error('[Credits] Sweep to treasury failed:', sweepErr);
+        }
+      }
     }
 
-    const newDeposit = onChainBalance - balance.totalDeposited;
-    if (newDeposit > 0) {
-      addCredits(privyId, newDeposit, undefined, 'Token deposit');
-      const updated = getCreditBalance(privyId);
-      return NextResponse.json({ credited: newDeposit, newBalance: updated.balance });
-    }
+    const updated = getCreditBalance(privyId);
 
-    return NextResponse.json({ credited: 0, balance: balance.balance });
+    if (totalCredited > 0) {
+      return NextResponse.json({ credited: totalCredited, newBalance: updated.balance });
+    }
+    return NextResponse.json({
+      credited: 0,
+      balance: updated.balance,
+      message: notes.length ? notes.join('; ') : 'No new deposits found',
+    });
   } catch (err) {
     console.error('[Credits] Check deposit error:', err);
     return NextResponse.json({ error: 'Failed to check deposits' }, { status: 500 });

@@ -7,7 +7,7 @@ title: Troubleshooting
 
 ## "Device too slow: X tok/s (minimum: 5 tok/s)"
 
-Your GPU is not being used. node-llama-cpp is running on CPU, which is too slow for the network.
+Your GPU is not being used. ollama is running on CPU, which is too slow for the network.
 
 **NVIDIA (Linux/Windows):**
 ```bash
@@ -57,7 +57,7 @@ The model (~17GB) is pulled via ollama on first run.
 
 ## Low tok/s on Windows
 
-This is the most common issue. Native Windows CUDA support is flaky with node-llama-cpp.
+This is the most common issue. Native Windows CUDA support is flaky with ollama.
 
 **Solution: use WSL.**
 

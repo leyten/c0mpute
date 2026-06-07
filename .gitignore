@@ -54,3 +54,10 @@ next-env.d.ts
 
 # misc artifacts
 *.tar.gz
+
+# local artifacts (added 2026-06-07)
+*.aux
+*.log
+*.pid
+scripts/.signup-watch.baseline
+_shot.js

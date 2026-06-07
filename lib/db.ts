@@ -1,5 +1,8 @@
 import Database from 'better-sqlite3';
 import path from 'path';
+import { CREDITS_PER_USD } from './token-price';
+import { WORKER_REVENUE_SHARE, MIN_WITHDRAWAL_USD } from './tokenomics';
+import { realizeMargin } from './treasury-ledger';
 
 const DB_PATH = path.join(process.cwd(), 'data', 'c0mpute.db');
 
@@ -140,8 +143,27 @@ function ensureWorkerStatsTable() {
       completed_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_completed_jobs_worker ON completed_jobs(worker_privy_id);
+    CREATE INDEX IF NOT EXISTS idx_completed_jobs_user ON completed_jobs(user_privy_id);
     CREATE INDEX IF NOT EXISTS idx_completed_jobs_date ON completed_jobs(completed_at);
   `);
+}
+
+// Usage summary for a user (their requests + tokens, overall and per model).
+export function getUserUsage(privyId: string): {
+  totalRequests: number;
+  totalTokens: number;
+  byModel: { model: string; requests: number; tokens: number }[];
+} {
+  ensureWorkerStatsTable();
+  const db = getDb();
+  const totals = db.prepare(
+    'SELECT COUNT(*) AS requests, COALESCE(SUM(tokens_generated), 0) AS tokens FROM completed_jobs WHERE user_privy_id = ?'
+  ).get(privyId) as { requests: number; tokens: number };
+  const byModel = db.prepare(
+    `SELECT COALESCE(model, 'unknown') AS model, COUNT(*) AS requests, COALESCE(SUM(tokens_generated), 0) AS tokens
+     FROM completed_jobs WHERE user_privy_id = ? GROUP BY model ORDER BY requests DESC`
+  ).all(privyId) as { model: string; requests: number; tokens: number }[];
+  return { totalRequests: totals?.requests || 0, totalTokens: totals?.tokens || 0, byModel };
 }
 
 export function recordCompletedJob(data: {
@@ -217,7 +239,8 @@ function ensureEarningsTables() {
       tier TEXT NOT NULL,
       tokens INTEGER NOT NULL,
       earning_usd REAL NOT NULL,
-      created_at TEXT NOT NULL
+      created_at TEXT NOT NULL,
+      subsidized INTEGER NOT NULL DEFAULT 0
     );
     CREATE INDEX IF NOT EXISTS idx_worker_earnings_privy ON worker_earnings(privy_id);
     CREATE INDEX IF NOT EXISTS idx_worker_earnings_date ON worker_earnings(created_at);
@@ -241,33 +264,65 @@ function ensureEarningsTables() {
       updated_at TEXT NOT NULL
     );
   `);
+  // Migrate pre-existing DBs: add the subsidized flag if it's missing. Marks
+  // treasury-funded free-prompt payouts so they can be capped + reported
+  // separately from self-solvent paid earnings. Throws (and we ignore) if the
+  // column already exists.
+  try { db.exec('ALTER TABLE worker_earnings ADD COLUMN subsidized INTEGER NOT NULL DEFAULT 0'); } catch {}
 }
 
-const DAILY_CAPS: Record<string, number> = { free: 5, pro: 15, max: 30 };
-const RATE_PER_TOKEN: Record<string, number> = { free: 0.0005, pro: 0.001, max: 0.002 };
-
+// Worker keeps a fixed share of the USD value of credits spent on their job
+// (70% base, 80% if they stake enough ZERO); the rest is protocol margin.
+// Self-solvent: payout is always a fraction of revenue, so it can never exceed
+// what the user paid. Free tier charges 0 credits → 0 payout. The margin is
+// realised into the buyback pool here so it's accounted the instant it's earned.
 export function recordEarning(data: {
   privyId: string;
   jobId: string;
   tier: 'free' | 'pro' | 'max';
+  creditsCharged: number;
   tokensGenerated: number;
+  revenueShare?: number; // worker's effective share (defaults to base 70%)
+  // Worker-pay basis in credits. Defaults to creditsCharged (paid jobs are paid
+  // out of their own revenue). For treasury-subsidized free-prompt jobs the
+  // caller passes the tier's list price here while creditsCharged stays 0.
+  payoutCredits?: number;
+  subsidized?: boolean; // true => treasury-funded (free prompt), not self-solvent
 }): number {
   ensureEarningsTables();
   const db = getDb();
-  const cap = DAILY_CAPS[data.tier] || 20;
-  const todayEarnings = getTodayEarnings(data.privyId);
-  if (todayEarnings >= cap) return 0;
 
-  let earning = data.tokensGenerated * (RATE_PER_TOKEN[data.tier] || 0.0005);
-  const remaining = cap - todayEarnings;
-  if (earning > remaining) earning = remaining;
+  const revenueUsd = data.creditsCharged / CREDITS_PER_USD;
+  const payoutBaseUsd = (data.payoutCredits ?? data.creditsCharged) / CREDITS_PER_USD;
+  const share = data.revenueShare ?? WORKER_REVENUE_SHARE;
+  const earning = payoutBaseUsd * share;
+  if (earning <= 0) return 0;
 
   const id = crypto.randomUUID();
   const now = new Date().toISOString();
   db.prepare(
-    'INSERT INTO worker_earnings (id, privy_id, job_id, tier, tokens, earning_usd, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
-  ).run(id, data.privyId, data.jobId, data.tier, data.tokensGenerated, earning, now);
+    'INSERT INTO worker_earnings (id, privy_id, job_id, tier, tokens, earning_usd, created_at, subsidized) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(id, data.privyId, data.jobId, data.tier, data.tokensGenerated, earning, now, data.subsidized ? 1 : 0);
+
+  // The insert above is UNIQUE(job_id), so a duplicate job throws before we get
+  // here — margin is realised exactly once per job. For a subsidized free job
+  // revenue is 0, so this margin is negative and realizeMargin ignores it (the
+  // subsidy is a pure treasury outflow, not pool revenue).
+  realizeMargin(revenueUsd - earning, data.jobId);
   return earning;
+}
+
+// Total USD of treasury-subsidized (free-prompt) worker earnings booked since
+// 00:00 UTC today. Used to enforce the private daily free-subsidy cap.
+export function getTodayFreeSubsidyUsd(): number {
+  ensureEarningsTables();
+  const db = getDb();
+  const midnight = new Date();
+  midnight.setUTCHours(0, 0, 0, 0);
+  const row = db.prepare(
+    'SELECT COALESCE(SUM(earning_usd), 0) as total FROM worker_earnings WHERE subsidized = 1 AND created_at >= ?'
+  ).get(midnight.toISOString()) as { total: number };
+  return row.total;
 }
 
 export function getTodayEarnings(privyId: string): number {
@@ -329,6 +384,62 @@ export function requestPayout(privyId: string, walletAddress?: string): { payout
   });
 
   return txn();
+}
+
+export { MIN_WITHDRAWAL_USD };
+
+type WithdrawalResult =
+  | { ok: true; payoutId: string; amount: number }
+  | { ok: false; reason: 'below_min' | 'insufficient' | 'in_flight' };
+
+/**
+ * Create a withdrawal to a worker-supplied address. Atomic: the balance check
+ * and the debiting payout row are written in one transaction so two concurrent
+ * requests can't drain more than the available balance. The inserted
+ * 'pending_transfer' row immediately reduces getPendingBalance; the caller then
+ * sends the USDC and flips it to 'completed' (stays deducted) or 'failed'
+ * (excluded from the deduction → balance restored).
+ */
+export function createWithdrawal(privyId: string, walletAddress: string, amount: number): WithdrawalResult {
+  ensureEarningsTables();
+  const db = getDb();
+  const rounded = Math.round(amount * 100) / 100;
+
+  const txn = db.transaction((): WithdrawalResult => {
+    if (rounded < MIN_WITHDRAWAL_USD) return { ok: false, reason: 'below_min' };
+
+    const existingPending = db.prepare(
+      "SELECT id FROM worker_payouts WHERE privy_id = ? AND status = 'pending_transfer'"
+    ).get(privyId);
+    if (existingPending) return { ok: false, reason: 'in_flight' };
+
+    if (Math.round(getPendingBalance(privyId) * 100) / 100 + 1e-9 < rounded) return { ok: false, reason: 'insufficient' };
+
+    const id = crypto.randomUUID();
+    const now = new Date().toISOString();
+    db.prepare(
+      'INSERT INTO worker_payouts (id, privy_id, amount_usd, wallet_address, status, created_at) VALUES (?, ?, ?, ?, ?, ?)'
+    ).run(id, privyId, rounded, walletAddress, 'pending_transfer', now);
+    return { ok: true, payoutId: id, amount: rounded };
+  });
+
+  return txn();
+}
+
+export function markPayoutCompleted(payoutId: string, txHash: string): void {
+  ensureEarningsTables();
+  const db = getDb();
+  db.prepare(
+    "UPDATE worker_payouts SET status = 'completed', tx_hash = ?, completed_at = ? WHERE id = ? AND status = 'pending_transfer'"
+  ).run(txHash, new Date().toISOString(), payoutId);
+}
+
+export function markPayoutFailed(payoutId: string): void {
+  ensureEarningsTables();
+  const db = getDb();
+  db.prepare(
+    "UPDATE worker_payouts SET status = 'failed', completed_at = ? WHERE id = ? AND status = 'pending_transfer'"
+  ).run(new Date().toISOString(), payoutId);
 }
 
 export function getPayoutHistory(privyId: string, limit = 10): any[] {
@@ -434,6 +545,253 @@ export function revokeWorkerToken(tokenId: string, privyId: string): boolean {
   return result.changes > 0;
 }
 
+// ── API Keys (public inference API) ──
+// Mirrors worker_tokens: store only the sha256 hash, show the raw key once.
+
+function ensureApiKeysTable() {
+  const db = getDb();
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS api_keys (
+      id TEXT PRIMARY KEY,
+      privy_id TEXT NOT NULL,
+      key_hash TEXT UNIQUE NOT NULL,
+      name TEXT DEFAULT 'default',
+      created_at TEXT NOT NULL,
+      last_used_at TEXT,
+      revoked INTEGER DEFAULT 0
+    );
+  `);
+}
+
+function generateApiKey(): string {
+  const crypto = require('crypto');
+  return 'sk-c0mpute-' + crypto.randomBytes(24).toString('base64url');
+}
+
+export function createApiKey(privyId: string, name?: string): string {
+  ensureApiKeysTable();
+  const db = getDb();
+  const key = generateApiKey();
+  const id = crypto.randomUUID();
+  const now = new Date().toISOString();
+  db.prepare(
+    'INSERT INTO api_keys (id, privy_id, key_hash, name, created_at) VALUES (?, ?, ?, ?, ?)'
+  ).run(id, privyId, hashToken(key), name || 'default', now);
+  return key;
+}
+
+// Resolve a raw API key to its owner's privy_id (or null). Updates last_used_at.
+export function resolveApiKey(rawKey: string): string | null {
+  ensureApiKeysTable();
+  const db = getDb();
+  const hash = hashToken(rawKey);
+  const row = db.prepare(
+    'SELECT privy_id FROM api_keys WHERE key_hash = ? AND revoked = 0'
+  ).get(hash) as { privy_id: string } | undefined;
+  if (!row) return null;
+  db.prepare('UPDATE api_keys SET last_used_at = ? WHERE key_hash = ?').run(new Date().toISOString(), hash);
+  return row.privy_id;
+}
+
+export function getApiKeys(privyId: string): { id: string; name: string; created_at: string; last_used_at: string | null }[] {
+  ensureApiKeysTable();
+  const db = getDb();
+  return db.prepare(
+    'SELECT id, name, created_at, last_used_at FROM api_keys WHERE privy_id = ? AND revoked = 0 ORDER BY created_at DESC'
+  ).all(privyId) as any[];
+}
+
+export function revokeApiKey(keyId: string, privyId: string): boolean {
+  ensureApiKeysTable();
+  const db = getDb();
+  const result = db.prepare(
+    'UPDATE api_keys SET revoked = 1 WHERE id = ? AND privy_id = ?'
+  ).run(keyId, privyId);
+  return result.changes > 0;
+}
+
+// ── Generated images (image-gen feature) ──
+// Metadata only; the PNG bytes live on disk at data/images/{id}.png and are
+// served by /api/images/[id]. `public` controls gallery visibility, `blocked`
+// hard-hides anything a safety check rejected.
+
+function ensureImagesTable() {
+  const db = getDb();
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS images (
+      id TEXT PRIMARY KEY,
+      privy_id TEXT NOT NULL,
+      prompt TEXT NOT NULL,
+      negative_prompt TEXT,
+      model TEXT NOT NULL,
+      seed INTEGER,
+      width INTEGER,
+      height INTEGER,
+      credits_charged INTEGER NOT NULL,
+      nsfw INTEGER DEFAULT 0,
+      blocked INTEGER DEFAULT 0,
+      public INTEGER DEFAULT 1,
+      created_at TEXT NOT NULL
+    );
+  `);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_images_created ON images (created_at DESC);`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_images_owner ON images (privy_id, created_at DESC);`);
+}
+
+export interface ImageRecord {
+  id: string;
+  privy_id: string;
+  prompt: string;
+  negative_prompt: string | null;
+  model: string;
+  seed: number | null;
+  width: number | null;
+  height: number | null;
+  credits_charged: number;
+  nsfw: number;
+  blocked: number;
+  public: number;
+  created_at: string;
+}
+
+export function recordImage(rec: {
+  id: string;
+  privyId: string;
+  prompt: string;
+  negativePrompt?: string;
+  model: string;
+  seed?: number;
+  width?: number;
+  height?: number;
+  creditsCharged: number;
+  nsfw?: boolean;
+  isPublic?: boolean;
+}): void {
+  ensureImagesTable();
+  const db = getDb();
+  db.prepare(
+    `INSERT INTO images (id, privy_id, prompt, negative_prompt, model, seed, width, height, credits_charged, nsfw, blocked, public, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`
+  ).run(
+    rec.id, rec.privyId, rec.prompt, rec.negativePrompt || null, rec.model,
+    rec.seed ?? null, rec.width ?? null, rec.height ?? null, rec.creditsCharged,
+    rec.nsfw ? 1 : 0, rec.isPublic === false ? 0 : 1, new Date().toISOString()
+  );
+}
+
+export function getImageById(id: string): ImageRecord | null {
+  ensureImagesTable();
+  const db = getDb();
+  return (db.prepare('SELECT * FROM images WHERE id = ?').get(id) as ImageRecord) || null;
+}
+
+// Public gallery wall: most recent non-blocked public images.
+export function getRecentImages(limit = 60): Array<Pick<ImageRecord, 'id' | 'prompt' | 'model' | 'width' | 'height' | 'created_at'>> {
+  ensureImagesTable();
+  const db = getDb();
+  return db.prepare(
+    `SELECT id, prompt, model, width, height, created_at FROM images
+     WHERE blocked = 0 AND public = 1 ORDER BY created_at DESC LIMIT ?`
+  ).all(Math.min(200, Math.max(1, limit))) as any[];
+}
+
+export function getUserImages(privyId: string, limit = 60): Array<Pick<ImageRecord, 'id' | 'prompt' | 'model' | 'width' | 'height' | 'created_at'>> {
+  ensureImagesTable();
+  const db = getDb();
+  return db.prepare(
+    `SELECT id, prompt, model, width, height, created_at FROM images
+     WHERE privy_id = ? AND blocked = 0 ORDER BY created_at DESC LIMIT ?`
+  ).all(privyId, Math.min(200, Math.max(1, limit))) as any[];
+}
+
+// ── Worker Reputation (anti-gaming) ──
+
+// Persistent strike ledger so a kicked/fraudulent worker can't simply reconnect
+// to reset its in-memory state. Strikes accumulate across sessions; enough of
+// them bans the account from running a worker (it can still use the app normally).
+const STRIKES_TO_BAN = 5;
+
+function ensureReputationTable() {
+  const db = getDb();
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS worker_reputation (
+      privy_id TEXT PRIMARY KEY,
+      canary_passed INTEGER DEFAULT 0,
+      canary_failed INTEGER DEFAULT 0,
+      coherence_failed INTEGER DEFAULT 0,
+      speed_strikes INTEGER DEFAULT 0,
+      total_strikes INTEGER DEFAULT 0,
+      banned INTEGER DEFAULT 0,
+      ban_reason TEXT,
+      banned_at TEXT,
+      first_seen TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `);
+}
+
+function ensureReputationRow(privyId: string) {
+  const db = getDb();
+  const now = new Date().toISOString();
+  db.prepare(
+    'INSERT INTO worker_reputation (privy_id, first_seen, updated_at) VALUES (?, ?, ?) ON CONFLICT(privy_id) DO NOTHING'
+  ).run(privyId, now, now);
+}
+
+export function isWorkerBanned(privyId: string): { banned: boolean; reason?: string } {
+  ensureReputationTable();
+  const db = getDb();
+  const row = db.prepare('SELECT banned, ban_reason FROM worker_reputation WHERE privy_id = ?').get(privyId) as any;
+  if (!row || !row.banned) return { banned: false };
+  return { banned: true, reason: row.ban_reason || undefined };
+}
+
+export function recordWorkerStrike(privyId: string, kind: 'canary' | 'coherence' | 'speed'): { totalStrikes: number; banned: boolean } {
+  ensureReputationTable();
+  ensureReputationRow(privyId);
+  const db = getDb();
+  const now = new Date().toISOString();
+  // canary_failed is incremented by recordCanaryResult; only bump the kind-specific
+  // column here for coherence/speed to avoid double-counting canary fails.
+  const txn = db.transaction(() => {
+    if (kind === 'coherence') {
+      db.prepare('UPDATE worker_reputation SET coherence_failed = coherence_failed + 1 WHERE privy_id = ?').run(privyId);
+    } else if (kind === 'speed') {
+      db.prepare('UPDATE worker_reputation SET speed_strikes = speed_strikes + 1 WHERE privy_id = ?').run(privyId);
+    }
+    db.prepare('UPDATE worker_reputation SET total_strikes = total_strikes + 1, updated_at = ? WHERE privy_id = ?').run(now, privyId);
+    const row = db.prepare('SELECT total_strikes, banned FROM worker_reputation WHERE privy_id = ?').get(privyId) as any;
+    let banned = !!row.banned;
+    if (!banned && row.total_strikes >= STRIKES_TO_BAN) {
+      db.prepare('UPDATE worker_reputation SET banned = 1, ban_reason = ?, banned_at = ? WHERE privy_id = ?')
+        .run(`${row.total_strikes} strikes`, now, privyId);
+      banned = true;
+    }
+    return { totalStrikes: row.total_strikes as number, banned };
+  });
+  return txn();
+}
+
+export function recordCanaryResult(privyId: string, passed: boolean): { totalStrikes: number; banned: boolean } {
+  ensureReputationTable();
+  ensureReputationRow(privyId);
+  const db = getDb();
+  const now = new Date().toISOString();
+  if (passed) {
+    db.prepare('UPDATE worker_reputation SET canary_passed = canary_passed + 1, updated_at = ? WHERE privy_id = ?').run(now, privyId);
+    const row = db.prepare('SELECT total_strikes, banned FROM worker_reputation WHERE privy_id = ?').get(privyId) as any;
+    return { totalStrikes: row.total_strikes, banned: !!row.banned };
+  }
+  db.prepare('UPDATE worker_reputation SET canary_failed = canary_failed + 1 WHERE privy_id = ?').run(privyId);
+  return recordWorkerStrike(privyId, 'canary');
+}
+
+export function getWorkerReputation(privyId: string): any {
+  ensureReputationTable();
+  const db = getDb();
+  return db.prepare('SELECT * FROM worker_reputation WHERE privy_id = ?').get(privyId) || null;
+}
+
 // ── User Credits ──
 
 function ensureCreditTables() {
@@ -465,7 +823,34 @@ function ensureCreditTables() {
       encrypted_secret TEXT NOT NULL,
       created_at TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS deposit_progress (
+      privy_id TEXT NOT NULL,
+      mint TEXT NOT NULL,
+      credited_amount REAL DEFAULT 0,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (privy_id, mint)
+    );
   `);
+}
+
+// How much of a given mint's on-chain balance we've already converted to credits.
+export function getDepositProgress(privyId: string, mint: string): number {
+  ensureCreditTables();
+  const db = getDb();
+  const row = db.prepare('SELECT credited_amount FROM deposit_progress WHERE privy_id = ? AND mint = ?').get(privyId, mint) as any;
+  return row ? row.credited_amount : 0;
+}
+
+export function setDepositProgress(privyId: string, mint: string, creditedAmount: number): void {
+  ensureCreditTables();
+  const db = getDb();
+  const now = new Date().toISOString();
+  db.prepare(`
+    INSERT INTO deposit_progress (privy_id, mint, credited_amount, updated_at)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT(privy_id, mint) DO UPDATE SET credited_amount = ?, updated_at = ?
+  `).run(privyId, mint, creditedAmount, now, creditedAmount, now);
 }
 
 export function getOrCreateDepositWallet(privyId: string): string {
@@ -495,6 +880,24 @@ export function getOrCreateDepositWallet(privyId: string): string {
     .run(privyId, publicKey, encryptedSecret, now);
 
   return publicKey;
+}
+
+// Decrypts a deposit wallet's secret key so the treasury can co-sign a sweep
+// of its token balance. Mirrors the AES-256-GCM encryption in
+// getOrCreateDepositWallet (format: ivHex:authTagHex:cipherHex).
+export function getDepositWalletSecret(privyId: string): Uint8Array | null {
+  ensureCreditTables();
+  const db = getDb();
+  const row = db.prepare('SELECT encrypted_secret FROM deposit_wallets WHERE privy_id = ?').get(privyId) as any;
+  if (!row) return null;
+  const encKey: string | undefined = process.env.DEPOSIT_WALLET_KEY;
+  if (!encKey) throw new Error('[Credits] DEPOSIT_WALLET_KEY not set');
+  const cryptoMod = require('crypto');
+  const [ivHex, tagHex, dataHex] = (row.encrypted_secret as string).split(':');
+  const decipher = cryptoMod.createDecipheriv('aes-256-gcm', Buffer.from(encKey, 'hex'), Buffer.from(ivHex, 'hex'));
+  decipher.setAuthTag(Buffer.from(tagHex, 'hex'));
+  const decrypted = Buffer.concat([decipher.update(Buffer.from(dataHex, 'hex')), decipher.final()]);
+  return new Uint8Array(decrypted);
 }
 
 export function getCreditBalance(privyId: string): { balance: number; totalDeposited: number; totalSpent: number } {
@@ -568,6 +971,53 @@ export function refundCredits(privyId: string, amount: number, description?: str
       .run(id, privyId, 'refund', amount, description || 'Refund', null, now);
   });
   txn();
+}
+
+// ── Free onboarding prompts ──
+//
+// Each X account gets a fixed allowance of free Pro-tier prompts so a brand-new
+// signup (0 credits after the free tier was removed) can try the product before
+// topping up USDC. Tracked per privy_id; consumed atomically so concurrent
+// submits can't overrun the limit.
+
+function ensureFreePromptTable() {
+  const db = getDb();
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS free_prompt_usage (
+      privy_id TEXT PRIMARY KEY,
+      used INTEGER DEFAULT 0,
+      updated_at TEXT NOT NULL
+    );
+  `);
+}
+
+export function getFreePromptsUsed(privyId: string): number {
+  ensureFreePromptTable();
+  const db = getDb();
+  const row = db.prepare('SELECT used FROM free_prompt_usage WHERE privy_id = ?').get(privyId) as any;
+  return row ? row.used : 0;
+}
+
+// Atomically consumes one free prompt if the account is under the limit.
+// Returns true if a free prompt was used (so the caller should NOT charge credits).
+export function consumeFreePrompt(privyId: string, limit: number): boolean {
+  ensureFreePromptTable();
+  const db = getDb();
+  const now = new Date().toISOString();
+
+  const txn = db.transaction(() => {
+    const row = db.prepare('SELECT used FROM free_prompt_usage WHERE privy_id = ?').get(privyId) as any;
+    const used = row ? row.used : 0;
+    if (used >= limit) return false;
+
+    db.prepare(`
+      INSERT INTO free_prompt_usage (privy_id, used, updated_at)
+      VALUES (?, 1, ?)
+      ON CONFLICT(privy_id) DO UPDATE SET used = used + 1, updated_at = ?
+    `).run(privyId, now, now);
+    return true;
+  });
+  return txn() as boolean;
 }
 
 export function getCreditTransactions(privyId: string, limit = 20): any[] {

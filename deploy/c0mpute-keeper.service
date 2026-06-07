@@ -1,0 +1,21 @@
+[Unit]
+Description=c0mpute Buyback + Staking Keeper
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/root/.openclaw/workspace/c0mpute
+ExecStart=/usr/bin/npx tsx scripts/keeper.ts
+TimeoutStopSec=5
+KillMode=mixed
+KillSignal=SIGTERM
+SendSIGKILL=yes
+Restart=on-failure
+RestartSec=30
+Environment=NODE_ENV=production
+# SAFETY: keeper makes NO on-chain money moves while this is anything but
+# "false". Flip to false only after watching a dry-run cycle look correct.
+Environment=KEEPER_DRY_RUN=true
+
+[Install]
+WantedBy=multi-user.target

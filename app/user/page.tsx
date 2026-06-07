@@ -11,6 +11,7 @@ import { Chat, Message, ChatWithMessages } from '@/lib/types';
 import { MAX_INPUT_CHARS } from '@/lib/orchestrator/types';
 // E2E encryption removed for now — keeping it simple
 import { scanOutput, BLOCKED_MESSAGE } from '@/lib/safety';
+import OnboardingModal from '@/components/OnboardingModal';
 // search utilities no longer needed — tool calling handles search via the model
 
 // Parse sources from response content (appended by worker as ---SOURCES---)
@@ -79,9 +80,9 @@ function SourceStrip({ sources, content }: { sources: { title: string; url: stri
         return (
           <a key={i} href={s.url} target="_blank" rel="noopener noreferrer"
             className="cursor-pointer flex items-center gap-1.5 px-2 py-1 bg-white/[0.04] border border-white/[0.08] hover:border-white/15 hover:bg-white/[0.06] transition-all rounded-md group">
-            <span className="flex items-center justify-center w-3.5 h-3.5 text-[9px] font-medium bg-white/10 text-white/40 rounded-full flex-shrink-0">{i + 1}</span>
+            <span className="flex items-center justify-center w-3.5 h-3.5 text-[9px] font-medium bg-white/10 text-white/70 rounded-full flex-shrink-0">{i + 1}</span>
             <img src={`https://www.google.com/s2/favicons?domain=${domain}&sz=16`} alt="" width={12} height={12} className="flex-shrink-0 opacity-50 group-hover:opacity-80" />
-            <span className="pixel-sans text-white/40 text-[11px] truncate max-w-[100px] group-hover:text-white/70">{s.title || domain}</span>
+            <span className="pixel-sans text-white/70 text-[11px] truncate max-w-[100px] group-hover:text-white/70">{s.title || domain}</span>
           </a>
         );
       })}
@@ -150,9 +151,8 @@ type ChatState = 'idle' | 'queued' | 'streaming' | 'error';
 
 // Plan definitions — maps user-facing plans to internal model IDs
 const PLANS = [
-  { id: 'free' as const, name: 'Free', cost: 0, costLabel: 'Free', modelId: 'Qwen3-1.7B-q4f16_1-MLC', description: 'Fast, basic responses', features: ['Qwen3 1.7B model', 'Browser-powered', 'Censored'] },
   { id: 'pro' as const, name: 'Pro', cost: 10, costLabel: '10 cr', modelId: 'Qwen3-8B-c0mpute-q4f16_1-MLC', description: 'Higher quality, uncensored', features: ['Qwen3 8B model', 'Browser-powered', 'Uncensored'] },
-  { id: 'max' as const, name: 'Max', cost: 50, costLabel: '50 cr', modelId: 'native-max', description: 'Best quality + tools + vision', features: ['Qwen3.5 27B model', 'Native inference', 'Uncensored', 'Web search (tool calling)', 'Vision (image input)', 'Thinking mode'] },
+  { id: 'max' as const, name: 'Max', cost: 15, costLabel: '15 cr', modelId: 'native-max', description: 'Best quality + tools + vision', features: ['Qwen3.5 27B model', 'Native inference', 'Uncensored', 'Web search (tool calling)', 'Vision (image input)', 'Thinking mode'] },
 ] as const;
 type PlanId = typeof PLANS[number]['id'];
 
@@ -253,7 +253,7 @@ function ThinkingDropdown({ thinking, isStreaming, elapsedSeconds, defaultOpen }
     <div className="mt-2">
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-2 text-white/40 hover:text-white/60 transition-colors text-sm pixel-sans"
+        className="flex items-center gap-2 text-white/70 hover:text-white/60 transition-colors text-sm pixel-sans"
       >
         <svg
           width="12"
@@ -280,7 +280,7 @@ function ThinkingDropdown({ thinking, isStreaming, elapsedSeconds, defaultOpen }
         )}
       </button>
       {isOpen && (
-        <div className="mt-2 ml-5 pl-3 border-l border-white/10 text-white/40 text-base leading-relaxed whitespace-pre-wrap pixel-sans">
+        <div className="mt-2 ml-5 pl-3 border-l border-white/10 text-white/70 text-base leading-relaxed whitespace-pre-wrap pixel-sans">
           {thinking}
         </div>
       )}
@@ -294,12 +294,30 @@ function filterDisclaimers(text: string): string {
     /\n(?:Please note|Note:|Important:|Keep in mind|Be aware|However,|That said,|I should mention|It'?s important to|Remember that|Disclaimer:)[\s\S]*/i,
   ];
   
-  let filtered = text;
-  for (const pattern of disclaimerPatterns) {
-    filtered = filtered.replace(pattern, '');
+  const strip = (s: string) => {
+    let out = s;
+    for (const pattern of disclaimerPatterns) {
+      out = out.replace(pattern, '');
+    }
+    return out;
+  };
+
+  // Never filter inside the reasoning block — a "However,"/"Note:" in the
+  // model's thoughts would otherwise truncate the closing </think> and the
+  // whole answer with it, leaving only the thinking dropdown. Only strip
+  // disclaimers from the answer that follows </think>.
+  const close = text.lastIndexOf('</think>');
+  if (close !== -1) {
+    const head = text.slice(0, close + '</think>'.length);
+    const tail = strip(text.slice(close + '</think>'.length));
+    return (head + tail).trim();
   }
-  
-  return filtered.trim();
+  // Still mid-thought (open <think>, no close yet) — leave it untouched.
+  if (text.indexOf('<think>') !== -1) {
+    return text;
+  }
+
+  return strip(text).trim();
 }
 
 export default function UserPage() {
@@ -348,8 +366,9 @@ export default function UserPage() {
   const [pendingImages, setPendingImages] = useState<string[]>([]);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const [loadingChats, setLoadingChats] = useState(true);
-  const [selectedPlan, setSelectedPlan] = useState<PlanId>('free');
+  const [selectedPlan, setSelectedPlan] = useState<PlanId>('max');
   const [deepThinking, setDeepThinking] = useState(false);
+  const [tierSwitch, setTierSwitch] = useState<{ to: PlanId; toLabel: string; toCount: number } | null>(null);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const modelMenuRef = useRef<HTMLDivElement>(null);
   const [editingChatId, setEditingChatId] = useState<string | null>(null);
@@ -363,19 +382,39 @@ export default function UserPage() {
   
   // Credit system state
   const [creditBalance, setCreditBalance] = useState<number>(0);
-  
-  // Fetch credits on mount
-  useEffect(() => {
+  const [freePromptsRemaining, setFreePromptsRemaining] = useState<number>(0);
+  const [freePromptLimit, setFreePromptLimit] = useState<number>(0);
+
+  // Fetch credits (balance + free-prompt allowance); reused after each prompt.
+  const refreshCredits = useCallback(() => {
     if (!isAuthenticated || !socketAuthToken) return;
     fetch('/api/credits', { headers: { Authorization: `Bearer ${socketAuthToken}` } })
       .then(r => r.ok ? r.json() : null)
       .then(data => {
         if (data) {
           setCreditBalance(data.balance);
+          if (typeof data.freePromptsRemaining === 'number') setFreePromptsRemaining(data.freePromptsRemaining);
+          if (typeof data.freePromptLimit === 'number') setFreePromptLimit(data.freePromptLimit);
         }
       })
       .catch(() => {});
   }, [isAuthenticated, socketAuthToken]);
+
+  useEffect(() => { refreshCredits(); }, [refreshCredits]);
+
+  // First-visit onboarding wizard. Fires as soon as auth settles (Privy modal
+  // closed), so it doesn't wait on the token/credits fetch chain.
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  useEffect(() => {
+    if (authLoading || !isAuthenticated) return;
+    if (localStorage.getItem('c0mpute_onboarded')) return;
+    setShowOnboarding(true);
+  }, [authLoading, isAuthenticated]);
+
+  const dismissOnboarding = useCallback(() => {
+    localStorage.setItem('c0mpute_onboarded', '1');
+    setShowOnboarding(false);
+  }, []);
 
   // Load plan from DB
   useEffect(() => {
@@ -391,6 +430,7 @@ export default function UserPage() {
     setSelectedPlan(plan);
     if (plan !== 'max') setDeepThinking(false);
     setModelMenuOpen(false);
+    setTierSwitch(null);
     if (!socketAuthToken) return;
     fetch('/api/plan', {
       method: 'POST',
@@ -417,13 +457,34 @@ export default function UserPage() {
   
   // Refs
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const currentJobIdRef = useRef<string | null>(null);
+  const queueTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const networkStatsRef = useRef<typeof networkStats>(networkStats);
+  useEffect(() => { networkStatsRef.current = networkStats; }, [networkStats]);
+  // Whether the view is pinned to the bottom — drives auto-scroll during streaming
+  const stickToBottomRef = useRef(true);
   // No E2E refs needed
 
-  // Scroll to bottom of messages
+  // Explicit jump to bottom (send, switch chat) — also re-pins auto-scroll
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    stickToBottomRef.current = true;
+  }, []);
+
+  // Track whether the user has scrolled up; if so, stop yanking them down
+  const handleMessagesScroll = useCallback(() => {
+    const el = messagesContainerRef.current;
+    if (!el) return;
+    stickToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+  }, []);
+
+  // Auto-scroll during streaming, but only while pinned to the bottom
+  const autoScrollIfPinned = useCallback(() => {
+    if (!stickToBottomRef.current) return;
+    const el = messagesContainerRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
   }, []);
 
   // Load chats from localStorage on mount
@@ -566,7 +627,20 @@ export default function UserPage() {
       setError(`Message too long. Maximum ${MAX_INPUT_CHARS} characters.`);
       return;
     }
-    
+
+    // If the selected tier has no workers but another tier does, offer a
+    // one-tap switch instead of silently queueing into a tier nobody serves.
+    const nativeCount = (networkStatsRef.current as any)?.nativeWorkers || 0;
+    const browserCount = (networkStatsRef.current as any)?.browserWorkers || 0;
+    const isMaxTier = selectedModel === 'native-max';
+    const selectedTierHasWorkers = isMaxTier ? nativeCount > 0 : browserCount > 0;
+    const otherTierCount = isMaxTier ? browserCount : nativeCount;
+    if (!selectedTierHasWorkers && otherTierCount > 0) {
+      setTierSwitch({ to: isMaxTier ? 'pro' : 'max', toLabel: isMaxTier ? 'Pro' : 'Max', toCount: otherTierCount });
+      return;
+    }
+    setTierSwitch(null);
+
     const content = inputValue.trim() || (pendingImages.length > 0 ? 'What is in this image?' : '');
     setInputValue('');
     setError(null);
@@ -614,6 +688,26 @@ export default function UserPage() {
       currentJobIdRef.current = jobId;
       setCurrentJobId(jobId);
       // prompts_sent is now tracked server-side by the orchestrator on job completion
+
+      // Cold-start guard: if no worker picks up the job, surface an honest
+      // "no workers online" state instead of spinning forever. Cleared as soon
+      // as the job is assigned, streams a token, completes, or errors.
+      if (queueTimeoutRef.current) clearTimeout(queueTimeoutRef.current);
+      queueTimeoutRef.current = setTimeout(() => {
+        // Only fail the job if it's still unassigned AND no worker for this tier
+        // is online. If workers exist but are busy, leave it queued.
+        const stats = networkStatsRef.current as any;
+        const tierWorkers = selectedModel === 'native-max'
+          ? (stats?.nativeWorkers || 0)
+          : (stats?.browserWorkers || 0);
+        if (currentJobIdRef.current === jobId && tierWorkers === 0) {
+          currentJobIdRef.current = null;
+          setCurrentJobId(null);
+          setStreamingContent('');
+          setChatState('error');
+          setError('No workers are online to handle this request right now. Please try again in a moment.');
+        }
+      }, 60000);
     } catch (err) {
       console.error('Error submitting job:', err);
       setChatState('error');
@@ -629,6 +723,7 @@ export default function UserPage() {
     
     setOnJobToken(async (jobId, token) => {
       if (jobId === currentJobIdRef.current) {
+        if (queueTimeoutRef.current) { clearTimeout(queueTimeoutRef.current); queueTimeoutRef.current = null; }
         setChatState('streaming');
         setIsSearching(false);
         
@@ -657,18 +752,19 @@ export default function UserPage() {
             }
             return updated;
           });
-          scrollToBottom();
+          autoScrollIfPinned();
         }
       }
     });
     
     return () => setOnJobToken(null);
-  }, [setOnJobToken, scrollToBottom]);
+  }, [setOnJobToken, autoScrollIfPinned]);
 
   // Handle job assigned
   useEffect(() => {
     setOnJobAssigned(async (jobId, _workerId) => {
       if (jobId === currentJobIdRef.current) {
+        if (queueTimeoutRef.current) { clearTimeout(queueTimeoutRef.current); queueTimeoutRef.current = null; }
         setChatState('streaming');
       }
     });
@@ -708,17 +804,19 @@ export default function UserPage() {
           return '';
         });
         
+        if (queueTimeoutRef.current) { clearTimeout(queueTimeoutRef.current); queueTimeoutRef.current = null; }
         setChatState('idle');
         currentJobIdRef.current = null;
         setCurrentJobId(null);
         setPendingSources([]);
-        
-        scrollToBottom();
+        refreshCredits();
+
+        autoScrollIfPinned();
       }
     });
-    
+
     return () => setOnJobComplete(null);
-  }, [activeChat, setOnJobComplete, saveMessage, scrollToBottom]);
+  }, [activeChat, setOnJobComplete, saveMessage, autoScrollIfPinned, refreshCredits]);
 
   // Handle job:searching — show search indicator
   useEffect(() => {
@@ -744,6 +842,7 @@ export default function UserPage() {
     setOnJobError((jobId, errorMsg) => {
       // Use ref for immediate access
       if (jobId === currentJobIdRef.current) {
+        if (queueTimeoutRef.current) { clearTimeout(queueTimeoutRef.current); queueTimeoutRef.current = null; }
         setIsSearching(false);
         setChatState('error');
         setError(errorMsg);
@@ -914,17 +1013,17 @@ export default function UserPage() {
         <div className="text-center border border-white/10 bg-white/[0.02] rounded-2xl p-8 max-w-md mx-4">
           <div className="pixel-serif text-white text-4xl mb-4">🔒</div>
           <h1 className="pixel-serif text-white text-2xl mb-3">Login Required</h1>
-          <p className="pixel-sans text-white/50 text-sm mb-6">
+          <p className="pixel-sans text-white/70 text-sm mb-6">
             You need to log in to access the chat. Connect with Privy to continue.
           </p>
           <button
             onClick={() => login()}
-            className="pixel-sans text-sm px-8 py-3 bg-white text-black rounded-xl hover:bg-white/90 transition-colors"
+            className="cursor-pointer pixel-serif text-sm px-8 py-3 bg-white text-black rounded-xl hover:bg-white/90 transition-colors"
           >
             Login with Privy
           </button>
           <div className="mt-4">
-            <a href="/" className="cursor-pointer pixel-sans text-white/30 text-xs hover:text-white/50 transition-colors">
+            <a href="/" className="cursor-pointer pixel-sans text-white/60 text-xs hover:text-white/50 transition-colors">
               ← Back to home
             </a>
           </div>
@@ -948,6 +1047,13 @@ export default function UserPage() {
 
   return (
     <div className="h-screen bg-black flex flex-col">
+      {showOnboarding && (
+        <OnboardingModal
+          freePromptLimit={freePromptLimit}
+          onClose={dismissOnboarding}
+          onChooseWorker={() => { dismissOnboarding(); router.push('/worker'); }}
+        />
+      )}
       {/* Header */}
       <header className="border-b border-white/10 bg-black/80 backdrop-blur-sm z-50">
         <div className="px-4 py-3 flex items-center justify-between">
@@ -966,10 +1072,19 @@ export default function UserPage() {
           </div>
           
           <div className="flex items-center gap-4">
+            {/* Free prompts left — shown while the onboarding allowance lasts */}
+            {freePromptsRemaining > 0 && (
+              <button
+                onClick={() => router.push('/settings#usage')}
+                className="pixel-sans text-xs px-3 py-2 rounded-lg border border-green-500/20 bg-green-500/[0.05] text-green-400/80 hover:bg-green-500/[0.08] transition-colors cursor-pointer"
+              >
+                {freePromptsRemaining} free {freePromptsRemaining === 1 ? 'prompt' : 'prompts'} left
+              </button>
+            )}
             {/* Credit balance — always visible */}
             <button
               onClick={() => router.push('/settings#usage')}
-              className={`pixel-sans text-xs px-3 py-2 rounded-lg border transition-colors ${
+              className={`cursor-pointer pixel-sans text-xs px-3 py-2 rounded-lg border transition-colors ${
                 creditBalance === 0
                   ? 'border-red-500/20 bg-red-500/[0.04] text-red-400/70'
                   : 'border-white/10 bg-white/[0.03] text-white/50 hover:bg-white/[0.06]'
@@ -995,7 +1110,7 @@ export default function UserPage() {
           <div className="py-2">
             <button
               onClick={createNewChat}
-              className="w-full pixel-sans py-3 mx-2 px-3 border border-white/20 rounded-xl text-white hover:bg-white/5 transition-colors flex items-center justify-center gap-2 cursor-pointer"
+              className="w-full pixel-serif py-3 mx-2 px-3 border border-white/20 rounded-xl text-white hover:bg-white/5 transition-colors flex items-center justify-center gap-2 cursor-pointer"
               style={{ width: 'calc(100% - 16px)' }}
             >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -1009,11 +1124,11 @@ export default function UserPage() {
           <div className="flex-1 overflow-y-auto">
             {loadingChats ? (
               <div className="p-4 text-center">
-                <span className="pixel-sans text-white/30 text-sm">Loading...</span>
+                <span className="pixel-sans text-white/60 text-sm">Loading...</span>
               </div>
             ) : chats.length === 0 ? (
               <div className="p-4 text-center">
-                <span className="pixel-sans text-white/30 text-sm">No chats yet</span>
+                <span className="pixel-sans text-white/60 text-sm">No chats yet</span>
               </div>
             ) : (
               <div className="py-2">
@@ -1046,7 +1161,7 @@ export default function UserPage() {
                         ) : (
                           <p className="pixel-sans text-white text-sm truncate">{chat.title}</p>
                         )}
-                        <p className="pixel-sans text-white/40 text-xs mt-1">{formatDate(chat.updated_at)}</p>
+                        <p className="pixel-sans text-white/70 text-xs mt-1">{formatDate(chat.updated_at)}</p>
                       </div>
                       <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                         {/* Edit button */}
@@ -1088,16 +1203,16 @@ export default function UserPage() {
             <div className="grid grid-cols-2 gap-3 text-center">
               <div>
                 <div className="pixel-serif text-white text-xl">{networkStats?.workersOnline || 0}</div>
-                <div className="pixel-sans text-white/40 text-xs">Workers</div>
+                <div className="pixel-sans text-white/70 text-xs">Workers</div>
               </div>
               <div>
                 <div className="pixel-serif text-white text-xl">{networkStats?.jobsInQueue || 0}</div>
-                <div className="pixel-sans text-white/40 text-xs">In Queue</div>
+                <div className="pixel-sans text-white/70 text-xs">In Queue</div>
               </div>
             </div>
             <div className="flex items-center justify-center gap-1.5 mt-3 pt-3 border-t border-white/5">
               <span className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-green-400' : 'bg-white/30'}`} />
-              <span className={`pixel-sans text-xs ${isConnected ? 'text-green-400/70' : 'text-white/30'}`}>
+              <span className={`pixel-sans text-xs ${isConnected ? 'text-green-400/70' : 'text-white/60'}`}>
                 {isConnected ? 'Connected' : 'Connecting...'}
               </span>
             </div>
@@ -1114,7 +1229,7 @@ export default function UserPage() {
                 <p className="pixel-sans text-white/60 text-base mb-6">Select a chat or start a new one</p>
                 <button
                   onClick={createNewChat}
-                  className="cursor-pointer pixel-sans font-bold px-8 py-3 bg-white/[0.08] border border-white/15 text-white rounded-xl hover:bg-white/[0.12] transition-colors"
+                  className="cursor-pointer pixel-serif px-8 py-3 bg-white/[0.08] border border-white/15 text-white rounded-xl hover:bg-white/[0.12] transition-colors"
                 >
                   New Chat
                 </button>
@@ -1123,14 +1238,16 @@ export default function UserPage() {
           ) : (
             <>
               {/* Messages */}
-              <div 
+              <div
+                ref={messagesContainerRef}
+                onScroll={handleMessagesScroll}
                 className="flex-1 overflow-y-auto py-4"
                 onClick={() => inputRef.current?.focus()}
               >
               <div className="max-w-3xl mx-auto px-4 space-y-5">
                 {activeChat.messages.length === 0 && chatState === 'idle' && (
                   <div className="flex items-center justify-center h-full">
-                    <p className="pixel-sans text-white/30 text-base">Send a message to start the conversation</p>
+                    <p className="pixel-sans text-white/60 text-base">Send a message to start the conversation</p>
                   </div>
                 )}
                 
@@ -1177,7 +1294,7 @@ export default function UserPage() {
                           {copiedId === message.id ? (
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-green-400"><path d="M20 6L9 17l-5-5"/></svg>
                           ) : (
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-white/30 hover:text-white/60"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-white/60 hover:text-white/60"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
                           )}
                         </button>
                         {message.role === 'user' && chatState === 'idle' && (
@@ -1186,7 +1303,7 @@ export default function UserPage() {
                             className="p-1 rounded hover:bg-white/[0.06] transition-colors"
                             title="Edit"
                           >
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-white/30 hover:text-white/60"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-white/60 hover:text-white/60"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                           </button>
                         )}
                       </div>
@@ -1218,7 +1335,7 @@ export default function UserPage() {
                 {isSearching && (
                   <div className="flex justify-center">
                     <div className="px-4 py-2 bg-white/[0.03] border border-white/10 rounded-lg">
-                      <p className="pixel-sans text-white/50 text-sm">
+                      <p className="pixel-sans text-white/70 text-sm">
                         Searching the web...
                       </p>
                     </div>
@@ -1276,7 +1393,32 @@ export default function UserPage() {
                     </div>
                   </div>
                 )}
-                
+
+                {/* No workers for this tier, but another tier is online → offer switch */}
+                {tierSwitch && (
+                  <div className="flex justify-center">
+                    <div className="px-5 py-3 bg-[#80a0c1]/10 border border-[#80a0c1]/20 rounded-lg text-center">
+                      <p className="pixel-sans text-[#80a0c1] text-sm mb-2">
+                        No workers online for {selectedPlan === 'max' ? 'Max' : 'Pro'} right now. {tierSwitch.toCount} {tierSwitch.toCount === 1 ? 'worker' : 'workers'} online for {tierSwitch.toLabel}.
+                      </p>
+                      <div className="flex items-center justify-center gap-3">
+                        <button
+                          onClick={() => { savePlan(tierSwitch.to); setTierSwitch(null); }}
+                          className="cursor-pointer pixel-serif text-black bg-[#80a0c1] hover:bg-[#80a0c1]/90 text-sm px-4 py-1.5 rounded-lg"
+                        >
+                          Switch to {tierSwitch.toLabel}
+                        </button>
+                        <button
+                          onClick={() => setTierSwitch(null)}
+                          className="cursor-pointer pixel-sans text-[#80a0c1]/70 text-sm underline"
+                        >
+                          Dismiss
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 <div ref={messagesEndRef} />
               </div>
               </div>
@@ -1288,9 +1430,12 @@ export default function UserPage() {
                     const nativeCount = (networkStats as any)?.nativeWorkers || 0;
                     const browserCount = (networkStats as any)?.browserWorkers || 0;
                     const hasWorkers = selectedModel === 'native-max' ? nativeCount > 0 : browserCount > 0;
-                    if (!hasWorkers && isConnected) {
+                    const otherCount = selectedModel === 'native-max' ? browserCount : nativeCount;
+                    // Only promise queueing when NO tier can serve. If another tier is
+                    // online, sending shows a one-tap switch prompt instead of queueing.
+                    if (!hasWorkers && otherCount === 0 && isConnected) {
                       return (
-                        <div className="pixel-sans text-white/40 text-xs text-center mb-2">
+                        <div className="pixel-sans text-white/70 text-xs text-center mb-2">
                           No {selectedModel === 'native-max' ? 'native' : 'browser'} workers are online — your message will queue until one connects
                         </div>
                       );
@@ -1321,7 +1466,7 @@ export default function UserPage() {
                         className="cursor-pointer flex items-center gap-2 pixel-sans text-xs px-3 py-2 rounded-lg border border-white/10 bg-white/[0.03] text-white/70 hover:bg-white/[0.06] transition-colors"
                       >
                         <span className="text-white/90">{selectedPlanObj.name}</span>
-                        <span className="text-white/30">{selectedPlanObj.cost > 0 ? `${selectedPlanObj.cost} cr/msg` : 'Free'}</span>
+                        <span className="text-white/60">{selectedPlanObj.cost > 0 ? `${selectedPlanObj.cost} cr/msg` : 'Free'}</span>
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={`transition-transform ${modelMenuOpen ? 'rotate-180' : ''}`}><path d="M6 9l6 6 6-6" /></svg>
                       </button>
                       {modelMenuOpen && (
@@ -1336,9 +1481,9 @@ export default function UserPage() {
                               >
                                 <div className="flex items-center justify-between">
                                   <span className={`pixel-sans text-sm ${isSel ? 'text-[#80a0c1]' : 'text-white/80'}`}>{plan.name}</span>
-                                  <span className={`pixel-sans text-xs ${isSel ? 'text-[#80a0c1]/60' : 'text-white/30'}`}>{plan.cost > 0 ? `${plan.cost} cr/msg` : 'Free'}</span>
+                                  <span className={`pixel-sans text-xs ${isSel ? 'text-[#80a0c1]/60' : 'text-white/60'}`}>{plan.cost > 0 ? `${plan.cost} cr/msg` : 'Free'}</span>
                                 </div>
-                                <div className="pixel-sans text-white/30 text-xs mt-0.5">{plan.description}</div>
+                                <div className="pixel-sans text-white/60 text-xs mt-0.5">{plan.description}</div>
                               </button>
                             );
                           })}
@@ -1349,11 +1494,11 @@ export default function UserPage() {
                       <button
                         onClick={() => setDeepThinking(v => !v)}
                         className={`cursor-pointer flex items-center gap-2 pixel-sans text-xs px-3 py-2 rounded-lg border transition-colors ${deepThinking ? 'border-[#80a0c1]/40 bg-[#80a0c1]/15 text-[#80a0c1]' : 'border-white/10 bg-white/[0.03] text-white/50 hover:bg-white/[0.06]'}`}
-                        title="Deep thinking: the model reasons step-by-step before answering. Slower, costs 100 cr/msg."
+                        title="Deep thinking: the model reasons step-by-step before answering. Slower, costs 20 cr/msg."
                       >
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2a7 7 0 0 0-4 12.7V17a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v-2.3A7 7 0 0 0 12 2z" /><path d="M9 21h6" /></svg>
                         Deep thinking
-                        <span className="text-[10px]">{deepThinking ? 'ON · 100 cr' : 'OFF'}</span>
+                        <span className="text-[10px]">{deepThinking ? 'ON · 20 cr' : 'OFF'}</span>
                       </button>
                     )}
                   </div>
@@ -1389,7 +1534,7 @@ export default function UserPage() {
                         <button
                           onClick={() => imageInputRef.current?.click()}
                           disabled={chatState !== 'idle' || !isConnected || pendingImages.length >= 4}
-                          className="absolute left-4 top-1/2 -translate-y-1/2 text-white/40 hover:text-white/80 transition-colors disabled:opacity-20 disabled:cursor-not-allowed"
+                          className="absolute left-4 top-1/2 -translate-y-1/2 text-white/70 hover:text-white/80 transition-colors disabled:opacity-20 disabled:cursor-not-allowed"
                           title="Upload image (Max tier)"
                           aria-label="Upload image"
                         >
@@ -1411,7 +1556,7 @@ export default function UserPage() {
                         }}
                         placeholder={isConnected ? (pendingImages.length > 0 ? "Describe the image..." : "Type your message...") : "Connecting to network..."}
                         disabled={chatState !== 'idle' || !isConnected}
-                        className={`w-full bg-white/[0.02] border border-white/10 rounded-xl ${selectedPlan === 'max' ? 'pl-12' : 'pl-5'} pr-5 py-4 pixel-sans text-white text-base placeholder:text-white/30 focus:outline-none focus:border-white/30 disabled:opacity-50`}
+                        className={`w-full bg-white/[0.02] border border-white/10 rounded-xl ${selectedPlan === 'max' ? 'pl-12' : 'pl-5'} pr-5 py-4 pixel-sans text-white text-base placeholder:text-white/45 focus:outline-none focus:border-white/30 disabled:opacity-50`}
                       />
                       {/* Character counter */}
                       <span className={`absolute top-1/2 -translate-y-1/2 right-4 pixel-sans text-xs ${
@@ -1419,7 +1564,7 @@ export default function UserPage() {
                           ? 'text-red-400' 
                           : inputValue.length > MAX_INPUT_CHARS * 0.75 
                             ? 'text-[#80a0c1]' 
-                            : 'text-white/30'
+                            : 'text-white/60'
                       }`}>
                         {inputValue.length}/{MAX_INPUT_CHARS}
                       </span>
@@ -1433,7 +1578,7 @@ export default function UserPage() {
                       <img src="/PixelSendIcon.png" alt="Send" width={24} height={24} />
                     </button>
                   </div>
-                  <p className="pixel-sans text-white/20 text-sm mt-2 text-center">
+                  <p className="pixel-sans text-white/55 text-sm mt-2 text-center">
                     Press Enter to send
                   </p>
                 </div>

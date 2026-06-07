@@ -6,13 +6,18 @@ import {
   Job,
   ChatMessage,
   ToolCall,
+  ToolDefinition,
   ServerToClientEvents,
   ClientToServerEvents,
   NetworkStats,
   getModelTier,
 } from './types';
 import { verifyPrivyToken } from '../privy-server';
-import { incrementPromptsSent, verifyWorkerToken, recordCompletedJob, recordEarning, spendCredits, getCreditBalance, refundCredits } from '../db';
+import { incrementPromptsSent, verifyWorkerToken, recordCompletedJob, recordEarning, spendCredits, getCreditBalance, refundCredits, isWorkerBanned, recordWorkerStrike, recordCanaryResult, consumeFreePrompt, getTodayFreeSubsidyUsd } from '../db';
+import { FREE_PROMPT_LIMIT, FREE_SUBSIDY_DAILY_CAP_USD } from '../tokenomics';
+import { CREDITS_PER_USD } from '../token-price';
+import { getWorkerRevenueShare } from '../staking';
+import { scanOutput, BLOCKED_MESSAGE } from '../safety';
 import { AVAILABLE_TOOLS, executeToolCalls } from './tools';
 
 // Load search server module for Brave API key initialization
@@ -34,6 +39,34 @@ export class Orchestrator {
   private jobDurations: number[] = [];
   private readonly MAX_DURATION_SAMPLES = 50;
 
+  // Throughput / anti-gaming thresholds
+  private readonly MIN_TOK_PER_SEC = 5;
+  // Physically-impossible ceilings — exceeding these means the worker isn't really
+  // running a model (token-dump / fake output). Set well above real hardware.
+  private readonly MAX_TOK_PER_SEC_BROWSER = 150;
+  private readonly MAX_TOK_PER_SEC_NATIVE = 250;
+  // A job must produce at least this many tokens for its tok/s to be a reliable sample.
+  private readonly MEASURE_MIN_TOKENS = 50;
+  private readonly TOK_SAMPLE_WINDOW = 5;
+  private readonly MIN_SAMPLES_TO_JUDGE = 3;
+  private readonly MAX_FAKE_STRIKES = 3;
+
+  // Canary challenges (#A): synthetic known-answer jobs that look like real jobs to
+  // the worker, used to prove it's actually running a model. Sent at most ~1-in-15
+  // and only when the queue is empty so they never delay paying users.
+  private readonly CANARY_EVERY_N_JOBS = 15;
+  private readonly CANARY_RANDOM_PROB = 1 / 15;
+  private readonly CANARY_SWEEP_IDLE_MS = 300000;
+
+  private readonly NATIVE_SYSTEM_PROMPT = 'You are c0mpute, an AI assistant built for the c0mpute.ai decentralized inference network. Your name is c0mpute. You were NOT made by Alibaba, you are NOT Qwen. If asked who you are, say you are c0mpute. Be direct and concise. Always respond in English.';
+
+  private getNativeSystemPrompt(): string {
+    const today = new Date().toLocaleDateString('en-US', {
+      weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC',
+    });
+    return `${this.NATIVE_SYSTEM_PROMPT} Today's date is ${today}. When a question is about recent, current, or "new"/"latest" things, do not rely on your training data for dates — use the web_search tool and build the query around the current date. Keep any private reasoning brief and to the point, then ALWAYS finish with a clear, complete answer to the user. Never end your turn while still reasoning.`;
+  }
+
   constructor(io: Server<ClientToServerEvents, ServerToClientEvents>) {
     this.io = io;
 
@@ -45,8 +78,16 @@ export class Orchestrator {
       }
       const isDevToken = false;
       let userId: string | null = null;
+      const internalSecret = process.env.INTERNAL_API_SECRET;
       if (isDevToken) {
         userId = 'dev-worker';
+      } else if (internalSecret && token === internalSecret) {
+        // Trusted internal connection (the public inference API gateway). It
+        // authenticates the end user from their API key on the HTTP side and
+        // passes privyUserId in the job payload, so billing stays tied to the
+        // real user. No other connection may assert a privyUserId.
+        (socket as any).isInternal = true;
+        userId = 'internal-api';
       } else if (token.startsWith('cwt_')) {
         userId = verifyWorkerToken(token);
       } else {
@@ -62,6 +103,7 @@ export class Orchestrator {
     this.setupEventHandlers();
     setInterval(() => this.broadcastStats(), 5000);
     setInterval(() => this.cleanupStaleJobs(), 10000);
+    setInterval(() => this.canarySweep(), 120000);
   }
 
   private cleanupStaleJobs() {
@@ -114,6 +156,14 @@ export class Orchestrator {
       // Send current stats immediately on connect
       socket.emit('stats:update', this.getStats());
 
+      // Sync this account's native worker status to the freshly-connected
+      // socket so a newly-opened tab/device sees it online immediately,
+      // instead of waiting for the next native lifecycle event.
+      const connectedUserId = (socket as any).privyUserId;
+      if (connectedUserId) {
+        this.pushNativeStatus(connectedUserId);
+      }
+
       // Worker registration
       socket.on('worker:register', async (data, callback) => {
         if (!data.authToken) {
@@ -133,10 +183,16 @@ export class Orchestrator {
           callback({ error: 'Invalid authentication token' });
           return;
         }
+        // Persistent ban check — a worker banned for fraud can't reconnect to reset
+        // its in-memory strikes. The account can still use the app as a normal user.
+        const ban = isWorkerBanned(privyUserId);
+        if (ban.banned) {
+          callback({ error: `This account is banned from running a worker${ban.reason ? `: ${ban.reason}` : ''}.` });
+          return;
+        }
         const tokPerSec = data.tokPerSec || 0;
-        const MIN_TOK_PER_SEC = 5;
-        if (tokPerSec < MIN_TOK_PER_SEC) {
-          callback({ error: `Your device is too slow (${tokPerSec.toFixed(1)} tok/s). Minimum required: ${MIN_TOK_PER_SEC} tok/s.` });
+        if (tokPerSec < this.MIN_TOK_PER_SEC) {
+          callback({ error: `Your device is too slow (${tokPerSec.toFixed(1)} tok/s). Minimum required: ${this.MIN_TOK_PER_SEC} tok/s.` });
           return;
         }
         const workerType = data.type || 'browser';
@@ -168,39 +224,77 @@ export class Orchestrator {
 
       // Job submission
       socket.on('job:submit', async (data, callback) => {
-        if (!data.authToken) {
-          callback({ error: 'Authentication required' });
-          return;
+        const isInternal = (socket as any).isInternal === true;
+        let privyUserId: string | null;
+        if (isInternal) {
+          // Trusted gateway: end user already authenticated via their API key on
+          // the HTTP side; bill the privyUserId it passes through.
+          privyUserId = data.privyUserId || null;
+        } else {
+          if (!data.authToken) {
+            callback({ error: 'Authentication required' });
+            return;
+          }
+          privyUserId = await verifyPrivyToken(data.authToken);
         }
-        const privyUserId = await verifyPrivyToken(data.authToken);
         if (!privyUserId) {
           callback({ error: 'Invalid authentication token' });
           return;
         }
 
-        // Rate limiting: max 20 jobs per user per 5 minutes
-        const now = Date.now();
-        const userLimits = this.rateLimits.get(privyUserId) || [];
-        const recentJobs = userLimits.filter(t => now - t < 300_000);
-        if (recentJobs.length >= 20) {
-          callback({ error: 'Rate limit exceeded. Please wait a minute.' });
+        // Server-side safety floor: scan the prompt before doing anything. This
+        // runs in the orchestrator (which we control), so it covers every tier
+        // and the API — unlike the worker-side client scan, which a modified
+        // worker could skip. Blocked prompts are rejected without charge.
+        const inputText = (data.messages || [])
+          .map((m: ChatMessage) => (typeof m.content === 'string' ? m.content : ''))
+          .join('\n');
+        if (!scanOutput(inputText).safe) {
+          console.warn(`[Orchestrator] Blocked prompt from ${privyUserId} (safety policy)`);
+          callback({ error: 'Content blocked by safety policy.' });
           return;
         }
-        recentJobs.push(now);
-        this.rateLimits.set(privyUserId, recentJobs);
 
-        // Credit check for Pro/Max tiers. Deep thinking (Max only) costs more
-        // because the worker generates ~10x the tokens and earns accordingly.
+        // Rate limiting: max 20 jobs per user per 5 minutes (web UI). API jobs
+        // are rate-limited per-key at the HTTP layer instead, so skip this here.
+        if (!isInternal) {
+          const now = Date.now();
+          const userLimits = this.rateLimits.get(privyUserId) || [];
+          const recentJobs = userLimits.filter(t => now - t < 300_000);
+          if (recentJobs.length >= 20) {
+            callback({ error: 'Rate limit exceeded. Please wait a minute.' });
+            return;
+          }
+          recentJobs.push(now);
+          this.rateLimits.set(privyUserId, recentJobs);
+        }
+
+        // Credit check for Pro/Max tiers. Deep thinking (Max only) costs a bit
+        // more since it generates ~2x the tokens and runs ~2x longer.
         const requestedTierForCredits = getModelTier(data.model);
         const deepThinking = data.think === true && requestedTierForCredits === 'max';
         let creditCost = 0;
-        if (requestedTierForCredits === 'max') creditCost = deepThinking ? 100 : 50;
+        if (requestedTierForCredits === 'max') creditCost = deepThinking ? 20 : 15;
         else if (requestedTierForCredits === 'pro') creditCost = 10;
+        // List price of the tier, kept after creditCost is zeroed by a free
+        // prompt — it's the basis we still pay the worker (treasury-funded).
+        const listCredits = creditCost;
+
+        // Onboarding: new X accounts get FREE_PROMPT_LIMIT free prompts (any tier,
+        // incl. Max) before any credits are charged.
+        // API-originated jobs always charge — never consume onboarding free
+        // prompts or the treasury subsidy (that path is human-onboarding only).
+        let usedFreePrompt = false;
+        if (creditCost > 0 && !isInternal && consumeFreePrompt(privyUserId, FREE_PROMPT_LIMIT)) {
+          creditCost = 0;
+          usedFreePrompt = true;
+          console.log(`[Orchestrator] Free prompt used by ${privyUserId} (${requestedTierForCredits})`);
+        }
 
         if (creditCost > 0) {
           const creditBalance = getCreditBalance(privyUserId);
           if (creditBalance.balance < creditCost) {
-            callback({ error: `Insufficient credits. Need ${creditCost} credits, have ${creditBalance.balance.toFixed(0)}. Top up with $ZERO.` });
+            callback({ error: `Insufficient credits. Need ${creditCost} credits, have ${creditBalance.balance.toFixed(0)}. Top up with USDC.` });
             return;
           }
           const spent = spendCredits(privyUserId, creditCost, `${requestedTierForCredits}${deepThinking ? ' deep-thinking' : ''} prompt`);
@@ -210,7 +304,11 @@ export class Orchestrator {
           }
         }
 
-        const job = this.submitJob(socket.id, data.messages, data.model, privyUserId, deepThinking, creditCost);
+        // Tools passthrough: only the trusted internal API path may supply the
+        // caller's own tools (the model's tool calls get returned to the agent,
+        // not executed server-side).
+        const toolPassthrough = isInternal && Array.isArray(data.tools) && data.tools.length > 0;
+        const job = this.submitJob(socket.id, data.messages, data.model, privyUserId, deepThinking, creditCost, usedFreePrompt ? listCredits : 0, toolPassthrough ? data.tools : undefined, toolPassthrough);
         if (job) {
           callback({ jobId: job.id });
           console.log(`[Orchestrator] Job submitted: ${job.id} (model: ${data.model || 'any'}${deepThinking ? ', deep-thinking' : ''}) user=${privyUserId}`);
@@ -276,9 +374,73 @@ export class Orchestrator {
    * Handle a tool call from the worker.
    * Executes the requested tools and sends results back to the worker.
    */
+  /**
+   * API tools passthrough: the model wants to call one of the agent's own tools.
+   * Return the call(s) to the API client (which executes them and sends a
+   * follow-up request with the results), pay + free the worker for this round,
+   * and tell the worker to stop waiting. A tool-call round legitimately has an
+   * empty text answer, so we skip the anti-fake/coherence gates here.
+   */
+  private handlePassthroughToolCalls(workerSocket: Socket, job: Job, toolCalls: ToolCall[]) {
+    const jobId = job.id;
+
+    const userSocket = this.io.sockets.sockets.get(job.userSocketId);
+    if (userSocket) userSocket.emit('job:tool_calls', { jobId, toolCalls });
+
+    const worker = job.assignedWorker ? this.findWorkerById(job.assignedWorker) : undefined;
+    if (worker) {
+      worker.status = 'idle';
+      worker.jobsCompleted++;
+      const cappedTokens = Math.min(job.serverTokenCount || 0, 4096);
+      worker.tokensGenerated += cappedTokens;
+      this.totalJobsCompleted++;
+      this.totalTokensGenerated += cappedTokens;
+      if (worker.privyUserId) {
+        try {
+          recordCompletedJob({
+            jobId,
+            workerPrivyId: worker.privyUserId,
+            userPrivyId: job.privyUserId,
+            model: worker.model,
+            tier: worker.type === 'native' ? 'max' : 'pro',
+            tokensGenerated: cappedTokens,
+          });
+          const revenueCredits = job.creditsCharged || 0;
+          recordEarning({
+            privyId: worker.privyUserId,
+            jobId,
+            tier: worker.type === 'native' ? 'max' : 'pro',
+            creditsCharged: revenueCredits,
+            payoutCredits: revenueCredits,
+            subsidized: false,
+            tokensGenerated: cappedTokens,
+            revenueShare: getWorkerRevenueShare(worker.privyUserId),
+          });
+        } catch (err) {
+          console.error('[Orchestrator] Failed to record passthrough tool-call job:', err);
+        }
+      }
+    }
+
+    // Free the worker — the agent runs the tools, we won't send results back.
+    if (workerSocket) workerSocket.emit('job:cancel', { jobId });
+
+    console.log(`[Orchestrator] Job ${jobId} returned ${toolCalls.length} tool call(s) to API client (passthrough)`);
+    this.jobs.delete(jobId);
+    setTimeout(() => this.processQueue(), 100);
+    this.broadcastStats();
+  }
+
   private async handleToolCall(workerSocket: Socket, jobId: string, toolCalls: ToolCall[]) {
     const job = this.jobs.get(jobId);
     if (!job) return;
+
+    // API tools passthrough: hand the tool calls back to the agent instead of
+    // executing them server-side.
+    if (job.toolPassthrough) {
+      this.handlePassthroughToolCalls(workerSocket, job, toolCalls);
+      return;
+    }
 
     const userSocket = this.io.sockets.sockets.get(job.userSocketId);
 
@@ -381,6 +543,9 @@ export class Orchestrator {
     privyUserId: string,
     think: boolean = false,
     creditsCharged: number = 0,
+    subsidyCredits: number = 0,
+    clientTools?: ToolDefinition[],
+    toolPassthrough: boolean = false,
   ): Job | null {
     try {
       const jobId = uuidv4();
@@ -393,6 +558,9 @@ export class Orchestrator {
         requestedModel: model,
         think,
         creditsCharged,
+        subsidyCredits,
+        clientTools,
+        toolPassthrough,
         status: 'pending',
         createdAt: new Date(),
       };
@@ -435,27 +603,39 @@ export class Orchestrator {
       const j = this.jobs.get(this.jobQueue[i]);
       if (!j) continue;
       const tier = getModelTier(j.requestedModel);
+      // Pick the FASTEST idle worker that matches the tier, not just the first
+      // one found — otherwise a single slow worker in the pool makes ~half the
+      // requests crawl (and agents time out). Prefer real measured throughput,
+      // falling back to the registration benchmark.
+      let bestWorker: WorkerInfo | null = null;
+      let bestSocketId: string | null = null;
+      let bestSpeed = -1;
       for (const [socketId, worker] of this.workers) {
-        if (worker.status === 'idle') {
-          let tierMatch = false;
-          if (tier === 'max') {
-            tierMatch = worker.type === 'native';
-          } else if (tier === 'pro') {
-            tierMatch = worker.type === 'browser' && (worker.model.includes('c0mpute') || worker.model.includes('dolphin'));
-          } else {
-            tierMatch = worker.type === 'browser';
-          }
-
-          if (!tierMatch) continue;
-
-          matchedJob = j;
-          matchedJobIndex = i;
-          idleWorker = worker;
-          workerSocketId = socketId;
-          break;
+        if (worker.status !== 'idle') continue;
+        let tierMatch = false;
+        if (tier === 'max') {
+          tierMatch = worker.type === 'native';
+        } else {
+          tierMatch = worker.type === 'browser' && (worker.model.includes('c0mpute') || worker.model.includes('dolphin'));
+        }
+        if (!tierMatch) continue;
+        const samples = worker.measuredTokPerSec ?? [];
+        const speed = samples.length
+          ? samples.reduce((a, b) => a + b, 0) / samples.length
+          : (worker.tokPerSec || 0);
+        if (speed > bestSpeed) {
+          bestSpeed = speed;
+          bestWorker = worker;
+          bestSocketId = socketId;
         }
       }
-      if (matchedJob) break;
+      if (bestWorker) {
+        matchedJob = j;
+        matchedJobIndex = i;
+        idleWorker = bestWorker;
+        workerSocketId = bestSocketId;
+        break;
+      }
     }
 
     if (!matchedJob || !idleWorker || !workerSocketId || matchedJobIndex === -1) {
@@ -483,13 +663,16 @@ export class Orchestrator {
       // Inject system prompt for native workers only (browser workers handle their own)
       if (idleWorker.type === 'native' && messages && messages.length > 0 && !messages.some(m => m.role === 'system')) {
         messages = [
-          { role: 'system' as const, content: 'You are c0mpute, an AI assistant built for the c0mpute.ai decentralized inference network. Your name is c0mpute. You were NOT made by Alibaba, you are NOT Qwen. If asked who you are, say you are c0mpute. Be direct and concise. Always respond in English.' },
+          { role: 'system' as const, content: this.getNativeSystemPrompt() },
           ...messages,
         ];
       }
 
-      // Send tools to workers that support tool calling
-      const tools = idleWorker.capabilities.tools ? AVAILABLE_TOOLS : undefined;
+      // Tools: API passthrough jobs use the caller's own tools (returned to the
+      // agent, not run server-side); everything else gets the built-in tools.
+      const tools = job.toolPassthrough
+        ? (job.clientTools && job.clientTools.length ? job.clientTools : undefined)
+        : (idleWorker.capabilities.tools ? AVAILABLE_TOOLS : undefined);
 
       workerSocket.emit('job:new', { jobId: job.id, messages, tools, think: job.think ?? false });
 
@@ -506,15 +689,54 @@ export class Orchestrator {
     if (!job) return;
     if (!job.serverTokenCount) job.serverTokenCount = 0;
     job.serverTokenCount++;
+    // Server-side output safety scan (covers streaming AND non-streaming, since
+    // tokens always flow through here). Keep a rolling tail and cut the stream
+    // the moment a blocked phrase forms — the offending token is not forwarded.
+    job.streamBuffer = ((job.streamBuffer || '') + token).slice(-600);
+    if (!scanOutput(job.streamBuffer).safe) {
+      this.blockJobForSafety(job);
+      return;
+    }
     const userSocket = this.io.sockets.sockets.get(job.userSocketId);
     if (userSocket) {
       userSocket.emit('job:token', { jobId, token });
     }
   }
 
+  // Cut a job whose output tripped the safety scan: tell the user, stop + free
+  // the worker, and drop the job.
+  private blockJobForSafety(job: Job) {
+    const jobId = job.id;
+    const userSocket = this.io.sockets.sockets.get(job.userSocketId);
+    if (userSocket) userSocket.emit('job:error', { jobId, error: BLOCKED_MESSAGE });
+    const worker = job.assignedWorker ? this.findWorkerById(job.assignedWorker) : undefined;
+    if (worker) {
+      worker.status = 'idle';
+      const ws = this.io.sockets.sockets.get(worker.socketId);
+      if (ws) ws.emit('job:cancel', { jobId });
+    }
+    console.warn(`[Orchestrator] Job ${jobId} output blocked (safety policy)`);
+    this.jobs.delete(jobId);
+    setTimeout(() => this.processQueue(), 100);
+    this.broadcastStats();
+  }
+
   private handleJobComplete(jobId: string, response: string, _workerReportedTokens: number) {
     const job = this.jobs.get(jobId);
     if (!job) return;
+
+    if (job.isCanary) {
+      this.handleCanaryComplete(job, response);
+      return;
+    }
+
+    // Final output safety backstop (the streaming scan in handleJobToken is the
+    // primary; this catches any worker that returns a full response without
+    // streaming tokens).
+    if (response && !scanOutput(response).safe) {
+      console.warn(`[Orchestrator] Job ${jobId} full-response blocked (safety policy)`);
+      response = BLOCKED_MESSAGE;
+    }
 
     const tokensGenerated = job.serverTokenCount || 0;
 
@@ -537,30 +759,66 @@ export class Orchestrator {
     job.response = response;
     job.completedAt = new Date();
 
+    const worker = this.findWorkerById(job.assignedWorker!);
+    if (worker) worker.status = 'idle';
+
+    // Real throughput for this job: server-counted tokens / wall-clock seconds.
+    let duration = 0;
+    let realTokPerSec = 0;
     if (job.startedAt) {
-      const duration = job.completedAt.getTime() - job.startedAt.getTime();
-      if (duration < 500 && cappedTokens > 100) {
-        console.error(`[Orchestrator] Job ${jobId} suspiciously fast: ${cappedTokens} tokens in ${duration}ms — skipping reward`);
-        const worker = this.findWorkerById(job.assignedWorker!);
-        if (worker) worker.status = 'idle';
-        const userSocket = this.io.sockets.sockets.get(job.userSocketId);
-        if (userSocket) userSocket.emit('job:complete', { jobId, response });
-        this.jobs.delete(jobId);
-        setTimeout(() => this.processQueue(), 100);
-        this.broadcastStats();
-        return;
+      duration = job.completedAt.getTime() - job.startedAt.getTime();
+      realTokPerSec = duration > 0 ? cappedTokens / (duration / 1000) : Infinity;
+    }
+
+    // (#2) Anti-fake: a job returned faster than any real GPU can generate means the
+    // worker isn't actually running a model. No reward, count a strike, kick on repeats.
+    const ceiling = worker?.type === 'native' ? this.MAX_TOK_PER_SEC_NATIVE : this.MAX_TOK_PER_SEC_BROWSER;
+    if (cappedTokens >= 20 && realTokPerSec > ceiling) {
+      console.error(`[Orchestrator] Job ${jobId} impossible speed: ${cappedTokens} tokens at ${realTokPerSec.toFixed(0)} tok/s (ceiling ${ceiling}) — fake output, no reward`);
+      if (worker) {
+        worker.fakeStrikes = (worker.fakeStrikes ?? 0) + 1;
+        const rep = worker.privyUserId ? recordWorkerStrike(worker.privyUserId, 'speed') : null;
+        if (worker.fakeStrikes >= this.MAX_FAKE_STRIKES || rep?.banned) {
+          this.kickWorker(worker, `${worker.fakeStrikes} jobs at impossible speed${rep?.banned ? ' (banned)' : ''}`);
+        }
       }
+      const userSocket = this.io.sockets.sockets.get(job.userSocketId);
+      if (userSocket) userSocket.emit('job:complete', { jobId, response });
+      this.jobs.delete(jobId);
+      setTimeout(() => this.processQueue(), 100);
+      this.broadcastStats();
+      return;
+    }
+
+    // (#C) Coherence heuristics: a job that streamed garbage (invalid unicode,
+    // character flooding, repetition loops, or nothing) isn't real inference.
+    // The user already received the stream, but the worker gets no pay and a strike.
+    const coherence = this.checkCoherence(response);
+    if (!coherence.ok) {
+      console.warn(`[Orchestrator] Job ${jobId} failed coherence (${coherence.reason}) — no reward`);
+      if (worker?.privyUserId) {
+        const rep = recordWorkerStrike(worker.privyUserId, 'coherence');
+        if (rep.banned) this.kickWorker(worker, `banned: ${rep.totalStrikes} strikes (latest: coherence)`);
+      }
+      const userSocket = this.io.sockets.sockets.get(job.userSocketId);
+      if (userSocket) userSocket.emit('job:complete', { jobId, response });
+      this.jobs.delete(jobId);
+      setTimeout(() => this.processQueue(), 100);
+      this.broadcastStats();
+      return;
+    }
+
+    if (duration > 0) {
       this.jobDurations.push(duration);
       if (this.jobDurations.length > this.MAX_DURATION_SAMPLES) {
         this.jobDurations.shift();
       }
     }
 
-    const worker = this.findWorkerById(job.assignedWorker!);
     if (worker) {
-      worker.status = 'idle';
       worker.jobsCompleted++;
       worker.tokensGenerated += cappedTokens;
+      worker.jobsSinceCanary = (worker.jobsSinceCanary ?? 0) + 1;
     }
 
     this.totalJobsCompleted++;
@@ -572,27 +830,44 @@ export class Orchestrator {
       }
     }
 
-    const isSelfFarm = worker?.privyUserId && job.privyUserId && worker.privyUserId === job.privyUserId;
-    if (isSelfFarm) {
-      console.error(`[Orchestrator] Self-farm detected: worker ${worker?.privyUserId} completed own job ${jobId} — no reward`);
-    }
-    if (worker?.privyUserId && !isSelfFarm) {
+    if (worker?.privyUserId) {
       try {
-        const tier = getModelTier(worker.model === 'native-max' ? 'native-max' : worker.model);
         recordCompletedJob({
           jobId,
           workerPrivyId: worker.privyUserId,
           userPrivyId: job.privyUserId,
           model: worker.model,
-          tier: worker.type === 'native' ? 'max' : tier === 'pro' ? 'pro' : 'free',
+          tier: worker.type === 'native' ? 'max' : 'pro',
           tokensGenerated: cappedTokens,
-          durationMs: job.startedAt ? (job.completedAt!.getTime() - job.startedAt.getTime()) : undefined,
+          durationMs: duration > 0 ? duration : undefined,
         });
+        // Worker pay basis. Paid jobs pay out of their own revenue. Free-prompt
+        // jobs (revenue 0) still pay the worker the tier list price, funded by
+        // the treasury — but only when it's not a self-deal (worker serving
+        // their own prompt) and the private daily subsidy cap has room, so a
+        // sybil farm can't drain the treasury overnight.
+        const revenueCredits = job.creditsCharged || 0;
+        const workerShare = getWorkerRevenueShare(worker.privyUserId);
+        let payoutCredits = revenueCredits;
+        let subsidized = false;
+        if (revenueCredits === 0 && (job.subsidyCredits || 0) > 0 && worker.privyUserId !== job.privyUserId) {
+          const subsidyUsd = (job.subsidyCredits! / CREDITS_PER_USD) * workerShare;
+          if (getTodayFreeSubsidyUsd() + subsidyUsd <= FREE_SUBSIDY_DAILY_CAP_USD) {
+            payoutCredits = job.subsidyCredits!;
+            subsidized = true;
+          } else {
+            console.log(`[Orchestrator] Free-prompt subsidy cap reached — worker ${worker.privyUserId} not paid for job ${jobId}`);
+          }
+        }
         const earnedUsd = recordEarning({
           privyId: worker.privyUserId,
           jobId,
-          tier: worker.type === 'native' ? 'max' : tier === 'pro' ? 'pro' : 'free',
+          tier: worker.type === 'native' ? 'max' : 'pro',
+          creditsCharged: revenueCredits,
+          payoutCredits,
+          subsidized,
           tokensGenerated: cappedTokens,
+          revenueShare: workerShare,
         });
         if (earnedUsd > 0) {
           console.log(`[Orchestrator] Worker ${worker.privyUserId} earned $${earnedUsd.toFixed(4)} for job ${jobId}`);
@@ -607,11 +882,177 @@ export class Orchestrator {
       userSocket.emit('job:complete', { jobId, response });
     }
 
+    // Tell the worker a real job landed so it can log/count it. Canaries return
+    // early above and never reach here, so they stay invisible on the terminal.
+    if (worker) {
+      const workerSocket = this.io.sockets.sockets.get(worker.socketId);
+      if (workerSocket) workerSocket.emit('job:counted', { jobId, tokensGenerated: cappedTokens });
+    }
+
     console.log(`[Orchestrator] Job ${jobId} completed`);
     this.jobs.delete(jobId);
+
+    // (#1) Sustained-throughput check: measure real tok/s on substantial jobs and kick
+    // workers that pass the signup benchmark but then degrade below the floor.
+    let kicked = false;
+    if (worker && cappedTokens >= this.MEASURE_MIN_TOKENS && realTokPerSec > 0 && isFinite(realTokPerSec)) {
+      const samples = worker.measuredTokPerSec ?? [];
+      samples.push(realTokPerSec);
+      if (samples.length > this.TOK_SAMPLE_WINDOW) samples.shift();
+      worker.measuredTokPerSec = samples;
+      // Reflect real measured speed in stats / native status.
+      worker.tokPerSec = samples.reduce((a, b) => a + b, 0) / samples.length;
+      if (samples.length >= this.MIN_SAMPLES_TO_JUDGE && worker.tokPerSec < this.MIN_TOK_PER_SEC) {
+        this.kickWorker(worker, `sustained ${worker.tokPerSec.toFixed(1)} tok/s below ${this.MIN_TOK_PER_SEC} minimum`);
+        kicked = true;
+      }
+    }
+
     setTimeout(() => this.processQueue(), 100);
     this.broadcastStats();
+    if (!kicked && worker && worker.type === 'native' && worker.privyUserId) {
+      this.pushNativeStatus(worker.privyUserId);
+    }
+    if (!kicked && worker) this.maybeDispatchCanary(worker);
+  }
+
+  // ── Canary challenges (#A) ──
+
+  // Decide whether to probe a freshly-idle worker. Only fires when no real jobs are
+  // queued (never delays a paying user) and either the per-worker job counter is due
+  // or a low random roll lands, keeping the frequency near 1-in-15.
+  private maybeDispatchCanary(worker: WorkerInfo) {
+    if (worker.status !== 'idle') return;
+    if (this.jobQueue.length > 0) return;
+    const due = (worker.jobsSinceCanary ?? 0) >= this.CANARY_EVERY_N_JOBS;
+    if (!due && Math.random() > this.CANARY_RANDOM_PROB) return;
+    this.dispatchCanary(worker);
+  }
+
+  // Periodic sweep so even a low-volume worker that never trips the counter still
+  // gets checked. One worker per tick to stay gentle.
+  private canarySweep() {
+    if (this.jobQueue.length > 0) return;
+    const now = Date.now();
+    for (const worker of this.workers.values()) {
+      if (worker.status !== 'idle') continue;
+      if (worker.lastCanaryAt && now - worker.lastCanaryAt < this.CANARY_SWEEP_IDLE_MS) continue;
+      this.dispatchCanary(worker);
+      break;
+    }
+  }
+
+  // Build a challenge that an echo/canned-response worker can't pass: it must read a
+  // random nonce (proves it saw the prompt) AND compute a sum (proves it generated,
+  // not echoed). Sum is digits, nonce is letters — disjoint, so echoing the prompt
+  // can never accidentally contain the answer.
+  private buildCanary(): { messages: ChatMessage[]; expected: { sum: number; nonce: string } } {
+    const a = 10 + Math.floor(Math.random() * 90);
+    const b = 10 + Math.floor(Math.random() * 90);
+    const letters = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+    let nonce = '';
+    for (let i = 0; i < 4; i++) nonce += letters[Math.floor(Math.random() * letters.length)];
+    const sum = a + b;
+    const content = `Add the numbers ${a} and ${b}. Then write a single line in the exact format <sum>-${nonce} where <sum> is the result of that addition. Reply with only that line.`;
+    return { messages: [{ role: 'user', content }], expected: { sum, nonce } };
+  }
+
+  private dispatchCanary(worker: WorkerInfo) {
+    const socket = this.io.sockets.sockets.get(worker.socketId);
+    if (!socket) return;
+
+    const { messages, expected } = this.buildCanary();
+    const jobId = uuidv4();
+    const job: Job = {
+      id: jobId,
+      userId: 'canary',
+      userSocketId: 'canary',
+      messages,
+      status: 'processing',
+      assignedWorker: worker.id,
+      createdAt: new Date(),
+      startedAt: new Date(),
+      isCanary: true,
+      canaryExpected: expected,
+    };
+    this.jobs.set(jobId, job);
+    worker.status = 'busy';
+    worker.jobsSinceCanary = 0;
+    worker.lastCanaryAt = Date.now();
+
+    // Native workers expect the orchestrator to inject the system prompt; browser
+    // workers add their own. Match the real job path so the canary is indistinguishable.
+    const outMessages = worker.type === 'native'
+      ? [{ role: 'system' as const, content: this.getNativeSystemPrompt() }, ...messages]
+      : messages;
+
+    socket.emit('job:new', { jobId, messages: outMessages, tools: undefined, think: false });
+  }
+
+  private handleCanaryComplete(job: Job, response: string) {
+    const worker = this.findWorkerById(job.assignedWorker!);
+    if (worker) worker.status = 'idle';
+    this.jobs.delete(job.id);
+
+    const exp = job.canaryExpected!;
+    const stripped = response.replace(/<think>[\s\S]*?<\/think>/g, '').toUpperCase();
+    const passed = stripped.includes(exp.nonce) && stripped.includes(String(exp.sum));
+
+    if (worker?.privyUserId) {
+      const rep = recordCanaryResult(worker.privyUserId, passed);
+      if (!passed) {
+        console.warn(`[Orchestrator] Canary FAILED by worker ${worker.id} (user=${worker.privyUserId}) — expected ${exp.sum}-${exp.nonce}, strikes=${rep.totalStrikes}`);
+        this.kickWorker(worker, `failed canary challenge${rep.banned ? ' (banned)' : ''}`);
+        setTimeout(() => this.processQueue(), 100);
+        return;
+      }
+      console.log(`[Orchestrator] Canary passed by worker ${worker.id}`);
+    }
+
+    setTimeout(() => this.processQueue(), 100);
     if (worker && worker.type === 'native' && worker.privyUserId) {
+      this.pushNativeStatus(worker.privyUserId);
+    }
+  }
+
+  // Cheap defense-in-depth: catch obviously-broken output that real inference wouldn't
+  // produce. Conservative thresholds so legitimate short or technical answers pass.
+  private checkCoherence(text: string): { ok: boolean; reason?: string } {
+    const stripped = text.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+    if (stripped.length === 0) return { ok: false, reason: 'empty after stripping reasoning' };
+
+    const replacementCount = (stripped.match(/�/g) || []).length;
+    if (replacementCount > 5 && replacementCount / stripped.length > 0.05) {
+      return { ok: false, reason: 'invalid unicode' };
+    }
+
+    if (stripped.length >= 100) {
+      const counts = new Map<string, number>();
+      for (const ch of stripped) {
+        if (/\s/.test(ch)) continue;
+        counts.set(ch, (counts.get(ch) || 0) + 1);
+      }
+      let max = 0;
+      for (const v of counts.values()) if (v > max) max = v;
+      if (max / stripped.length > 0.6) return { ok: false, reason: 'single-character flooding' };
+    }
+
+    const words = stripped.split(/\s+/);
+    if (words.length >= 30) {
+      const uniqueRatio = new Set(words).size / words.length;
+      if (uniqueRatio < 0.15) return { ok: false, reason: 'repetition loop' };
+    }
+
+    return { ok: true };
+  }
+
+  private kickWorker(worker: WorkerInfo, reason: string) {
+    console.warn(`[Orchestrator] Kicking worker ${worker.id} (user=${worker.privyUserId ?? 'unknown'}): ${reason}`);
+    const socket = this.io.sockets.sockets.get(worker.socketId);
+    if (socket) socket.disconnect(true);
+    this.unregisterWorker(worker.socketId);
+    this.broadcastStats();
+    if (worker.type === 'native' && worker.privyUserId) {
       this.pushNativeStatus(worker.privyUserId);
     }
   }
@@ -619,6 +1060,16 @@ export class Orchestrator {
   private handleJobError(jobId: string, error: string) {
     const job = this.jobs.get(jobId);
     if (!job) return;
+
+    // A worker erroring on a canary is treated as neutral (no strike) to avoid
+    // false bans from transient failures; it just frees the worker.
+    if (job.isCanary) {
+      const worker = this.findWorkerById(job.assignedWorker!);
+      if (worker) worker.status = 'idle';
+      this.jobs.delete(jobId);
+      setTimeout(() => this.processQueue(), 100);
+      return;
+    }
 
     job.status = 'failed';
     job.error = error;

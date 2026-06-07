@@ -22,6 +22,9 @@ export const MIN_TOK_PER_SEC = 2;
 /** Maximum output tokens per job */
 export const MAX_OUTPUT_TOKENS = 4096;
 
+/** Larger budget when thinking is on — reasoning + final answer must both fit */
+export const MAX_OUTPUT_TOKENS_THINKING = 8192;
+
 /** Maximum tool call rounds per job (prevents infinite loops) */
 export const MAX_TOOL_ROUNDS = 5;
 

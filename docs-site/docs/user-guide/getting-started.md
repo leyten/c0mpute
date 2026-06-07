@@ -7,24 +7,20 @@ title: Getting started
 
 ## 1. Login
 
-Go to [c0mpute.ai](https://c0mpute.ai) and click **Login**. You can sign in with:
+Go to [c0mpute.ai](https://c0mpute.ai) and click **Login**. Sign in with your **X (Twitter)** account.
 
-- Email (magic link)
-- Crypto wallet (Phantom, MetaMask, etc.)
-- Social accounts (Google, Discord, Twitter/X)
+No lengthy sign-up, no password. Just authorize with X and you're in. A Solana wallet is created for you automatically to hold credits and receive payouts.
 
-No lengthy sign-up. Just authenticate and you're in.
+## 2. Get credits
 
-## 2. Get credits (optional)
-
-Free tier requires no credits. For Pro or Max:
+To send messages on Pro or Max:
 
 1. Go to **Settings** → **Wallet**
 2. Copy your **deposit address**
-3. Send **$ZERO** tokens to that address
-4. **1 $ZERO = 1 credit** — they appear in your account automatically
+3. Send **USDC** (on Solana) to that address
+4. **1 credit = $0.01** — credits appear in your account automatically once the transaction confirms
 
-See [The $ZERO Token](/zero-token) for more details.
+See [The $ZERO Token](/zero-token) for how the wider economy works.
 
 ## 3. Pick a tier
 
@@ -32,9 +28,8 @@ Select your model tier from the dropdown before sending a message:
 
 | Tier | Model | Cost | Notes |
 |------|-------|------|-------|
-| **Free** | Qwen3 1.7B | 0 cr/msg | Fast, basic, runs in browser workers |
-| **Pro** | Qwen3 8B Uncensored | 10 cr/msg | Higher quality, uncensored |
-| **Max** | Qwen3.5 27B abliterated | 50 cr/msg | Best quality, uncensored, web search + vision |
+| **Pro** | Qwen3 8B Uncensored | 10 cr/msg | Higher quality, uncensored, runs in browser workers |
+| **Max** | Qwen3.5 27B abliterated | 15 cr/msg (20 with deep thinking) | Best quality, uncensored, web search + vision |
 
 See [Model tiers](/user-guide/model-tiers) for a detailed comparison.
 
@@ -49,4 +44,4 @@ Type your message and hit send. Your request enters the job queue and gets match
 
 ## 5. That's it
 
-No API keys. No credit card. No usage limits on Free tier. Just type and get answers from the decentralized network.
+No API keys. No credit card. Just type and get answers from the decentralized network.

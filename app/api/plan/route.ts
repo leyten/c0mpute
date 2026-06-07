@@ -21,7 +21,8 @@ export async function GET(req: NextRequest) {
   if (!privyId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const db = getDb();
   const row = db.prepare('SELECT selected_plan FROM profiles WHERE privy_id = ?').get(privyId) as any;
-  return NextResponse.json({ plan: row?.selected_plan || 'free' });
+  const plan = row?.selected_plan && row.selected_plan !== 'free' ? row.selected_plan : 'pro';
+  return NextResponse.json({ plan });
 }
 
 // POST — update plan
@@ -29,7 +30,7 @@ export async function POST(req: NextRequest) {
   const privyId = await getPrivyId(req);
   if (!privyId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const { plan } = await req.json();
-  if (!['free', 'pro', 'max'].includes(plan)) {
+  if (!['pro', 'max'].includes(plan)) {
     return NextResponse.json({ error: 'Invalid plan' }, { status: 400 });
   }
   const db = getDb();

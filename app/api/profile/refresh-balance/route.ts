@@ -60,7 +60,7 @@ export async function POST(request: NextRequest) {
       const apiKey = process.env.SOLANA_TRACKER_API_KEY;
       
       const response = await fetch(
-        `https://data.solanatracker.io/wallet/${profile.wallet_address}`,
+        `https://eu.data.solanatracker.io/wallet/${profile.wallet_address}`,
         {
           headers: apiKey ? { 'x-api-key': apiKey } : {},
         }

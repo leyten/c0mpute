@@ -39,7 +39,7 @@
   --ifm-heading-color: #fff;
   --ifm-link-color: #80a0c1;
   --ifm-link-hover-color: #a0b8d1;
-  --ifm-menu-color: rgba(255,255,255,0.5);
+  --ifm-menu-color: rgba(255,255,255,0.72);
   --ifm-menu-color-active: #80a0c1;
   --ifm-menu-color-background-active: rgba(128,160,193,0.08);
   --ifm-menu-color-background-hover: rgba(255,255,255,0.03);
@@ -133,12 +133,12 @@ a[href="https://c0mpute.ai"]::after {
 /* ── Sidebar ── */
 .menu {
   padding: 1rem 0.8rem;
-  font-size: 0.85rem;
+  font-size: 0.9rem;
   font-family: 'Courier New', 'Monaco', 'Consolas', monospace;
 }
 
 .menu__link {
-  font-size: 0.85rem;
+  font-size: 0.9rem;
   border-radius: 8px;
   padding: 0.5rem 0.9rem;
   font-weight: 400;
@@ -218,18 +218,18 @@ article {
 
 .markdown p {
   font-family: 'Courier New', 'Monaco', 'Consolas', monospace;
-  color: rgba(255,255,255,0.7);
-  line-height: 1.8;
+  color: rgba(255,255,255,0.9);
+  line-height: 1.85;
   margin-bottom: 1.2rem;
-  font-size: 0.9rem;
+  font-size: 1rem;
 }
 
 .markdown li {
   font-family: 'Courier New', 'Monaco', 'Consolas', monospace;
-  color: rgba(255,255,255,0.7);
-  line-height: 1.75;
-  margin-bottom: 0.3rem;
-  font-size: 0.9rem;
+  color: rgba(255,255,255,0.9);
+  line-height: 1.85;
+  margin-bottom: 0.4rem;
+  font-size: 1rem;
 }
 
 .markdown strong {
@@ -332,12 +332,12 @@ table tr:nth-child(even) {
 }
 
 .table-of-contents {
-  font-size: 0.75rem;
+  font-size: 0.8rem;
   font-family: 'Courier New', 'Monaco', 'Consolas', monospace;
 }
 
 .table-of-contents__link {
-  color: rgba(255,255,255,0.35);
+  color: rgba(255,255,255,0.62);
   transition: color 0.15s;
 }
 

@@ -1,0 +1,11 @@
+[Unit]
+Description=c0mpute DB off-site backup (Supabase Storage)
+After=network.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/root/.openclaw/workspace/c0mpute
+ExecStart=/usr/bin/npx tsx scripts/backup-db.ts
+Environment=NODE_ENV=production
+# Dormant until SUPABASE_URL / SUPABASE_SERVICE_KEY / SUPABASE_BACKUP_BUCKET
+# are set in .env.local — exits 0 with a log line if they're missing.

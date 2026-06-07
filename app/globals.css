@@ -117,6 +117,18 @@
   * {
     @apply border-border outline-ring/50;
   }
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  a[href],
+  label[for],
+  summary,
+  select {
+    cursor: pointer;
+  }
+  button:disabled,
+  [aria-disabled="true"] {
+    cursor: not-allowed;
+  }
   html {
     margin: 0;
     padding: 0;
@@ -241,7 +253,7 @@
   font-family: 'Courier New', 'Monaco', 'Consolas', monospace;
   letter-spacing: 0.01em;
   font-weight: 400;
-  line-height: 1.6;
+  line-height: 1.8;
 }
 
 .pixel-sans strong,
@@ -408,23 +420,18 @@ div[role="dialog"] button {
   font-family: "argent-pixel-cf", 'Courier New', monospace !important;
 }
 
-/* Target the modal container itself */
-div[role="dialog"][aria-modal="true"] {
-  border-radius: 0 !important;
-}
-
+/* Target the modal container itself (square corners only, no border here) */
+div[role="dialog"][aria-modal="true"],
 div[role="dialog"][aria-modal="true"] > div {
   border-radius: 0 !important;
-  border: 1px solid rgba(255, 255, 255, 0.2) !important;
 }
 
-/* Add border to Privy modal */
-#privy-dialog > div,
-#privy-modal-content,
-[id^="privy"] > div:first-child,
-[class*="PrivyModal"],
-[class*="privy-modal"],
-[class*="Modal"] {
+/* Border ONLY the visible modal card. The previous broad selectors
+   (#privy-dialog > div, [id^="privy"] > div:first-child, [class*="Modal"], ...)
+   also bordered the backdrop, an outer full-width wrapper, AND the inner
+   content div — that inner border was the "box inside a box" and it crowded
+   the buttons against the edges. One border, one element. */
+#privy-modal-content {
   border: 1px solid rgba(255, 255, 255, 0.2) !important;
 }
 
@@ -492,4 +499,15 @@ div[role="dialog"] button[data-testid*="twitter"] {
   0%, 20% { opacity: 0; }
   50% { opacity: 1; }
   100% { opacity: 0; }
+}
+
+/* Hide native number-input spinner arrows */
+input[type='number']::-webkit-inner-spin-button,
+input[type='number']::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type='number'] {
+  -moz-appearance: textfield;
+  appearance: textfield;
 }
