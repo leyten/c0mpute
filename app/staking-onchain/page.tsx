@@ -42,6 +42,7 @@ export default function OnchainStakingPage() {
   const [claimable, setClaimable] = useState(0);
   const [autoTried, setAutoTried] = useState(false);
   const [custodial, setCustodial] = useState(0); // legacy custodial stake awaiting migration
+  const [custodialRewards, setCustodialRewards] = useState(0); // legacy custodial USDC rewards awaiting migration
   const [migrating, setMigrating] = useState(false);
   const [migrateMsg, setMigrateMsg] = useState<string | null>(null);
   const [stakeAmt, setStakeAmt] = useState('');
@@ -63,7 +64,7 @@ export default function OnchainStakingPage() {
         setClaimable(d.claimable ?? 0);
       }
       const rc = await fetch('/api/staking/status', { headers: { Authorization: `Bearer ${t}` } });
-      if (rc.ok) { const dc = await rc.json(); setCustodial(dc.stakedAmount ?? 0); }
+      if (rc.ok) { const dc = await rc.json(); setCustodial(dc.stakedAmount ?? 0); setCustodialRewards(dc.claimableUsd ?? 0); }
     } catch {}
   }, [getAccessToken]);
 
@@ -73,8 +74,13 @@ export default function OnchainStakingPage() {
       const t = await getAccessToken();
       const r = await fetch('/api/staking/migrate', { method: 'POST', headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' }, body: '{}' });
       const d = await r.json();
-      if (r.ok) { setMigrateMsg(`Migrated ${intnum(d.migrated)} ZERO to self-custody`); setCustodial(0); setTimeout(refresh, 2500); }
-      else setMigrateMsg(d.error || 'Migration failed');
+      if (r.ok) {
+        const parts = [];
+        if (d.migrated > 0) parts.push(`${intnum(d.migrated)} ZERO`);
+        if (d.migratedRewards > 0) parts.push(`$${d.migratedRewards.toFixed(2)} USDC rewards`);
+        setMigrateMsg(parts.length ? `Migrated ${parts.join(' + ')} to self-custody` : 'Nothing left to migrate');
+        setCustodial(0); setCustodialRewards(0); setTimeout(refresh, 2500);
+      } else setMigrateMsg(d.error || 'Migration failed');
     } catch (e) { setMigrateMsg(e instanceof Error ? e.message : 'Migration failed'); }
     finally { setMigrating(false); }
   };
@@ -152,11 +158,11 @@ export default function OnchainStakingPage() {
             <div className="space-y-6">
               <div className="pixel-sans text-white/50 text-xs">wallet: <span className="font-mono text-[#80a0c1]">{wallet.address.slice(0, 6)}…{wallet.address.slice(-6)}</span></div>
 
-              {custodial > 0 && (
+              {(custodial > 0 || custodialRewards > 0) && (
                 <section className="border border-[#80a0c1]/40 bg-[#80a0c1]/[0.08] p-6 rounded-2xl">
                   <h2 className="pixel-serif text-white text-xl mb-2">Migrate to self-custody</h2>
                   <p className="pixel-sans text-white/70 text-sm mb-4">
-                    You have <span className="text-white">{intnum(custodial)} ZERO</span> in the old custodial staking. Move it into your own on-chain vault — one click, no unstake/restake, and your 24h earning status carries over.
+                    You have{custodial > 0 ? <> <span className="text-white">{intnum(custodial)} ZERO staked</span></> : ''}{custodial > 0 && custodialRewards > 0 ? ' and' : ''}{custodialRewards > 0 ? <> <span className="text-white">${custodialRewards.toFixed(2)} in rewards</span></> : ''} in the old custodial system. Move it into your own on-chain vault — one click, no unstake/restake, and your 24h earning status carries over.
                   </p>
                   <button disabled={migrating} onClick={handleMigrate} className={btn}>
                     {migrating ? 'Migrating…' : 'Migrate to self-custody'}
