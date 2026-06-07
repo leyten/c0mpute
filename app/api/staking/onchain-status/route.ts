@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyPrivyToken } from '@/lib/privy-server';
-import { getZeroMint } from '@/lib/tokenomics';
+import { getZeroMint, WORKER_STAKE_THRESHOLD, WORKER_STAKED_REVENUE_SHARE } from '@/lib/tokenomics';
+import { getWorkerRevenueShare, getStakePosition } from '@/lib/staking';
 import Database from 'better-sqlite3';
 import path from 'path';
 import { Connection, PublicKey } from '@solana/web3.js';
@@ -81,5 +82,13 @@ export async function GET(req: NextRequest) {
     const matureFrac = mature / lotSum;
     mature = staked * matureFrac; cooling = staked - mature;
   }
-  return NextResponse.json({ staked, mature, cooling, nextMatureAt, claimable, address: owner });
+  // worker boost: combined (custodial + on-chain) mature stake vs threshold — same
+  // check the orchestrator uses to pay 80% vs 70%.
+  const matureForBoost = mature + getStakePosition(privyId).matureAmount;
+  const workerBoostActive = getWorkerRevenueShare(privyId) >= WORKER_STAKED_REVENUE_SHARE;
+
+  return NextResponse.json({
+    staked, mature, cooling, nextMatureAt, claimable, address: owner,
+    workerThreshold: WORKER_STAKE_THRESHOLD, workerBoostActive, matureForBoost,
+  });
 }
