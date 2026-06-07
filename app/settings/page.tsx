@@ -11,6 +11,8 @@ export default function SettingsPage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [linkingTwitter, setLinkingTwitter] = useState(false);
+  const [linkingWallet, setLinkingWallet] = useState(false);
+  const [unlinkingWallet, setUnlinkingWallet] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
 
   const {
@@ -22,6 +24,10 @@ export default function SettingsPage() {
     xUsername,
     hasTwitter,
     linkTwitter,
+    linkWallet,
+    unlinkWallet,
+    hasWallet,
+    walletAddress,
     deleteAccount,
     refreshProfile,
     getAccessToken,
@@ -282,6 +288,29 @@ export default function SettingsPage() {
     }
   };
 
+  const handleLinkWallet = async () => {
+    setLinkingWallet(true);
+    try {
+      await linkWallet();
+      setTimeout(() => { refreshProfile(); setLinkingWallet(false); }, 1000);
+    } catch (error) {
+      console.error('Failed to link wallet:', error);
+      setLinkingWallet(false);
+    }
+  };
+
+  const handleUnlinkWallet = async () => {
+    if (!walletAddress) return;
+    setUnlinkingWallet(true);
+    try {
+      await unlinkWallet(walletAddress);
+      setTimeout(() => { refreshProfile(); setUnlinkingWallet(false); }, 1000);
+    } catch (error) {
+      console.error('Failed to unlink wallet:', error);
+      setUnlinkingWallet(false);
+    }
+  };
+
   const handleDeleteAccount = async () => {
     setDeleteLoading(true);
     const success = await deleteAccount();
@@ -385,7 +414,50 @@ export default function SettingsPage() {
                       <div className="pixel-sans text-xs text-white/60">Connected</div>
                     )}
                   </div>
+
+                  {/* Solana Wallet Connection */}
+                  <div className="flex items-center justify-between py-3 border-t border-white/5">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 flex items-center justify-center">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-white/70">
+                          <path d="M21 12V7H5a2 2 0 0 1 0-4h14v4" />
+                          <path d="M3 5v14a2 2 0 0 0 2 2h16v-5" />
+                          <path d="M18 12a2 2 0 0 0 0 4h4v-4Z" />
+                        </svg>
+                      </div>
+                      <div>
+                        <div className="pixel-sans text-white text-sm">Solana Wallet</div>
+                        {hasWallet && walletAddress ? (
+                          <button
+                            onClick={() => copyToClipboard(walletAddress, 'wallet')}
+                            className="pixel-sans text-white/70 hover:text-white text-xs mt-1 font-mono flex items-center gap-1 transition-colors"
+                          >
+                            {walletAddress.slice(0, 4)}...{walletAddress.slice(-4)}
+                            {copied === 'wallet' ? (
+                              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-green-400"><path d="M20 6L9 17l-5-5" /></svg>
+                            ) : (
+                              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" /></svg>
+                            )}
+                          </button>
+                        ) : (
+                          <div className="pixel-sans text-white/60 text-xs mt-1">Not connected</div>
+                        )}
+                      </div>
+                    </div>
+                    {!hasWallet ? (
+                      <button onClick={handleLinkWallet} disabled={linkingWallet} className="cursor-pointer pixel-serif text-xs px-4 py-2 border border-white/20 text-white hover:bg-white/5 transition-colors disabled:opacity-50">
+                        {linkingWallet ? '...' : 'Connect Wallet'}
+                      </button>
+                    ) : hasTwitter ? (
+                      <button onClick={handleUnlinkWallet} disabled={unlinkingWallet} className="cursor-pointer pixel-sans text-xs text-red-400/60 hover:text-red-400 transition-colors disabled:opacity-50">
+                        {unlinkingWallet ? '...' : 'Disconnect'}
+                      </button>
+                    ) : (
+                      <div className="pixel-sans text-xs text-white/60">Connected</div>
+                    )}
+                  </div>
                 </div>
+                <p className="pixel-sans text-white/45 text-[11px] mt-4">Connect a Solana wallet (Phantom, Solflare, Backpack) to stake $ZERO and manage on-chain actions yourself. Required for staking and on-chain withdrawals.</p>
               </section>
 
               {/* Account Info Section */}
