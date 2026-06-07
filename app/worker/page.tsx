@@ -352,6 +352,23 @@ export default function WorkerPage() {
     }
   }, [isAuthenticated, getAccessToken, refreshEarnings]);
 
+  // Poll lifetime stats so the "Jobs" count tracks real (canary-excluded) completed
+  // jobs and stays consistent with earnings — canaries are anti-cheat probes that pay
+  // nothing and must NOT show as real jobs.
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const tick = async () => {
+      const t = await getAccessToken();
+      if (!t) return;
+      try {
+        const r = await fetch('/api/worker-stats', { headers: { Authorization: `Bearer ${t}` } });
+        if (r.ok) { const d = await r.json(); if (d?.stats) setLifetimeStats(d.stats); }
+      } catch { /* ignore */ }
+    };
+    const id = setInterval(tick, 20000);
+    return () => clearInterval(id);
+  }, [isAuthenticated, getAccessToken]);
+
   // Socket connection (waits for auth token)
   const {
     isConnected,
@@ -975,7 +992,7 @@ export default function WorkerPage() {
                   <div className="pixel-sans text-white/70 text-xs mt-2">Uptime</div>
                 </div>
                 <div className="flex flex-col items-center justify-center p-4 bg-white/[0.02] border border-white/5 rounded-xl min-h-[90px]">
-                  <div className="pixel-serif text-white text-2xl md:text-3xl">{nativeStatus?.online ? nativeStatus.jobsCompleted : stats.jobsCompleted}</div>
+                  <div className="pixel-serif text-white text-2xl md:text-3xl">{lifetimeStats?.totalJobs ?? (nativeStatus?.online ? nativeStatus.jobsCompleted : stats.jobsCompleted)}</div>
                   <div className="pixel-sans text-white/70 text-xs mt-2">Jobs</div>
                 </div>
                 <div className="flex flex-col items-center justify-center p-4 bg-white/[0.02] border border-white/5 rounded-xl min-h-[90px]">
