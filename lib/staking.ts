@@ -292,8 +292,13 @@ export function getAllStakingWallets(): { privyId: string; publicKey: string }[]
 
 export function getTotalStaked(): number {
   const db = getDb();
-  const row = db.prepare('SELECT COALESCE(SUM(staked_amount), 0) AS total FROM staking_positions').get() as { total: number };
-  return row.total;
+  const custodial = (db.prepare('SELECT COALESCE(SUM(staked_amount), 0) AS total FROM staking_positions').get() as { total: number }).total;
+  // include migrated self-custody stake (onchain_stake_lots, keyed by wallet)
+  let onchain = 0;
+  try {
+    onchain = (db.prepare('SELECT COALESCE(SUM(amount), 0) AS total FROM onchain_stake_lots').get() as { total: number }).total;
+  } catch { /* table not created yet */ }
+  return custodial + onchain;
 }
 
 // ── Rewards ──
