@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyPrivyToken } from '@/lib/privy-server';
 import { getStakingWalletSecret } from '@/lib/staking';
-import { isTreasuryConfigured, getTokenUiBalance } from '@/lib/payout';
+import { isTreasuryConfigured, getTokenUiBalance, loadTreasuryKeypair } from '@/lib/payout';
 import { getZeroMint, isZeroLaunched } from '@/lib/tokenomics';
 import { migrateLotsToOnchain } from '@/lib/keeper/onchain-rewards';
 import Database from 'better-sqlite3';
@@ -19,12 +19,6 @@ const inflight = new Set<string>();
 
 function stakingProgramId(): PublicKey {
   return new PublicKey(process.env.NEXT_PUBLIC_STAKING_PROGRAM_ID || 'BU3JcQJBsFZwNV2DHSPeu3hKLsfarLS2AU5RuVhJrYKM');
-}
-function treasuryKeypair(): Keypair {
-  const k = process.env.TREASURY_WALLET_KEY!;
-  if (k.trim().startsWith('[')) return Keypair.fromSecretKey(Uint8Array.from(JSON.parse(k)));
-  const bs58 = require('bs58');
-  return Keypair.fromSecretKey(bs58.decode(k));
 }
 function linkedWalletFor(privyId: string): string | null {
   const db = new Database(path.join(process.cwd(), 'data', 'c0mpute.db'), { readonly: true });
@@ -77,7 +71,7 @@ export async function POST(req: NextRequest) {
     const vault = getAssociatedTokenAddressSync(mint, stakeAuth, true, TOKEN_2022_PROGRAM_ID);
     const before = await rawBal(vault);
 
-    const treasury = treasuryKeypair();
+    const treasury = loadTreasuryKeypair();
     const amtBuf = Buffer.alloc(8); amtBuf.writeBigUInt64LE(amount);
     const stakeIx = new TransactionInstruction({
       programId: stakingProgramId(),

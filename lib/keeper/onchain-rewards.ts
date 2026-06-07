@@ -17,6 +17,7 @@ import {
 import Database from 'better-sqlite3';
 import path from 'path';
 import { STAKE_MIN_AGE_MS } from '../tokenomics';
+import { loadTreasuryKeypair } from '../payout';
 
 const USDC_DECIMALS = 6;
 
@@ -40,13 +41,7 @@ function usdcMint(): PublicKey {
   return new PublicKey(m);
 }
 function keeperKeypair(): Keypair {
-  const k = process.env.TREASURY_WALLET_KEY;
-  if (!k) throw new Error('[keeper v2] TREASURY_WALLET_KEY not set');
-  // base58 or JSON byte array (mirror lib/payout.ts loader)
-  if (k.trim().startsWith('[')) return Keypair.fromSecretKey(Uint8Array.from(JSON.parse(k)));
-  // base58
-  const bs58 = require('bs58');
-  return Keypair.fromSecretKey(bs58.decode(k));
+  return loadTreasuryKeypair(); // proven loader (handles base58 + JSON array)
 }
 
 export function rewardAuthority(owner: PublicKey): PublicKey {

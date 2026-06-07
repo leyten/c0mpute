@@ -38,7 +38,7 @@ export function isTreasuryConfigured(): boolean {
   return !!process.env.TREASURY_WALLET_KEY;
 }
 
-function loadTreasuryKeypair(): Keypair {
+export function loadTreasuryKeypair(): Keypair {
   const raw = process.env.TREASURY_WALLET_KEY;
   if (!raw) throw new Error('TREASURY_WALLET_KEY not set');
   const trimmed = raw.trim();
