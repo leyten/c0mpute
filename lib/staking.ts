@@ -226,10 +226,35 @@ export function syncStake(privyId: string, onChainAmount: number): StakePosition
   return getStakePosition(privyId);
 }
 
-/** Worker's effective revenue share, boosted if their >=24h-aged stake clears the threshold. */
+/**
+ * Mature (>=24h) ON-CHAIN stake for a user, looked up via their linked wallet. Stake
+ * that has migrated to self-custody lives in onchain_stake_lots (keyed by wallet), so
+ * the worker-boost check must include it — otherwise migrated workers silently lose
+ * the boost. Best-effort: 0 if no linked wallet / table missing.
+ */
+function onchainMatureStake(privyId: string): number {
+  const db = getDb();
+  const prof = db.prepare('SELECT wallet_address FROM profiles WHERE privy_id = ?').get(privyId) as
+    | { wallet_address: string | null }
+    | undefined;
+  const owner = prof?.wallet_address?.trim();
+  if (!owner) return 0;
+  let rows: { amount: number; since: string }[] = [];
+  try {
+    rows = db.prepare('SELECT amount, since FROM onchain_stake_lots WHERE owner = ?').all(owner) as typeof rows;
+  } catch {
+    return 0; // table not created yet
+  }
+  let mature = 0;
+  for (const r of rows) if (Date.now() - new Date(r.since).getTime() >= STAKE_MIN_AGE_MS) mature += r.amount;
+  return mature;
+}
+
+/** Worker's effective revenue share, boosted if their >=24h-aged stake (custodial +
+ *  on-chain self-custody) clears the threshold. */
 export function getWorkerRevenueShare(privyId: string): number {
-  const pos = getStakePosition(privyId);
-  if (pos.matureAmount >= WORKER_STAKE_THRESHOLD) return WORKER_STAKED_REVENUE_SHARE;
+  const totalMature = getStakePosition(privyId).matureAmount + onchainMatureStake(privyId);
+  if (totalMature >= WORKER_STAKE_THRESHOLD) return WORKER_STAKED_REVENUE_SHARE;
   return WORKER_REVENUE_SHARE;
 }
 
