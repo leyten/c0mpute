@@ -43,6 +43,13 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: path.join(__dirname),
   },
+  // Polyfill Buffer for client-side @solana/web3.js (on-chain staking UI).
+  // Only affects the webpack build; turbopack ignores this callback.
+  webpack: (config, { webpack }) => {
+    config.resolve.fallback = { ...config.resolve.fallback, buffer: require.resolve("buffer/") };
+    config.plugins.push(new webpack.ProvidePlugin({ Buffer: ["buffer", "Buffer"] }));
+    return config;
+  },
   // Enable proper headers for WebLLM model files
   async headers() {
     return [
