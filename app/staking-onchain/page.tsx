@@ -5,28 +5,42 @@
 // route so it can't disturb the live custodial /staking page until migration is ready.
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { usePrivy, useLinkAccount } from '@privy-io/react-auth';
+import { usePrivy, useLinkAccount, useConnectWallet } from '@privy-io/react-auth';
 import { useWallets, useSignAndSendTransaction } from '@privy-io/react-auth/solana';
 import { PublicKey } from '@solana/web3.js';
 import {
-  buildStakeTx, buildUnstakeTx, buildClaimTx, readStaked, readClaimable,
-  mintsConfigured, SOLANA_CHAIN, RPC_URL,
+  buildStakeTx, buildUnstakeTx, buildClaimTx, readStakeChunks, readClaimable,
+  mintsConfigured, SOLANA_CHAIN, RPC_URL, type StakeChunks,
 } from '@/lib/onchain-staking';
 
 const num = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 6 });
+const intnum = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 0 });
+function countdown(ts: number | null): string {
+  if (!ts) return '';
+  const r = ts - Date.now();
+  if (r <= 0) return '';
+  return `${Math.floor(r / 3_600_000)}h ${Math.floor((r % 3_600_000) / 60_000)}m`;
+}
 
 export default function OnchainStakingPage() {
   const router = useRouter();
-  const { ready, authenticated, login } = usePrivy();
+  const { ready, authenticated, login, user } = usePrivy();
   const { linkWallet } = useLinkAccount();
+  const { connectWallet } = useConnectWallet();
   const { wallets } = useWallets();
   const { signAndSendTransaction } = useSignAndSendTransaction();
 
   const wallet = wallets?.[0];
   const owner = wallet ? new PublicKey(wallet.address) : null;
 
-  const [staked, setStaked] = useState(0);
+  // the wallet already linked to this Privy account (identity), even if not yet connected
+  const linkedWallet = (user?.linkedAccounts ?? []).find(
+    (a): a is typeof a & { address: string } =>
+      a.type === 'wallet' && (a as { chainType?: string }).chainType === 'solana');
+
+  const [chunks, setChunks] = useState<StakeChunks>({ staked: 0, mature: 0, cooling: 0, nextMatureAt: null });
   const [claimable, setClaimable] = useState(0);
+  const [autoTried, setAutoTried] = useState(false);
   const [stakeAmt, setStakeAmt] = useState('');
   const [unstakeAmt, setUnstakeAmt] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
@@ -36,12 +50,22 @@ export default function OnchainStakingPage() {
   const refresh = useCallback(async () => {
     if (!owner) return;
     try {
-      const [s, c] = await Promise.all([readStaked(owner), readClaimable(owner)]);
-      setStaked(s); setClaimable(c);
+      const [ch, c] = await Promise.all([readStakeChunks(owner), readClaimable(owner)]);
+      setChunks(ch); setClaimable(c);
     } catch {}
   }, [owner?.toBase58()]);
 
   useEffect(() => { refresh(); }, [refresh]);
+
+  // Auto-connect: if a wallet is already linked to this account but not connected in
+  // this session, eagerly start the connect once (Phantom auto-approves trusted sites,
+  // so on return visits this is silent and there's nothing to click).
+  useEffect(() => {
+    if (ready && authenticated && !wallet && linkedWallet && !autoTried) {
+      setAutoTried(true);
+      try { connectWallet({ walletChainType: 'solana-only' }); } catch {}
+    }
+  }, [ready, authenticated, wallet, linkedWallet, autoTried, connectWallet]);
 
   const run = async (label: string, build: (o: PublicKey) => Promise<Uint8Array>) => {
     if (!owner || !wallet) return;
@@ -89,24 +113,43 @@ export default function OnchainStakingPage() {
             <button onClick={login} className={btn}>Log in</button>
           ) : !wallet ? (
             <div className={card}>
-              <p className="pixel-sans text-white/70 text-sm mb-4">Connect a Solana wallet (Phantom, Solflare, Backpack) to stake from self-custody.</p>
-              <button onClick={() => linkWallet()} className={btn}>Connect Wallet</button>
+              {linkedWallet ? (
+                <p className="pixel-sans text-white/70 text-sm mb-4">
+                  Connecting your linked wallet <span className="font-mono text-[#80a0c1]">{linkedWallet.address.slice(0, 4)}…{linkedWallet.address.slice(-4)}</span>. Approve it in your wallet if prompted — after the first time it reconnects automatically.
+                </p>
+              ) : (
+                <p className="pixel-sans text-white/70 text-sm mb-4">Connect a Solana wallet (Phantom, Solflare, Backpack) to stake from self-custody.</p>
+              )}
+              <button onClick={() => (linkedWallet ? connectWallet({ walletChainType: 'solana-only' }) : linkWallet())} className={btn}>
+                {linkedWallet ? 'Connect' : 'Connect Wallet'}
+              </button>
             </div>
           ) : (
             <div className="space-y-6">
               <div className="pixel-sans text-white/50 text-xs">wallet: <span className="font-mono text-[#80a0c1]">{wallet.address.slice(0, 6)}…{wallet.address.slice(-6)}</span></div>
 
               <section className={card}>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-3 gap-3 mb-3">
                   <div className="text-center p-4 bg-white/[0.02] border border-white/5 rounded-xl">
-                    <div className="pixel-serif text-white text-2xl">{num(staked)}</div>
+                    <div className="pixel-serif text-white text-2xl">{intnum(chunks.staked)}</div>
                     <div className="pixel-sans text-white/70 text-xs mt-1">ZERO staked</div>
                   </div>
                   <div className="text-center p-4 bg-white/[0.02] border border-white/5 rounded-xl">
-                    <div className="pixel-serif text-green-400 text-2xl"><span className="dollar">$</span>{num(claimable)}</div>
-                    <div className="pixel-sans text-white/70 text-xs mt-1">claimable USDC</div>
+                    <div className="pixel-serif text-green-400 text-2xl">{intnum(chunks.mature)}</div>
+                    <div className="pixel-sans text-white/70 text-xs mt-1">earning</div>
+                  </div>
+                  <div className="text-center p-4 bg-white/[0.02] border border-white/5 rounded-xl">
+                    <div className="pixel-serif text-white/70 text-2xl">{intnum(chunks.cooling)}</div>
+                    <div className="pixel-sans text-white/70 text-xs mt-1">
+                      {chunks.cooling > 0 && countdown(chunks.nextMatureAt) ? `matures in ${countdown(chunks.nextMatureAt)}` : 'cooling down'}
+                    </div>
                   </div>
                 </div>
+                <div className="text-center p-4 bg-[#80a0c1]/[0.06] border border-[#80a0c1]/20 rounded-xl">
+                  <div className="pixel-serif text-green-400 text-2xl"><span className="dollar">$</span>{num(claimable)}</div>
+                  <div className="pixel-sans text-white/70 text-xs mt-1">claimable USDC</div>
+                </div>
+                <p className="pixel-sans text-white/45 text-[11px] mt-3">Stake earns rewards after 24h (anti-snipe). Unstaking pulls your newest deposits first, so aged stake keeps earning.</p>
               </section>
 
               <section className={card}>
@@ -125,9 +168,9 @@ export default function OnchainStakingPage() {
                 <div className="flex items-center gap-2 bg-white/[0.03] border border-white/10 rounded-lg p-3 mb-3">
                   <input type="number" inputMode="decimal" min="0" value={unstakeAmt} onChange={(e) => setUnstakeAmt(e.target.value)} placeholder="0" className={input} />
                   <span className="pixel-sans text-white/60 text-xs">ZERO</span>
-                  <button onClick={() => setUnstakeAmt(String(staked))} className="pixel-sans text-xs px-2.5 py-1.5 rounded-lg border border-white/10 text-white/70 hover:text-white hover:bg-white/5">Max</button>
+                  <button onClick={() => setUnstakeAmt(String(chunks.staked))} className="pixel-sans text-xs px-2.5 py-1.5 rounded-lg border border-white/10 text-white/70 hover:text-white hover:bg-white/5">Max</button>
                 </div>
-                <button disabled={!!busy || !mintsConfigured() || !(parseFloat(unstakeAmt) > 0) || parseFloat(unstakeAmt) > staked} onClick={() => run('Unstake', (o) => buildUnstakeTx(o, parseFloat(unstakeAmt)))} className={btn}>
+                <button disabled={!!busy || !mintsConfigured() || !(parseFloat(unstakeAmt) > 0) || parseFloat(unstakeAmt) > chunks.staked} onClick={() => run('Unstake', (o) => buildUnstakeTx(o, parseFloat(unstakeAmt)))} className={btn}>
                   {busy === 'Unstake' ? 'Confirm in wallet…' : 'Unstake'}
                 </button>
               </section>

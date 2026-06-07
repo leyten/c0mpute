@@ -140,3 +140,53 @@ export const readClaimable = (owner: PublicKey) =>
   USDC_MINT ? vaultBalance(rewardVault(owner, new PublicKey(USDC_MINT)), TOKEN_PROGRAM_ID, USDC_DECIMALS) : Promise.resolve(0);
 
 export const mintsConfigured = () => Boolean(ZERO_MINT && USDC_MINT);
+
+// ── maturity chunks (derived purely from on-chain stake-vault history, no server) ──
+// Replays the vault's deposit/withdraw history; each remaining deposit "chunk" is
+// classified earning (>=24h) vs cooling (<24h). Withdrawals consume the most-recent
+// chunks first (LIFO) so aged stake keeps earning — same rule as the custodial page.
+export interface StakeChunks { staked: number; mature: number; cooling: number; nextMatureAt: number | null; }
+const DAY_MS = 86_400_000;
+
+export async function readStakeChunks(owner: PublicKey): Promise<StakeChunks> {
+  const empty: StakeChunks = { staked: 0, mature: 0, cooling: 0, nextMatureAt: null };
+  if (!ZERO_MINT) return empty;
+  const vault = stakeVault(owner, new PublicKey(ZERO_MINT));
+  const conn = connection();
+  const sigs = await conn.getSignaturesForAddress(vault, { limit: 100 });
+  if (!sigs.length) return empty;
+  const ordered = sigs.slice().reverse(); // oldest first
+  const txs = await conn.getParsedTransactions(ordered.map((s) => s.signature), { maxSupportedTransactionVersion: 0 });
+  const vaultStr = vault.toBase58();
+
+  const chunks: { time: number; amount: number }[] = []; // amount = raw base units
+  txs.forEach((tx, i) => {
+    if (!tx?.meta || !ordered[i].blockTime) return;
+    const keys = tx.transaction.message.accountKeys.map((k) => k.pubkey.toBase58());
+    const idx = keys.indexOf(vaultStr);
+    if (idx < 0) return;
+    const pre = tx.meta.preTokenBalances?.find((b) => b.accountIndex === idx);
+    const post = tx.meta.postTokenBalances?.find((b) => b.accountIndex === idx);
+    const delta = Number(post?.uiTokenAmount.amount ?? 0) - Number(pre?.uiTokenAmount.amount ?? 0);
+    if (delta === 0) return;
+    const time = ordered[i].blockTime! * 1000;
+    if (delta > 0) chunks.push({ time, amount: delta });
+    else {
+      let rem = -delta;
+      while (rem > 0 && chunks.length) {
+        const last = chunks[chunks.length - 1];
+        if (last.amount <= rem) { rem -= last.amount; chunks.pop(); }
+        else { last.amount -= rem; rem = 0; }
+      }
+    }
+  });
+
+  const now = Date.now();
+  let mature = 0, cooling = 0, nextMatureAt: number | null = null;
+  for (const c of chunks) {
+    if (now - c.time >= DAY_MS) mature += c.amount;
+    else { cooling += c.amount; const m = c.time + DAY_MS; if (nextMatureAt === null || m < nextMatureAt) nextMatureAt = m; }
+  }
+  const d = 10 ** ZERO_DECIMALS;
+  return { staked: (mature + cooling) / d, mature: mature / d, cooling: cooling / d, nextMatureAt };
+}
