@@ -166,8 +166,17 @@ export async function fundStakerRewardVault(
   tx.feePayer = keeper.publicKey;
   const sig = await sendAndConfirmTransaction(conn, tx, [keeper]);
 
-  const after = await safeBal(conn, vault);
-  if (after !== before + amountRaw) throw new Error(`reward vault mismatch for ${owner}: ${after} != ${before + amountRaw}`);
+  // Verify with retry: a getAccount right after sendAndConfirmTransaction can read a
+  // stale (pre-tx) balance on a lagging RPC node. Poll until it reflects the deposit
+  // before concluding failure — avoids false "mismatch" that prompts a double-fund.
+  const want = before + amountRaw;
+  let after = BigInt(0);
+  for (let i = 0; i < 8; i++) {
+    after = await safeBal(conn, vault);
+    if (after >= want) break;
+    await new Promise((r) => setTimeout(r, 800));
+  }
+  if (after < want) throw new Error(`reward vault mismatch for ${owner}: ${after} < ${want}`);
   return { sig, amountRaw };
 }
 
