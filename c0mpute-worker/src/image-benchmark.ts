@@ -20,7 +20,9 @@ function benchWorkflow(): Record<string, unknown> {
     '17': { class_type: 'KSamplerSelect', inputs: { sampler_name: 'euler' } },
     '18': { class_type: 'BetaSamplingScheduler', inputs: { model: ['13', 0], steps: 8, alpha: 0.45, beta: 0.45 } },
     '19': { class_type: 'EmptySD3LatentImage', inputs: { width: 512, height: 512, batch_size: 1 } },
-    '20': { class_type: 'RandomNoise', inputs: { noise_seed: 12345 } },
+    // Random seed each run so ComfyUI actually renders (a fixed seed gets a
+    // cached result that points at an already-deleted output file → /view 404).
+    '20': { class_type: 'RandomNoise', inputs: { noise_seed: Math.floor(Math.random() * 2_000_000_000) } },
     '21': { class_type: 'SamplerCustomAdvanced', inputs: { noise: ['20', 0], guider: ['16', 0], sampler: ['17', 0], sigmas: ['18', 0], latent_image: ['19', 0] } },
     '22': { class_type: 'VAEDecode', inputs: { samples: ['21', 0], vae: ['12', 0] } },
     '9': { class_type: 'SaveImage', inputs: { filename_prefix: 'bench', images: ['22', 0] } },
