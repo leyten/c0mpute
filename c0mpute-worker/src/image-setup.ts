@@ -102,7 +102,18 @@ function ensureComfyInstalled(): void {
 }
 
 async function remoteSize(url: string): Promise<number> {
-  try { const r = await fetch(url, { method: 'HEAD' }); return Number(r.headers.get('content-length') || 0); } catch { return 0; }
+  try {
+    const h = await fetch(url, { method: 'HEAD' });
+    const cl = Number(h.headers.get('content-length') || 0);
+    if (cl > 0) return cl;
+    // Some HuggingFace backends omit content-length on HEAD — read the true
+    // total from a 1-byte ranged GET's Content-Range ("bytes 0-0/<total>").
+    const g = await fetch(url, { headers: { Range: 'bytes=0-0' } });
+    try { (g.body as any)?.cancel?.(); } catch {}
+    const cr = g.headers.get('content-range') || '';
+    const total = cr.includes('/') ? Number(cr.split('/').pop()) : 0;
+    return total > 0 ? total : 0;
+  } catch { return 0; }
 }
 
 // Download to a .part file and rename on success — so an interrupted download
