@@ -124,6 +124,7 @@ export default function Home() {
             
             {/* Center: Navigation - Hidden on mobile */}
             <div className="hidden md:flex items-center gap-8">
+              <a href="/create" className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide">Create</a>
               <a href="/user" className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide">User</a>
               <a href="/worker" className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide">Worker</a>
               <a href="/staking" className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide">Staking</a>
@@ -223,8 +224,15 @@ export default function Home() {
           {/* Mobile Menu Dropdown */}
           {menuOpen && (
             <div className="md:hidden bg-black/95 border border-white/10 border-t-0 rounded-b-2xl px-4 py-4 flex flex-col gap-4">
-              <a 
-                href="/user" 
+              <a
+                href="/create"
+                className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide"
+                onClick={() => setMenuOpen(false)}
+              >
+                Create
+              </a>
+              <a
+                href="/user"
                 className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide"
                 onClick={() => setMenuOpen(false)}
               >
