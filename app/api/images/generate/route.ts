@@ -3,7 +3,8 @@ import { verifyPrivyToken } from '@/lib/privy-server';
 import { resolveApiKey, spendCredits, refundCredits } from '@/lib/db';
 import { consumeStakerAllowance, refundStakerAllowance } from '@/lib/staker-allowance';
 import { STAKER_ALLOWANCE_ENABLED } from '@/lib/tokenomics';
-import { generateImage, IMAGE_CREDITS, IMAGE_MODEL_ID } from '@/lib/image-gen';
+import { buildImageWorkflow, IMAGE_CREDITS, IMAGE_MODEL_ID } from '@/lib/image-gen';
+import { submitImageJob, ImageJobError } from '@/lib/orchestrator-image-client';
 import { checkImagePromptSafety, classifyImageNsfw } from '@/lib/image-safety';
 
 export const runtime = 'nodejs';
@@ -12,6 +13,10 @@ export const dynamic = 'force-dynamic';
 // PRIVACY PILLAR: generated images are NEVER persisted — not to disk, not to the
 // DB. The PNG is returned inline to the caller and then dropped. The only record
 // kept is the credit transaction (no prompt, no image), which billing requires.
+//
+// DECENTRALIZED: the render runs on a contributor GPU. We build the workflow
+// centrally and submit it through the orchestrator, which dispatches it to an
+// image worker and returns the PNG. (No direct ComfyUI tunnel.)
 
 // Auth: accept either a Privy access token (the /create page) OR a c0mpute API
 // key (sk-c0mpute-…, for agents). Returns the owner's privy_id or null.
@@ -63,48 +68,58 @@ export async function POST(req: NextRequest) {
   const refund = (reason: string) =>
     usedAllowance ? refundStakerAllowance(privyId, IMAGE_CREDITS) : refundCredits(privyId, IMAGE_CREDITS, reason);
 
+  // Build the recipe centrally, then dispatch to a contributor GPU via the
+  // orchestrator. `image` is base64 PNG; nothing is stored server-side.
+  const { workflow, seed, width, height } = buildImageWorkflow({
+    prompt,
+    negativePrompt: typeof body.negative_prompt === 'string' ? body.negative_prompt : undefined,
+    width: body.width,
+    height: body.height,
+    steps: body.steps,
+    cfg: body.cfg,
+    seed: body.seed,
+  });
+
+  let image: string;
   try {
-    const result = await generateImage({
-      prompt,
-      negativePrompt: typeof body.negative_prompt === 'string' ? body.negative_prompt : undefined,
-      width: body.width,
-      height: body.height,
-      steps: body.steps,
-      cfg: body.cfg,
-      seed: body.seed,
-    });
-
-    // Output classifier is ON only in SFW mode (NSFW toggle off): a SFW user
-    // must not be served adult content. In NSFW mode the classifier is OFF —
-    // nothing is scanned, keeping adult generation fully uncensored + private.
-    // Either way the image is never stored; the scan is transient/in-memory.
-    if (!wantNsfw) {
-      const verdict = await classifyImageNsfw(result.png);
-      if (verdict.classifierUp && verdict.nsfw) {
-        refund('SFW request produced adult content');
-        return NextResponse.json(
-          { error: 'That came out as adult content. Turn on NSFW (18+) to allow it, or adjust your prompt.' },
-          { status: 400 }
-        );
-      }
-    }
-
-    // Return the image inline as a data URL — nothing is stored server-side.
-    const dataUrl = `data:image/png;base64,${result.png.toString('base64')}`;
-
-    return NextResponse.json({
-      image: dataUrl,
-      model: IMAGE_MODEL_ID,
-      seed: result.seed,
-      width: result.width,
-      height: result.height,
-      credits_charged: IMAGE_CREDITS,
-    });
+    const result = await submitImageJob(workflow, { privyId, seed, width, height });
+    image = result.image;
   } catch (err: any) {
-    // Backend/timeout failure → make the user whole.
     refund('Image generation failed');
+    const code = err instanceof ImageJobError ? err.code : undefined;
+    if (code === 'NO_IMAGE_WORKER') {
+      return NextResponse.json(
+        { error: 'Image generation is busy — no GPUs are free right now. Try again in a moment.', code },
+        { status: 503 }
+      );
+    }
     const msg = err?.message || 'Image generation failed.';
-    const status = /timed out/i.test(msg) ? 504 : 503;
+    const status = code === 'TIMEOUT' ? 504 : 503;
     return NextResponse.json({ error: msg }, { status });
   }
+
+  // Output classifier runs CENTRALLY here (we don't trust a worker to self-
+  // censor) — ON only in SFW mode. A SFW user must not be served adult content;
+  // the prompt was already SFW-filtered, so if the classifier is reachable and
+  // flags the image we block + refund. In NSFW mode nothing is scanned.
+  if (!wantNsfw) {
+    const verdict = await classifyImageNsfw(Buffer.from(image, 'base64'));
+    if (verdict.classifierUp && verdict.nsfw) {
+      refund('SFW request produced adult content');
+      return NextResponse.json(
+        { error: 'That came out as adult content. Turn on NSFW (18+) to allow it, or adjust your prompt.' },
+        { status: 400 }
+      );
+    }
+  }
+
+  // Return the image inline as a data URL — nothing is stored server-side.
+  return NextResponse.json({
+    image: `data:image/png;base64,${image}`,
+    model: IMAGE_MODEL_ID,
+    seed,
+    width,
+    height,
+    credits_charged: IMAGE_CREDITS,
+  });
 }
