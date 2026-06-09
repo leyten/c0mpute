@@ -134,7 +134,7 @@ export interface ClientToServerEvents {
   'job:error': (data: { jobId: string; error: string }) => void;
   'job:tool_call': (data: { jobId: string; toolCalls: ToolCall[] }) => void;
   // Image generation. Internal web -> orchestrator: submit a render.
-  'image:submit': (data: { workflow: Record<string, unknown>; privyUserId?: string; model?: string; seed?: number; width?: number; height?: number }, callback: (response: { jobId: string } | { error: string; code?: string }) => void) => void;
+  'image:submit': (data: { workflow: Record<string, unknown>; privyUserId?: string; model?: string; seed?: number; width?: number; height?: number; creditsCharged?: number }, callback: (response: { jobId: string } | { error: string; code?: string }) => void) => void;
   // Image worker -> orchestrator: result or failure.
   'image:result': (data: { jobId: string; image: string }) => void;
   'image:failed': (data: { jobId: string; error: string }) => void;

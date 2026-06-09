@@ -16,7 +16,7 @@ export class ImageJobError extends Error {
 
 export async function submitImageJob(
   workflow: Record<string, unknown>,
-  meta: { privyId: string; seed?: number; width?: number; height?: number }
+  meta: { privyId: string; seed?: number; width?: number; height?: number; creditsCharged?: number }
 ): Promise<ImageJobResult> {
   const internalSecret = process.env.INTERNAL_API_SECRET;
   if (!internalSecret) throw new ImageJobError('INTERNAL_API_SECRET not configured', 'CONFIG');
@@ -31,7 +31,7 @@ export async function submitImageJob(
     socket.on('image:done', (d: any) => finish(() => resolve({ image: d.image, seed: d.seed, width: d.width, height: d.height })));
     socket.on('image:error', (d: any) => finish(() => reject(new ImageJobError(d.error || 'Image generation failed.', d.code))));
     socket.on('connect', () => {
-      socket.emit('image:submit', { workflow, privyUserId: meta.privyId, seed: meta.seed, width: meta.width, height: meta.height }, (ack: any) => {
+      socket.emit('image:submit', { workflow, privyUserId: meta.privyId, seed: meta.seed, width: meta.width, height: meta.height, creditsCharged: meta.creditsCharged }, (ack: any) => {
         if (ack?.error) finish(() => reject(new ImageJobError(ack.error, ack.code)));
         // else accepted — wait for image:done / image:error
       });
