@@ -7,10 +7,13 @@ import OrchestratorFlow from '@/components/OrchestratorFlow';
 import PrivateVisual from '@/components/PrivateVisual';
 import BrowserVisual from '@/components/BrowserVisual';
 import EarningsVisual from '@/components/EarningsVisual';
+import AnonGateModal from '@/components/AnonGateModal';
 import { useAuth } from '@/hooks/useAuth';
 
 // Key for passing prompt to user page
 const PENDING_PROMPT_KEY = 'c0mpute_pending_prompt';
+// Signed anonymous-visitor token (lets new users run free prompts without login)
+const ANON_TOKEN_KEY = 'c0mpute_anon_token';
 
 export default function Home() {
   const router = useRouter();
@@ -19,6 +22,7 @@ export default function Home() {
   const [copied, setCopied] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [hasScrolled, setHasScrolled] = useState(false);
+  const [anonModalOpen, setAnonModalOpen] = useState(false);
 
   // Hide scroll indicator after user scrolls
   useEffect(() => {
@@ -62,35 +66,51 @@ export default function Home() {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    console.log('[Homepage] handleSubmit called, prompt:', prompt);
-    console.log('[Homepage] isLoading:', isLoading, 'isAuthenticated:', isAuthenticated);
-    
-    if (!prompt.trim()) {
-      console.log('[Homepage] Empty prompt, returning');
-      return;
-    }
-    
+    if (!prompt.trim()) return;
+
     // Store the prompt for the user page to pick up
     localStorage.setItem(PENDING_PROMPT_KEY, prompt.trim());
-    console.log('[Homepage] Stored prompt in localStorage');
-    
+
     if (isAuthenticated) {
-      // Already logged in - go straight to chat
-      console.log('[Homepage] User authenticated, redirecting to /user');
+      // Already logged in — go straight to chat
       router.push('/user');
-    } else {
-      // Not logged in - trigger login flow
-      // After login completes, the useEffect above will detect the pending prompt and redirect
-      console.log('[Homepage] User not authenticated, calling login()');
-      login();
-      console.log('[Homepage] login() called');
+      return;
+    }
+
+    // Not logged in — get an anonymous free-prompt session so they can try it
+    // WITHOUT signing in. Only fall back to the sign-in prompt if the daily free
+    // budget is spent (capReached) or the request fails.
+    try {
+      const existing = localStorage.getItem(ANON_TOKEN_KEY);
+      const res = await fetch('/api/anon', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: existing || undefined }),
+      });
+      const data = await res.json();
+      if (data.capReached || !data.token) {
+        setAnonModalOpen(true);
+        return;
+      }
+      localStorage.setItem(ANON_TOKEN_KEY, data.token);
+      router.push('/user');
+    } catch {
+      setAnonModalOpen(true);
     }
   };
 
   return (
     <div className="relative bg-black" style={{ overflow: 'visible' }}>
+      {anonModalOpen && (
+        <AnonGateModal
+          mode="softlogin"
+          freePromptLimit={5}
+          onClose={() => setAnonModalOpen(false)}
+          onSignIn={() => { sessionStorage.setItem('c0mpute_post_login_redirect', '1'); login(); setAnonModalOpen(false); }}
+        />
+      )}
       {/* Header */}
       <header className="fixed top-0 left-0 right-0 z-50 py-4">
         <div className="max-w-6xl mx-auto px-4 md:px-6">
@@ -125,7 +145,20 @@ export default function Home() {
                   <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
                 </svg>
               </a>
-              
+
+              {/* Telegram Link */}
+              <a
+                href="https://t.me/c0mputeAI"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="cursor-pointer text-white/70 hover:text-white transition-colors p-2"
+                aria-label="Join us on Telegram"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M9.78 18.65l.28-4.23 7.68-6.92c.34-.31-.07-.46-.52-.19L7.74 13.3 3.64 12c-.88-.25-.89-.86.2-1.3l15.97-6.16c.73-.33 1.43.18 1.15 1.3l-2.72 12.81c-.19.91-.74 1.13-1.5.71L12.6 16.3l-1.99 1.93c-.23.23-.42.42-.83.42z" />
+                </svg>
+              </a>
+
               {isLoading ? (
                 <div className="pixel-serif-logo text-sm px-3 md:px-4 py-2 border border-white/20 rounded-lg text-white/50">
                   ...
@@ -238,6 +271,18 @@ export default function Home() {
                   <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
                 </svg>
                 Follow on X
+              </a>
+              <a
+                href="https://t.me/c0mputeAI"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide flex items-center gap-2"
+                onClick={() => setMenuOpen(false)}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M9.78 18.65l.28-4.23 7.68-6.92c.34-.31-.07-.46-.52-.19L7.74 13.3 3.64 12c-.88-.25-.89-.86.2-1.3l15.97-6.16c.73-.33 1.43.18 1.15 1.3l-2.72 12.81c-.19.91-.74 1.13-1.5.71L12.6 16.3l-1.99 1.93c-.23.23-.42.42-.83.42z" />
+                </svg>
+                Join on Telegram
               </a>
               
               {/* Auth section in mobile menu */}

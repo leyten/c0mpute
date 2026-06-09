@@ -269,6 +269,11 @@ function ensureEarningsTables() {
   // separately from self-solvent paid earnings. Throws (and we ignore) if the
   // column already exists.
   try { db.exec('ALTER TABLE worker_earnings ADD COLUMN subsidized INTEGER NOT NULL DEFAULT 0'); } catch {}
+  // subsidy_kind distinguishes 'free' (onboarding/anon free prompts) from
+  // 'allowance' (staker daily allowance). They draw from SEPARATE daily caps, so
+  // the free-prompt cap accounting (getTodayFreeSubsidyUsd) must exclude
+  // 'allowance' rows. NULL = legacy/paid. Throws (ignored) if it already exists.
+  try { db.exec('ALTER TABLE worker_earnings ADD COLUMN subsidy_kind TEXT'); } catch {}
 }
 
 // Worker keeps a fixed share of the USD value of credits spent on their job
@@ -288,6 +293,7 @@ export function recordEarning(data: {
   // caller passes the tier's list price here while creditsCharged stays 0.
   payoutCredits?: number;
   subsidized?: boolean; // true => treasury-funded (free prompt), not self-solvent
+  subsidyKind?: 'free' | 'allowance'; // which daily cap it draws from (separate caps)
 }): number {
   ensureEarningsTables();
   const db = getDb();
@@ -301,8 +307,8 @@ export function recordEarning(data: {
   const id = crypto.randomUUID();
   const now = new Date().toISOString();
   db.prepare(
-    'INSERT INTO worker_earnings (id, privy_id, job_id, tier, tokens, earning_usd, created_at, subsidized) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-  ).run(id, data.privyId, data.jobId, data.tier, data.tokensGenerated, earning, now, data.subsidized ? 1 : 0);
+    'INSERT INTO worker_earnings (id, privy_id, job_id, tier, tokens, earning_usd, created_at, subsidized, subsidy_kind) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(id, data.privyId, data.jobId, data.tier, data.tokensGenerated, earning, now, data.subsidized ? 1 : 0, data.subsidyKind ?? null);
 
   // The insert above is UNIQUE(job_id), so a duplicate job throws before we get
   // here — margin is realised exactly once per job. For a subsidized free job
@@ -312,15 +318,17 @@ export function recordEarning(data: {
   return earning;
 }
 
-// Total USD of treasury-subsidized (free-prompt) worker earnings booked since
-// 00:00 UTC today. Used to enforce the private daily free-subsidy cap.
+// Total USD of FREE-PROMPT treasury-subsidized worker earnings booked since
+// 00:00 UTC today. Used to enforce the daily free-prompt subsidy cap. Excludes
+// staker-allowance subsidies — those have their own separate daily pool cap, so
+// the two never draw from each other's budget.
 export function getTodayFreeSubsidyUsd(): number {
   ensureEarningsTables();
   const db = getDb();
   const midnight = new Date();
   midnight.setUTCHours(0, 0, 0, 0);
   const row = db.prepare(
-    'SELECT COALESCE(SUM(earning_usd), 0) as total FROM worker_earnings WHERE subsidized = 1 AND created_at >= ?'
+    "SELECT COALESCE(SUM(earning_usd), 0) as total FROM worker_earnings WHERE subsidized = 1 AND (subsidy_kind IS NULL OR subsidy_kind != 'allowance') AND created_at >= ?"
   ).get(midnight.toISOString()) as { total: number };
   return row.total;
 }
@@ -691,7 +699,7 @@ export function getRecentImages(limit = 60): Array<Pick<ImageRecord, 'id' | 'pro
   const db = getDb();
   return db.prepare(
     `SELECT id, prompt, model, width, height, created_at FROM images
-     WHERE blocked = 0 AND public = 1 ORDER BY created_at DESC LIMIT ?`
+     WHERE blocked = 0 AND public = 1 AND nsfw = 0 ORDER BY created_at DESC LIMIT ?`
   ).all(Math.min(200, Math.max(1, limit))) as any[];
 }
 
@@ -710,6 +718,19 @@ export function getUserImages(privyId: string, limit = 60): Array<Pick<ImageReco
 // to reset its in-memory state. Strikes accumulate across sessions; enough of
 // them bans the account from running a worker (it can still use the app normally).
 const STRIKES_TO_BAN = 5;
+
+// Canary ban tuning. A canary is a hidden liveness probe; an honest worker passes
+// it ~always, a faker (returns canned/garbage text instead of running the model)
+// fails ~always. We ban on RECENT behaviour, not a lifetime count, so an honest
+// worker that occasionally flubs one never accumulates its way to a permaban:
+//   - CONSEC: this many canary fails in a row → ban (a real worker ~never fails
+//     several straight; a faker fails every one).
+//   - RATIO: over the last WINDOW probes, if there are at least MIN_SAMPLE of them
+//     and the fail fraction exceeds MAX_FAIL_RATIO → ban (catches partial fakers).
+const CANARY_WINDOW = 20;
+const CANARY_MIN_SAMPLE = 8;
+const CANARY_MAX_FAIL_RATIO = 0.4;
+const CANARY_CONSEC_BAN = 3;
 
 function ensureReputationTable() {
   const db = getDb();
@@ -736,6 +757,22 @@ function ensureReputationRow(privyId: string) {
   db.prepare(
     'INSERT INTO worker_reputation (privy_id, first_seen, updated_at) VALUES (?, ?, ?) ON CONFLICT(privy_id) DO NOTHING'
   ).run(privyId, now, now);
+}
+
+// Per-canary result log, so the ban decision can look at a sliding RECENT window
+// instead of a lifetime total. Keeps honest workers from accumulating their way
+// to a ban over thousands of jobs.
+function ensureCanaryEventsTable() {
+  const db = getDb();
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS canary_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      privy_id TEXT NOT NULL,
+      passed INTEGER NOT NULL,
+      at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_canary_events_privy ON canary_events(privy_id, id);
+  `);
 }
 
 export function isWorkerBanned(privyId: string): { banned: boolean; reason?: string } {
@@ -772,18 +809,52 @@ export function recordWorkerStrike(privyId: string, kind: 'canary' | 'coherence'
   return txn();
 }
 
-export function recordCanaryResult(privyId: string, passed: boolean): { totalStrikes: number; banned: boolean } {
+// Records a canary probe result and decides — from RECENT behaviour only — whether
+// the worker should be banned. An honest worker that misses one occasionally never
+// trips it; a faker that fails repeatedly does. Returns the recent fail stats.
+export function recordCanaryResult(privyId: string, passed: boolean): { recentFails: number; recentTotal: number; banned: boolean } {
   ensureReputationTable();
   ensureReputationRow(privyId);
+  ensureCanaryEventsTable();
   const db = getDb();
   const now = new Date().toISOString();
-  if (passed) {
-    db.prepare('UPDATE worker_reputation SET canary_passed = canary_passed + 1, updated_at = ? WHERE privy_id = ?').run(now, privyId);
-    const row = db.prepare('SELECT total_strikes, banned FROM worker_reputation WHERE privy_id = ?').get(privyId) as any;
-    return { totalStrikes: row.total_strikes, banned: !!row.banned };
-  }
-  db.prepare('UPDATE worker_reputation SET canary_failed = canary_failed + 1 WHERE privy_id = ?').run(privyId);
-  return recordWorkerStrike(privyId, 'canary');
+
+  const txn = db.transaction(() => {
+    // Lifetime aggregates, kept for reporting only (no longer drive the ban).
+    db.prepare(
+      `UPDATE worker_reputation SET ${passed ? 'canary_passed = canary_passed + 1' : 'canary_failed = canary_failed + 1'}, updated_at = ? WHERE privy_id = ?`
+    ).run(now, privyId);
+    // A clean canary pass also relaxes any lingering coherence/speed strikes, so a
+    // worker that's demonstrably alive doesn't carry old strikes forever.
+    if (passed) {
+      db.prepare('UPDATE worker_reputation SET total_strikes = MAX(0, total_strikes - 1) WHERE privy_id = ?').run(privyId);
+    }
+
+    db.prepare('INSERT INTO canary_events (privy_id, passed, at) VALUES (?, ?, ?)').run(privyId, passed ? 1 : 0, now);
+
+    // Look only at the most recent window of probes for this worker.
+    const recent = db.prepare(
+      'SELECT passed FROM canary_events WHERE privy_id = ? ORDER BY id DESC LIMIT ?'
+    ).all(privyId, CANARY_WINDOW) as { passed: number }[];
+    const recentTotal = recent.length;
+    const recentFails = recent.filter((r) => !r.passed).length;
+    let consec = 0; // trailing consecutive fails (recent is newest-first)
+    for (const r of recent) { if (!r.passed) consec++; else break; }
+
+    const row = db.prepare('SELECT banned FROM worker_reputation WHERE privy_id = ?').get(privyId) as any;
+    let banned = !!row.banned;
+    if (!banned) {
+      const consecBan = consec >= CANARY_CONSEC_BAN;
+      const ratioBan = recentTotal >= CANARY_MIN_SAMPLE && recentFails / recentTotal > CANARY_MAX_FAIL_RATIO;
+      if (consecBan || ratioBan) {
+        const reason = consecBan ? `${consec} canary fails in a row` : `${recentFails}/${recentTotal} recent canaries failed`;
+        db.prepare('UPDATE worker_reputation SET banned = 1, ban_reason = ?, banned_at = ? WHERE privy_id = ?').run(reason, now, privyId);
+        banned = true;
+      }
+    }
+    return { recentFails, recentTotal, banned };
+  });
+  return txn();
 }
 
 export function getWorkerReputation(privyId: string): any {
@@ -1018,6 +1089,76 @@ export function consumeFreePrompt(privyId: string, limit: number): boolean {
     return true;
   });
   return txn() as boolean;
+}
+
+// ── Anonymous (pre-login) free prompts ─────────────────────────────────────
+// A visitor can run free prompts before logging in. Two counters guard it:
+//   1. Per-session: reuses free_prompt_usage keyed on "anon:<aid>" (the signed
+//      anon token's id) — caps each session at ANON_FREE_PROMPT_LIMIT.
+//   2. Per-IP/day: anon_ip_daily caps how many free prompts a single IP can
+//      dispense per UTC day, so clearing cookies to mint a fresh session is
+//      bounded (the IP ceiling still bites). On top of these, the global
+//      FREE_SUBSIDY_DAILY_CAP_USD is enforced at payout time in the orchestrator.
+function ensureAnonTable() {
+  const db = getDb();
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS anon_ip_daily (
+      ip_hash TEXT NOT NULL,
+      day TEXT NOT NULL,
+      count INTEGER DEFAULT 0,
+      PRIMARY KEY (ip_hash, day)
+    );
+  `);
+}
+
+/** Free prompts still available to this anonymous session (read-only). */
+export function getAnonRemaining(aid: string, sessionLimit: number): number {
+  ensureFreePromptTable();
+  const db = getDb();
+  const row = db.prepare('SELECT used FROM free_prompt_usage WHERE privy_id = ?').get('anon:' + aid) as any;
+  return Math.max(0, sessionLimit - (row ? row.used : 0));
+}
+
+/**
+ * Atomically grant one anonymous free prompt if BOTH the per-session limit and
+ * the per-IP daily cap allow it. Only increments the counters when granted.
+ * Returns the reason for a denial so the UI can show the right popup.
+ */
+export function anonGrantFreePrompt(
+  aid: string,
+  ipHash: string,
+  sessionLimit: number,
+  ipDailyCap: number
+): { granted: boolean; reason?: 'session' | 'ip'; remaining: number } {
+  ensureFreePromptTable();
+  ensureAnonTable();
+  const db = getDb();
+  const now = new Date().toISOString();
+  const day = now.slice(0, 10); // UTC date (YYYY-MM-DD)
+  const sessionId = 'anon:' + aid;
+
+  const txn = db.transaction(() => {
+    const sRow = db.prepare('SELECT used FROM free_prompt_usage WHERE privy_id = ?').get(sessionId) as any;
+    const sUsed = sRow ? sRow.used : 0;
+    if (sUsed >= sessionLimit) return { granted: false, reason: 'session' as const, remaining: 0 };
+
+    const iRow = db.prepare('SELECT count FROM anon_ip_daily WHERE ip_hash = ? AND day = ?').get(ipHash, day) as any;
+    const iUsed = iRow ? iRow.count : 0;
+    if (iUsed >= ipDailyCap) return { granted: false, reason: 'ip' as const, remaining: sessionLimit - sUsed };
+
+    db.prepare(`
+      INSERT INTO free_prompt_usage (privy_id, used, updated_at)
+      VALUES (?, 1, ?)
+      ON CONFLICT(privy_id) DO UPDATE SET used = used + 1, updated_at = ?
+    `).run(sessionId, now, now);
+    db.prepare(`
+      INSERT INTO anon_ip_daily (ip_hash, day, count)
+      VALUES (?, ?, 1)
+      ON CONFLICT(ip_hash, day) DO UPDATE SET count = count + 1
+    `).run(ipHash, day);
+    return { granted: true, remaining: sessionLimit - sUsed - 1 };
+  });
+  return txn() as { granted: boolean; reason?: 'session' | 'ip'; remaining: number };
 }
 
 export function getCreditTransactions(privyId: string, limit = 20): any[] {

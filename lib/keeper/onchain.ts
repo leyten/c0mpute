@@ -44,6 +44,11 @@ import pumpIdl from './pump-idl.json';
 
 const USDC_MINT = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
 const USDC_DECIMALS = 6;
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+// Deliberate pause after a claim tx before reading the dev-wallet balance to
+// sweep it: gives the freshly-claimed fees time to land AND avoids hammering the
+// RPC immediately after the claim (which 429s and stranded fees before). Tunable.
+const RPC_SETTLE_MS = Number(process.env.KEEPER_RPC_SETTLE_MS || 60000);
 // Slippage tolerance for the daily buyback swap, in pump-swap-sdk units where
 // 1 = 1% (NOT a 0.0-1.0 fraction — passing 0.01 here means 0.01% and reverts
 // with ExceededSlippage on any price move). Default 5% — the buyback is a small
@@ -230,12 +235,24 @@ export async function claimCreatorFees(): Promise<number> {
   // so an immediate read of 0 right after claiming would strand freshly-claimed
   // fees in the dev wallet (observed 2026-06-06: ~$510 claimed but read as 0, so
   // never swept). If we attempted a claim this cycle, poll before concluding 0.
-  let claimedRaw = await tokenBalanceRaw(connection, dev.publicKey, USDC_MINT, TOKEN_PROGRAM_ID);
-  if (claimedRaw === BigInt(0) && claimAttempted) {
-    for (let i = 0; i < 6 && claimedRaw === BigInt(0); i++) {
-      await new Promise((r) => setTimeout(r, 2500));
-      claimedRaw = await tokenBalanceRaw(connection, dev.publicKey, USDC_MINT, TOKEN_PROGRAM_ID);
+  let claimedRaw: bigint;
+  if (claimAttempted) {
+    // A confirmed claim can lag the RPC's balance view, and the lagging amount is
+    // often the BULK of the fees while a small stale balance reads first — so a
+    // tiny leftover (e.g. $19) read too eagerly got swept while the freshly-claimed
+    // bulk landed a moment later and was stranded (observed 2026-06-07: swept $19
+    // while $1,704 sat behind). Wait a settle period first, then poll until the
+    // balance STOPS INCREASING so the full claimed amount is captured.
+    await sleep(RPC_SETTLE_MS);
+    claimedRaw = await tokenBalanceRaw(connection, dev.publicKey, USDC_MINT, TOKEN_PROGRAM_ID);
+    for (let i = 0; i < 8; i++) {
+      await sleep(2500);
+      const next = await tokenBalanceRaw(connection, dev.publicKey, USDC_MINT, TOKEN_PROGRAM_ID);
+      if (next <= claimedRaw) break; // stabilized — no further fees settling in
+      claimedRaw = next;
     }
+  } else {
+    claimedRaw = await tokenBalanceRaw(connection, dev.publicKey, USDC_MINT, TOKEN_PROGRAM_ID);
   }
   if (claimedRaw === BigInt(0)) return 0;
 

@@ -55,6 +55,11 @@ import {
   zeroRawToUi,
 } from '../lib/keeper/onchain';
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+// Space out RPC reads so the daily resync (one balance read per staking wallet)
+// doesn't burst-trigger 429 rate-limits that strand the cycle. Tunable via env.
+const RPC_GAP_MS = Number(process.env.KEEPER_RPC_GAP_MS || 1500);
+
 async function step<T>(label: string, fn: () => Promise<T>): Promise<T | undefined> {
   try {
     return await fn();
@@ -118,11 +123,25 @@ async function resyncStakesFromChain(): Promise<void> {
   const mint = getZeroMint();
   if (!mint) return;
   const wallets = getAllStakingWallets();
+  let synced = 0;
+  let skipped = 0;
   for (const w of wallets) {
-    const bal = await getTokenUiBalance(w.publicKey, mint);
-    syncStake(w.privyId, bal);
+    try {
+      // strict read: throw (not silent 0) on a persistent RPC failure so a
+      // rate-limit can't zero out this staker's position. Skip + keep the DB
+      // value instead.
+      const bal = await getTokenUiBalance(w.publicKey, mint, { throwOnError: true });
+      syncStake(w.privyId, bal);
+      synced++;
+    } catch (e) {
+      skipped++;
+      console.warn(`[Keeper] resync skipped for ${w.privyId} (RPC read failed, position left unchanged): ${e instanceof Error ? e.message : e}`);
+    }
+    await sleep(RPC_GAP_MS); // throttle so 76 reads don't burst-429
   }
-  if (wallets.length > 0) console.log(`[Keeper] Re-synced ${wallets.length} staking positions from chain`);
+  if (wallets.length > 0) {
+    console.log(`[Keeper] Re-synced ${synced}/${wallets.length} staking positions from chain${skipped ? ` (${skipped} skipped on RPC errors)` : ''}`);
+  }
 }
 
 async function runStakerRewards(): Promise<void> {

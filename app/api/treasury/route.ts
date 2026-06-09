@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { Connection, PublicKey } from '@solana/web3.js';
 import { getAllBuckets, getTreasuryStats } from '@/lib/treasury-ledger';
 import { getTotalStaked } from '@/lib/staking';
+import { getStakerAllowanceTodayTotals } from '@/lib/staker-allowance';
 import { isZeroLaunched, TRADING_FEE_TO_POOL_PCT, POOL_BURN_SPLIT } from '@/lib/tokenomics';
 
 export const dynamic = 'force-dynamic';
@@ -43,6 +44,8 @@ export async function GET() {
     pendingStakerRewards += toPool * (1 - POOL_BURN_SPLIT);
   } catch { /* RPC hiccup — fall back to internal buckets only */ }
 
+  const allowanceToday = getStakerAllowanceTodayTotals();
+
   return NextResponse.json({
     launched: isZeroLaunched(),
     pendingBuyback,
@@ -51,5 +54,7 @@ export async function GET() {
     totalZeroBurned: stats.totalZeroBurned,
     totalUsdBuybackSpent: stats.totalUsdBuybackSpent,
     totalStakerRewardsPaid: stats.totalStakerRewardsPaid,
+    freeInferenceSubsidizedTodayUsd: allowanceToday.subsidyUsd,
+    freeInferenceCreditsToday: allowanceToday.creditsToday,
   });
 }

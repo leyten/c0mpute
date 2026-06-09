@@ -14,7 +14,11 @@ import { randomUUID } from 'crypto';
 
 export const IMAGE_CREDITS = Number(process.env.IMAGE_CREDITS || 20); // $0.20 at 1 credit = $0.01
 export const COMFY_URL = (process.env.COMFY_URL || 'http://127.0.0.1:8188').replace(/\/$/, '');
-const COMFY_CKPT = process.env.COMFY_CKPT || 'sdxl.safetensors';
+// Chroma1-HD (Flux-schnell-derived) is a 3-file model: the diffusion UNet, a T5
+// text encoder, and the Flux VAE. Unlike SDXL there is no all-in-one checkpoint.
+const CHROMA_UNET = process.env.CHROMA_UNET || 'Chroma1-HD-fp8mixed.safetensors';
+const CHROMA_T5 = process.env.CHROMA_T5 || 't5xxl_flan_fp8_scaled.safetensors';
+const CHROMA_VAE = process.env.CHROMA_VAE || 'ae.safetensors';
 const GEN_TIMEOUT_MS = Number(process.env.IMAGE_TIMEOUT_MS || 120_000);
 
 export const IMAGE_MODEL_ID = 'c0mpute-image';
@@ -37,30 +41,48 @@ function clampDim(v: number | undefined, def: number): number {
   return Math.min(1536, Math.max(512, Math.round(n / 64) * 64));
 }
 
-// Build a standard SDXL txt2img graph for ComfyUI.
+// Build a Chroma1-HD txt2img graph for ComfyUI. Chroma uses the Flux sampling
+// stack: UNETLoader + T5-only CLIPLoader (type "chroma") + Flux VAE, driven by
+// SamplerCustomAdvanced (RandomNoise + CFGGuider + KSamplerSelect + a Beta
+// scheduler), not SDXL's single KSampler node.
+// Baseline negative prompt, always applied (web + API). These are universal
+// "AI slop" artifacts nobody wants — oversaturation, heavy vignette, plastic
+// skin, the deep-fried over-processed look. Medium-specific negatives (cgi/3d/
+// cartoon vs photo) are added per style preset on the client, not here.
+const BASE_NEGATIVE =
+  'oversaturated, hdr, heavy vignette, dark corners, excessive bokeh, plastic skin, ' +
+  'overprocessed, deep fried, airbrushed, blurry, low quality, jpeg artifacts, watermark, text, extra limbs, deformed';
+
 function buildWorkflow(p: GenerateParams) {
   const width = clampDim(p.width, 1024);
   const height = clampDim(p.height, 1024);
-  const steps = Math.min(60, Math.max(10, Math.round(Number(p.steps) || 30)));
-  const cfg = Math.min(15, Math.max(1, Number(p.cfg) || 7));
+  const steps = Math.min(60, Math.max(10, Math.round(Number(p.steps) || 32)));
+  // Chroma wants low guidance (~3.5-4.5); much above ~6 fries the image.
+  const cfg = Math.min(15, Math.max(1, Number(p.cfg) || 4.0));
   const seed = Number.isFinite(Number(p.seed)) && Number(p.seed) > 0
     ? Math.floor(Number(p.seed))
     : Math.floor(Math.abs(hashSeed(p.prompt + ':' + randomUUID())));
+  // Always fold the baseline anti-slop terms into the negative.
+  const negative = [BASE_NEGATIVE, (p.negativePrompt || '').trim()].filter(Boolean).join(', ');
 
   return {
-    '4': { class_type: 'CheckpointLoaderSimple', inputs: { ckpt_name: COMFY_CKPT } },
-    '5': { class_type: 'EmptyLatentImage', inputs: { width, height, batch_size: 1 } },
-    '6': { class_type: 'CLIPTextEncode', inputs: { text: p.prompt, clip: ['4', 1] } },
-    '7': { class_type: 'CLIPTextEncode', inputs: { text: p.negativePrompt || '', clip: ['4', 1] } },
-    '3': {
-      class_type: 'KSampler',
-      inputs: {
-        seed, steps, cfg, sampler_name: 'dpmpp_2m', scheduler: 'karras', denoise: 1,
-        model: ['4', 0], positive: ['6', 0], negative: ['7', 0], latent_image: ['5', 0],
-      },
+    '10': { class_type: 'UNETLoader', inputs: { unet_name: CHROMA_UNET, weight_dtype: 'default' } },
+    '11': { class_type: 'CLIPLoader', inputs: { clip_name: CHROMA_T5, type: 'chroma' } },
+    '12': { class_type: 'VAELoader', inputs: { vae_name: CHROMA_VAE } },
+    '13': { class_type: 'ModelSamplingAuraFlow', inputs: { model: ['10', 0], shift: 1.0 } },
+    '14': { class_type: 'CLIPTextEncode', inputs: { text: p.prompt, clip: ['11', 0] } },
+    '15': { class_type: 'CLIPTextEncode', inputs: { text: negative, clip: ['11', 0] } },
+    '16': { class_type: 'CFGGuider', inputs: { model: ['13', 0], positive: ['14', 0], negative: ['15', 0], cfg } },
+    '17': { class_type: 'KSamplerSelect', inputs: { sampler_name: 'euler' } },
+    '18': { class_type: 'BetaSamplingScheduler', inputs: { model: ['13', 0], steps, alpha: 0.45, beta: 0.45 } },
+    '19': { class_type: 'EmptySD3LatentImage', inputs: { width, height, batch_size: 1 } },
+    '20': { class_type: 'RandomNoise', inputs: { noise_seed: seed } },
+    '21': {
+      class_type: 'SamplerCustomAdvanced',
+      inputs: { noise: ['20', 0], guider: ['16', 0], sampler: ['17', 0], sigmas: ['18', 0], latent_image: ['19', 0] },
     },
-    '8': { class_type: 'VAEDecode', inputs: { samples: ['3', 0], vae: ['4', 2] } },
-    '9': { class_type: 'SaveImage', inputs: { filename_prefix: 'c0mpute', images: ['8', 0] } },
+    '22': { class_type: 'VAEDecode', inputs: { samples: ['21', 0], vae: ['12', 0] } },
+    '9': { class_type: 'SaveImage', inputs: { filename_prefix: 'c0mpute', images: ['22', 0] } },
   };
 }
 
@@ -140,7 +162,7 @@ export async function generateImage(params: GenerateParams): Promise<GenerateRes
 
   const width = clampDim(params.width, 1024);
   const height = clampDim(params.height, 1024);
-  const seed = (workflow as any)['3'].inputs.seed;
+  const seed = (workflow as any)['20'].inputs.noise_seed; // RandomNoise node
   return { png, seed, width, height };
 }
 

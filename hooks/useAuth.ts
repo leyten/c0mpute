@@ -28,7 +28,7 @@ interface UseAuthReturn {
   linkTwitter: () => void;
   unlinkWallet: (address: string) => Promise<void>;
   unlinkTwitter: (subject: string) => Promise<void>;
-  deleteAccount: () => Promise<boolean>;
+  deleteAccount: () => Promise<{ ok: boolean; error?: string }>;
   
   // Helpers
   displayName: string | null;
@@ -169,9 +169,9 @@ export function useAuth(): UseAuthReturn {
   }, [privyUnlinkTwitter, refreshProfile]);
 
   // Delete account
-  const deleteAccount = useCallback(async (): Promise<boolean> => {
-    if (!user?.id) return false;
-    
+  const deleteAccount = useCallback(async (): Promise<{ ok: boolean; error?: string }> => {
+    if (!user?.id) return { ok: false, error: 'Not logged in.' };
+
     try {
       const headers = await getAuthHeaders();
       const response = await fetch('/api/profile/delete', {
@@ -179,16 +179,17 @@ export function useAuth(): UseAuthReturn {
         headers,
         body: JSON.stringify({}),
       });
-      
+
       if (response.ok) {
         await privyLogout();
         setProfile(null);
-        return true;
+        return { ok: true };
       }
-      return false;
+      const data = await response.json().catch(() => ({}));
+      return { ok: false, error: data.message || data.error || 'Failed to delete account.' };
     } catch (error) {
       console.error('Error deleting account:', error);
-      return false;
+      return { ok: false, error: 'Failed to delete account.' };
     }
   }, [user?.id, privyLogout, getAuthHeaders]);
 

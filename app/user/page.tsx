@@ -12,6 +12,7 @@ import { MAX_INPUT_CHARS } from '@/lib/orchestrator/types';
 // E2E encryption removed for now — keeping it simple
 import { scanOutput, BLOCKED_MESSAGE } from '@/lib/safety';
 import OnboardingModal from '@/components/OnboardingModal';
+import AnonGateModal from '@/components/AnonGateModal';
 // search utilities no longer needed — tool calling handles search via the model
 
 // Parse sources from response content (appended by worker as ---SOURCES---)
@@ -159,6 +160,9 @@ type PlanId = typeof PLANS[number]['id'];
 // Local storage keys
 const CHATS_STORAGE_KEY = 'c0mpute_chats';
 const PENDING_PROMPT_KEY = 'c0mpute_pending_prompt';
+// Signed anonymous-visitor token (free prompts without login)
+const ANON_TOKEN_KEY = 'c0mpute_anon_token';
+const ANON_FREE_LIMIT = 5;
 
 // Helper to load chats from localStorage
 function loadChatsFromStorage(): ChatWithMessages[] {
@@ -253,7 +257,7 @@ function ThinkingDropdown({ thinking, isStreaming, elapsedSeconds, defaultOpen }
     <div className="mt-2">
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-2 text-white/70 hover:text-white/60 transition-colors text-sm pixel-sans"
+        className="flex items-center gap-2 text-white/80 hover:text-white transition-colors text-sm pixel-sans"
       >
         <svg
           width="12"
@@ -334,7 +338,44 @@ export default function UserPage() {
     }
   }, [isAuthenticated, getAccessToken]);
 
-  // Socket (waits for auth token)
+  // Anonymous mode: a not-logged-in visitor gets a signed anon token so they can
+  // run their free prompts without signing in. The token drives the socket, the
+  // remaining count drives the sign-in nudges.
+  const [anonToken, setAnonToken] = useState<string | null>(null);
+  const [anonRemaining, setAnonRemaining] = useState<number | null>(null);
+  const [anonLoading, setAnonLoading] = useState(true);
+  const [anonModal, setAnonModal] = useState<null | 'nudge' | 'empty' | 'softlogin'>(null);
+  useEffect(() => {
+    if (authLoading) return;
+    if (isAuthenticated) { setAnonLoading(false); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const existing = localStorage.getItem(ANON_TOKEN_KEY);
+        const res = await fetch('/api/anon', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token: existing || undefined }),
+        });
+        const data = await res.json();
+        if (cancelled) return;
+        if (data.capReached || !data.token) {
+          setAnonModal('softlogin');
+        } else {
+          localStorage.setItem(ANON_TOKEN_KEY, data.token);
+          setAnonToken(data.token);
+          setAnonRemaining(typeof data.remaining === 'number' ? data.remaining : null);
+        }
+      } catch {
+        if (!cancelled) setAnonModal('softlogin');
+      } finally {
+        if (!cancelled) setAnonLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [authLoading, isAuthenticated]);
+
+  // Socket (waits for an auth token — Privy when logged in, anon token otherwise)
   const {
     isConnected,
     networkStats,
@@ -347,7 +388,7 @@ export default function UserPage() {
     setOnJobAssigned,
     setOnJobSearching,
     setOnJobSources,
-  } = useSocket(socketAuthToken);
+  } = useSocket(isAuthenticated ? socketAuthToken : anonToken);
   
   // Chat state - now storing full chats with messages locally
   const [chats, setChats] = useState<ChatWithMessages[]>([]);
@@ -384,8 +425,10 @@ export default function UserPage() {
   const [creditBalance, setCreditBalance] = useState<number>(0);
   const [freePromptsRemaining, setFreePromptsRemaining] = useState<number>(0);
   const [freePromptLimit, setFreePromptLimit] = useState<number>(0);
+  const [stakeAllowanceLeft, setStakeAllowanceLeft] = useState<number>(0);
 
-  // Fetch credits (balance + free-prompt allowance); reused after each prompt.
+  // Fetch credits (balance + free-prompt allowance + staker inference allowance);
+  // reused after each prompt.
   const refreshCredits = useCallback(() => {
     if (!isAuthenticated || !socketAuthToken) return;
     fetch('/api/credits', { headers: { Authorization: `Bearer ${socketAuthToken}` } })
@@ -395,6 +438,7 @@ export default function UserPage() {
           setCreditBalance(data.balance);
           if (typeof data.freePromptsRemaining === 'number') setFreePromptsRemaining(data.freePromptsRemaining);
           if (typeof data.freePromptLimit === 'number') setFreePromptLimit(data.freePromptLimit);
+          setStakeAllowanceLeft(data.stakerAllowance?.enabled ? (data.stakerAllowance.remaining ?? 0) : 0);
         }
       })
       .catch(() => {});
@@ -415,6 +459,16 @@ export default function UserPage() {
     localStorage.setItem('c0mpute_onboarded', '1');
     setShowOnboarding(false);
   }, []);
+
+  // After an out-of-free-prompts user signs in, send them to the top-up page.
+  useEffect(() => {
+    if (authLoading || !isAuthenticated) return;
+    if (sessionStorage.getItem('c0mpute_post_login_topup')) {
+      sessionStorage.removeItem('c0mpute_post_login_topup');
+      localStorage.removeItem(ANON_TOKEN_KEY);
+      router.push('/settings#usage');
+    }
+  }, [authLoading, isAuthenticated, router]);
 
   // Load plan from DB
   useEffect(() => {
@@ -461,6 +515,13 @@ export default function UserPage() {
   const inputRef = useRef<HTMLInputElement>(null);
   const currentJobIdRef = useRef<string | null>(null);
   const queueTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Streaming render throttle. Tokens accumulate in a ref (the authoritative full
+  // text); we flush to React state at most ~8x/sec. Without this, every token
+  // re-parsed the entire growing message through markdown-to-jsx + synchronous
+  // KaTeX, which is quadratic and pins the main thread — long answers froze the
+  // whole machine. The ref is the source of truth; streamingContent is the view.
+  const streamBufferRef = useRef('');
+  const streamFlushRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const networkStatsRef = useRef<typeof networkStats>(networkStats);
   useEffect(() => { networkStatsRef.current = networkStats; }, [networkStats]);
   // Whether the view is pinned to the bottom — drives auto-scroll during streaming
@@ -486,6 +547,17 @@ export default function UserPage() {
     const el = messagesContainerRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, []);
+
+  // Push the buffered stream text into React state (throttled). Safety-scans the
+  // accumulated text here rather than per-token (the per-token scan was itself
+  // quadratic over the growing string).
+  const STREAM_FLUSH_MS = 120;
+  const flushStream = useCallback(() => {
+    streamFlushRef.current = null;
+    const text = streamBufferRef.current;
+    setStreamingContent(scanOutput(text).safe ? text : BLOCKED_MESSAGE);
+    autoScrollIfPinned();
+  }, [autoScrollIfPinned]);
 
   // Load chats from localStorage on mount
   const fetchChats = useCallback(() => {
@@ -627,6 +699,11 @@ export default function UserPage() {
       setError(`Message too long. Maximum ${MAX_INPUT_CHARS} characters.`);
       return;
     }
+    // Anonymous visitor out of free prompts — prompt them to sign in + top up.
+    if (!isAuthenticated && anonRemaining !== null && anonRemaining <= 0) {
+      setAnonModal('empty');
+      return;
+    }
 
     // If the selected tier has no workers but another tier does, offer a
     // one-tap switch instead of silently queueing into a tier nobody serves.
@@ -665,26 +742,34 @@ export default function UserPage() {
     
     setChatState('queued');
     setStreamingContent('');
+    streamBufferRef.current = '';
+    if (streamFlushRef.current) { clearTimeout(streamFlushRef.current); streamFlushRef.current = null; }
     thinkingStartRef.current = null;
     thinkingElapsedRef.current = null;
     setThinkingElapsed(null);
     
     try {
-      // Get auth token
-      const authToken = await getAccessToken();
+      // Get auth token — Privy when logged in, the anon token otherwise.
+      const authToken = isAuthenticated ? await getAccessToken() : anonToken;
       if (!authToken) {
         setChatState('error');
         setError('Authentication expired. Please refresh and log in again.');
         return;
       }
 
-      const jobId = await submitJob({
+      const { jobId, freeRemaining } = await submitJob({
         messages: contextMessages,
         model: selectedModel,
         authToken,
         think: selectedModel === 'native-max' ? deepThinking : false,
       });
-      
+
+      // Anonymous: track free prompts left and nudge when down to the last one.
+      if (!isAuthenticated && typeof freeRemaining === 'number') {
+        setAnonRemaining(freeRemaining);
+        if (freeRemaining === 1) setAnonModal('nudge');
+      }
+
       currentJobIdRef.current = jobId;
       setCurrentJobId(jobId);
       // prompts_sent is now tracked server-side by the orchestrator on job completion
@@ -709,13 +794,25 @@ export default function UserPage() {
         }
       }, 60000);
     } catch (err) {
-      console.error('Error submitting job:', err);
-      setChatState('error');
-      setError('Failed to submit job. Please try again.');
+      const code = err instanceof Error ? err.message : '';
+      // Anonymous free-prompt boundaries come back as machine codes — show the
+      // right sign-in popup instead of a generic error.
+      if (code === 'ANON_NO_PROMPTS') {
+        setChatState('idle');
+        setAnonRemaining(0);
+        setAnonModal('empty');
+      } else if (code === 'ANON_CAP_IP' || code === 'ANON_CAP_GLOBAL') {
+        setChatState('idle');
+        setAnonModal('softlogin');
+      } else {
+        console.error('Error submitting job:', err);
+        setChatState('error');
+        setError('Failed to submit job. Please try again.');
+      }
     }
-    
+
     setTimeout(scrollToBottom, 100);
-  }, [inputValue, activeChat, chatState, isConnected, submitJob, saveMessage, scrollToBottom, getAccessToken, selectedModel, deepThinking]);
+  }, [inputValue, activeChat, chatState, isConnected, submitJob, saveMessage, scrollToBottom, getAccessToken, selectedModel, deepThinking, isAuthenticated, anonToken]);
 
   // Handle job token (streaming) — decrypt E2E + safety scan
   useEffect(() => {
@@ -744,21 +841,21 @@ export default function UserPage() {
             setThinkingElapsed(elapsed);
             thinkingStartRef.current = null;
           }
-          setStreamingContent(prev => {
-            const updated = prev + cleanToken;
-            const safety = scanOutput(updated);
-            if (!safety.safe) {
-              return BLOCKED_MESSAGE;
-            }
-            return updated;
-          });
-          autoScrollIfPinned();
+          // Accumulate into the buffer and flush to state at most every
+          // STREAM_FLUSH_MS — caps the expensive markdown/KaTeX re-render rate.
+          streamBufferRef.current += cleanToken;
+          if (!streamFlushRef.current) {
+            streamFlushRef.current = setTimeout(flushStream, STREAM_FLUSH_MS);
+          }
         }
       }
     });
-    
-    return () => setOnJobToken(null);
-  }, [setOnJobToken, autoScrollIfPinned]);
+
+    return () => {
+      setOnJobToken(null);
+      if (streamFlushRef.current) { clearTimeout(streamFlushRef.current); streamFlushRef.current = null; }
+    };
+  }, [setOnJobToken, flushStream]);
 
   // Handle job assigned
   useEffect(() => {
@@ -776,34 +873,34 @@ export default function UserPage() {
     setOnJobComplete((jobId, _response) => {
       if (jobId === currentJobIdRef.current && activeChat) {
         
-        // Use the accumulated streaming content (already decrypted and safety-scanned)
-        setStreamingContent(prev => {
-          let finalContent = prev.trim();
-          if (!finalContent) {
-            // Fallback: if no streaming content, we might not have received tokens
-            finalContent = '[No response received]';
-          }
-          finalContent = filterDisclaimers(finalContent);
-          
-          // Final safety check
-          const safety = scanOutput(finalContent);
-          if (!safety.safe) {
-            finalContent = BLOCKED_MESSAGE;
-          }
-          
-          // Embed thinking time so it persists
-          if (thinkingElapsedRef.current !== null && finalContent.includes('</think>')) {
-            finalContent = finalContent.replace('</think>', `</think><!--think_time:${thinkingElapsedRef.current}-->`);
-          }
-          // Append sources to content so they persist in storage
-          const sources = pendingSourcesRef.current;
-          if (sources.length > 0) {
-            finalContent += `\n---SOURCES---${JSON.stringify(sources)}`;
-          }
-          saveMessage(activeChat.id, 'assistant', finalContent, jobId);
-          return '';
-        });
-        
+        // Finalize from the stream buffer (the authoritative full text), in case
+        // the last throttled flush hasn't landed yet.
+        if (streamFlushRef.current) { clearTimeout(streamFlushRef.current); streamFlushRef.current = null; }
+        let finalContent = streamBufferRef.current.trim();
+        if (!finalContent) {
+          // Fallback: if no streaming content, we might not have received tokens
+          finalContent = '[No response received]';
+        }
+        finalContent = filterDisclaimers(finalContent);
+
+        // Final safety check
+        if (!scanOutput(finalContent).safe) {
+          finalContent = BLOCKED_MESSAGE;
+        }
+
+        // Embed thinking time so it persists
+        if (thinkingElapsedRef.current !== null && finalContent.includes('</think>')) {
+          finalContent = finalContent.replace('</think>', `</think><!--think_time:${thinkingElapsedRef.current}-->`);
+        }
+        // Append sources to content so they persist in storage
+        const sources = pendingSourcesRef.current;
+        if (sources.length > 0) {
+          finalContent += `\n---SOURCES---${JSON.stringify(sources)}`;
+        }
+        saveMessage(activeChat.id, 'assistant', finalContent, jobId);
+        streamBufferRef.current = '';
+        setStreamingContent('');
+
         if (queueTimeoutRef.current) { clearTimeout(queueTimeoutRef.current); queueTimeoutRef.current = null; }
         setChatState('idle');
         currentJobIdRef.current = null;
@@ -847,6 +944,8 @@ export default function UserPage() {
         setChatState('error');
         setError(errorMsg);
         setStreamingContent('');
+        streamBufferRef.current = '';
+        if (streamFlushRef.current) { clearTimeout(streamFlushRef.current); streamFlushRef.current = null; }
         // Clear ref immediately
         currentJobIdRef.current = null;
         setCurrentJobId(null);
@@ -869,10 +968,10 @@ export default function UserPage() {
   useEffect(() => {
     // Only process once, when everything is ready
     if (
-      pendingPromptProcessed || 
-      !isConnected || 
-      loadingChats || 
-      !isAuthenticated ||
+      pendingPromptProcessed ||
+      !isConnected ||
+      loadingChats ||
+      (!isAuthenticated && !anonToken) ||
       authLoading
     ) {
       return;
@@ -943,40 +1042,53 @@ export default function UserPage() {
       setInputValue('');
       setChatState('queued');
       setStreamingContent('');
-      
-      // Get auth token for submission
-      getAccessToken().then(async (authToken) => {
+      streamBufferRef.current = '';
+      if (streamFlushRef.current) { clearTimeout(streamFlushRef.current); streamFlushRef.current = null; }
+
+      // Get auth token for submission — Privy when logged in, anon token otherwise
+      (async () => {
+        const authToken = isAuthenticated ? await getAccessToken() : anonToken;
         if (!authToken) {
           setChatState('error');
           setError('Authentication required. Please log in.');
-          return Promise.reject(new Error('No auth token'));
+          return;
         }
-        // E2E disabled until debugged
-        return submitJob({
-          messages: [{ role: 'user', content: pendingPrompt }],
-          model: selectedModel,
-          authToken,
-          think: selectedModel === 'native-max' ? deepThinking : false,
-        });
-      })
-        .then((jobId) => {
+        try {
+          const { jobId, freeRemaining } = await submitJob({
+            messages: [{ role: 'user', content: pendingPrompt }],
+            model: selectedModel,
+            authToken,
+            think: selectedModel === 'native-max' ? deepThinking : false,
+          });
+          if (!isAuthenticated && typeof freeRemaining === 'number') {
+            setAnonRemaining(freeRemaining);
+            if (freeRemaining === 1) setAnonModal('nudge');
+          }
           currentJobIdRef.current = jobId;
           setCurrentJobId(jobId);
-        })
-        .catch((err) => {
-          console.error('Error submitting pending prompt job:', err);
-          setChatState('error');
-          setError('Failed to submit job. Please try again.');
-        });
+        } catch (err) {
+          const code = err instanceof Error ? err.message : '';
+          if (code === 'ANON_NO_PROMPTS') {
+            setChatState('idle'); setAnonRemaining(0); setAnonModal('empty');
+          } else if (code === 'ANON_CAP_IP' || code === 'ANON_CAP_GLOBAL') {
+            setChatState('idle'); setAnonModal('softlogin');
+          } else {
+            console.error('Error submitting pending prompt job:', err);
+            setChatState('error');
+            setError('Failed to submit job. Please try again.');
+          }
+        }
+      })();
     }, 100);
   }, [
-    pendingPromptProcessed, 
-    isConnected, 
-    loadingChats, 
-    isAuthenticated, 
+    pendingPromptProcessed,
+    isConnected,
+    loadingChats,
+    isAuthenticated,
     authLoading,
-    user?.id, 
-    chats, 
+    anonToken,
+    user?.id,
+    chats,
     submitJob,
     getAccessToken,
     selectedModel,
@@ -1006,21 +1118,30 @@ export default function UserPage() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [sendMessage]);
 
-  // Show login prompt if not authenticated
-  if (!authLoading && !isAuthenticated) {
+  // Not logged in: let anonymous visitors through to the chat on their free
+  // prompts (anonToken present). Only show the sign-in screen when an anon
+  // session couldn't be created (daily free budget reached).
+  if (!authLoading && !isAuthenticated && !anonToken) {
+    if (anonLoading) {
+      return (
+        <div className="h-screen bg-black flex items-center justify-center">
+          <div className="pixel-sans text-white/50 text-sm">Loading…</div>
+        </div>
+      );
+    }
     return (
       <div className="h-screen bg-black flex items-center justify-center">
         <div className="text-center border border-white/10 bg-white/[0.02] rounded-2xl p-8 max-w-md mx-4">
           <div className="pixel-serif text-white text-4xl mb-4">🔒</div>
-          <h1 className="pixel-serif text-white text-2xl mb-3">Login Required</h1>
+          <h1 className="pixel-serif text-white text-2xl mb-3">Sign in to c0mpute</h1>
           <p className="pixel-sans text-white/70 text-sm mb-6">
-            You need to log in to access the chat. Connect with Privy to continue.
+            Sign in with your X account to start chatting. Free prompts included — no card or crypto needed.
           </p>
           <button
             onClick={() => login()}
             className="cursor-pointer pixel-serif text-sm px-8 py-3 bg-white text-black rounded-xl hover:bg-white/90 transition-colors"
           >
-            Login with Privy
+            Sign in with X
           </button>
           <div className="mt-4">
             <a href="/" className="cursor-pointer pixel-sans text-white/60 text-xs hover:text-white/50 transition-colors">
@@ -1051,7 +1172,21 @@ export default function UserPage() {
         <OnboardingModal
           freePromptLimit={freePromptLimit}
           onClose={dismissOnboarding}
+          onUseAI={() => { dismissOnboarding(); createNewChat(); }}
           onChooseWorker={() => { dismissOnboarding(); router.push('/worker'); }}
+        />
+      )}
+      {anonModal && (
+        <AnonGateModal
+          mode={anonModal}
+          freePromptLimit={ANON_FREE_LIMIT}
+          onClose={() => setAnonModal(null)}
+          onSignIn={() => {
+            // 0-left flow lands the user on the top-up page after signing in.
+            if (anonModal === 'empty') sessionStorage.setItem('c0mpute_post_login_topup', '1');
+            setAnonModal(null);
+            login();
+          }}
         />
       )}
       {/* Header */}
@@ -1072,28 +1207,57 @@ export default function UserPage() {
           </div>
           
           <div className="flex items-center gap-4">
-            {/* Free prompts left — shown while the onboarding allowance lasts */}
-            {freePromptsRemaining > 0 && (
-              <button
-                onClick={() => router.push('/settings#usage')}
-                className="pixel-sans text-xs px-3 py-2 rounded-lg border border-green-500/20 bg-green-500/[0.05] text-green-400/80 hover:bg-green-500/[0.08] transition-colors cursor-pointer"
-              >
-                {freePromptsRemaining} free {freePromptsRemaining === 1 ? 'prompt' : 'prompts'} left
-              </button>
+            {isAuthenticated ? (
+              <>
+                {/* Free prompts left — shown while the onboarding allowance lasts */}
+                {freePromptsRemaining > 0 && (
+                  <button
+                    onClick={() => router.push('/settings#usage')}
+                    className="pixel-sans text-xs px-3 py-2 rounded-lg border border-green-500/20 bg-green-500/[0.05] text-green-400/80 hover:bg-green-500/[0.08] transition-colors cursor-pointer"
+                  >
+                    {freePromptsRemaining} free {freePromptsRemaining === 1 ? 'prompt' : 'prompts'} left
+                  </button>
+                )}
+                {/* Staker inference allowance — free credits from staked $ZERO, drawn before paid credits */}
+                {stakeAllowanceLeft > 0 && (
+                  <button
+                    onClick={() => router.push('/staking')}
+                    title="Free daily inference from your staked $ZERO — used before your paid credits. Refreshes 00:00 UTC."
+                    className="pixel-sans text-xs px-3 py-2 rounded-lg border border-[#80a0c1]/30 bg-[#80a0c1]/[0.06] text-[#80a0c1] hover:bg-[#80a0c1]/[0.1] transition-colors cursor-pointer"
+                  >
+                    {stakeAllowanceLeft.toFixed(0)} free credits today
+                  </button>
+                )}
+                {/* Credit balance — always visible */}
+                <button
+                  onClick={() => router.push('/settings#usage')}
+                  className={`cursor-pointer pixel-sans text-xs px-3 py-2 rounded-lg border transition-colors ${
+                    creditBalance === 0
+                      ? 'border-red-500/20 bg-red-500/[0.04] text-red-400/70'
+                      : 'border-white/10 bg-white/[0.03] text-white/50 hover:bg-white/[0.06]'
+                  }`}
+                >
+                  {creditBalance.toFixed(0)} credits
+                </button>
+              </>
+            ) : (
+              <>
+                {/* Anonymous visitor: free prompts left + a sign-in CTA */}
+                {anonRemaining !== null && (
+                  <span className="pixel-sans text-xs px-3 py-2 rounded-lg border border-green-500/20 bg-green-500/[0.05] text-green-400/80">
+                    {anonRemaining} free {anonRemaining === 1 ? 'prompt' : 'prompts'} left
+                  </span>
+                )}
+                <button
+                  onClick={() => login()}
+                  className="cursor-pointer pixel-serif text-xs px-4 py-2 rounded-lg bg-white text-black hover:bg-white/90 transition-colors"
+                >
+                  Sign in
+                </button>
+              </>
             )}
-            {/* Credit balance — always visible */}
-            <button
-              onClick={() => router.push('/settings#usage')}
-              className={`cursor-pointer pixel-sans text-xs px-3 py-2 rounded-lg border transition-colors ${
-                creditBalance === 0
-                  ? 'border-red-500/20 bg-red-500/[0.04] text-red-400/70'
-                  : 'border-white/10 bg-white/[0.03] text-white/50 hover:bg-white/[0.06]'
-              }`}
-            >
-              {creditBalance.toFixed(0)} credits
-            </button>
 
-            <button 
+            <button
               onClick={() => router.push('/')}
               className="cursor-pointer pixel-sans text-sm text-white/70 hover:text-white transition-colors"
             >
@@ -1266,8 +1430,8 @@ export default function UserPage() {
                       <div
                         className={`${
                           message.role === 'user'
-                            ? 'max-w-[85%] px-4 py-2.5 bg-white/[0.07] rounded-2xl'
-                            : 'w-full px-4 py-3 bg-white/[0.03] rounded-2xl border border-white/[0.04]'
+                            ? 'max-w-[85%] px-4 py-2.5 bg-white/[0.11] rounded-2xl border border-white/[0.10]'
+                            : 'w-full px-4 py-3 bg-white/[0.05] rounded-2xl border border-white/[0.12]'
                         }`}
                       >
                         {/* Display images if present */}
@@ -1279,7 +1443,7 @@ export default function UserPage() {
                           </div>
                         )}
                         <SourceStrip sources={sources} content={cleanContent} />
-                        <div className="pixel-sans text-white/90 text-base leading-[1.75] prose prose-invert prose-base max-w-none prose-p:my-3 prose-li:my-1 prose-ol:my-3 prose-ul:my-3 prose-headings:mt-5 prose-headings:mb-2 prose-headings:text-white prose-headings:font-semibold prose-strong:text-white prose-strong:font-extrabold prose-code:text-white/80 prose-code:bg-white/[0.06] prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-a:text-blue-400 prose-a:no-underline hover:prose-a:underline prose-hr:my-5 prose-hr:border-white/10 [&_br]:block [&_br]:content-[''] [&_br]:mt-2.5">
+                        <div className="chat-answer pixel-sans text-white/90 text-base leading-[1.75] prose prose-invert prose-base max-w-none prose-p:my-3 prose-li:my-1 prose-ol:my-3 prose-ul:my-3 prose-headings:mt-5 prose-headings:mb-2 prose-headings:text-white prose-headings:font-semibold prose-strong:text-white prose-strong:font-extrabold prose-code:text-white/80 prose-code:bg-white/[0.06] prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-a:text-blue-400 prose-a:no-underline hover:prose-a:underline prose-hr:my-5 prose-hr:border-white/10 [&_br]:block [&_br]:content-[''] [&_br]:mt-2.5">
                           <Markdown options={buildMarkdownOverrides(sources)}>{mathToTags(cleanContent)}</Markdown>
                         </div>
                         {thinking && <ThinkingDropdown thinking={thinking} elapsedSeconds={thinkSeconds ?? undefined} />}
@@ -1317,10 +1481,10 @@ export default function UserPage() {
                   const isStillThinking = streamThinking !== null && !streamResponse;
                   return (
                     <div className="flex justify-start">
-                      <div className="w-full px-4 py-3 bg-white/[0.03] rounded-2xl border border-white/[0.04]">
+                      <div className="w-full px-4 py-3 bg-white/[0.05] rounded-2xl border border-white/[0.12]">
                         <SourceStrip sources={pendingSources} />
                         {streamResponse && (
-                          <div className="pixel-sans text-white/90 text-base leading-[1.75] prose prose-invert prose-base max-w-none prose-p:my-3 prose-li:my-1 prose-ol:my-3 prose-ul:my-3 prose-headings:mt-5 prose-headings:mb-2 prose-headings:text-white prose-headings:font-semibold prose-strong:text-white prose-strong:font-extrabold prose-code:text-white/80 prose-code:bg-white/[0.06] prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-a:text-blue-400 prose-a:no-underline hover:prose-a:underline prose-hr:my-5 prose-hr:border-white/10 [&_br]:block [&_br]:content-[''] [&_br]:mt-2.5">
+                          <div className="chat-answer pixel-sans text-white/90 text-base leading-[1.75] prose prose-invert prose-base max-w-none prose-p:my-3 prose-li:my-1 prose-ol:my-3 prose-ul:my-3 prose-headings:mt-5 prose-headings:mb-2 prose-headings:text-white prose-headings:font-semibold prose-strong:text-white prose-strong:font-extrabold prose-code:text-white/80 prose-code:bg-white/[0.06] prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-a:text-blue-400 prose-a:no-underline hover:prose-a:underline prose-hr:my-5 prose-hr:border-white/10 [&_br]:block [&_br]:content-[''] [&_br]:mt-2.5">
                             <Markdown options={buildMarkdownOverrides(pendingSources)}>{mathToTags(streamResponse)}</Markdown>
                             <span className="inline-block w-2 h-5 bg-white/50 ml-1 animate-pulse" />
                           </div>

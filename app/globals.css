@@ -271,12 +271,73 @@
   font-feature-settings: normal;
 }
 
+/* Form/UI screens (image gen, etc.) — pixel-sans body copy renders hairline-thin
+   and low-contrast with the global font-smoothing disabled (great for logos,
+   brutal for small Courier UI text). Re-enable antialiasing for pixel-sans inside
+   a .ui-readable wrapper so it reads cleanly; brand serif + logos keep their own
+   crisp-pixel rules untouched. Same approach as .chat-answer below. */
+.ui-readable .pixel-sans,
+.ui-readable .pixel-sans * {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-smooth: auto;
+  text-rendering: optimizeLegibility;
+}
+
 /* Clean sans-serif for AI chat responses — readable over aesthetic */
 .chat-response {
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   color: #faf9f5;
+}
+
+/* AI answer body: keep the mono brand font but make long answers actually
+   readable. The global body rule disables antialiasing (great for logos, brutal
+   for paragraphs) and prose-invert defaults to a dim grey — both killed contrast.
+   This re-enables smoothing and forces near-white text, scoped to the answer. */
+.chat-answer,
+.chat-answer *,
+.chat-answer strong,
+.chat-answer b,
+.chat-answer code {
+  -webkit-font-smoothing: antialiased !important;
+  -moz-osx-font-smoothing: grayscale !important;
+  font-smooth: auto !important;
+  text-rendering: optimizeLegibility;
+}
+.chat-answer {
+  color: #f2f2f2;
+  --tw-prose-invert-body: #f2f2f2;
+  --tw-prose-invert-bold: #ffffff;
+  --tw-prose-invert-headings: #ffffff;
+  --tw-prose-invert-bullets: #b8b8b8;
+  --tw-prose-invert-counters: #cfcfcf;
+}
+
+/* Tables in answers were horizontally cramped — columns touched because the
+   default cell styling gives no real horizontal padding and no separators.
+   Give cells generous padding + subtle borders so columns read as a grid. */
+.chat-answer table {
+  border-collapse: collapse;
+  width: auto;
+  max-width: 100%;
+  margin: 1.1rem 0;
+  display: block;
+  overflow-x: auto;
+}
+.chat-answer th,
+.chat-answer td {
+  padding: 0.5rem 1.1rem !important;
+  text-align: left;
+  vertical-align: top;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  white-space: nowrap;
+}
+.chat-answer th {
+  font-weight: 700;
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.05);
 }
 
 .chat-response strong,

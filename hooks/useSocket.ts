@@ -20,7 +20,7 @@ interface UseSocketReturn {
   completeJob: (jobId: string, response: string, tokensGenerated: number) => void;
   failJob: (jobId: string, error: string) => void;
   
-  submitJob: (data: { messages?: ChatMessage[]; model?: string; authToken: string; think?: boolean }) => Promise<string>;
+  submitJob: (data: { messages?: ChatMessage[]; model?: string; authToken: string; think?: boolean }) => Promise<{ jobId: string; freeRemaining?: number }>;
   
   setOnNewJob: (handler: ((jobId: string, messages?: ChatMessage[]) => void) | null) => void;
   setOnJobToken: (handler: ((jobId: string, token: string) => void) | null) => void;
@@ -176,7 +176,7 @@ export function useSocket(authToken?: string | null): UseSocketReturn {
     if (socketRef.current) socketRef.current.emit('job:error', { jobId, error });
   }, []);
 
-  const submitJob = useCallback(async (data: { messages?: ChatMessage[]; model?: string; authToken: string; think?: boolean }): Promise<string> => {
+  const submitJob = useCallback(async (data: { messages?: ChatMessage[]; model?: string; authToken: string; think?: boolean }): Promise<{ jobId: string; freeRemaining?: number }> => {
     return new Promise((resolve, reject) => {
       if (!socketRef.current) {
         reject(new Error('Socket not connected'));
@@ -189,9 +189,11 @@ export function useSocket(authToken?: string | null): UseSocketReturn {
         think: data.think,
       }, (response) => {
         if ('jobId' in response) {
-          resolve(response.jobId);
+          resolve({ jobId: response.jobId, freeRemaining: response.freeRemaining });
         } else {
-          reject(new Error(response.error));
+          // Surface the machine code (e.g. ANON_NO_PROMPTS) when present so the
+          // caller can show the right popup; fall back to the human message.
+          reject(new Error(response.code || response.error));
         }
       });
     });

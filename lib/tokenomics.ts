@@ -52,7 +52,41 @@ export const FREE_PROMPT_LIMIT = Number(process.env.FREE_PROMPT_LIMIT || 5);
 // TOTAL such subsidy per UTC day so a sybil swarm farming free prompts against
 // their own worker can't drain the treasury. Private: never surfaced in any UI,
 // API response, or docs — a worker only ever sees their earnings. Dial via env.
-export const FREE_SUBSIDY_DAILY_CAP_USD = Number(process.env.FREE_SUBSIDY_DAILY_CAP_USD || 25);
+export const FREE_SUBSIDY_DAILY_CAP_USD = Number(process.env.FREE_SUBSIDY_DAILY_CAP_USD || 50);
+
+// Anonymous (pre-login) free prompts. A visitor gets ANON_FREE_PROMPT_LIMIT free
+// prompts per session before being asked to sign in. ANON_IP_DAILY_CAP bounds how
+// many free prompts a single IP can dispense per UTC day, so clearing cookies to
+// reset the session is capped. The global FREE_SUBSIDY_DAILY_CAP_USD above is the
+// hard ceiling on total spend regardless.
+export const ANON_FREE_PROMPT_LIMIT = Number(process.env.ANON_FREE_PROMPT_LIMIT || FREE_PROMPT_LIMIT);
+export const ANON_IP_DAILY_CAP = Number(process.env.ANON_IP_DAILY_CAP || 30);
+
+// ── Staker inference allowance (Venice-style "stake → daily free inference") ──
+// FLAGGED OFF by default. When on, matured-stake holders draw a daily pro-rata
+// allowance of FREE inference from the capped pool below before paying USDC.
+// See lib/staker-allowance.ts for the engine.
+export const STAKER_ALLOWANCE_ENABLED = (process.env.STAKER_ALLOWANCE_ENABLED || '').toLowerCase() === 'true';
+// Total free-inference credits handed to ALL stakers per UTC day — the hard cost
+// ceiling (worst-case worker subsidy = POOL × share ÷ CREDITS_PER_USD). Start
+// small per D3; raise via env as revenue grows.
+export const STAKER_ALLOWANCE_DAILY_POOL_CREDITS = Number(process.env.STAKER_ALLOWANCE_DAILY_POOL_CREDITS || 5000);
+// No single account may draw more than this fraction of the daily pool.
+export const STAKER_ALLOWANCE_MAX_SHARE = pct('STAKER_ALLOWANCE_MAX_SHARE', 0.25);
+// A staker only counts toward / draws from the pool if they've made a request
+// within this many days (Venice's active-staker gate).
+export const STAKER_ALLOWANCE_ACTIVE_DAYS = Number(process.env.STAKER_ALLOWANCE_ACTIVE_DAYS || 7);
+// Whether to apply the active-staker gate above. OFF by default: every matured
+// staker gets their allowance regardless of recent usage (you don't have to have
+// used the network before to get free credits). Flip to true to re-require it.
+export const STAKER_ALLOWANCE_REQUIRE_ACTIVE = (process.env.STAKER_ALLOWANCE_REQUIRE_ACTIVE || '').toLowerCase() === 'true';
+// Optional beta allowlist — comma-separated privy_ids. When non-empty, ONLY these
+// accounts are eligible (lets us prove the feature on one wallet before opening
+// it to everyone). Empty = all matured active stakers.
+export const STAKER_ALLOWANCE_ALLOWLIST = (process.env.STAKER_ALLOWANCE_ALLOWLIST || '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
 
 // ── Worker revenue share ──
 

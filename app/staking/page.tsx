@@ -12,15 +12,20 @@ import { PublicKey } from '@solana/web3.js';
 import {
   buildStakeTx, buildUnstakeTx, buildClaimTx,
   mintsConfigured, SOLANA_CHAIN, RPC_URL, type StakeChunks,
+  readStakeChunks, readClaimable, readWalletZero, stakeVault, ZERO_MINT,
 } from '@/lib/onchain-staking';
 
 const num = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 6 });
 const intnum = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 0 });
-function countdown(ts: number | null): string {
+function countdown(ts: number | null, now: number): string {
   if (!ts) return '';
-  const r = ts - Date.now();
+  const r = ts - now;
   if (r <= 0) return '';
-  return `${Math.floor(r / 3_600_000)}h ${Math.floor((r % 3_600_000) / 60_000)}m`;
+  const p = (n: number) => String(n).padStart(2, '0');
+  const h = Math.floor(r / 3_600_000);
+  const m = Math.floor((r % 3_600_000) / 60_000);
+  const s = Math.floor((r % 60_000) / 1000);
+  return `${p(h)}:${p(m)}:${p(s)}`;
 }
 function legacyLine(zero: number, usd: number): string {
   const parts: string[] = [];
@@ -52,11 +57,17 @@ export default function StakingPage() {
   const [migrating, setMigrating] = useState(false);
   const [migrateMsg, setMigrateMsg] = useState<string | null>(null);
   const [boost, setBoost] = useState<{ active: boolean; threshold: number; mature: number }>({ active: false, threshold: 0, mature: 0 });
+  const [allowance, setAllowance] = useState<{ enabled: boolean; dailyAllowance: number; usedToday: number; remaining: number } | null>(null);
   const [stakeAmt, setStakeAmt] = useState('');
   const [unstakeAmt, setUnstakeAmt] = useState('');
+  const [walletZero, setWalletZero] = useState<number | null>(null);
+  const [vaultAddr, setVaultAddr] = useState<string | null>(null);
+  const [copiedVault, setCopiedVault] = useState(false);
+  const [syncedAddr, setSyncedAddr] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [now, setNow] = useState(() => Date.now());
 
   // Works with just the Privy session (no wallet needed), so legacy holders see their
   // custodial position + the migrate prompt before they've connected a wallet.
@@ -64,17 +75,39 @@ export default function StakingPage() {
     try {
       const t = await getAccessToken();
       if (!t) return;
+      // Server view: preserves migrated stake's original 24h clock, plus boost +
+      // allowance. Keyed on the wallet saved to the profile (set at login).
+      let serverStaked = 0;
       const r = await fetch('/api/staking/onchain-status', { headers: { Authorization: `Bearer ${t}` } });
       if (r.ok) {
         const d = await r.json();
-        setChunks({ staked: d.staked ?? 0, mature: d.mature ?? 0, cooling: d.cooling ?? 0, nextMatureAt: d.nextMatureAt ?? null });
-        setClaimable(d.claimable ?? 0);
+        serverStaked = d.staked ?? 0;
+        if (serverStaked > 0) {
+          setChunks({ staked: d.staked ?? 0, mature: d.mature ?? 0, cooling: d.cooling ?? 0, nextMatureAt: d.nextMatureAt ?? null });
+          setClaimable(d.claimable ?? 0);
+        }
         setBoost({ active: !!d.workerBoostActive, threshold: d.workerThreshold ?? 0, mature: d.matureForBoost ?? 0 });
+        setAllowance(d.allowance ?? null);
+      }
+      // Live on-chain view from the CONNECTED wallet — the reliable source for the
+      // staked amount + wallet balance + vault, and the ONLY one that works when the
+      // wallet isn't synced to the profile yet (X-login + connect-on-this-page).
+      const w = wallets?.[0];
+      if (w && ZERO_MINT) {
+        const ownerPk = new PublicKey(w.address);
+        setVaultAddr(stakeVault(ownerPk, new PublicKey(ZERO_MINT)).toBase58());
+        try {
+          const [ch, wz, cl] = await Promise.all([readStakeChunks(ownerPk), readWalletZero(ownerPk), readClaimable(ownerPk)]);
+          setWalletZero(wz);
+          // Trust the live read for the position when the server doesn't have it
+          // (un-synced wallet). When it does, keep the server's maturity dates.
+          if (serverStaked <= 0) { setChunks(ch); setClaimable(cl); }
+        } catch {}
       }
       const rc = await fetch('/api/staking/status', { headers: { Authorization: `Bearer ${t}` } });
       if (rc.ok) { const dc = await rc.json(); setCustodial(dc.stakedAmount ?? 0); setCustodialRewards(dc.claimableUsd ?? 0); }
     } catch {}
-  }, [getAccessToken]);
+  }, [getAccessToken, wallets]);
 
   const handleMigrate = async () => {
     setMigrating(true); setMigrateMsg(null);
@@ -95,12 +128,47 @@ export default function StakingPage() {
 
   useEffect(() => { refresh(); }, [refresh]);
 
+  // Live countdown for cooling-down stake: tick every second while a lot is still
+  // maturing; once it matures, stop and pull the fresh mature/cooling split.
+  useEffect(() => {
+    if (!(chunks.cooling > 0 && chunks.nextMatureAt)) return;
+    const id = setInterval(() => {
+      setNow(Date.now());
+      if (chunks.nextMatureAt && Date.now() >= chunks.nextMatureAt) {
+        clearInterval(id);
+        refresh();
+      }
+    }, 1000);
+    return () => clearInterval(id);
+  }, [chunks.cooling, chunks.nextMatureAt, refresh]);
+
   useEffect(() => {
     if (ready && authenticated && !wallet && linkedWallet && !autoTried) {
       setAutoTried(true);
       try { connectWallet({ walletChainType: 'solana-only' }); } catch {}
     }
   }, [ready, authenticated, wallet, linkedWallet, autoTried, connectWallet]);
+
+  // Sync the connected wallet to the profile (once per address) so the server-side
+  // checks — worker boost + daily free-credit allowance — recognise a stake made
+  // from a wallet linked here rather than at login. The endpoint only accepts a
+  // wallet the user provably controls (verified against Privy), then we re-pull.
+  useEffect(() => {
+    const w = wallets?.[0];
+    if (!authenticated || !w || syncedAddr === w.address) return;
+    (async () => {
+      try {
+        const t = await getAccessToken();
+        if (!t) return;
+        const r = await fetch('/api/profile/link-wallet', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ wallet: w.address }),
+        });
+        if (r.ok) { setSyncedAddr(w.address); refresh(); }
+      } catch {}
+    })();
+  }, [authenticated, wallets, syncedAddr, getAccessToken, refresh]);
 
   const run = async (label: string, build: (o: PublicKey) => Promise<Uint8Array>) => {
     if (!owner || !wallet) return;
@@ -110,7 +178,9 @@ export default function StakingPage() {
       const { signature } = await signAndSendTransaction({ transaction: tx, wallet, chain: SOLANA_CHAIN as `solana:${string}` });
       const sig = Buffer.from(signature).toString('base64');
       setMsg(`${label} sent (${sig.slice(0, 12)}…)`);
-      setTimeout(refresh, 2500);
+      // Re-read a few times — the first read can land before the tx confirms, so
+      // stagger retries to make the new balance reliably show up.
+      [2500, 6000, 12000].forEach((ms) => setTimeout(refresh, ms));
     } catch (e) {
       setErr(`${label} failed: ${e instanceof Error ? e.message : String(e)}`);
     } finally { setBusy(null); }
@@ -189,7 +259,9 @@ export default function StakingPage() {
                   <div className="text-center p-4 bg-white/[0.02] border border-white/5 rounded-xl">
                     <div className="pixel-serif text-white/70 text-2xl">{intnum(chunks.cooling)}</div>
                     <div className="pixel-sans text-white/70 text-xs mt-1">
-                      {chunks.cooling > 0 && countdown(chunks.nextMatureAt) ? `matures in ${countdown(chunks.nextMatureAt)}` : 'cooling down'}
+                      {chunks.cooling > 0 && countdown(chunks.nextMatureAt, now)
+                        ? <>matures in <span className="text-white/90 tabular-nums">{countdown(chunks.nextMatureAt, now)}</span></>
+                        : 'cooling down'}
                     </div>
                   </div>
                 </div>
@@ -198,6 +270,18 @@ export default function StakingPage() {
                   <div className="pixel-sans text-white/70 text-xs mt-1">claimable USDC</div>
                 </div>
                 <p className="pixel-sans text-white/45 text-[11px] mt-3">Stake earns rewards after 24h (anti-snipe). Unstaking pulls your newest deposits first, so aged stake keeps earning.</p>
+                {vaultAddr && (
+                  <div className="flex items-center justify-between gap-2 mt-3 pt-3 border-t border-white/5">
+                    <span className="pixel-sans text-white/40 text-[11px]">Your on-chain vault</span>
+                    <button
+                      onClick={() => { navigator.clipboard.writeText(vaultAddr); setCopiedVault(true); setTimeout(() => setCopiedVault(false), 1500); }}
+                      title={vaultAddr}
+                      className="pixel-sans text-[#80a0c1] hover:text-white text-[11px] tabular-nums transition-colors"
+                    >
+                      {copiedVault ? 'copied ✓' : `${vaultAddr.slice(0, 4)}…${vaultAddr.slice(-4)}`}
+                    </button>
+                  </div>
+                )}
               </section>
 
               {boost.threshold > 0 && (
@@ -213,14 +297,35 @@ export default function StakingPage() {
                 </section>
               )}
 
+              {allowance?.enabled && allowance.dailyAllowance > 0 && (
+                <section className={card}>
+                  <h2 className="pixel-serif text-white text-xl mb-1">Daily free credits</h2>
+                  <p className="pixel-sans text-white/55 text-[11px] mb-4">Your matured stake earns free credits every day, drawn before your paid credits. Refreshes 00:00 UTC — use it or lose it.</p>
+                  <div className="flex items-end justify-between mb-2">
+                    <div className="pixel-serif text-green-400 text-3xl tabular-nums">{intnum(allowance.remaining)}</div>
+                    <div className="pixel-sans text-white/50 text-xs">of {intnum(allowance.dailyAllowance)} credits/day</div>
+                  </div>
+                  <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden mb-3">
+                    <div className="h-full bg-green-400/70" style={{ width: `${Math.min(100, Math.max(0, 100 * allowance.remaining / allowance.dailyAllowance))}%` }} />
+                  </div>
+                  <p className="pixel-sans text-white/45 text-[11px]">free credits left today · stake more for a bigger daily share</p>
+                </section>
+              )}
+
               <section className={card}>
-                <h2 className="pixel-serif text-white text-xl mb-4">Stake</h2>
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="pixel-serif text-white text-xl">Stake</h2>
+                  {walletZero !== null && (
+                    <span className="pixel-sans text-white/50 text-xs">Balance: <span className="text-white/80 tabular-nums">{intnum(walletZero)}</span> ZERO</span>
+                  )}
+                </div>
                 <div className="flex items-center gap-2 bg-white/[0.03] border border-white/10 rounded-lg p-3 mb-3">
                   <input type="number" inputMode="decimal" min="0" value={stakeAmt} onChange={(e) => setStakeAmt(e.target.value)} placeholder="0" className={input} />
                   <span className="pixel-sans text-white/60 text-xs">ZERO</span>
+                  <button disabled={walletZero === null || walletZero <= 0} onClick={() => walletZero !== null && setStakeAmt(String(walletZero))} className="pixel-sans text-xs px-2.5 py-1.5 rounded-lg border border-white/10 text-white/70 hover:text-white hover:bg-white/5 disabled:opacity-40 disabled:cursor-not-allowed">Max</button>
                 </div>
-                <button disabled={!!busy || !mintsConfigured() || !(parseFloat(stakeAmt) > 0)} onClick={() => run('Stake', (o) => buildStakeTx(o, parseFloat(stakeAmt)))} className={btn}>
-                  {busy === 'Stake' ? 'Confirm in wallet…' : 'Stake'}
+                <button disabled={!!busy || !mintsConfigured() || !(parseFloat(stakeAmt) > 0) || (walletZero !== null && parseFloat(stakeAmt) > walletZero)} onClick={() => run('Stake', (o) => buildStakeTx(o, parseFloat(stakeAmt)))} className={btn}>
+                  {busy === 'Stake' ? 'Confirm in wallet…' : (walletZero !== null && parseFloat(stakeAmt) > walletZero ? 'Not enough ZERO' : 'Stake')}
                 </button>
               </section>
 

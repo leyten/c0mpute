@@ -13,10 +13,12 @@ import {
   getModelTier,
 } from './types';
 import { verifyPrivyToken } from '../privy-server';
-import { incrementPromptsSent, verifyWorkerToken, recordCompletedJob, recordEarning, spendCredits, getCreditBalance, refundCredits, isWorkerBanned, recordWorkerStrike, recordCanaryResult, consumeFreePrompt, getTodayFreeSubsidyUsd } from '../db';
-import { FREE_PROMPT_LIMIT, FREE_SUBSIDY_DAILY_CAP_USD } from '../tokenomics';
+import { incrementPromptsSent, verifyWorkerToken, recordCompletedJob, recordEarning, spendCredits, getCreditBalance, refundCredits, isWorkerBanned, recordWorkerStrike, recordCanaryResult, consumeFreePrompt, getTodayFreeSubsidyUsd, anonGrantFreePrompt } from '../db';
+import { FREE_PROMPT_LIMIT, FREE_SUBSIDY_DAILY_CAP_USD, STAKER_ALLOWANCE_ENABLED, ANON_FREE_PROMPT_LIMIT, ANON_IP_DAILY_CAP } from '../tokenomics';
+import { verifyAnonToken } from '../anon-auth';
 import { CREDITS_PER_USD } from '../token-price';
 import { getWorkerRevenueShare } from '../staking';
+import { consumeStakerAllowance, recordStakerRequest } from '../staker-allowance';
 import { scanOutput, BLOCKED_MESSAGE } from '../safety';
 import { AVAILABLE_TOOLS, executeToolCalls } from './tools';
 
@@ -28,12 +30,32 @@ try {
   console.warn('[Orchestrator] Search server module not available:', (e as Error).message);
 }
 
+interface ImageJob {
+  id: string;
+  submitterSocketId: string;
+  workflow: Record<string, unknown>;
+  privyUserId: string;
+  seed?: number;
+  width?: number;
+  height?: number;
+  status: 'pending' | 'processing';
+  assignedWorkerSocketId?: string;
+  timer?: ReturnType<typeof setTimeout>;
+  submittedAt: number;
+}
+
 export class Orchestrator {
   private io: Server<ClientToServerEvents, ServerToClientEvents>;
   private workers: Map<string, WorkerInfo> = new Map();
   private rateLimits: Map<string, number[]> = new Map();
   private jobs: Map<string, Job> = new Map();
   private jobQueue: string[] = [];
+  // Image generation jobs (decentralized image gen). Separate, simple
+  // request/response lane (no token streaming): submit -> dispatch to an idle
+  // image worker -> single PNG result. Billing stays in the web API route.
+  private imageJobs: Map<string, ImageJob> = new Map();
+  private imageQueue: string[] = [];
+  private readonly IMAGE_JOB_TIMEOUT_MS = 180_000;
   private totalJobsCompleted: number = 0;
   private totalTokensGenerated: number = 0;
   private jobDurations: number[] = [];
@@ -90,6 +112,16 @@ export class Orchestrator {
         userId = 'internal-api';
       } else if (token.startsWith('cwt_')) {
         userId = verifyWorkerToken(token);
+      } else if (token.startsWith('anon.')) {
+        // Anonymous visitor (pre-login). Hard-restricted downstream to free
+        // prompts only — never credits, deposits, staking or the treasury.
+        const anon = verifyAnonToken(token);
+        if (anon) {
+          (socket as any).isAnon = true;
+          (socket as any).anonAid = anon.aid;
+          (socket as any).anonIpHash = anon.iph;
+          userId = 'anon:' + anon.aid;
+        }
       } else {
         userId = await verifyPrivyToken(token);
       }
@@ -190,12 +222,14 @@ export class Orchestrator {
           callback({ error: `This account is banned from running a worker${ban.reason ? `: ${ban.reason}` : ''}.` });
           return;
         }
+        const workerType = data.type || 'browser';
         const tokPerSec = data.tokPerSec || 0;
-        if (tokPerSec < this.MIN_TOK_PER_SEC) {
+        // Image workers don't produce tokens, so the tok/s throughput floor
+        // doesn't apply to them. Text workers must still clear it.
+        if (workerType !== 'image' && tokPerSec < this.MIN_TOK_PER_SEC) {
           callback({ error: `Your device is too slow (${tokPerSec.toFixed(1)} tok/s). Minimum required: ${this.MIN_TOK_PER_SEC} tok/s.` });
           return;
         }
-        const workerType = data.type || 'browser';
         const capabilities: WorkerCapabilities = data.capabilities || {};
         // Browser workers don't have search/vision/tools
         if (workerType === 'browser') {
@@ -225,11 +259,15 @@ export class Orchestrator {
       // Job submission
       socket.on('job:submit', async (data, callback) => {
         const isInternal = (socket as any).isInternal === true;
+        const isAnon = (socket as any).isAnon === true;
         let privyUserId: string | null;
         if (isInternal) {
           // Trusted gateway: end user already authenticated via their API key on
           // the HTTP side; bill the privyUserId it passes through.
           privyUserId = data.privyUserId || null;
+        } else if (isAnon) {
+          // Identity already established + verified at the socket handshake.
+          privyUserId = (socket as any).privyUserId || null; // 'anon:<aid>'
         } else {
           if (!data.authToken) {
             callback({ error: 'Authentication required' });
@@ -280,6 +318,34 @@ export class Orchestrator {
         // prompt — it's the basis we still pay the worker (treasury-funded).
         const listCredits = creditCost;
 
+        // Anonymous visitors (pre-login): free prompts ONLY. Triple-gated by the
+        // per-session limit, the per-IP daily cap, and the global daily $ subsidy
+        // cap. An anon socket can never reach the credit/staker paths below.
+        if (isAnon) {
+          if (getTodayFreeSubsidyUsd() >= FREE_SUBSIDY_DAILY_CAP_USD) {
+            callback({ error: "Free prompts are at today's limit. Sign in to keep going.", code: 'ANON_CAP_GLOBAL' });
+            return;
+          }
+          const grant = anonGrantFreePrompt((socket as any).anonAid, (socket as any).anonIpHash, ANON_FREE_PROMPT_LIMIT, ANON_IP_DAILY_CAP);
+          if (!grant.granted) {
+            if (grant.reason === 'ip') {
+              callback({ error: 'Your network has hit its daily free-prompt limit. Sign in to keep going.', code: 'ANON_CAP_IP' });
+            } else {
+              callback({ error: "You've used all your free prompts. Sign in and top up to continue.", code: 'ANON_NO_PROMPTS' });
+            }
+            return;
+          }
+          const anonJob = this.submitJob(socket.id, data.messages, data.model, privyUserId, deepThinking, 0, listCredits, undefined, false, 'free');
+          if (anonJob) {
+            callback({ jobId: anonJob.id, freeRemaining: grant.remaining });
+            console.log(`[Orchestrator] Anon free prompt used by ${privyUserId} (${requestedTierForCredits}), ${grant.remaining} left`);
+            this.processQueue();
+          } else {
+            callback({ error: 'Failed to submit job' });
+          }
+          return;
+        }
+
         // Onboarding: new X accounts get FREE_PROMPT_LIMIT free prompts (any tier,
         // incl. Max) before any credits are charged.
         // API-originated jobs always charge — never consume onboarding free
@@ -289,6 +355,21 @@ export class Orchestrator {
           creditCost = 0;
           usedFreePrompt = true;
           console.log(`[Orchestrator] Free prompt used by ${privyUserId} (${requestedTierForCredits})`);
+        }
+
+        // Staker inference allowance: matured-stake holders draw a daily pro-rata
+        // allowance of free inference from a capped pool before paying USDC. Worker
+        // still paid from the treasury subsidy lane. Applies to the API too — the
+        // allowance is the same credit pool as normal usage. (Anon sockets are
+        // handled above; onboarding free prompts above stay human-only.)
+        let usedStakerAllowance = false;
+        if (creditCost > 0 && STAKER_ALLOWANCE_ENABLED) {
+          recordStakerRequest(privyUserId); // mark active for the 7-day gate
+          if (consumeStakerAllowance(privyUserId, creditCost)) {
+            creditCost = 0;
+            usedStakerAllowance = true;
+            console.log(`[Orchestrator] Staker allowance used by ${privyUserId} (${requestedTierForCredits}, ${listCredits}cr)`);
+          }
         }
 
         if (creditCost > 0) {
@@ -308,7 +389,9 @@ export class Orchestrator {
         // caller's own tools (the model's tool calls get returned to the agent,
         // not executed server-side).
         const toolPassthrough = isInternal && Array.isArray(data.tools) && data.tools.length > 0;
-        const job = this.submitJob(socket.id, data.messages, data.model, privyUserId, deepThinking, creditCost, usedFreePrompt ? listCredits : 0, toolPassthrough ? data.tools : undefined, toolPassthrough);
+        const subsidyCredits = (usedFreePrompt || usedStakerAllowance) ? listCredits : 0;
+        const subsidyKind = usedStakerAllowance ? 'allowance' : (usedFreePrompt ? 'free' : undefined);
+        const job = this.submitJob(socket.id, data.messages, data.model, privyUserId, deepThinking, creditCost, subsidyCredits, toolPassthrough ? data.tools : undefined, toolPassthrough, subsidyKind);
         if (job) {
           callback({ jobId: job.id });
           console.log(`[Orchestrator] Job submitted: ${job.id} (model: ${data.model || 'any'}${deepThinking ? ', deep-thinking' : ''}) user=${privyUserId}`);
@@ -356,16 +439,75 @@ export class Orchestrator {
         await this.handleToolCall(socket, data.jobId, data.toolCalls);
       });
 
+      // ── Image generation (decentralized) ──
+      // Submit a render. Internal-only: the web /api/images route already
+      // authenticated the user and charged credits; the orchestrator just
+      // routes the job to an image worker and relays the PNG back.
+      socket.on('image:submit', (data, callback) => {
+        if ((socket as any).isInternal !== true) {
+          callback({ error: 'Image jobs are internal-only.' });
+          return;
+        }
+        if (!data?.workflow || typeof data.workflow !== 'object') {
+          callback({ error: 'workflow required' });
+          return;
+        }
+        const jobId = uuidv4();
+        this.imageJobs.set(jobId, {
+          id: jobId,
+          submitterSocketId: socket.id,
+          workflow: data.workflow,
+          privyUserId: data.privyUserId || 'unknown',
+          seed: data.seed,
+          width: data.width,
+          height: data.height,
+          status: 'pending',
+          submittedAt: Date.now(),
+        });
+        this.imageQueue.push(jobId);
+        callback({ jobId });
+        this.processImageQueue();
+      });
+
+      // Image worker returned a finished PNG (base64).
+      socket.on('image:result', (data) => {
+        const job = this.imageJobs.get(data.jobId);
+        if (!job || job.assignedWorkerSocketId !== socket.id) return;
+        if (job.timer) clearTimeout(job.timer);
+        const worker = this.workers.get(socket.id);
+        if (worker) { worker.status = 'idle'; worker.jobsCompleted++; this.totalJobsCompleted++; }
+        const submitter = this.io.sockets.sockets.get(job.submitterSocketId);
+        if (submitter) submitter.emit('image:done', { jobId: job.id, image: data.image, seed: job.seed, width: job.width, height: job.height });
+        this.imageJobs.delete(data.jobId);
+        console.log(`[Orchestrator] Image job ${job.id} completed by ${worker?.id || socket.id}`);
+        this.processImageQueue();
+      });
+
+      // Image worker failed the render.
+      socket.on('image:failed', (data) => {
+        const job = this.imageJobs.get(data.jobId);
+        if (!job || job.assignedWorkerSocketId !== socket.id) return;
+        if (job.timer) clearTimeout(job.timer);
+        const worker = this.workers.get(socket.id);
+        if (worker) worker.status = 'idle';
+        const submitter = this.io.sockets.sockets.get(job.submitterSocketId);
+        if (submitter) submitter.emit('image:error', { jobId: job.id, error: data.error || 'Image worker failed.', code: 'WORKER_ERROR' });
+        this.imageJobs.delete(data.jobId);
+        this.processImageQueue();
+      });
+
       socket.on('disconnect', () => {
         const worker = this.workers.get(socket.id);
         const wasNative = worker?.type === 'native';
         const userId = worker?.privyUserId;
         this.unregisterWorker(socket.id);
         this.cleanupUserJobs(socket.id);
+        this.cleanupImageJobs(socket.id);
         this.broadcastStats();
         if (wasNative && userId) {
           this.pushNativeStatus(userId);
         }
+        this.processImageQueue();
       });
     });
   }
@@ -493,7 +635,7 @@ export class Orchestrator {
     }
   }
 
-  private registerWorker(socket: Socket, model: string, privyUserId?: string, tokPerSec: number = 0, type: 'browser' | 'native' = 'browser', capabilities: WorkerCapabilities = {}): string | null {
+  private registerWorker(socket: Socket, model: string, privyUserId?: string, tokPerSec: number = 0, type: 'browser' | 'native' | 'image' = 'browser', capabilities: WorkerCapabilities = {}): string | null {
     try {
       const workerId = uuidv4();
       const worker: WorkerInfo = {
@@ -536,6 +678,74 @@ export class Orchestrator {
     }
   }
 
+  // Assign queued image jobs to idle image workers. If no image worker is
+  // connected at all, fail queued jobs immediately so the user sees "busy"
+  // rather than hanging; if workers exist but are busy, jobs wait and this is
+  // re-run when one frees.
+  private processImageQueue() {
+    while (this.imageQueue.length > 0) {
+      const idle = [...this.workers.values()].find((w) => w.type === 'image' && w.status === 'idle');
+      if (!idle) {
+        const anyImageWorker = [...this.workers.values()].some((w) => w.type === 'image');
+        if (!anyImageWorker) {
+          for (const jobId of this.imageQueue.splice(0)) {
+            const job = this.imageJobs.get(jobId);
+            if (!job) continue;
+            if (job.timer) clearTimeout(job.timer);
+            const sub = this.io.sockets.sockets.get(job.submitterSocketId);
+            if (sub) sub.emit('image:error', { jobId, error: 'No image workers are online right now. Try again shortly.', code: 'NO_IMAGE_WORKER' });
+            this.imageJobs.delete(jobId);
+          }
+        }
+        return; // workers exist but all busy → wait for one to free
+      }
+      const jobId = this.imageQueue.shift()!;
+      const job = this.imageJobs.get(jobId);
+      if (!job) continue;
+      const ws = this.io.sockets.sockets.get(idle.socketId);
+      if (!ws) { this.imageQueue.unshift(jobId); return; } // worker socket gone, retry next tick
+      idle.status = 'busy';
+      job.status = 'processing';
+      job.assignedWorkerSocketId = idle.socketId;
+      job.timer = setTimeout(() => this.failImageJobTimeout(jobId), this.IMAGE_JOB_TIMEOUT_MS);
+      ws.emit('image:job', { jobId, workflow: job.workflow });
+      console.log(`[Orchestrator] Image job ${jobId} dispatched to worker ${idle.id}`);
+    }
+  }
+
+  private failImageJobTimeout(jobId: string) {
+    const job = this.imageJobs.get(jobId);
+    if (!job) return;
+    if (job.assignedWorkerSocketId) {
+      const w = this.workers.get(job.assignedWorkerSocketId);
+      if (w) w.status = 'idle';
+      const ws = this.io.sockets.sockets.get(job.assignedWorkerSocketId);
+      if (ws) ws.emit('image:cancel', { jobId });
+    }
+    const sub = this.io.sockets.sockets.get(job.submitterSocketId);
+    if (sub) sub.emit('image:error', { jobId, error: 'Image generation timed out.', code: 'TIMEOUT' });
+    this.imageJobs.delete(jobId);
+    console.warn(`[Orchestrator] Image job ${jobId} timed out`);
+    this.processImageQueue();
+  }
+
+  // A socket disconnected: fail any image job it owned (worker) or drop any it
+  // submitted (web gateway).
+  private cleanupImageJobs(socketId: string) {
+    for (const [jobId, job] of this.imageJobs) {
+      if (job.assignedWorkerSocketId === socketId) {
+        if (job.timer) clearTimeout(job.timer);
+        const sub = this.io.sockets.sockets.get(job.submitterSocketId);
+        if (sub) sub.emit('image:error', { jobId, error: 'Image worker disconnected mid-render.', code: 'WORKER_GONE' });
+        this.imageJobs.delete(jobId);
+      } else if (job.submitterSocketId === socketId) {
+        if (job.timer) clearTimeout(job.timer);
+        this.imageQueue = this.imageQueue.filter((id) => id !== jobId);
+        this.imageJobs.delete(jobId);
+      }
+    }
+  }
+
   private submitJob(
     userSocketId: string,
     messages: ChatMessage[] | undefined,
@@ -546,6 +756,7 @@ export class Orchestrator {
     subsidyCredits: number = 0,
     clientTools?: ToolDefinition[],
     toolPassthrough: boolean = false,
+    subsidyKind?: 'free' | 'allowance',
   ): Job | null {
     try {
       const jobId = uuidv4();
@@ -559,6 +770,7 @@ export class Orchestrator {
         think,
         creditsCharged,
         subsidyCredits,
+        subsidyKind,
         clientTools,
         toolPassthrough,
         status: 'pending',
@@ -851,12 +1063,19 @@ export class Orchestrator {
         let payoutCredits = revenueCredits;
         let subsidized = false;
         if (revenueCredits === 0 && (job.subsidyCredits || 0) > 0 && worker.privyUserId !== job.privyUserId) {
-          const subsidyUsd = (job.subsidyCredits! / CREDITS_PER_USD) * workerShare;
-          if (getTodayFreeSubsidyUsd() + subsidyUsd <= FREE_SUBSIDY_DAILY_CAP_USD) {
+          if (job.subsidyKind === 'allowance') {
+            // Staker allowance: the daily pool ceiling was already enforced when
+            // the allowance was consumed at submit time, so pay unconditionally.
             payoutCredits = job.subsidyCredits!;
             subsidized = true;
           } else {
-            console.log(`[Orchestrator] Free-prompt subsidy cap reached — worker ${worker.privyUserId} not paid for job ${jobId}`);
+            const subsidyUsd = (job.subsidyCredits! / CREDITS_PER_USD) * workerShare;
+            if (getTodayFreeSubsidyUsd() + subsidyUsd <= FREE_SUBSIDY_DAILY_CAP_USD) {
+              payoutCredits = job.subsidyCredits!;
+              subsidized = true;
+            } else {
+              console.log(`[Orchestrator] Free-prompt subsidy cap reached — worker ${worker.privyUserId} not paid for job ${jobId}`);
+            }
           }
         }
         const earnedUsd = recordEarning({
@@ -866,6 +1085,7 @@ export class Orchestrator {
           creditsCharged: revenueCredits,
           payoutCredits,
           subsidized,
+          subsidyKind: job.subsidyKind,
           tokensGenerated: cappedTokens,
           revenueShare: workerShare,
         });
@@ -995,18 +1215,28 @@ export class Orchestrator {
     this.jobs.delete(job.id);
 
     const exp = job.canaryExpected!;
+    // Liveness check: a worker running real inference echoes the nonce that was in
+    // the prompt; a faker returning canned text does not. We deliberately DON'T
+    // require the arithmetic to be right — honest small/quantized models flub
+    // 2-digit math occasionally, and that's a model limitation, not fraud.
     const stripped = response.replace(/<think>[\s\S]*?<\/think>/g, '').toUpperCase();
-    const passed = stripped.includes(exp.nonce) && stripped.includes(String(exp.sum));
+    const passed = stripped.includes(exp.nonce);
 
     if (worker?.privyUserId) {
       const rep = recordCanaryResult(worker.privyUserId, passed);
-      if (!passed) {
-        console.warn(`[Orchestrator] Canary FAILED by worker ${worker.id} (user=${worker.privyUserId}) — expected ${exp.sum}-${exp.nonce}, strikes=${rep.totalStrikes}`);
-        this.kickWorker(worker, `failed canary challenge${rep.banned ? ' (banned)' : ''}`);
+      if (!passed && rep.banned) {
+        console.warn(`[Orchestrator] Canary FAILED + BANNED worker ${worker.id} (user=${worker.privyUserId}) — ${rep.recentFails}/${rep.recentTotal} recent fails`);
+        this.kickWorker(worker, 'failed canary challenge (banned)');
         setTimeout(() => this.processQueue(), 100);
         return;
       }
-      console.log(`[Orchestrator] Canary passed by worker ${worker.id}`);
+      if (!passed) {
+        // An isolated miss no longer kicks or strikes toward a ban — keep the
+        // worker online; only sustained failure (the window logic) bans.
+        console.warn(`[Orchestrator] Canary missed by worker ${worker.id} (user=${worker.privyUserId}) — ${rep.recentFails}/${rep.recentTotal} recent, kept online`);
+      } else {
+        console.log(`[Orchestrator] Canary passed by worker ${worker.id}`);
+      }
     }
 
     setTimeout(() => this.processQueue(), 100);

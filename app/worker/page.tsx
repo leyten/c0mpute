@@ -844,13 +844,13 @@ export default function WorkerPage() {
           <div className="pixel-serif text-[#80a0c1] text-4xl mb-4">⬡</div>
           <h1 className="pixel-serif text-white text-2xl mb-3">Login Required</h1>
           <p className="pixel-sans text-white/70 text-sm mb-6">
-            You need to log in to become a worker. Connect with Privy to start earning.
+            Sign in with your X account to start earning. To get paid you can connect a Solana wallet later in Settings.
           </p>
           <button
             onClick={() => login()}
             className="cursor-pointer pixel-serif text-sm px-8 py-3 rounded-xl border border-[#80a0c1]/50 text-[#80a0c1] hover:bg-[#80a0c1]/10 transition-colors"
           >
-            Login with Privy
+            Sign in with X
           </button>
           <div className="mt-4">
             <a href="/" className="cursor-pointer pixel-sans text-white/60 text-xs hover:text-white/50 transition-colors">

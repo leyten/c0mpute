@@ -10,6 +10,7 @@ export default function SettingsPage() {
   const router = useRouter();
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [linkingTwitter, setLinkingTwitter] = useState(false);
   const [linkingWallet, setLinkingWallet] = useState(false);
   const [unlinkingWallet, setUnlinkingWallet] = useState(false);
@@ -313,12 +314,13 @@ export default function SettingsPage() {
 
   const handleDeleteAccount = async () => {
     setDeleteLoading(true);
-    const success = await deleteAccount();
-    if (success) {
+    setDeleteError(null);
+    const result = await deleteAccount();
+    if (result.ok) {
       router.push('/');
     } else {
       setDeleteLoading(false);
-      setShowDeleteConfirm(false);
+      setDeleteError(result.error || 'Failed to delete account.');
     }
   };
 
@@ -504,11 +506,14 @@ export default function SettingsPage() {
                 ) : (
                   <div className="space-y-4">
                     <p className="pixel-sans text-red-400/80 text-sm">Are you sure? This action cannot be undone.</p>
+                    {deleteError && (
+                      <p className="pixel-sans text-red-400 text-sm">{deleteError}</p>
+                    )}
                     <div className="flex gap-3">
                       <button onClick={handleDeleteAccount} disabled={deleteLoading} className="cursor-pointer pixel-serif text-sm px-4 py-2 bg-red-500/20 border border-red-500/30 text-red-400 hover:bg-red-500/30 transition-colors disabled:opacity-50">
                         {deleteLoading ? 'Deleting...' : 'Yes, Delete My Account'}
                       </button>
-                      <button onClick={() => setShowDeleteConfirm(false)} disabled={deleteLoading} className="cursor-pointer pixel-serif text-sm px-4 py-2 border border-white/20 text-white/70 hover:bg-white/5 transition-colors disabled:opacity-50">
+                      <button onClick={() => { setShowDeleteConfirm(false); setDeleteError(null); }} disabled={deleteLoading} className="cursor-pointer pixel-serif text-sm px-4 py-2 border border-white/20 text-white/70 hover:bg-white/5 transition-colors disabled:opacity-50">
                         Cancel
                       </button>
                     </div>

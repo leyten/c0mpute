@@ -6,6 +6,7 @@ const sidebars = {
     'how-it-works',
     'architecture',
     'zero-token',
+    'staking',
     'api-reference',
     {
       type: 'category',

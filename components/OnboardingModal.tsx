@@ -5,10 +5,11 @@ import { useState } from 'react';
 interface OnboardingModalProps {
   freePromptLimit: number;
   onClose: () => void;
+  onUseAI: () => void;
   onChooseWorker: () => void;
 }
 
-export default function OnboardingModal({ freePromptLimit, onClose, onChooseWorker }: OnboardingModalProps) {
+export default function OnboardingModal({ freePromptLimit, onClose, onUseAI, onChooseWorker }: OnboardingModalProps) {
   const [step, setStep] = useState<1 | 2>(1);
 
   return (
@@ -49,7 +50,7 @@ export default function OnboardingModal({ freePromptLimit, onClose, onChooseWork
             <p className="pixel-sans text-white/60 text-sm mb-5">You can do both — pick where to go first.</p>
             <div className="space-y-3 mb-6">
               <button
-                onClick={onClose}
+                onClick={onUseAI}
                 className="w-full text-left rounded-xl border border-white/10 bg-white/[0.03] hover:bg-white/[0.07] hover:border-white/20 transition-colors p-4 cursor-pointer"
               >
                 <div className="pixel-serif text-white text-lg mb-1">Use AI</div>

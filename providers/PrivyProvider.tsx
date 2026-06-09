@@ -24,14 +24,14 @@ export default function PrivyProvider({ children }: { children: React.ReactNode 
         // (credits, free prompts, staking, billing) exactly like an X user.
         loginMethods: ['twitter', 'wallet'],
 
-        // Control the FIRST login screen directly: surface each auto-detected
-        // installed Solana wallet (Phantom/Brave/etc, via wallet-standard) as
-        // its own button alongside X — no "continue with a wallet" intermediate
-        // step. Users with no Solana wallet installed reach the named options
-        // via overflow. (primary renders on the default screen.)
+        // Control the FIRST login screen directly. Most new users have neither a
+        // Solana wallet nor any reason to connect one, and a wallet-first modal
+        // reads as "crypto required" and bounces them. So X is the ONLY primary
+        // button; all wallet options live behind "more options" (overflow) for
+        // the crypto users who want them. (primary renders on the default screen.)
         loginMethodsAndOrder: {
-          primary: ['detected_solana_wallets', 'twitter'],
-          overflow: ['phantom', 'solflare', 'backpack'],
+          primary: ['twitter'],
+          overflow: ['detected_solana_wallets', 'phantom', 'solflare', 'backpack'],
         },
 
         // Only external Solana wallets — ZERO lives on Solana. No EVM, no
@@ -45,8 +45,8 @@ export default function PrivyProvider({ children }: { children: React.ReactNode 
           theme: '#000000', // Pure black background
           accentColor: '#FFFFFF', // White accent
           // logo removed to prevent empty src warning
-          landingHeader: 'Login',
-          loginMessage: 'Sign in with X or a Solana wallet',
+          landingHeader: 'Sign in to c0mpute',
+          loginMessage: 'Sign in with X to get your free prompts — no card, no crypto needed.',
           walletChainType: 'solana-only',
           // Show ONLY auto-detected installed Solana wallets first, then the
           // major Solana wallets as named options. Without an explicit
