@@ -38,6 +38,7 @@ interface ImageJob {
   seed?: number;
   width?: number;
   height?: number;
+  creditsCharged: number;
   status: 'pending' | 'processing';
   assignedWorkerSocketId?: string;
   timer?: ReturnType<typeof setTimeout>;
@@ -461,6 +462,7 @@ export class Orchestrator {
           seed: data.seed,
           width: data.width,
           height: data.height,
+          creditsCharged: Number(data.creditsCharged) || 0,
           status: 'pending',
           submittedAt: Date.now(),
         });
@@ -478,6 +480,24 @@ export class Orchestrator {
         if (worker) { worker.status = 'idle'; worker.jobsCompleted++; this.totalJobsCompleted++; }
         const submitter = this.io.sockets.sockets.get(job.submitterSocketId);
         if (submitter) submitter.emit('image:done', { jobId: job.id, image: data.image, seed: job.seed, width: job.width, height: job.height });
+        // Pay the worker for the render (same revenue-share model as text jobs).
+        if (worker?.privyUserId) {
+          try {
+            recordCompletedJob({ jobId: job.id, workerPrivyId: worker.privyUserId, userPrivyId: job.privyUserId, model: worker.model, tier: 'image', tokensGenerated: 0 });
+            recordEarning({
+              privyId: worker.privyUserId,
+              jobId: job.id,
+              tier: 'image',
+              creditsCharged: job.creditsCharged,
+              payoutCredits: job.creditsCharged,
+              subsidized: false,
+              tokensGenerated: 0,
+              revenueShare: getWorkerRevenueShare(worker.privyUserId),
+            });
+          } catch (err) {
+            console.error('[Orchestrator] Failed to record image earning:', err);
+          }
+        }
         this.imageJobs.delete(data.jobId);
         console.log(`[Orchestrator] Image job ${job.id} completed by ${worker?.id || socket.id}`);
         this.processImageQueue();
@@ -1178,6 +1198,9 @@ export class Orchestrator {
   }
 
   private dispatchCanary(worker: WorkerInfo) {
+    // Image workers run no LLM — the text canary (math+nonce) is meaningless to
+    // them and would false-strike them. They're verified by producing valid PNGs.
+    if (worker.type === 'image') return;
     const socket = this.io.sockets.sockets.get(worker.socketId);
     if (!socket) return;
 

@@ -82,7 +82,7 @@ export async function POST(req: NextRequest) {
 
   let image: string;
   try {
-    const result = await submitImageJob(workflow, { privyId, seed, width, height });
+    const result = await submitImageJob(workflow, { privyId, seed, width, height, creditsCharged: IMAGE_CREDITS });
     image = result.image;
   } catch (err: any) {
     refund('Image generation failed');
