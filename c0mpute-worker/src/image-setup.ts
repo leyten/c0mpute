@@ -1,5 +1,5 @@
 import { spawn, execSync } from 'child_process';
-import { createWriteStream, existsSync, mkdirSync } from 'fs';
+import { createWriteStream, existsSync, mkdirSync, statSync, renameSync, unlinkSync } from 'fs';
 import { Readable } from 'stream';
 import { join } from 'path';
 import { homedir } from 'os';
@@ -101,23 +101,35 @@ function ensureComfyInstalled(): void {
   console.log('done');
 }
 
+async function remoteSize(url: string): Promise<number> {
+  try { const r = await fetch(url, { method: 'HEAD' }); return Number(r.headers.get('content-length') || 0); } catch { return 0; }
+}
+
+// Download to a .part file and rename on success — so an interrupted download
+// (Ctrl+C) leaves a .part, never a truncated "real" file that looks complete.
 async function downloadFile(url: string, dest: string): Promise<void> {
   const res = await fetch(url);
   if (!res.ok || !res.body) throw new Error(`Download failed (${res.status}): ${url}`);
   const total = Number(res.headers.get('content-length') || 0);
+  const part = dest + '.part';
   let done = 0, lastPct = -1;
-  const out = createWriteStream(dest);
+  const out = createWriteStream(part);
   await new Promise<void>((resolve, reject) => {
-    const nodeStream = Readable.fromWeb(res.body as any);
-    nodeStream.on('data', (chunk: Buffer) => {
-      done += chunk.length;
-      if (total) { const pct = Math.round((done / total) * 100); if (pct !== lastPct && pct % 5 === 0) { process.stdout.write(`\r  ${dest.split(/[\\/]/).pop()}: ${pct}%`); lastPct = pct; } }
+    const ns = Readable.fromWeb(res.body as any);
+    ns.on('data', (c: Buffer) => {
+      done += c.length;
+      if (total) { const p = Math.round((done / total) * 100); if (p !== lastPct && p % 5 === 0) { process.stdout.write(`\r  ${dest.split(/[\\/]/).pop()}: ${p}%`); lastPct = p; } }
     });
-    nodeStream.pipe(out);
+    ns.pipe(out);
     out.on('finish', () => { if (total) console.log(''); resolve(); });
     out.on('error', reject);
-    nodeStream.on('error', reject);
+    ns.on('error', reject);
   });
+  if (total > 0 && statSync(part).size !== total) {
+    try { unlinkSync(part); } catch {}
+    throw new Error(`download incomplete for ${dest.split(/[\\/]/).pop()} — re-run to retry`);
+  }
+  renameSync(part, dest);
 }
 
 async function ensureModels(): Promise<void> {
@@ -125,8 +137,15 @@ async function ensureModels(): Promise<void> {
     const dir = join(COMFY_DIR, 'models', m.subdir);
     mkdirSync(dir, { recursive: true });
     const dest = join(dir, m.file);
-    if (existsSync(dest)) { console.log(`  ${m.file} (present)`); continue; }
-    console.log(`Downloading ${m.file} (first run)…`);
+    const want = await remoteSize(m.url);
+    if (existsSync(dest)) {
+      const have = statSync(dest).size;
+      if (want === 0 || have === want) { console.log(`  ${m.file} (present)`); continue; }
+      // A partial/corrupt file from an interrupted earlier run — replace it.
+      console.log(`  ${m.file} incomplete (${Math.round(have / 1e6)}MB / ${Math.round(want / 1e6)}MB) — re-downloading`);
+      try { unlinkSync(dest); } catch {}
+    }
+    console.log(`Downloading ${m.file}…`);
     await downloadFile(m.url, dest);
   }
 }
