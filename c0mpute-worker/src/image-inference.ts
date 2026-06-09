@@ -1,4 +1,11 @@
-import { COMFY_URL, IMAGE_GEN_TIMEOUT_MS } from './config.js';
+import { existsSync, unlinkSync } from 'fs';
+import { join } from 'path';
+import { homedir } from 'os';
+import { COMFY_URL, COMFY_DIR as COMFY_DIR_ENV, IMAGE_GEN_TIMEOUT_MS } from './config.js';
+
+// Where ComfyUI writes outputs locally (for cleanup). Mirrors image-setup's
+// managed-dir default so co-located workers can delete renders after sending.
+const COMFY_OUT_BASE = COMFY_DIR_ENV || join(homedir(), '.c0mpute', 'ComfyUI');
 
 // Execute an image workflow on the local ComfyUI and return the PNG as base64.
 //
@@ -73,6 +80,16 @@ export async function runImageJob(workflow: Record<string, unknown>, signal?: Ab
   const view = await fetch(`${COMFY_URL}/view?${q.toString()}`, { signal });
   if (!view.ok) throw new Error(`ComfyUI /view -> ${view.status}`);
   const buf = Buffer.from(await view.arrayBuffer());
+
+  // Privacy: delete the render from ComfyUI's output folder the instant we've
+  // got it, so nothing lingers on the worker (co-located workers — the file is
+  // local). Best-effort; failure to delete never blocks the result.
+  try {
+    const sub = image.type === 'temp' ? 'temp' : 'output';
+    const fp = join(COMFY_OUT_BASE, sub, image.subfolder || '', image.filename);
+    if (existsSync(fp)) unlinkSync(fp);
+  } catch { /* ignore */ }
+
   return buf.toString('base64');
 }
 
