@@ -98,6 +98,7 @@ export default function CreatePage() {
   const [current, setCurrent] = useState<ResultImage | null>(null);
   const [history, setHistory] = useState<SavedImage[]>([]);
   const [balance, setBalance] = useState<number | null>(null);
+  const [freeImages, setFreeImages] = useState<number | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const previewRef = useRef<HTMLDivElement | null>(null);
 
@@ -111,6 +112,7 @@ export default function CreatePage() {
         const d = await res.json();
         const avail = Number(d.balance || 0) + Number(d.stakerAllowance?.remaining || 0);
         setBalance(avail);
+        setFreeImages(Number(d.freeImagesRemaining ?? 0));
       }
     } catch {}
   }, [isAuthenticated, getAccessToken]);
@@ -202,7 +204,8 @@ export default function CreatePage() {
     }
   };
 
-  const lowBalance = balance !== null && balance < IMAGE_CREDITS;
+  const hasFree = (freeImages ?? 0) > 0;
+  const lowBalance = balance !== null && balance < IMAGE_CREDITS && !hasFree;
   const progressPct = Math.min(95, (elapsed / 30) * 100);
 
   return (
@@ -230,6 +233,11 @@ export default function CreatePage() {
           <p className="pixel-sans text-white/70 text-sm mb-2">
             Image generation on the c0mpute network. {IMAGE_CREDITS} credits ($0.20) per image.
           </p>
+          {isAuthenticated && freeImages !== null && freeImages > 0 && (
+            <p className="pixel-sans text-emerald-300/90 text-sm mb-2">
+              {freeImages} free image{freeImages > 1 ? 's' : ''} left — on us.
+            </p>
+          )}
           <p className="pixel-sans text-white/70 text-xs mb-8">
             Fully private — your images are returned to you and never stored. Download what you want to keep.
           </p>
@@ -305,7 +313,7 @@ export default function CreatePage() {
               disabled={loading || !prompt.trim() || (isAuthenticated && lowBalance)}
               className="w-full pixel-serif text-sm px-6 py-3 rounded-xl bg-white text-black hover:bg-white/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {loading ? `Generating… ${elapsed}s` : !isAuthenticated ? 'Log in to generate' : lowBalance ? 'Not enough credits' : `Generate · ${IMAGE_CREDITS} credits`}
+              {loading ? `Generating… ${elapsed}s` : !isAuthenticated ? 'Log in to generate' : lowBalance ? 'Not enough credits' : hasFree ? `Generate · free (${freeImages} left)` : `Generate · ${IMAGE_CREDITS} credits`}
             </button>
 
             {isAuthenticated && lowBalance && (

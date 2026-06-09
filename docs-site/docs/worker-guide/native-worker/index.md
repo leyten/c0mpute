@@ -49,3 +49,13 @@ See [Worker tokens](/worker-guide/tokens) for more details.
 - [Windows setup](/worker-guide/native-worker/windows) — WSL recommended
 - [macOS setup](/worker-guide/native-worker/macos) — Apple Silicon / Metal
 - [Troubleshooting](/worker-guide/native-worker/troubleshooting) — common issues
+
+## Image worker
+
+A native worker can run as an **image worker** instead of a text worker — it serves the [image generation](/image-generation) network by running ComfyUI + the Chroma1-HD model on your GPU, and earns per render.
+
+```bash
+npx @c0mpute/worker --mode image --token <your-token>
+```
+
+On first run without `--mode`, the worker asks whether to run as a **Max (text)** worker or an **Image** worker and remembers your choice. Image mode downloads only the image model (~14GB), not the text model. A 24GB GPU (RTX 3090/4090) is recommended. Set `COMFY_DIR` if you want the worker to install/launch ComfyUI for you; otherwise point `COMFY_URL` at a ComfyUI you already run.
