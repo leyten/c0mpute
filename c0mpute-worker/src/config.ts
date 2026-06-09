@@ -32,3 +32,42 @@ export const MAX_TOOL_ROUNDS = 5;
 export const SYSTEM_PROMPT = 'You are c0mpute, an AI assistant built for the c0mpute.ai decentralized inference network. Your name is c0mpute. Be direct and concise. Always respond in English. Do not use emojis.';
 
 
+
+// ─────────────────────────────────────────────────────────────────────────
+// Image generation mode (decentralized image gen). A worker runs EITHER as a
+// Max text worker (above) OR as an image worker — never both — chosen on first
+// run. Image workers run ComfyUI + the Chroma1-HD model and execute the
+// workflow the orchestrator hands them.
+// ─────────────────────────────────────────────────────────────────────────
+
+/** Model name an image worker advertises to the orchestrator. */
+export const IMAGE_MODEL_NAME = 'c0mpute-image';
+
+/** Local ComfyUI HTTP endpoint the image worker drives. */
+export const COMFY_URL = (process.env.COMFY_URL || 'http://127.0.0.1:8188').replace(/\/$/, '');
+
+/** ComfyUI install dir (for starting it + placing model files). */
+export const COMFY_DIR = process.env.COMFY_DIR || '';
+
+/** Per-render timeout (ms). */
+export const IMAGE_GEN_TIMEOUT_MS = Number(process.env.IMAGE_TIMEOUT_MS || 150_000);
+
+/** The three model files an image worker needs, with download sources.
+ *  subdir is relative to <ComfyUI>/models/. All fp8 to fit a 24GB card + disk. */
+export const IMAGE_MODEL_FILES: { subdir: string; file: string; url: string }[] = [
+  {
+    subdir: 'diffusion_models',
+    file: 'Chroma1-HD-fp8mixed.safetensors',
+    url: 'https://huggingface.co/Comfy-Org/Chroma1-HD_repackaged/resolve/main/split_files/diffusion_models/Chroma1-HD-fp8mixed.safetensors',
+  },
+  {
+    subdir: 'text_encoders',
+    file: 't5xxl_flan_fp8_scaled.safetensors',
+    url: 'https://huggingface.co/silveroxides/t5xxl_flan_enc/resolve/main/t5xxl_flan_fp8_scaled.safetensors',
+  },
+  {
+    subdir: 'vae',
+    file: 'ae.safetensors',
+    url: 'https://huggingface.co/Comfy-Org/Lumina_Image_2.0_Repackaged/resolve/main/split_files/vae/ae.safetensors',
+  },
+];

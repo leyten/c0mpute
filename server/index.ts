@@ -22,6 +22,10 @@ const httpServer = createServer((req, res) => {
 });
 
 const io = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
+  // Image jobs return a full PNG as base64 (~2MB for 1024², more at higher res).
+  // The default 1MB cap silently closes the socket mid-transfer ("transport
+  // close"), so raise it well above any single render.
+  maxHttpBufferSize: 16 * 1024 * 1024,
   cors: {
     origin: process.env.ALLOWED_ORIGINS
       ? process.env.ALLOWED_ORIGINS.split(',')

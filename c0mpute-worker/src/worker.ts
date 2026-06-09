@@ -3,11 +3,13 @@ import { DEFAULT_ORCHESTRATOR_URL, DEFAULT_MODEL_NAME, MAX_TOOL_ROUNDS } from '.
 import { runInference, ChatMessage, ToolCall, ToolDefinition } from './inference.js';
 import { ensureSetup } from './setup.js';
 import { runBenchmark } from './benchmark.js';
+import { startImageWorker } from './image-worker.js';
 
 interface WorkerOptions {
   token: string;
   orchestratorUrl?: string;
   benchmarkOnly?: boolean;
+  mode?: 'max' | 'image';
 }
 
 interface JobData {
@@ -24,6 +26,11 @@ interface JobData {
 export async function startWorker(options: WorkerOptions): Promise<void> {
   const { token, orchestratorUrl, benchmarkOnly } = options;
   const url = orchestratorUrl || DEFAULT_ORCHESTRATOR_URL;
+
+  // Image workers run an entirely different stack (ComfyUI, not Ollama).
+  if (options.mode === 'image') {
+    return startImageWorker({ token, orchestratorUrl });
+  }
 
   // Step 1: Ensure ollama is running and model is ready
   await ensureSetup();
