@@ -143,7 +143,9 @@ async function downloadFile(url: string, dest: string): Promise<void> {
   renameSync(part, dest);
 }
 
-async function ensureModels(): Promise<void> {
+// Returns true if any file was (re)downloaded — caller restarts ComfyUI then.
+async function ensureModels(): Promise<boolean> {
+  let changed = false;
   for (const m of IMAGE_MODEL_FILES) {
     const dir = join(COMFY_DIR, 'models', m.subdir);
     mkdirSync(dir, { recursive: true });
@@ -158,7 +160,13 @@ async function ensureModels(): Promise<void> {
     }
     console.log(`Downloading ${m.file}…`);
     await downloadFile(m.url, dest);
+    changed = true;
   }
+  return changed;
+}
+
+function killComfy(): void {
+  try { execSync(isWin ? 'taskkill /F /IM python.exe' : `pkill -f "main.py --port ${COMFY_PORT}"`, { stdio: 'ignore' }); } catch { /* none running */ }
 }
 
 async function startComfy(): Promise<void> {
@@ -175,21 +183,31 @@ async function startComfy(): Promise<void> {
  * running, the worker installs and launches everything itself.
  */
 export async function ensureImageSetup(): Promise<void> {
-  // Operator already runs their own ComfyUI — use it (don't touch their setup).
-  if (await comfyOnline()) {
+  const haveLocalInstall = existsSync(join(COMFY_DIR, 'main.py'));
+  const online = await comfyOnline();
+
+  // Trust an EXTERNAL ComfyUI we don't manage: either the operator set COMFY_DIR,
+  // or something is already serving that we never installed locally (e.g. the
+  // seed worker pointing COMFY_URL at a remote GPU over a tunnel). Don't install.
+  if (online && (COMFY_DIR_ENV || !haveLocalInstall)) {
     console.log(`ComfyUI: connected (${COMFY_URL})`);
     if (await modelPresent()) { console.log(`Model: ${IMAGE_MODEL_NAME} / Chroma1-HD (ready)`); return; }
     throw new Error(
       `ComfyUI is running at ${COMFY_URL} but the Chroma model isn't installed there.\n` +
-      `Add these under <ComfyUI>/models/, or stop that ComfyUI and let the worker manage its own:\n` +
       IMAGE_MODEL_FILES.map((m) => `  - ${m.subdir}/${m.file}`).join('\n')
     );
   }
 
-  // Nothing running — full managed install.
+  // We own a local ComfyUI (or none exists yet). Install if needed and make sure
+  // the model files are COMPLETE — even if ComfyUI is already running, since a
+  // stale/truncated file would otherwise be served silently. Restart only on a change.
   ensureComfyInstalled();
-  await ensureModels();
-  await startComfy();
+  const changed = await ensureModels();
+  const up = await comfyOnline();
+  if (!up || changed) {
+    if (up && changed) { console.log('Reloading ComfyUI with repaired model…'); killComfy(); await sleep(2500); }
+    await startComfy();
+  }
   console.log(`ComfyUI: connected (${COMFY_URL})`);
   if (!(await modelPresent())) throw new Error('ComfyUI started but does not list the Chroma model. Check ' + COMFY_DIR + '/models.');
   console.log(`Model: ${IMAGE_MODEL_NAME} / Chroma1-HD (ready)`);
