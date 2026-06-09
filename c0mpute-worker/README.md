@@ -1,71 +1,58 @@
 # c0mpute-worker
 
-Native CLI worker for the [c0mpute.ai](https://c0mpute.ai) distributed inference network. Runs LLM inference via [ollama](https://ollama.com) and connects to the orchestrator via Socket.io.
+Native CLI worker for the [c0mpute.ai](https://c0mpute.ai) distributed inference network. Connects to the orchestrator over Socket.io and serves jobs from your GPU. A worker runs in **one of two modes** — text or image — chosen on first run:
+
+- **Max (text)** — LLM inference via [ollama](https://ollama.com) (Qwen 3.5 27B abliterated).
+- **Image** — text-to-image via [ComfyUI](https://github.com/comfyanonymous/ComfyUI) + the uncensored Chroma1-HD model.
 
 ## Quick Start
-
-1. Install [ollama](https://ollama.com/download)
-2. Run the worker:
 
 ```bash
 npx @c0mpute/worker --token <your-token>
 ```
 
-The worker manages ollama for you — no need to start it yourself. On first run it will automatically:
-- Start ollama (on NVIDIA GPUs, with flash-attention + q8 KV cache for ~36% more speed and a larger context window)
-- Pull the base model (~17GB download)
-- Create a custom `c0mpute-max` model tuned to your hardware (context window auto-scales to your VRAM)
-- Run a speed benchmark
-- Connect to the orchestrator and start serving jobs
+On first run it asks which mode to run (Max or Image) and remembers your choice. Skip the prompt with `--mode`:
 
-## How It Works
+```bash
+npx @c0mpute/worker --token <your-token> --mode max     # text worker
+npx @c0mpute/worker --token <your-token> --mode image   # image worker
+```
 
-1. Starts/configures ollama (flash-attention + q8 KV on NVIDIA)
-2. Pulls and configures the model (Qwen 3.5 27B abliterated), with a VRAM-adaptive context window (24GB → 32K, 48GB+ → 64K, smaller cards stay conservative)
-3. Runs a speed benchmark to measure your hardware
-4. Connects to the c0mpute.ai orchestrator via WebSocket
-5. Accepts and processes inference jobs, streaming tokens back in real time
+Get a token at [c0mpute.ai/worker](https://c0mpute.ai/worker). Only the chosen mode's model is downloaded — never both.
 
-> Already supervise ollama yourself (e.g. systemd/pm2 with your own flags)? Set `C0MPUTE_MANAGE_OLLAMA=0` and the worker will use your running instance instead of restarting it.
+## Max (text) worker
 
-## Capabilities
+Runs Qwen 3.5 27B abliterated via ollama. On first run it automatically starts/configures ollama (flash-attention + q8 KV cache on NVIDIA for ~36% more speed), pulls the model (~17GB), tunes a VRAM-adaptive context window (24GB → 32K, 48GB+ → 64K), runs a speed benchmark, and serves jobs (streaming, vision, tool calling, thinking).
 
-- **Thinking** — model uses chain-of-thought reasoning with `<think>` tags
-- **Vision** — accepts images (base64) alongside text messages
-- **Tool calling** — model can invoke tools (web search, etc.) defined by the orchestrator
-- **Uncensored** — abliterated model with no content restrictions
-- **Long context** — 256K context window
+> Supervise ollama yourself? Set `C0MPUTE_MANAGE_OLLAMA=0` to use your running instance.
+
+**Requirements:** Node 18+, [ollama](https://ollama.com), 20GB+ VRAM (RTX 3090/4090, Apple Silicon 32GB+), ~17GB disk.
+
+## Image worker
+
+Runs the uncensored **Chroma1-HD** model on [ComfyUI](https://github.com/comfyanonymous/ComfyUI) and renders the jobs the orchestrator dispatches. The worker is a thin relay: the orchestrator sends the full workflow (model + tuned defaults), so every worker produces identical output and the recipe can change without you updating anything.
+
+On startup it:
+1. Checks ComfyUI is reachable (`COMFY_URL`, default `http://127.0.0.1:8188`) and starts it if `COMFY_DIR` is set.
+2. Downloads the Chroma model files (~14GB, first run only) if they're missing.
+3. Runs a **render self-check** — a quick 512×512 test image — and only registers if it succeeds, so a broken setup never accepts jobs.
+4. Serves render jobs and earns per image.
+
+**Requirements:** Node 18+, [ComfyUI](https://github.com/comfyanonymous/ComfyUI) (point `COMFY_URL` at it, or set `COMFY_DIR` so the worker can launch it), a 24GB GPU (RTX 3090/4090) recommended, ~14GB disk for the model.
+
+**Env:** `COMFY_URL` (ComfyUI endpoint), `COMFY_DIR` (ComfyUI folder, lets the worker install/launch it + place models).
 
 ## Options
 
 ```
 --token <token>   Authentication token from c0mpute.ai (required)
+--mode <mode>     "max" (text) or "image". Prompts on first run if omitted.
 --url <url>       Orchestrator URL (default: https://c0mpute.ai)
---benchmark       Run benchmark only, then exit
+--benchmark       Run benchmark only, then exit (Max mode)
 --version         Show version
 --help            Show help
 ```
 
-## Requirements
-
-- Node.js 18+
-- [ollama](https://ollama.com) installed and running
-- GPU with 20GB+ VRAM recommended (NVIDIA RTX 3090/4090, Apple Silicon 32GB+)
-- ~17GB disk space for the model
-
-## Default Model
-
-[Qwen 3.5 27B Abliterated](https://ollama.com/huihui_ai/qwen3.5-abliterated:27b) — an uncensored 27B parameter model with 256K context window, vision support, and thinking capabilities.
-
-## Architecture
-
-The worker delegates all inference to ollama's local HTTP API. This means:
-- **No CUDA/Metal build issues** — ollama handles GPU acceleration
-- **Easy model management** — ollama pulls and caches models
-- **Automatic GPU detection** — ollama picks the best backend for your hardware
-
-The worker is a dumb relay — it passes tool definitions to the model and relays tool calls back to the orchestrator for execution. Tools are defined and managed server-side.
-
 ## Earnings
 
-Workers earn credits for completing inference jobs. Earnings are based on tokens generated and your hardware tier. Check your earnings at [c0mpute.ai](https://c0mpute.ai).
+Workers earn credits for completing jobs — text jobs by tier and tokens generated, image jobs per render. Check your earnings at [c0mpute.ai](https://c0mpute.ai).

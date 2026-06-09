@@ -2,6 +2,7 @@ import { io, Socket } from 'socket.io-client';
 import { DEFAULT_ORCHESTRATOR_URL, IMAGE_MODEL_NAME } from './config.js';
 import { ensureImageSetup } from './image-setup.js';
 import { runImageJob } from './image-inference.js';
+import { runImageBenchmark } from './image-benchmark.js';
 
 interface ImageWorkerOptions {
   token: string;
@@ -17,6 +18,18 @@ export async function startImageWorker(options: ImageWorkerOptions): Promise<voi
   const url = options.orchestratorUrl || DEFAULT_ORCHESTRATOR_URL;
 
   await ensureImageSetup();
+
+  // Render self-check — prove this GPU can actually produce an image before we
+  // register as available, so a broken ComfyUI never accepts (and fails) jobs.
+  console.log('Running render check…');
+  try {
+    const secs = await runImageBenchmark();
+    console.log(`Render check passed — ${secs.toFixed(1)}s for a 512x512 test image.`);
+  } catch (e: any) {
+    console.error(`Render check FAILED: ${e?.message || e}`);
+    console.error('Not registering. Make sure ComfyUI + the Chroma model are working, then restart.');
+    process.exit(1);
+  }
 
   console.log(`Connecting to ${url}`);
   const socket: Socket = io(url, {
