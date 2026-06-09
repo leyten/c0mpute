@@ -47,6 +47,11 @@ export const MIN_WITHDRAWAL_USD = 1.0;
 // they otherwise land with 0 credits). Max/native tier always costs credits.
 export const FREE_PROMPT_LIMIT = Number(process.env.FREE_PROMPT_LIMIT || 5);
 
+// Onboarding free IMAGE generations per account (separate pool from free text
+// prompts above). Treasury-subsidized like free prompts; bounded by the same
+// global daily subsidy cap below.
+export const FREE_IMAGE_LIMIT = Number(process.env.FREE_IMAGE_LIMIT || 3);
+
 // Workers are paid their normal 70% cut for serving free-prompt jobs too, but
 // that payout is funded by the treasury (the user paid nothing). This caps the
 // TOTAL such subsidy per UTC day so a sybil swarm farming free prompts against

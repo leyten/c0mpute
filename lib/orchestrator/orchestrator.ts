@@ -39,6 +39,7 @@ interface ImageJob {
   width?: number;
   height?: number;
   creditsCharged: number;
+  subsidized: boolean;
   status: 'pending' | 'processing';
   assignedWorkerSocketId?: string;
   timer?: ReturnType<typeof setTimeout>;
@@ -463,6 +464,7 @@ export class Orchestrator {
           width: data.width,
           height: data.height,
           creditsCharged: Number(data.creditsCharged) || 0,
+          subsidized: data.subsidized === true,
           status: 'pending',
           submittedAt: Date.now(),
         });
@@ -488,9 +490,10 @@ export class Orchestrator {
               privyId: worker.privyUserId,
               jobId: job.id,
               tier: 'image',
-              creditsCharged: job.creditsCharged,
-              payoutCredits: job.creditsCharged,
-              subsidized: false,
+              creditsCharged: job.subsidized ? 0 : job.creditsCharged,
+              payoutCredits: job.creditsCharged, // worker is always paid the list basis
+              subsidized: job.subsidized,
+              subsidyKind: job.subsidized ? 'free' : undefined,
               tokensGenerated: 0,
               revenueShare: getWorkerRevenueShare(worker.privyUserId),
             });

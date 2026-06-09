@@ -7,6 +7,7 @@ const sidebars = {
     'architecture',
     'zero-token',
     'staking',
+    'image-generation',
     'api-reference',
     {
       type: 'category',

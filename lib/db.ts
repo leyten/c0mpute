@@ -1091,6 +1091,52 @@ export function consumeFreePrompt(privyId: string, limit: number): boolean {
   return txn() as boolean;
 }
 
+// ── Free image generations (separate pool from free prompts) ──────────────
+function ensureFreeImageTable() {
+  const db = getDb();
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS free_image_usage (
+      privy_id TEXT PRIMARY KEY,
+      used INTEGER DEFAULT 0,
+      updated_at TEXT NOT NULL
+    );
+  `);
+}
+
+export function getFreeImagesUsed(privyId: string): number {
+  ensureFreeImageTable();
+  const db = getDb();
+  const row = db.prepare('SELECT used FROM free_image_usage WHERE privy_id = ?').get(privyId) as any;
+  return row ? row.used : 0;
+}
+
+// Atomically consume one free image if under the limit. Returns true if a free
+// image was used (caller should NOT charge credits).
+export function consumeFreeImage(privyId: string, limit: number): boolean {
+  ensureFreeImageTable();
+  const db = getDb();
+  const now = new Date().toISOString();
+  const txn = db.transaction(() => {
+    const row = db.prepare('SELECT used FROM free_image_usage WHERE privy_id = ?').get(privyId) as any;
+    const used = row ? row.used : 0;
+    if (used >= limit) return false;
+    db.prepare(`
+      INSERT INTO free_image_usage (privy_id, used, updated_at)
+      VALUES (?, 1, ?)
+      ON CONFLICT(privy_id) DO UPDATE SET used = used + 1, updated_at = ?
+    `).run(privyId, now, now);
+    return true;
+  });
+  return txn() as boolean;
+}
+
+// Give a free image back (e.g. the render failed after we consumed one).
+export function refundFreeImage(privyId: string): void {
+  ensureFreeImageTable();
+  const db = getDb();
+  db.prepare("UPDATE free_image_usage SET used = MAX(0, used - 1) WHERE privy_id = ?").run(privyId);
+}
+
 // ── Anonymous (pre-login) free prompts ─────────────────────────────────────
 // A visitor can run free prompts before logging in. Two counters guard it:
 //   1. Per-session: reuses free_prompt_usage keyed on "anon:<aid>" (the signed

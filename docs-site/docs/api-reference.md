@@ -241,3 +241,49 @@ Errors are returned in OpenAI's shape (`{ "error": { "message", "type", "code" }
 ## Rate limits
 
 Default **60 requests/minute per key**. Need more? Reach out.
+
+## Image generation
+
+`POST /api/images/generate` — generate an image and get it back inline as a base64 data URL. This is a c0mpute endpoint, separate from the OpenAI-compatible `/v1` surface. Auth uses the same `sk-c0mpute-…` bearer key (or a logged-in session).
+
+### Request
+
+| Field | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `prompt` | string | — | Required. |
+| `negative_prompt` | string | — | Optional. A baseline anti-artifact negative is always applied on top. |
+| `width` / `height` | int | 1024 | 512–1536, snapped to multiples of 64. |
+| `steps` | int | 32 | 10–60. |
+| `cfg` | number | 4.0 | Guidance scale; Chroma likes ~3.5–4.5. |
+| `seed` | int | random | Optional, for reproducible output. |
+| `nsfw` | bool | false | Allow adult content (18+). With it off, adult output is blocked. |
+
+### Response
+
+```json
+{
+  "image": "data:image/png;base64,...",
+  "model": "c0mpute-image",
+  "seed": 31337,
+  "width": 1024,
+  "height": 1024,
+  "credits_charged": 20
+}
+```
+
+The image is returned inline and **never stored** server-side. **20 credits ($0.20)** per image, refunded automatically on failure.
+
+### Errors
+
+- `400` — prompt blocked by the content policy, or a SFW request produced adult output.
+- `402` — insufficient credits.
+- `503` — no image workers are online right now (try again shortly).
+
+### curl
+
+```bash
+curl https://c0mpute.ai/api/images/generate \
+  -H "Authorization: Bearer $C0MPUTE_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"prompt":"a candid photo of a fox in snow, 35mm film","width":1216,"height":832}'
+```

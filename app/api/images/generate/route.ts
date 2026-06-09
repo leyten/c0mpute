@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyPrivyToken } from '@/lib/privy-server';
-import { resolveApiKey, spendCredits, refundCredits } from '@/lib/db';
+import { resolveApiKey, spendCredits, refundCredits, consumeFreeImage, refundFreeImage, getTodayFreeSubsidyUsd } from '@/lib/db';
 import { consumeStakerAllowance, refundStakerAllowance } from '@/lib/staker-allowance';
-import { STAKER_ALLOWANCE_ENABLED } from '@/lib/tokenomics';
+import { STAKER_ALLOWANCE_ENABLED, FREE_IMAGE_LIMIT, FREE_SUBSIDY_DAILY_CAP_USD } from '@/lib/tokenomics';
 import { buildImageWorkflow, IMAGE_CREDITS, IMAGE_MODEL_ID } from '@/lib/image-gen';
 import { submitImageJob, ImageJobError } from '@/lib/orchestrator-image-client';
 import { checkImagePromptSafety, classifyImageNsfw } from '@/lib/image-safety';
@@ -54,10 +54,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: safety.reason }, { status: 400 });
   }
 
-  // Charge up front, drawing the staker daily allowance first (same credit pool as
-  // normal usage) then paid credits. Refunded to whichever was used on any failure.
+  // Pay order: (1) onboarding free images (treasury-subsidized, capped per
+  // account + by the global daily subsidy cap), then (2) staker daily allowance,
+  // then (3) paid credits. Refunded to whichever was used on any failure.
+  let usedFreeImage = false;
   let usedAllowance = false;
-  if (STAKER_ALLOWANCE_ENABLED && consumeStakerAllowance(privyId, IMAGE_CREDITS)) {
+  const freeImagesOpen =
+    FREE_IMAGE_LIMIT > 0 && getTodayFreeSubsidyUsd() < FREE_SUBSIDY_DAILY_CAP_USD;
+  if (freeImagesOpen && consumeFreeImage(privyId, FREE_IMAGE_LIMIT)) {
+    usedFreeImage = true;
+  } else if (STAKER_ALLOWANCE_ENABLED && consumeStakerAllowance(privyId, IMAGE_CREDITS)) {
     usedAllowance = true;
   } else if (!spendCredits(privyId, IMAGE_CREDITS, 'Image generation')) {
     return NextResponse.json(
@@ -65,8 +71,11 @@ export async function POST(req: NextRequest) {
       { status: 402 }
     );
   }
-  const refund = (reason: string) =>
-    usedAllowance ? refundStakerAllowance(privyId, IMAGE_CREDITS) : refundCredits(privyId, IMAGE_CREDITS, reason);
+  const refund = (reason: string) => {
+    if (usedFreeImage) refundFreeImage(privyId);
+    else if (usedAllowance) refundStakerAllowance(privyId, IMAGE_CREDITS);
+    else refundCredits(privyId, IMAGE_CREDITS, reason);
+  };
 
   // Build the recipe centrally, then dispatch to a contributor GPU via the
   // orchestrator. `image` is base64 PNG; nothing is stored server-side.
@@ -82,7 +91,7 @@ export async function POST(req: NextRequest) {
 
   let image: string;
   try {
-    const result = await submitImageJob(workflow, { privyId, seed, width, height, creditsCharged: IMAGE_CREDITS });
+    const result = await submitImageJob(workflow, { privyId, seed, width, height, creditsCharged: IMAGE_CREDITS, subsidized: usedFreeImage });
     image = result.image;
   } catch (err: any) {
     refund('Image generation failed');
