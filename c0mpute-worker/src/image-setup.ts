@@ -20,6 +20,9 @@ const COMFY_VENV = join(MANAGED_BASE, 'comfy-venv');
 const isWin = process.platform === 'win32';
 const VENV_PY = isWin ? join(COMFY_VENV, 'Scripts', 'python.exe') : join(COMFY_VENV, 'bin', 'python');
 const COMFY_PORT = (() => { try { return new URL(COMFY_URL).port || '8188'; } catch { return '8188'; } })();
+// Pin the managed ComfyUI to a known-good commit so every worker runs the exact
+// version the Chroma workflow was tested against (avoids latest-master drift).
+const COMFY_COMMIT = 'f89999289abe06c638e15d1895e3c7805bd486b1';
 
 function have(cmd: string): boolean {
   try { execSync(isWin ? `where ${cmd}` : `command -v ${cmd}`, { stdio: 'ignore' }); return true; } catch { return false; }
@@ -63,6 +66,19 @@ function ensureComfyInstalled(): void {
     process.stdout.write('  Installing ComfyUI… ');
     sh(`git clone --depth 1 https://github.com/comfyanonymous/ComfyUI "${COMFY_DIR}"`);
     console.log('done');
+  }
+  // Pin to the tested-good ComfyUI commit (managed dir only — never touch an
+  // operator's own checkout). Re-pins existing managed installs too.
+  if (!COMFY_DIR_ENV) {
+    try {
+      const cur = execSync('git rev-parse HEAD', { cwd: COMFY_DIR, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+      if (cur !== COMFY_COMMIT) {
+        process.stdout.write('  Pinning ComfyUI version… ');
+        sh(`git fetch --depth 1 origin ${COMFY_COMMIT}`, COMFY_DIR);
+        sh(`git checkout -q ${COMFY_COMMIT}`, COMFY_DIR);
+        console.log('done');
+      }
+    } catch { /* non-fatal — fall through on the current checkout */ }
   }
   if (!existsSync(VENV_PY)) {
     process.stdout.write('  Creating environment… ');

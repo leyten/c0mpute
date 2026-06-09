@@ -44,9 +44,20 @@ export async function runImageJob(workflow: Record<string, unknown>, signal?: Ab
       continue;
     }
     const entry = hist?.[promptId];
-    if (entry?.outputs) { outputs = entry.outputs; break; }
-    if (entry?.status?.status_str === 'error') {
-      throw new Error('ComfyUI reported an execution error for this job.');
+    if (entry) {
+      // Surface the real ComfyUI execution error (it lives in status.messages),
+      // not a generic "no image" — check this BEFORE outputs, since an errored
+      // job can still carry an (imageless) outputs object.
+      const st: any = entry.status || {};
+      const execErr = (st.messages || []).find((m: any) => m?.[0] === 'execution_error');
+      if (execErr || st.status_str === 'error') {
+        const d = execErr?.[1] || {};
+        const detail = d.exception_message
+          ? `${d.node_type || 'node'}: ${d.exception_message}`
+          : (st.status_str || 'execution error');
+        throw new Error('ComfyUI render error — ' + String(detail).slice(0, 400));
+      }
+      if (entry.outputs && Object.keys(entry.outputs).length) { outputs = entry.outputs; break; }
     }
   }
   if (!outputs) throw new Error('Image generation timed out.');
@@ -56,7 +67,7 @@ export async function runImageJob(workflow: Record<string, unknown>, signal?: Ab
     const imgs = outputs[nodeId]?.images;
     if (Array.isArray(imgs) && imgs.length) { image = imgs[0]; break; }
   }
-  if (!image) throw new Error('No image in ComfyUI output.');
+  if (!image) throw new Error('render completed but produced no image (check ComfyUI logs)');
 
   const q = new URLSearchParams({ filename: image.filename, subfolder: image.subfolder || '', type: image.type || 'output' });
   const view = await fetch(`${COMFY_URL}/view?${q.toString()}`, { signal });
