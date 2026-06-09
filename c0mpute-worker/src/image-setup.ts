@@ -24,7 +24,17 @@ const COMFY_PORT = (() => { try { return new URL(COMFY_URL).port || '8188'; } ca
 function have(cmd: string): boolean {
   try { execSync(isWin ? `where ${cmd}` : `command -v ${cmd}`, { stdio: 'ignore' }); return true; } catch { return false; }
 }
-function sh(cmd: string, cwd?: string) { execSync(cmd, { stdio: 'inherit', cwd, env: process.env }); }
+// Run a setup command QUIETLY — suppress the tool's own stdout/stderr (pip/git
+// spam) and surface only a short tail if it actually fails. Keeps the worker's
+// output to clean status lines, like the Max worker.
+function sh(cmd: string, cwd?: string) {
+  try {
+    execSync(cmd, { cwd, env: process.env, stdio: ['ignore', 'ignore', 'pipe'] });
+  } catch (e: any) {
+    const tail = (e?.stderr?.toString() || e?.message || '').trim().split('\n').slice(-3).join('\n');
+    throw new Error(`setup step failed: ${tail || cmd}`);
+  }
+}
 function hasNvidia(): boolean { try { execSync('nvidia-smi', { stdio: 'ignore' }); return true; } catch { return false; } }
 function pythonCmd(): string { return have('python3') ? 'python3' : 'python'; }
 
@@ -44,29 +54,35 @@ async function modelPresent(): Promise<boolean> {
 // Install ComfyUI + a matched-CUDA torch + ComfyUI deps into the managed dir.
 // Idempotent: each step is skipped if already done, so re-runs are cheap.
 function ensureComfyInstalled(): void {
-  if (!existsSync(join(COMFY_DIR, 'main.py'))) {
-    if (!have('git')) throw new Error('git is required to auto-install ComfyUI. Install git, then re-run.');
+  const freshInstall = !existsSync(join(COMFY_DIR, 'main.py'));
+  if (freshInstall) {
+    if (!have('git')) throw new Error('git is required to set up image generation. Install git, then re-run.');
     if (!have('python3') && !have('python')) throw new Error('Python 3.10+ is required. Install Python, then re-run.');
+    console.log('Setting up image generation — one-time install, this takes a few minutes.');
     mkdirSync(MANAGED_BASE, { recursive: true });
-    console.log('Installing ComfyUI (one-time)…');
+    process.stdout.write('  Installing ComfyUI… ');
     sh(`git clone --depth 1 https://github.com/comfyanonymous/ComfyUI "${COMFY_DIR}"`);
+    console.log('done');
   }
   if (!existsSync(VENV_PY)) {
-    console.log('Creating Python environment…');
+    process.stdout.write('  Creating environment… ');
     sh(`${pythonCmd()} -m venv "${COMFY_VENV}"`);
+    console.log('done');
   }
   let torchOk = false;
   try { execSync(`"${VENV_PY}" -c "import torch"`, { stdio: 'ignore' }); torchOk = true; } catch {}
   if (!torchOk) {
     const nv = hasNvidia();
-    if (!nv) console.warn('No NVIDIA GPU detected — installing CPU PyTorch; image generation will be very slow without a GPU.');
-    console.log('Installing PyTorch' + (nv ? ' (CUDA 12.4)' : ' (CPU)') + ' — one-time, ~2.5GB…');
-    sh(`"${VENV_PY}" -m pip install --upgrade pip`);
+    if (!nv) console.warn('  No NVIDIA GPU detected — installing CPU PyTorch (image generation will be slow without a GPU).');
+    process.stdout.write(`  Installing PyTorch${nv ? ' (CUDA)' : ' (CPU)'}… `);
+    sh(`"${VENV_PY}" -m pip install --quiet --upgrade pip`);
     const idx = nv ? ' --index-url https://download.pytorch.org/whl/cu124' : '';
-    sh(`"${VENV_PY}" -m pip install torch torchvision torchaudio${idx}`);
+    sh(`"${VENV_PY}" -m pip install --quiet torch torchvision torchaudio${idx}`);
+    console.log('done');
   }
-  console.log('Installing ComfyUI dependencies…');
-  sh(`"${VENV_PY}" -m pip install -r "${join(COMFY_DIR, 'requirements.txt')}"`);
+  process.stdout.write('  Installing dependencies… ');
+  sh(`"${VENV_PY}" -m pip install --quiet -r "${join(COMFY_DIR, 'requirements.txt')}"`);
+  console.log('done');
 }
 
 async function downloadFile(url: string, dest: string): Promise<void> {
