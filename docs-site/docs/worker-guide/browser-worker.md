@@ -46,6 +46,6 @@ Workers earn **70% of the USD value of the credits spent** on every job they com
 - **Tokens generated** — longer responses spend more credits, so they earn more
 - **Availability** — workers who stay online longer get more jobs
 
-**Stake to earn more.** Workers who stake at least 1,000,000 <span class="dollar">$</span>ZERO (held 24h) earn an **80%** share instead of 70% on every job. See [The <span class="dollar">$</span>ZERO Token](/zero-token#worker-boost).
+**Stake to earn more.** Workers who stake at least 1,000,000 <span class="dollar">$</span>ZERO (held 24h) earn an **80%** share instead of 70% on every job. See [Staking](/staking#worker-boost).
 
 Earnings are tracked on the worker page and tied to your account. Withdraw your balance to any Solana wallet as USDC whenever you like.

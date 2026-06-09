@@ -5,6 +5,7 @@ export interface WorkerCapabilities {
   longContext?: boolean;
   vision?: boolean;
   tools?: boolean;
+  image?: boolean; // runs ComfyUI image generation (type 'image' workers)
 }
 
 // Worker types
@@ -12,7 +13,7 @@ export interface WorkerInfo {
   id: string;
   socketId: string;
   model: string;
-  type: 'browser' | 'native';
+  type: 'browser' | 'native' | 'image';
   capabilities: WorkerCapabilities;
   status: 'idle' | 'busy';
   connectedAt: Date;
@@ -64,6 +65,11 @@ export interface Job {
   // creditsCharged is 0 but the worker is still paid out of the treasury. 0 for
   // paid jobs (they pay from creditsCharged).
   subsidyCredits?: number;
+  // Which subsidy lane funded this job (when subsidyCredits > 0): 'free' = the
+  // onboarding free-prompt lane (gated by the daily free-subsidy cap at payout),
+  // 'allowance' = the staker inference allowance (already pool-capped at consume
+  // time, so the worker is paid unconditionally).
+  subsidyKind?: 'free' | 'allowance';
   status: 'pending' | 'assigned' | 'processing' | 'completed' | 'failed';
   assignedWorker?: string;
   createdAt: Date;
@@ -111,16 +117,27 @@ export interface ServerToClientEvents {
   'worker:registered': (data: { workerId: string }) => void;
   'stats:update': (data: NetworkStats) => void;
   'native:status': (data: { online: boolean; workerId?: string; jobsCompleted: number; tokensGenerated: number; tokPerSec: number; currentJob?: string }) => void;
+  // Image generation (decentralized). Orchestrator -> worker: a job to run.
+  'image:job': (data: { jobId: string; workflow: Record<string, unknown> }) => void;
+  'image:cancel': (data: { jobId: string }) => void;
+  // Orchestrator -> submitter (internal web): the result or failure.
+  'image:done': (data: { jobId: string; image: string; seed?: number; width?: number; height?: number }) => void;
+  'image:error': (data: { jobId: string; error: string; code?: string }) => void;
 }
 
 export interface ClientToServerEvents {
-  'job:submit': (data: { messages?: ChatMessage[]; model?: string; authToken?: string; think?: boolean; privyUserId?: string; tools?: ToolDefinition[] }, callback: (response: { jobId: string } | { error: string }) => void) => void;
-  'worker:register': (data: { model: string; authToken?: string; tokPerSec?: number; type?: 'browser' | 'native'; capabilities?: WorkerCapabilities }, callback: (response: { workerId: string } | { error: string }) => void) => void;
+  'job:submit': (data: { messages?: ChatMessage[]; model?: string; authToken?: string; think?: boolean; privyUserId?: string; tools?: ToolDefinition[] }, callback: (response: { jobId: string; freeRemaining?: number } | { error: string; code?: string }) => void) => void;
+  'worker:register': (data: { model: string; authToken?: string; tokPerSec?: number; type?: 'browser' | 'native' | 'image'; capabilities?: WorkerCapabilities }, callback: (response: { workerId: string } | { error: string }) => void) => void;
   'worker:unregister': () => void;
   'job:token': (data: { jobId: string; token: string }) => void;
   'job:complete': (data: { jobId: string; response: string; tokensGenerated: number }) => void;
   'job:error': (data: { jobId: string; error: string }) => void;
   'job:tool_call': (data: { jobId: string; toolCalls: ToolCall[] }) => void;
+  // Image generation. Internal web -> orchestrator: submit a render.
+  'image:submit': (data: { workflow: Record<string, unknown>; privyUserId?: string; model?: string; seed?: number; width?: number; height?: number }, callback: (response: { jobId: string } | { error: string; code?: string }) => void) => void;
+  // Image worker -> orchestrator: result or failure.
+  'image:result': (data: { jobId: string; image: string }) => void;
+  'image:failed': (data: { jobId: string; error: string }) => void;
 }
 
 export interface NetworkStats {

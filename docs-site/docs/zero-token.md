@@ -9,11 +9,11 @@ title: The $ZERO Token
 
 ## What <span class="dollar">$</span>ZERO is (and isn't)
 
-<span class="dollar">$</span>ZERO is **not** a credit you spend on AI. Credits are bought with USDC (**1 credit = $0.01**), and credits are what pay for inference. <span class="dollar">$</span>ZERO is a separate, value-accrual token. As the network earns, it automatically buys <span class="dollar">$</span>ZERO back and burns it, and it pays a share of revenue to everyone who stakes.
+<span class="dollar">$</span>ZERO is **not** a credit you spend on AI directly. Credits are bought with USDC (**1 credit = $0.01**), and credits are what pay for inference. <span class="dollar">$</span>ZERO is a separate, value-accrual token. As the network earns, it automatically buys <span class="dollar">$</span>ZERO back and burns it, and it pays a share of revenue to everyone who stakes — and staking it also grants a **daily allowance of free credits** (see [Staking](/staking)).
 
 - **Use c0mpute** → pay in USDC
 - **Hold <span class="dollar">$</span>ZERO** → benefit from buybacks and burns as the network grows
-- **Stake <span class="dollar">$</span>ZERO** → earn a share of network revenue in USDC
+- **Stake <span class="dollar">$</span>ZERO** → earn a share of network revenue in USDC **and** get a daily free-credit allowance
 
 ## Where the money comes from
 
@@ -33,17 +33,9 @@ You can watch both happen live on the [treasury page](https://c0mpute.ai/treasur
 
 ## Staking
 
-Stake <span class="dollar">$</span>ZERO to earn the staker-rewards half of the treasury, paid in USDC.
+Staking <span class="dollar">$</span>ZERO turns holding into recurring value — a single stake earns a share of the treasury in USDC, grants a **daily allowance of free credits**, and (if you run a worker) a bigger cut on every job. Each deposit ages 24h before it counts.
 
-- Rewards are shared across stakers in proportion to how much each has staked.
-- A stake must be held for **24 hours** before it starts earning. This stops anyone from staking right before a payout and sniping it — each deposit ages on its own clock, so only the matured portion counts.
-- You can unstake at any time. Withdrawing your **full** balance is always allowed; partial unstakes have a small minimum.
-
-Set it up on the [staking page](https://c0mpute.ai/staking).
-
-### Worker boost
-
-Workers who stake at least **1,000,000 <span class="dollar">$</span>ZERO** (held for 24h) earn a higher revenue share on every job they complete — **80% instead of 70%**. So staking pays a worker twice: the staker rewards, plus a bigger cut of each job.
+See the **[Staking](/staking)** page for the full breakdown, and set it up on the [staking page](https://c0mpute.ai/staking).
 
 ## Credits, in one line
 

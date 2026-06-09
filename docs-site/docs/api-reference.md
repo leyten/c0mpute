@@ -200,22 +200,31 @@ const c0mpute = createOpenAI({ baseURL: "https://c0mpute.ai/api/v1", apiKey: "sk
 
 ### Hermes
 
-c0mpute is a custom OpenAI-compatible endpoint, so use the `custom` provider. In `~/.hermes/config.yaml`:
+c0mpute is a custom OpenAI-compatible endpoint. For Hermes, use **`c0mpute-max-think`** (Max with extended reasoning). Add it as a **custom provider** in `~/.hermes/config.yaml`, with the API key set **on the provider** (Hermes does not read `~/.hermes/.env` at runtime, so the key must live in the config or an exported env var):
 
 ```yaml
-model:
-  default: c0mpute-max
-  provider: custom
-  base_url: https://c0mpute.ai/api/v1
+custom_providers:
+  - name: c0mpute
+    base_url: https://c0mpute.ai/api/v1
+    api_key: sk-c0mpute-...      # your key, inline
+    models:
+      c0mpute-max-think: {}
 ```
 
-Put your key in the `OPENAI_API_KEY` environment variable (e.g. in `~/.hermes/.env`):
+Prefer not to hardcode the key? Use `key_env` and **export** that variable in your shell (Hermes reads it from the process environment, not from `.env`):
 
-```
-OPENAI_API_KEY=sk-c0mpute-...
+```yaml
+custom_providers:
+  - name: c0mpute
+    base_url: https://c0mpute.ai/api/v1
+    key_env: OPENAI_API_KEY      # must be exported, e.g. in ~/.bashrc
+    models:
+      c0mpute-max-think: {}
 ```
 
-Then run, for example, `hermes -z "hello" -m c0mpute-max --provider custom`.
+Then select it with `hermes model` (or `/model` in-session) and run, e.g. `hermes -z "hello" -m c0mpute-max-think`.
+
+> If you see `HTTP 401: Invalid API key`, Hermes is sending its `no-key-required` placeholder — it didn't find your key. Set `api_key` on the provider as above (putting the key only in `~/.hermes/.env` does **not** work).
 
 ## Errors
 

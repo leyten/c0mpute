@@ -94,6 +94,28 @@ export function migrateLotsToOnchain(privyId: string, owner: string): void {
  * decrease (unstake) burns youngest lots first so aged stake is preserved. Prevents
  * paying rewards on stake that's been unstaked on-chain.
  */
+/**
+ * Seed a single stake lot for an owner that has NONE yet, dated `sinceIso` — the
+ * REAL on-chain stake time, not "now". Returns true if it seeded, false if the
+ * owner already had lots (caller then falls back to the normal reconcile). Used
+ * by the status endpoint so a direct on-chain staker is tracked from their true
+ * stake time and their 24h clock isn't reset to when they first open the page.
+ */
+export function seedOnchainLotIfEmpty(owner: string, amount: number, sinceIso: string): boolean {
+  if (amount <= 0) return false;
+  initOnchainStakeTable();
+  const db = getDb();
+  const crypto = require('crypto');
+  const txn = db.transaction(() => {
+    const n = (db.prepare('SELECT COUNT(*) AS c FROM onchain_stake_lots WHERE owner = ?').get(owner) as { c: number }).c;
+    if (n > 0) return false;
+    db.prepare('INSERT INTO onchain_stake_lots (id, owner, amount, since) VALUES (?, ?, ?, ?)')
+      .run(crypto.randomUUID(), owner, amount, sinceIso);
+    return true;
+  });
+  return txn() as boolean;
+}
+
 export function syncOnchainStake(owner: string, onChainAmount: number): void {
   initOnchainStakeTable();
   const db = getDb();

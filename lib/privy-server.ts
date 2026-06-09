@@ -43,3 +43,31 @@ export async function getAuthUserId(request: Request): Promise<string | null> {
   const token = authHeader.slice(7);
   return verifyPrivyToken(token);
 }
+
+/**
+ * True only if `wallet` is a Solana wallet the user has actually LINKED in Privy.
+ * Gate any profile wallet write on this — otherwise a caller could claim a wallet
+ * (and its stake → worker boost + daily free-credit allowance) it doesn't control.
+ */
+export async function userOwnsSolanaWallet(privyId: string, wallet: string): Promise<boolean> {
+  try {
+    const u = await getClient().getUserById(privyId);
+    return (u.linkedAccounts ?? []).some(
+      (a) => (a as { type?: string; chainType?: string; address?: string }).type === 'wallet'
+        && (a as { chainType?: string }).chainType === 'solana'
+        && (a as { address?: string }).address === wallet
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Delete a Privy user by DID. This removes the underlying Privy account and frees
+ * any linked wallet, so the wallet can later be linked to a different login.
+ * (Deleting only the app's profile row leaves the Privy user — and its wallet link — intact.)
+ */
+export async function deletePrivyUser(did: string): Promise<void> {
+  const client = getClient();
+  await client.deleteUser(did);
+}

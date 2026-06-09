@@ -123,19 +123,38 @@ export async function sweepDepositToken(
  * Read the on-chain UI balance of `mintAddress` held by `walletAddress`.
  * Returns 0 if the ATA doesn't exist yet. Used to sync custodial stake to chain.
  */
-export async function getTokenUiBalance(walletAddress: string, mintAddress: string): Promise<number> {
+export async function getTokenUiBalance(
+  walletAddress: string,
+  mintAddress: string,
+  opts?: { throwOnError?: boolean },
+): Promise<number> {
   const rpcUrl = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
   const connection = new Connection(rpcUrl, 'confirmed');
   const mint = new PublicKey(mintAddress);
   const owner = new PublicKey(walletAddress);
-  const program = await tokenProgramFor(connection, mint);
-  const ata = await getAssociatedTokenAddress(mint, owner, false, program);
-  try {
-    const bal = await connection.getTokenAccountBalance(ata);
-    return bal.value.uiAmount ?? 0;
-  } catch {
-    return 0;
+  // Retry transient RPC failures (notably 429 rate-limits) with backoff. A
+  // genuinely-missing ATA means zero. On PERSISTENT failure: legacy display
+  // callers get 0, but pass { throwOnError: true } to get a throw instead — so
+  // the keeper resync SKIPS a wallet rather than silently zeroing its stake when
+  // the RPC is rate-limiting.
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      const program = await tokenProgramFor(connection, mint);
+      const ata = await getAssociatedTokenAddress(mint, owner, false, program);
+      const bal = await connection.getTokenAccountBalance(ata);
+      return bal.value.uiAmount ?? 0;
+    } catch (err) {
+      const msg = (err as Error).message || '';
+      if (/could not find account|account does not exist|Invalid param/i.test(msg)) return 0;
+      lastErr = err;
+      await new Promise((r) => setTimeout(r, 800 * (attempt + 1)));
+    }
   }
+  if (opts?.throwOnError) {
+    throw new Error(`[payout] token balance read failed after retries: ${(lastErr as Error)?.message ?? lastErr}`);
+  }
+  return 0;
 }
 
 /**

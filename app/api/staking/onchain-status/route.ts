@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { verifyPrivyToken } from '@/lib/privy-server';
 import { getZeroMint, WORKER_STAKE_THRESHOLD, WORKER_STAKED_REVENUE_SHARE } from '@/lib/tokenomics';
 import { getWorkerRevenueShare, getStakePosition } from '@/lib/staking';
+import { syncOnchainStake, seedOnchainLotIfEmpty } from '@/lib/keeper/onchain-rewards';
+import { getStakerAllowanceStatus } from '@/lib/staker-allowance';
 import Database from 'better-sqlite3';
 import path from 'path';
 import { Connection, PublicKey } from '@solana/web3.js';
@@ -42,6 +44,20 @@ function lotsMaturity(owner: string): { mature: number; cooling: number; nextMat
   return { mature, cooling, nextMatureAt };
 }
 
+// The wallet's REAL stake time = the earliest transaction on its stake vault
+// (the deposit that funded it). Used to date a first-seen staker's lot correctly
+// instead of stamping "now". Returns null if history can't be read (caller falls
+// back to now).
+async function firstStakeTimeIso(conn: Connection, vault: PublicKey): Promise<string | null> {
+  try {
+    const sigs = await conn.getSignaturesForAddress(vault, { limit: 1000 });
+    const oldest = sigs[sigs.length - 1];
+    return oldest?.blockTime ? new Date(oldest.blockTime * 1000).toISOString() : null;
+  } catch {
+    return null;
+  }
+}
+
 // GET /api/staking/onchain-status — reliable on-chain staking view for the caller:
 // staked = live stake-vault balance (read via server RPC, never the flaky public one);
 // mature/cooling = preserved server lots; claimable = live reward-vault balance.
@@ -63,7 +79,17 @@ export async function GET(req: NextRequest) {
   const [stakeAuth] = PublicKey.findProgramAddressSync([Buffer.from('stake'), ownerPk.toBuffer()], stakingProgramId());
   const vault = getAssociatedTokenAddressSync(zeroMint, stakeAuth, true, TOKEN_2022_PROGRAM_ID);
   let staked = 0;
-  try { staked = Number((await getAccount(conn, vault, 'confirmed', TOKEN_2022_PROGRAM_ID)).amount) / 1e6; } catch {}
+  let stakedReadOk = false;
+  try {
+    staked = Number((await getAccount(conn, vault, 'confirmed', TOKEN_2022_PROGRAM_ID)).amount) / 1e6;
+    stakedReadOk = true;
+  } catch (e) {
+    // A missing vault ATA genuinely means 0 staked. ANY other error (RPC 429 /
+    // network) is NOT a real zero — never treat it as one, or the reconcile below
+    // would DELETE the user's stake lots and reset their 24h clock. This was the
+    // mass "timer reset" bug: a flaky-RPC read of 0 wiped+recreated lots dated now.
+    if (/could not find account|account does not exist|Invalid param/i.test((e as Error).message || '')) stakedReadOk = true;
+  }
 
   let claimable = 0;
   const usdc = usdcMint();
@@ -73,22 +99,35 @@ export async function GET(req: NextRequest) {
     try { claimable = Number((await getAccount(conn, rVault, 'confirmed', TOKEN_PROGRAM_ID)).amount) / 1e6; } catch {}
   }
 
-  // maturity from preserved lots, clamped to the live on-chain balance
-  let { mature, cooling, nextMatureAt } = lotsMaturity(owner);
-  const lotSum = mature + cooling;
-  if (lotSum <= 0 && staked > 0) { cooling = staked; mature = 0; } // no lots yet -> conservative
-  else if (lotSum > 0 && Math.abs(lotSum - staked) > 0.001) {
-    // reconcile to chain truth: scale, keeping mature share
-    const matureFrac = mature / lotSum;
-    mature = staked * matureFrac; cooling = staked - mature;
+  // Track DIRECT on-chain stakers too (not just migrated ones). FIRST time we see
+  // a wallet's stake, seed its lot dated at the REAL on-chain stake time (the
+  // vault's earliest tx) — NOT "now" — so the 24h clock reflects when they truly
+  // staked and doesn't reset to when they first open the page. After that, the
+  // normal reconcile handles increases (new lot dated now) and unstakes.
+  // Reconcile ONLY when the on-chain balance read is trustworthy. On an RPC error
+  // we must NOT touch the lots (a false 0 would delete the stake + reset the clock).
+  if (stakedReadOk) {
+    try {
+      const seeded = staked > 0
+        ? seedOnchainLotIfEmpty(owner, staked, (await firstStakeTimeIso(conn, vault)) ?? new Date().toISOString())
+        : false;
+      if (!seeded) syncOnchainStake(owner, staked);
+    } catch { /* best-effort */ }
   }
+  const { mature, cooling, nextMatureAt } = lotsMaturity(owner);
+  // If the chain read failed, show the stake from the DB lots (never 0 from a hiccup).
+  if (!stakedReadOk) staked = mature + cooling;
   // worker boost: combined (custodial + on-chain) mature stake vs threshold — same
   // check the orchestrator uses to pay 80% vs 70%.
   const matureForBoost = mature + getStakePosition(privyId).matureAmount;
   const workerBoostActive = getWorkerRevenueShare(privyId) >= WORKER_STAKED_REVENUE_SHARE;
 
+  // Stake-to-use: daily free-inference allowance from the matured stake (Phase 2).
+  const allowance = getStakerAllowanceStatus(privyId);
+
   return NextResponse.json({
     staked, mature, cooling, nextMatureAt, claimable, address: owner,
     workerThreshold: WORKER_STAKE_THRESHOLD, workerBoostActive, matureForBoost,
+    allowance,
   });
 }

@@ -132,12 +132,24 @@ async function vaultBalance(vault: PublicKey, tokenProgram: PublicKey, decimals:
   try {
     const acc = await getAccount(connection(), vault, 'confirmed', tokenProgram);
     return fromBase(acc.amount, decimals);
-  } catch { return 0; } // ATA not created yet = 0
+  } catch (e) {
+    // A missing ATA genuinely means 0. An RPC error (429/network) does NOT — throw
+    // so callers (e.g. the keeper resync) skip rather than treating it as a real 0
+    // and deleting the user's stake lots (the timer-reset bug).
+    if (/could not find account|account does not exist|Invalid param/i.test((e as Error).message || '')) return 0;
+    throw e;
+  }
 }
 export const readStaked = (owner: PublicKey) =>
   ZERO_MINT ? vaultBalance(stakeVault(owner, new PublicKey(ZERO_MINT)), TOKEN_2022_PROGRAM_ID, ZERO_DECIMALS) : Promise.resolve(0);
 export const readClaimable = (owner: PublicKey) =>
   USDC_MINT ? vaultBalance(rewardVault(owner, new PublicKey(USDC_MINT)), TOKEN_PROGRAM_ID, USDC_DECIMALS) : Promise.resolve(0);
+// The $ZERO sitting in the user's OWN wallet (their token ATA) — i.e. how much
+// they could still stake. Drives the "Max" button + the wallet-balance readout.
+export const readWalletZero = (owner: PublicKey) =>
+  ZERO_MINT
+    ? vaultBalance(getAssociatedTokenAddressSync(new PublicKey(ZERO_MINT), owner, false, TOKEN_2022_PROGRAM_ID), TOKEN_2022_PROGRAM_ID, ZERO_DECIMALS)
+    : Promise.resolve(0);
 
 export const mintsConfigured = () => Boolean(ZERO_MINT && USDC_MINT);
 

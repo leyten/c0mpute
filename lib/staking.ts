@@ -258,6 +258,11 @@ export function getWorkerRevenueShare(privyId: string): number {
   return WORKER_REVENUE_SHARE;
 }
 
+/** A user's total matured (>=24h) stake across custodial + on-chain self-custody. */
+export function getMaturedStake(privyId: string): number {
+  return getStakePosition(privyId).matureAmount + onchainMatureStake(privyId);
+}
+
 /**
  * Every staker's matured stake (the portion of their lots held >= 24h). Only
  * users with a positive matured amount are returned, weighted by that amount —
