@@ -53,7 +53,18 @@ const BASE_NEGATIVE =
   'oversaturated, hdr, heavy vignette, dark corners, excessive bokeh, plastic skin, ' +
   'overprocessed, deep fried, airbrushed, blurry, low quality, jpeg artifacts, watermark, text, extra limbs, deformed';
 
-function buildWorkflow(p: GenerateParams) {
+export interface BuiltImageWorkflow {
+  workflow: Record<string, unknown>;
+  seed: number;
+  width: number;
+  height: number;
+}
+
+// Build the Chroma workflow + resolved params. This is the CENTRAL recipe: the
+// web builds it and hands the full graph to whichever worker renders it, so
+// every worker produces identical output and the model/defaults can change
+// here without redeploying any worker.
+export function buildImageWorkflow(p: GenerateParams): BuiltImageWorkflow {
   const width = clampDim(p.width, 1024);
   const height = clampDim(p.height, 1024);
   const steps = Math.min(60, Math.max(10, Math.round(Number(p.steps) || 32)));
@@ -65,7 +76,7 @@ function buildWorkflow(p: GenerateParams) {
   // Always fold the baseline anti-slop terms into the negative.
   const negative = [BASE_NEGATIVE, (p.negativePrompt || '').trim()].filter(Boolean).join(', ');
 
-  return {
+  const workflow = {
     '10': { class_type: 'UNETLoader', inputs: { unet_name: CHROMA_UNET, weight_dtype: 'default' } },
     '11': { class_type: 'CLIPLoader', inputs: { clip_name: CHROMA_T5, type: 'chroma' } },
     '12': { class_type: 'VAELoader', inputs: { vae_name: CHROMA_VAE } },
@@ -84,6 +95,7 @@ function buildWorkflow(p: GenerateParams) {
     '22': { class_type: 'VAEDecode', inputs: { samples: ['21', 0], vae: ['12', 0] } },
     '9': { class_type: 'SaveImage', inputs: { filename_prefix: 'c0mpute', images: ['22', 0] } },
   };
+  return { workflow, seed, width, height };
 }
 
 // Deterministic 31-bit-ish seed from a string (no Math.random dependency).
@@ -113,7 +125,7 @@ export interface GenerateResult {
 // these to HTTP + refunds credits).
 export async function generateImage(params: GenerateParams): Promise<GenerateResult> {
   const clientId = randomUUID();
-  const workflow = buildWorkflow(params);
+  const { workflow, seed, width, height } = buildImageWorkflow(params);
 
   // Submit.
   const submit = await fetch(`${COMFY_URL}/prompt`, {
@@ -160,9 +172,6 @@ export async function generateImage(params: GenerateParams): Promise<GenerateRes
   if (!view.ok) throw new Error(`ComfyUI /view -> ${view.status}`);
   const png = Buffer.from(await view.arrayBuffer());
 
-  const width = clampDim(params.width, 1024);
-  const height = clampDim(params.height, 1024);
-  const seed = (workflow as any)['20'].inputs.noise_seed; // RandomNoise node
   return { png, seed, width, height };
 }
 
