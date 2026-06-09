@@ -485,17 +485,34 @@ export class Orchestrator {
         // Pay the worker for the render (same revenue-share model as text jobs).
         if (worker?.privyUserId) {
           try {
+            const workerShare = getWorkerRevenueShare(worker.privyUserId);
+            // Paid renders pay out of their own revenue. Subsidized (free) renders
+            // still pay the worker the list basis from the treasury — but only when
+            // it's not a self-deal (worker rendering their own free image) and the
+            // daily subsidy cap has room, so a sybil farm can't drain the treasury.
+            // Mirrors the text-job guard in handleJobComplete.
+            let payoutCredits = job.subsidized ? 0 : job.creditsCharged;
+            let subsidized = false;
+            if (job.subsidized && worker.privyUserId !== job.privyUserId) {
+              const subsidyUsd = (job.creditsCharged / CREDITS_PER_USD) * workerShare;
+              if (getTodayFreeSubsidyUsd() + subsidyUsd <= FREE_SUBSIDY_DAILY_CAP_USD) {
+                payoutCredits = job.creditsCharged;
+                subsidized = true;
+              } else {
+                console.log(`[Orchestrator] Free-image subsidy cap reached — worker ${worker.privyUserId} not paid for job ${job.id}`);
+              }
+            }
             recordCompletedJob({ jobId: job.id, workerPrivyId: worker.privyUserId, userPrivyId: job.privyUserId, model: worker.model, tier: 'image', tokensGenerated: 0 });
             recordEarning({
               privyId: worker.privyUserId,
               jobId: job.id,
               tier: 'image',
               creditsCharged: job.subsidized ? 0 : job.creditsCharged,
-              payoutCredits: job.creditsCharged, // worker is always paid the list basis
-              subsidized: job.subsidized,
-              subsidyKind: job.subsidized ? 'free' : undefined,
+              payoutCredits,
+              subsidized,
+              subsidyKind: subsidized ? 'free' : undefined,
               tokensGenerated: 0,
-              revenueShare: getWorkerRevenueShare(worker.privyUserId),
+              revenueShare: workerShare,
             });
           } catch (err) {
             console.error('[Orchestrator] Failed to record image earning:', err);
