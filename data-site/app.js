@@ -170,12 +170,11 @@ function cumulative(days, daily) {
   let s = 0;
   return daily.map((v) => (s += v));
 }
-/* argent pixel for numerals, with the homepage's glyph fixes:
-   Minecraft for every "0", Courier for every "$". */
+/* argent pixel for numerals; only the "$" glyph is swapped (to Courier),
+   matching the homepage. Digits including 0 stay argent — the special 0
+   lives only in the logo. */
 function px(s) {
-  return String(s)
-    .replace(/\$/g, '<span class="dollar">$</span>')
-    .replace(/0/g, '<span class="mc">0</span>');
+  return String(s).replace(/\$/g, '<span class="dollar">$</span>');
 }
 function card(v, k, live) {
   return `<div class="card"><div class="v pxnum">${px(v)}</div><div class="k">${live ? '<span class="dot"></span>' : ''}${k}</div></div>`;
