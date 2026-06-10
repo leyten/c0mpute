@@ -3,7 +3,7 @@ import path from 'path';
 import { CREDITS_PER_USD } from './token-price';
 import { WORKER_REVENUE_SHARE, MIN_WITHDRAWAL_USD } from './tokenomics';
 import { realizeMargin } from './treasury-ledger';
-import { recordReferralEarning } from './referrals';
+import { recordReferralEarning, getReferralEarningsTotal } from './referrals';
 
 const DB_PATH = path.join(process.cwd(), 'data', 'c0mpute.db');
 
@@ -371,7 +371,9 @@ export function getPendingBalance(privyId: string): number {
   const payoutsRow = db.prepare(
     "SELECT COALESCE(SUM(amount_usd), 0) as total FROM worker_payouts WHERE privy_id = ? AND status IN ('pending_transfer', 'completed')"
   ).get(privyId) as { total: number };
-  return Math.max(0, earningsRow.total - payoutsRow.total);
+  // Referral earnings ride the same withdrawal rails: one pending balance,
+  // one payout ledger, so requestPayout's double-claim guard covers both.
+  return Math.max(0, earningsRow.total + getReferralEarningsTotal(privyId) - payoutsRow.total);
 }
 
 export function getTotalEarnings(privyId: string): number {
