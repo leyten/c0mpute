@@ -170,8 +170,15 @@ function cumulative(days, daily) {
   let s = 0;
   return daily.map((v) => (s += v));
 }
+/* argent pixel for numerals, with the homepage's glyph fixes:
+   Minecraft for every "0", Courier for every "$". */
+function px(s) {
+  return String(s)
+    .replace(/\$/g, '<span class="dollar">$</span>')
+    .replace(/0/g, '<span class="mc">0</span>');
+}
 function card(v, k, live) {
-  return `<div class="card"><div class="v">${v}</div><div class="k">${live ? '<span class="dot"></span>' : ''}${k}</div></div>`;
+  return `<div class="card"><div class="v pxnum">${px(v)}</div><div class="k">${live ? '<span class="dot"></span>' : ''}${k}</div></div>`;
 }
 
 /* ---- hero pixels (canvas take on the homepage PixelBlast) ---- */
@@ -203,7 +210,7 @@ function render() {
   document.querySelectorAll('canvas[data-chart]').forEach((c) => (charts[c.dataset.chart] = c));
 
   // hero
-  document.getElementById('hero-tokens').textContent = comma(d.network.totals.tokens || 0);
+  document.getElementById('hero-tokens').innerHTML = px(comma(d.network.totals.tokens || 0));
 
   // live cards
   const lv = d.live || { workersOnline: 0, byType: { native: 0, browser: 0, image: 0 }, busy: 0, queueDepth: 0 };
