@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { upsertProfile } from '@/lib/db';
+import { getProfileByPrivyId, upsertProfile } from '@/lib/db';
 import { getAuthUserId } from '@/lib/privy-server';
+import { bindReferral } from '@/lib/referrals';
 
 export async function POST(request: NextRequest) {
   try {
@@ -14,7 +15,10 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { wallet, twitter } = body;
+    const { wallet, twitter, refCode } = body;
+
+    // Referral binding is signup-only: the profile must not exist yet.
+    const isNewAccount = !getProfileByPrivyId(authUserId);
 
     const profile = upsertProfile({
       privy_id: authUserId,
@@ -22,6 +26,10 @@ export async function POST(request: NextRequest) {
       x_username: twitter?.username || null,
       x_id: twitter?.id || null,
     });
+
+    if (isNewAccount && typeof refCode === 'string' && refCode) {
+      bindReferral(authUserId, refCode);
+    }
 
     return NextResponse.json({ success: true, profile });
   } catch (error) {

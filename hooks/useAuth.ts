@@ -206,6 +206,20 @@ export function useAuth(): UseAuthReturn {
       // Sync user to database
       try {
         const headers = await getAuthHeaders();
+        // Referral attribution: send the stored /r/<code> code if it's still
+        // inside the 30-day window. Server binds only for brand-new accounts.
+        let refCode: string | undefined;
+        try {
+          const raw = localStorage.getItem('c0mpute_ref');
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (parsed?.code && Date.now() - (parsed.at || 0) < 30 * 24 * 60 * 60 * 1000) {
+              refCode = parsed.code;
+            } else {
+              localStorage.removeItem('c0mpute_ref');
+            }
+          }
+        } catch {}
         await fetch('/api/auth/callback', {
           method: 'POST',
           headers,
@@ -215,6 +229,7 @@ export function useAuth(): UseAuthReturn {
               username: user.twitter.username,
               id: user.twitter.subject,
             } : null,
+            ...(refCode ? { refCode } : {}),
           }),
         });
       } catch (error) {
