@@ -258,6 +258,8 @@ function render() {
     card(comma(u.freePrompts.used), 'free prompts used'),
     card(comma(u.freeImages.used), 'free images used'),
     card(comma(u.apiKeys), 'active api keys'),
+    card(comma(u.referrals?.signups ?? 0), 'referred signups'),
+    card(usd(u.referrals?.earnedUsd ?? 0), 'referral USDC earned'),
   ].join('');
   const allDays = dayRange(u.signupsDaily[0]?.day || daysAgo(29), today());
   const su = seriesByDay(u.signupsDaily, days30, null, 'users');
