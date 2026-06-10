@@ -14,6 +14,8 @@ import { useAuth } from '@/hooks/useAuth';
 const PENDING_PROMPT_KEY = 'c0mpute_pending_prompt';
 // Signed anonymous-visitor token (lets new users run free prompts without login)
 const ANON_TOKEN_KEY = 'c0mpute_anon_token';
+// Referral attribution: code from /r/<code>, stored 30 days, bound at signup
+const REF_KEY = 'c0mpute_ref';
 
 export default function Home() {
   const router = useRouter();
@@ -23,6 +25,17 @@ export default function Home() {
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [hasScrolled, setHasScrolled] = useState(false);
   const [anonModalOpen, setAnonModalOpen] = useState(false);
+
+  // Capture referral code from /r/<code> redirects (?ref=...). Last click
+  // wins; binding happens server-side at signup, new accounts only.
+  useEffect(() => {
+    const ref = new URLSearchParams(window.location.search).get('ref');
+    if (ref && /^[a-z0-9]{4,12}$/.test(ref)) {
+      localStorage.setItem(REF_KEY, JSON.stringify({ code: ref, at: Date.now() }));
+      // Drop ?ref from the URL so it doesn't linger in shares/bookmarks
+      window.history.replaceState(null, '', window.location.pathname);
+    }
+  }, []);
 
   // Hide scroll indicator after user scrolls
   useEffect(() => {
