@@ -1173,7 +1173,7 @@ export default function UserPage() {
           freePromptLimit={freePromptLimit}
           onClose={dismissOnboarding}
           onUseAI={() => { dismissOnboarding(); createNewChat(); }}
-          onChooseWorker={() => { dismissOnboarding(); router.push('/worker'); }}
+          onChooseWorker={() => { dismissOnboarding(); router.push('/earn'); }}
         />
       )}
       {anonModal && (

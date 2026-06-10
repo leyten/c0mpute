@@ -18,7 +18,7 @@ npx @c0mpute/worker --token <your-token> --mode max     # text worker
 npx @c0mpute/worker --token <your-token> --mode image   # image worker
 ```
 
-Get a token at [c0mpute.ai/worker](https://c0mpute.ai/worker). Only the chosen mode's model is downloaded — never both.
+Get a token at [c0mpute.ai/earn](https://c0mpute.ai/earn). Only the chosen mode's model is downloaded — never both.
 
 ## Max (text) worker
 
