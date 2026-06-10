@@ -403,6 +403,11 @@ export default function UserPage() {
   
   // UI state
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  // Mobile: start with the sidebar closed (it overlays the chat there).
+  // Runs once after mount so SSR/desktop hydration stays untouched.
+  useEffect(() => {
+    if (window.innerWidth < 768) setSidebarOpen(false);
+  }, []);
   const [inputValue, setInputValue] = useState('');
   const [pendingImages, setPendingImages] = useState<string[]>([]);
   const imageInputRef = useRef<HTMLInputElement>(null);
@@ -572,6 +577,9 @@ export default function UserPage() {
     if (chat) {
       setActiveChat(chat);
         setTimeout(scrollToBottom, 100);
+        // Mobile: the sidebar overlays the chat — close it so the
+        // conversation is visible after picking one.
+        if (window.innerWidth < 768) setSidebarOpen(false);
       }
   }, [chats, scrollToBottom]);
 
@@ -591,6 +599,7 @@ export default function UserPage() {
     setChats(updatedChats);
     saveChatsToStorage(updatedChats);
     setActiveChat(newChat);
+        if (window.innerWidth < 768) setSidebarOpen(false);
         setInputValue('');
         setChatState('idle');
         setError(null);
@@ -1206,16 +1215,17 @@ export default function UserPage() {
             </a>
           </div>
           
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 md:gap-4">
             {isAuthenticated ? (
               <>
                 {/* Free prompts left — shown while the onboarding allowance lasts */}
                 {freePromptsRemaining > 0 && (
                   <button
                     onClick={() => router.push('/settings#usage')}
-                    className="pixel-sans text-xs px-3 py-2 rounded-lg border border-green-500/20 bg-green-500/[0.05] text-green-400/80 hover:bg-green-500/[0.08] transition-colors cursor-pointer"
+                    className="pixel-sans text-xs px-2 md:px-3 py-2 rounded-lg border border-green-500/20 bg-green-500/[0.05] text-green-400/80 hover:bg-green-500/[0.08] transition-colors cursor-pointer whitespace-nowrap"
                   >
-                    {freePromptsRemaining} free {freePromptsRemaining === 1 ? 'prompt' : 'prompts'} left
+                    <span className="md:hidden">{freePromptsRemaining} free</span>
+                    <span className="hidden md:inline">{freePromptsRemaining} free {freePromptsRemaining === 1 ? 'prompt' : 'prompts'} left</span>
                   </button>
                 )}
                 {/* Staker inference allowance — free credits from staked $ZERO, drawn before paid credits */}
@@ -1225,7 +1235,8 @@ export default function UserPage() {
                     title="Free daily inference from your staked $ZERO — used before your paid credits. Refreshes 00:00 UTC."
                     className="pixel-sans text-xs px-3 py-2 rounded-lg border border-[#80a0c1]/30 bg-[#80a0c1]/[0.06] text-[#80a0c1] hover:bg-[#80a0c1]/[0.1] transition-colors cursor-pointer"
                   >
-                    {stakeAllowanceLeft.toFixed(0)} free credits today
+                    <span className="md:hidden">{stakeAllowanceLeft.toFixed(0)} free</span>
+                    <span className="hidden md:inline">{stakeAllowanceLeft.toFixed(0)} free credits today</span>
                   </button>
                 )}
                 {/* Credit balance — always visible */}
@@ -1244,8 +1255,9 @@ export default function UserPage() {
               <>
                 {/* Anonymous visitor: free prompts left + a sign-in CTA */}
                 {anonRemaining !== null && (
-                  <span className="pixel-sans text-xs px-3 py-2 rounded-lg border border-green-500/20 bg-green-500/[0.05] text-green-400/80">
-                    {anonRemaining} free {anonRemaining === 1 ? 'prompt' : 'prompts'} left
+                  <span className="pixel-sans text-xs px-2 md:px-3 py-2 rounded-lg border border-green-500/20 bg-green-500/[0.05] text-green-400/80 whitespace-nowrap">
+                    <span className="md:hidden">{anonRemaining} free</span>
+                    <span className="hidden md:inline">{anonRemaining} free {anonRemaining === 1 ? 'prompt' : 'prompts'} left</span>
                   </span>
                 )}
                 <button
@@ -1259,17 +1271,22 @@ export default function UserPage() {
 
             <button
               onClick={() => router.push('/')}
-              className="cursor-pointer pixel-sans text-sm text-white/70 hover:text-white transition-colors"
+              className="cursor-pointer pixel-sans text-sm text-white/70 hover:text-white transition-colors whitespace-nowrap"
             >
-              ← Back
+              <span className="md:hidden">←</span>
+              <span className="hidden md:inline">← Back</span>
             </button>
           </div>
         </div>
       </header>
 
-      <div className="flex flex-1 overflow-hidden">
-        {/* Sidebar */}
-        <aside className={`${sidebarOpen ? 'w-72' : 'w-0'} border-r border-white/10 bg-black/50 flex flex-col transition-all duration-300 overflow-hidden`}>
+      <div className="flex flex-1 overflow-hidden relative">
+        {/* Mobile backdrop while the sidebar overlays the chat */}
+        {sidebarOpen && (
+          <div className="md:hidden absolute inset-0 bg-black/60 z-20" onClick={() => setSidebarOpen(false)} />
+        )}
+        {/* Sidebar — in-flow on desktop, overlay drawer on mobile */}
+        <aside className={`${sidebarOpen ? 'w-72 max-md:translate-x-0' : 'w-0 max-md:-translate-x-full'} max-md:absolute max-md:inset-y-0 max-md:left-0 max-md:z-30 max-md:w-72 max-md:bg-black border-r border-white/10 bg-black/50 flex flex-col transition-all duration-300 overflow-hidden`}>
           {/* New Chat Button */}
           <div className="py-2">
             <button
