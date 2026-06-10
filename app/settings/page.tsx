@@ -38,8 +38,9 @@ export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<Tab>('account');
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      const hash = window.location.hash.replace('#', '') as Tab;
-      if (['account', 'worker', 'usage', 'referrals'].includes(hash)) {
+      const raw = window.location.hash.replace('#', '');
+      const hash = (raw === 'api' ? 'developer' : raw) as Tab;
+      if (['account', 'worker', 'developer', 'usage', 'referrals'].includes(hash)) {
         setActiveTab(hash);
       }
     }
@@ -385,7 +386,10 @@ export default function SettingsPage() {
             {tabs.map((tab) => (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
+                onClick={() => {
+                  setActiveTab(tab.id);
+                  window.history.replaceState(null, '', `#${tab.id === 'developer' ? 'api' : tab.id}`);
+                }}
                 className={`pixel-sans text-sm px-4 py-3 transition-colors relative ${
                   activeTab === tab.id ? 'text-white' : 'text-white/50 hover:text-white/70'
                 }`}
