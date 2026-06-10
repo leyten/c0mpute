@@ -37,16 +37,21 @@ export default function Home() {
   
   const { isLoading, isAuthenticated, login, logout, displayName, xUsername, walletAddress } = useAuth();
   
-  // After auth loads, check if there's a pending prompt and user is now logged in
+  // After the X OAuth round-trip, continue to chat — but only on the explicit
+  // post-login flag (sessionStorage, so it dies with the tab). A leftover
+  // PENDING_PROMPT_KEY alone must NOT redirect: it's written on every hero
+  // keystroke-submit and survives in localStorage if the chat page never got
+  // to consume it, which made every later login bounce straight to /chat.
   useEffect(() => {
     if (!isLoading && isAuthenticated) {
-      const pendingPrompt = localStorage.getItem(PENDING_PROMPT_KEY);
-      // sessionStorage flag survives the X OAuth redirect round-trip (a full
-      // page reload), unlike an in-memory ref.
       const postLogin = sessionStorage.getItem('c0mpute_post_login_redirect');
-      if (pendingPrompt || postLogin) {
+      if (postLogin) {
         sessionStorage.removeItem('c0mpute_post_login_redirect');
         router.push('/chat');
+      } else {
+        // No redirect intent this session — drop any stale abandoned prompt
+        // so it can't ghost-inject into the next chat visit.
+        localStorage.removeItem(PENDING_PROMPT_KEY);
       }
     }
   }, [isLoading, isAuthenticated, router]);
