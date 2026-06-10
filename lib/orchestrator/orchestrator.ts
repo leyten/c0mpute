@@ -91,6 +91,24 @@ export class Orchestrator {
     return `${this.NATIVE_SYSTEM_PROMPT} Today's date is ${today}. When a question is about recent, current, or "new"/"latest" things, do not rely on your training data for dates — use the web_search tool and build the query around the current date. Keep any private reasoning brief and to the point, then ALWAYS finish with a clear, complete answer to the user. Never end your turn while still reasoning.`;
   }
 
+  // Aggregate, anonymous worker counts for the public data dashboard.
+  // No worker ids, models, or user ids — counts only.
+  getPublicStats() {
+    const byType: Record<'native' | 'browser' | 'image', number> = { native: 0, browser: 0, image: 0 };
+    let busy = 0;
+    for (const w of this.workers.values()) {
+      byType[w.type]++;
+      if (w.status === 'busy') busy++;
+    }
+    return {
+      workersOnline: this.workers.size,
+      byType,
+      busy,
+      queueDepth: this.jobQueue.length + this.imageQueue.length,
+      at: new Date().toISOString(),
+    };
+  }
+
   constructor(io: Server<ClientToServerEvents, ServerToClientEvents>) {
     this.io = io;
 

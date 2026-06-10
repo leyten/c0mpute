@@ -63,3 +63,4 @@ next-env.d.ts
 *.pid
 scripts/.signup-watch.baseline
 _shot.js
+data-site/stats.json
