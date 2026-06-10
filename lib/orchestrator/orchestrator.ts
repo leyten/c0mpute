@@ -531,6 +531,7 @@ export class Orchestrator {
               subsidyKind: subsidized ? 'free' : undefined,
               tokensGenerated: 0,
               revenueShare: workerShare,
+              payerPrivyId: job.privyUserId,
             });
           } catch (err) {
             console.error('[Orchestrator] Failed to record image earning:', err);
@@ -615,6 +616,7 @@ export class Orchestrator {
             subsidized: false,
             tokensGenerated: cappedTokens,
             revenueShare: getWorkerRevenueShare(worker.privyUserId),
+            payerPrivyId: job.privyUserId,
           });
         } catch (err) {
           console.error('[Orchestrator] Failed to record passthrough tool-call job:', err);
@@ -1146,6 +1148,7 @@ export class Orchestrator {
           subsidyKind: job.subsidyKind,
           tokensGenerated: cappedTokens,
           revenueShare: workerShare,
+          payerPrivyId: job.privyUserId,
         });
         if (earnedUsd > 0) {
           console.log(`[Orchestrator] Worker ${worker.privyUserId} earned $${earnedUsd.toFixed(4)} for job ${jobId}`);

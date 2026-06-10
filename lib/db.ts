@@ -3,6 +3,7 @@ import path from 'path';
 import { CREDITS_PER_USD } from './token-price';
 import { WORKER_REVENUE_SHARE, MIN_WITHDRAWAL_USD } from './tokenomics';
 import { realizeMargin } from './treasury-ledger';
+import { recordReferralEarning } from './referrals';
 
 const DB_PATH = path.join(process.cwd(), 'data', 'c0mpute.db');
 
@@ -294,6 +295,10 @@ export function recordEarning(data: {
   payoutCredits?: number;
   subsidized?: boolean; // true => treasury-funded (free prompt), not self-solvent
   subsidyKind?: 'free' | 'allowance'; // which daily cap it draws from (separate caps)
+  // The PAYING user. When set and the job carries real revenue, their referrer
+  // earns REFERRAL_REVENUE_SHARE of it, netted from treasury's margin below —
+  // worker pay is untouched (split becomes 70/25/5 base, 80/15/5 boosted).
+  payerPrivyId?: string;
 }): number {
   ensureEarningsTables();
   const db = getDb();
@@ -310,11 +315,24 @@ export function recordEarning(data: {
     'INSERT INTO worker_earnings (id, privy_id, job_id, tier, tokens, earning_usd, created_at, subsidized, subsidy_kind) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
   ).run(id, data.privyId, data.jobId, data.tier, data.tokensGenerated, earning, now, data.subsidized ? 1 : 0, data.subsidyKind ?? null);
 
+  // Referral cut on self-paid usage only: subsidized jobs carry revenueUsd 0
+  // and never book one. Sits after the UNIQUE(job_id) earnings insert, so it's
+  // once-per-job like the margin (and double-guarded by UNIQUE in its own table).
+  let referralUsd = 0;
+  if (data.payerPrivyId && revenueUsd > 0) {
+    referralUsd = recordReferralEarning({
+      payerPrivyId: data.payerPrivyId,
+      jobId: data.jobId,
+      tier: data.tier,
+      revenueUsd,
+    });
+  }
+
   // The insert above is UNIQUE(job_id), so a duplicate job throws before we get
   // here — margin is realised exactly once per job. For a subsidized free job
   // revenue is 0, so this margin is negative and realizeMargin ignores it (the
   // subsidy is a pure treasury outflow, not pool revenue).
-  realizeMargin(revenueUsd - earning, data.jobId);
+  realizeMargin(revenueUsd - earning - referralUsd, data.jobId);
   return earning;
 }
 

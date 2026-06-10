@@ -6,6 +6,7 @@
 import crypto from 'crypto';
 import path from 'path';
 import Database from 'better-sqlite3';
+import { REFERRAL_REVENUE_SHARE } from './tokenomics';
 
 // No look-alike chars (0/O, 1/l/I) — codes get typed from screenshots.
 const CODE_ALPHABET = 'abcdefghjkmnpqrstuvwxyz23456789';
@@ -36,6 +37,16 @@ function ensureReferralTables() {
       bound_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_referrals_referrer ON referrals(referrer_privy_id);
+    CREATE TABLE IF NOT EXISTS referral_earnings (
+      id TEXT PRIMARY KEY,
+      referrer_privy_id TEXT NOT NULL,
+      referee_privy_id TEXT NOT NULL,
+      job_id TEXT NOT NULL UNIQUE,
+      tier TEXT NOT NULL,
+      usd REAL NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_referral_earnings_referrer ON referral_earnings(referrer_privy_id);
   `);
 }
 
@@ -114,6 +125,43 @@ export function getReferrerOf(refereePrivyId: string): string | null {
   return row?.referrer_privy_id ?? null;
 }
 
+/**
+ * Phase 2 — the 5%. Called from recordEarning for every PAID job (revenue > 0;
+ * subsidized free/allowance jobs carry zero revenue and never reach here).
+ * Returns the referral USD booked (0 when the payer has no referrer), which
+ * the caller nets out of treasury's margin — worker pay is untouched.
+ */
+export function recordReferralEarning(data: {
+  payerPrivyId: string;
+  jobId: string;
+  tier: string;
+  revenueUsd: number;
+}): number {
+  ensureReferralTables();
+  if (data.revenueUsd <= 0) return 0;
+  const referrer = getReferrerOf(data.payerPrivyId);
+  if (!referrer) return 0;
+  const usd = data.revenueUsd * REFERRAL_REVENUE_SHARE;
+  const db = getDb();
+  try {
+    db.prepare(
+      'INSERT INTO referral_earnings (id, referrer_privy_id, referee_privy_id, job_id, tier, usd, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    ).run(crypto.randomUUID(), referrer, data.payerPrivyId, data.jobId, data.tier, usd, new Date().toISOString());
+    return usd;
+  } catch {
+    return 0; // UNIQUE(job_id) — never book the same job twice
+  }
+}
+
+export function getReferralEarningsTotal(privyId: string): number {
+  ensureReferralTables();
+  const db = getDb();
+  const row = db
+    .prepare('SELECT COALESCE(SUM(usd), 0) AS total FROM referral_earnings WHERE referrer_privy_id = ?')
+    .get(privyId) as { total: number };
+  return row.total;
+}
+
 export function getReferralStats(privyId: string) {
   ensureReferralTables();
   const db = getDb();
@@ -121,5 +169,21 @@ export function getReferralStats(privyId: string) {
   const referred = db
     .prepare('SELECT COUNT(*) AS n FROM referrals WHERE referrer_privy_id = ?')
     .get(privyId) as { n: number };
-  return { code, link: `https://c0mpute.ai/r/${code}`, referredCount: referred.n };
+  const monthStart = new Date();
+  monthStart.setUTCDate(1);
+  monthStart.setUTCHours(0, 0, 0, 0);
+  const earnedMonth = db
+    .prepare('SELECT COALESCE(SUM(usd), 0) AS total FROM referral_earnings WHERE referrer_privy_id = ? AND created_at >= ?')
+    .get(privyId, monthStart.toISOString()) as { total: number };
+  const recent = db
+    .prepare('SELECT tier, usd, created_at FROM referral_earnings WHERE referrer_privy_id = ? ORDER BY created_at DESC LIMIT 20')
+    .all(privyId) as Array<{ tier: string; usd: number; created_at: string }>;
+  return {
+    code,
+    link: `https://c0mpute.ai/r/${code}`,
+    referredCount: referred.n,
+    earnedUsd: getReferralEarningsTotal(privyId),
+    earnedUsdThisMonth: earnedMonth.total,
+    recent,
+  };
 }

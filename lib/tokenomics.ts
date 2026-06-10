@@ -99,6 +99,10 @@ export const STAKER_ALLOWANCE_ALLOWLIST = (process.env.STAKER_ALLOWANCE_ALLOWLIS
 export const WORKER_REVENUE_SHARE = 0.7;
 // Boosted share for workers staking >= WORKER_STAKE_THRESHOLD ZERO (held >= 24h).
 export const WORKER_STAKED_REVENUE_SHARE = pct('WORKER_STAKED_REVENUE_SHARE', 0.8);
+// Referrer's cut of a referred user's SELF-PAID usage, netted from treasury's
+// side (split becomes 70/25/5 base, 80/15/5 boosted). Subsidized jobs (free
+// prompts, staker allowance) have zero revenue and never pay referrals.
+export const REFERRAL_REVENUE_SHARE = pct('REFERRAL_REVENUE_SHARE', 0.05);
 
 // ── Staking ──
 
