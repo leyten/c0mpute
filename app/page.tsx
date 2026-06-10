@@ -46,7 +46,7 @@ export default function Home() {
       const postLogin = sessionStorage.getItem('c0mpute_post_login_redirect');
       if (pendingPrompt || postLogin) {
         sessionStorage.removeItem('c0mpute_post_login_redirect');
-        router.push('/user');
+        router.push('/chat');
       }
     }
   }, [isLoading, isAuthenticated, router]);
@@ -75,7 +75,7 @@ export default function Home() {
 
     if (isAuthenticated) {
       // Already logged in — go straight to chat
-      router.push('/user');
+      router.push('/chat');
       return;
     }
 
@@ -95,7 +95,7 @@ export default function Home() {
         return;
       }
       localStorage.setItem(ANON_TOKEN_KEY, data.token);
-      router.push('/user');
+      router.push('/chat');
     } catch {
       setAnonModalOpen(true);
     }
@@ -124,12 +124,25 @@ export default function Home() {
             
             {/* Center: Navigation - Hidden on mobile */}
             <div className="hidden md:flex items-center gap-8">
+              <a href="/chat" className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide">Chat</a>
               <a href="/create" className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide">Create</a>
-              <a href="/user" className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide">User</a>
-              <a href="/worker" className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide">Worker</a>
-              <a href="/staking" className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide">Staking</a>
-              <a href="/treasury" className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide">Treasury</a>
+              <a href="/earn" className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide">Earn</a>
+              {/* $ZERO dropdown: staking / treasury / data */}
+              <div className="relative group">
+                <span className="cursor-pointer pixel-sans text-white/70 group-hover:text-white transition-colors text-sm tracking-wide inline-flex items-center gap-1">
+                  <span className="dollar">$</span>ZERO
+                  <svg width="8" height="6" viewBox="0 0 8 6" fill="currentColor" className="mt-0.5"><path d="M0 0h8L4 6z" /></svg>
+                </span>
+                <div className="absolute left-1/2 -translate-x-1/2 top-full pt-3 hidden group-hover:block">
+                  <div className="bg-black/95 border border-white/10 rounded-xl px-5 py-3 flex flex-col gap-3 whitespace-nowrap">
+                    <a href="/staking" className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide">Staking</a>
+                    <a href="/treasury" className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide">Treasury</a>
+                    <a href="https://data.c0mpute.ai" target="_blank" rel="noopener noreferrer" className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide">Data</a>
+                  </div>
+                </div>
+              </div>
               <a href="https://docs.c0mpute.ai" target="_blank" rel="noopener noreferrer" className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide">Docs</a>
+              <a href="https://blog.c0mpute.ai" target="_blank" rel="noopener noreferrer" className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide">Blog</a>
             </div>
             
             {/* Right: X + Login (desktop) + Hamburger (mobile) */}
@@ -232,18 +245,18 @@ export default function Home() {
                 Create
               </a>
               <a
-                href="/user"
+                href="/chat"
                 className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide"
                 onClick={() => setMenuOpen(false)}
               >
-                User
+                Chat
               </a>
               <a
-                href="/worker"
+                href="/earn"
                 className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide"
                 onClick={() => setMenuOpen(false)}
               >
-                Worker
+                Earn
               </a>
               <a
                 href="/staking"
@@ -260,6 +273,15 @@ export default function Home() {
                 Treasury
               </a>
               <a
+                href="https://data.c0mpute.ai"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide"
+                onClick={() => setMenuOpen(false)}
+              >
+                Data
+              </a>
+              <a
                 href="https://docs.c0mpute.ai"
                 target="_blank"
                 rel="noopener noreferrer"
@@ -267,6 +289,15 @@ export default function Home() {
                 onClick={() => setMenuOpen(false)}
               >
                 Docs
+              </a>
+              <a
+                href="https://blog.c0mpute.ai"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide"
+                onClick={() => setMenuOpen(false)}
+              >
+                Blog
               </a>
               <a 
                 href="https://x.com/c0mpute" 
@@ -591,9 +622,9 @@ export default function Home() {
             <p className="pixel-sans text-white/60 text-xs md:text-sm max-w-xl mx-auto">
               Token trading funds the network. AI for the people, by the people.
             </p>
-            <a 
-              href="https://docs.c0mpute.ai/zero-token" 
-              target="_blank" 
+            <a
+              href="https://docs.c0mpute.ai/zero-token"
+              target="_blank"
               rel="noopener noreferrer"
               className="cursor-pointer pixel-sans text-[#80a0c1]/50 hover:text-[#80a0c1] text-xs md:text-sm mt-3 inline-block transition-colors"
             >
@@ -602,6 +633,48 @@ export default function Home() {
           </div>
         </div>
       </section>
+
+      {/* Footer — full sitemap so the header doesn't have to be one */}
+      <footer className="border-t border-white/10 mt-8">
+        <div className="max-w-6xl mx-auto px-4 md:px-6 py-10 md:py-14">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-8">
+            <div>
+              <a href="/" className="pixel-serif-logo text-white text-lg">
+                C<span className="pixel-serif-logo" style={{ fontSize: '1.8em', display: 'inline-block', verticalAlign: 'baseline', lineHeight: '1', marginTop: '-0.3em' }}>0</span>MPUTE
+              </a>
+              <p className="pixel-sans text-white/40 text-xs mt-3 max-w-[220px]">
+                A decentralized AI built from the collective compute of its users.
+              </p>
+            </div>
+            <div>
+              <div className="pixel-sans text-white/40 text-xs tracking-widest mb-3">PRODUCT</div>
+              <div className="flex flex-col gap-2">
+                <a href="/chat" className="pixel-sans text-white/60 hover:text-white transition-colors text-sm">Chat</a>
+                <a href="/create" className="pixel-sans text-white/60 hover:text-white transition-colors text-sm">Create</a>
+                <a href="/earn" className="pixel-sans text-white/60 hover:text-white transition-colors text-sm">Earn</a>
+                <a href="https://docs.c0mpute.ai/api" target="_blank" rel="noopener noreferrer" className="pixel-sans text-white/60 hover:text-white transition-colors text-sm">API</a>
+              </div>
+            </div>
+            <div>
+              <div className="pixel-sans text-white/40 text-xs tracking-widest mb-3"><span className="dollar">$</span>ZERO</div>
+              <div className="flex flex-col gap-2">
+                <a href="/staking" className="pixel-sans text-white/60 hover:text-white transition-colors text-sm">Staking</a>
+                <a href="/treasury" className="pixel-sans text-white/60 hover:text-white transition-colors text-sm">Treasury</a>
+                <a href="https://data.c0mpute.ai" target="_blank" rel="noopener noreferrer" className="pixel-sans text-white/60 hover:text-white transition-colors text-sm">Data</a>
+              </div>
+            </div>
+            <div>
+              <div className="pixel-sans text-white/40 text-xs tracking-widest mb-3">RESOURCES</div>
+              <div className="flex flex-col gap-2">
+                <a href="https://docs.c0mpute.ai" target="_blank" rel="noopener noreferrer" className="pixel-sans text-white/60 hover:text-white transition-colors text-sm">Docs</a>
+                <a href="https://blog.c0mpute.ai" target="_blank" rel="noopener noreferrer" className="pixel-sans text-white/60 hover:text-white transition-colors text-sm">Blog</a>
+                <a href="https://x.com/c0mputeAI" target="_blank" rel="noopener noreferrer" className="pixel-sans text-white/60 hover:text-white transition-colors text-sm">X</a>
+                <a href="https://t.me/c0mputeAI" target="_blank" rel="noopener noreferrer" className="pixel-sans text-white/60 hover:text-white transition-colors text-sm">Telegram</a>
+              </div>
+            </div>
+          </div>
+        </div>
+      </footer>
     </div>
   );
 }

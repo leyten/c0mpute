@@ -43,6 +43,14 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: path.join(__dirname),
   },
+  // 2026-06-10 route renames: /user -> /chat, /worker -> /earn. Old URLs live
+  // in docs, the worker README, and open browser-worker tabs — keep them working.
+  async redirects() {
+    return [
+      { source: '/user', destination: '/chat', permanent: true },
+      { source: '/worker', destination: '/earn', permanent: true },
+    ];
+  },
   // Polyfill Buffer for client-side @solana/web3.js (on-chain staking UI).
   // Only affects the webpack build; turbopack ignores this callback.
   webpack: (config, { webpack }) => {
