@@ -1,0 +1,206 @@
+/* data.c0mpute.ai — same visual language as the homepage:
+   black, white at graded opacities, 1px white/10 borders, zero border-radius,
+   argent-pixel-cf headers, Minecraft numerals, Courier mono body, crisp pixels. */
+
+@font-face {
+  font-family: 'Minecraft';
+  src: url('fonts/Minecraft.ttf') format('truetype');
+  font-display: swap;
+}
+
+* { box-sizing: border-box; border-radius: 0 !important; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: #000;
+  color: #fff;
+  font-family: 'Courier New', 'Monaco', 'Consolas', monospace;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.pixel-serif {
+  font-family: 'argent-pixel-cf', 'Courier New', monospace;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  font-smooth: never;
+  -webkit-font-smoothing: none;
+  text-rendering: optimizeSpeed;
+}
+
+.mc { font-family: 'Minecraft', 'Courier New', monospace; }
+
+a { color: #fff; }
+a:hover { color: rgba(255, 255, 255, 0.7); }
+
+/* header */
+header {
+  position: relative;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+#hero-pixels {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+}
+.header-inner {
+  position: relative;
+  z-index: 1;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 28px 20px 36px;
+}
+.brand { display: flex; align-items: baseline; gap: 10px; }
+.brand-name {
+  font-size: 28px;
+  color: #fff;
+  text-decoration: none;
+}
+.brand-sub { color: rgba(255, 255, 255, 0.5); font-size: 16px; }
+.hero-stat { margin-top: 28px; }
+.hero-num {
+  font-size: clamp(40px, 8vw, 84px);
+  line-height: 1;
+  color: #fff;
+}
+.hero-label {
+  margin-top: 8px;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 13px;
+  letter-spacing: 0.05em;
+}
+
+/* layout */
+main { max-width: 1200px; margin: 0 auto; padding: 0 20px 60px; }
+section { margin-top: 44px; }
+.section-title {
+  font-size: 22px;
+  color: #fff;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  padding-bottom: 8px;
+  margin-bottom: 18px;
+}
+
+/* stat cards */
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 10px;
+  margin-bottom: 18px;
+}
+.card {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.02);
+  padding: 14px 16px;
+}
+.card .v {
+  font-family: 'Minecraft', 'Courier New', monospace;
+  font-size: 26px;
+  color: #fff;
+  word-break: break-all;
+}
+.card .v small { font-size: 15px; color: rgba(255, 255, 255, 0.6); }
+.card .k {
+  margin-top: 4px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+  letter-spacing: 0.04em;
+}
+.card .k .dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 6px;
+  background: #22c55e;
+  animation: blink 1.6s steps(2, start) infinite;
+}
+@keyframes blink { 50% { opacity: 0.25; } }
+
+/* chart panels */
+.grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.panel {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.02);
+  padding: 14px 16px 10px;
+  min-width: 0;
+}
+.panel.wide { grid-column: 1 / -1; }
+.panel-title {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.7);
+  letter-spacing: 0.05em;
+  margin-bottom: 10px;
+  text-transform: lowercase;
+}
+.panel-title .note { color: rgba(255, 255, 255, 0.35); margin-left: 8px; }
+.legend { margin-left: 10px; color: rgba(255, 255, 255, 0.5); }
+.legend .sw {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin: 0 4px 0 8px;
+}
+.sw.t-max { background: rgba(255, 255, 255, 0.95); }
+.sw.t-pro { background: rgba(255, 255, 255, 0.55); }
+.sw.t-image { background: rgba(255, 255, 255, 0.28); }
+canvas[data-chart] {
+  display: block;
+  width: 100%;
+  height: 190px;
+  image-rendering: pixelated;
+}
+
+/* burn log */
+#burn-log { margin-top: 10px; }
+#burn-list .row {
+  display: flex;
+  gap: 14px;
+  padding: 7px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  font-size: 12.5px;
+  flex-wrap: wrap;
+}
+#burn-list .row .amt { color: #fff; min-width: 150px; }
+#burn-list .row .usd { color: rgba(255, 255, 255, 0.6); min-width: 80px; }
+#burn-list .row .date { color: rgba(255, 255, 255, 0.4); min-width: 90px; }
+#burn-list .row a { color: rgba(255, 255, 255, 0.7); text-decoration: none; border-bottom: 1px dotted rgba(255,255,255,0.3); }
+#burn-list .row a:hover { color: #fff; }
+
+/* footer */
+footer {
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 18px 20px 26px;
+  max-width: 1200px;
+  margin: 0 auto;
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 12px;
+}
+footer .sep { margin: 0 10px; color: rgba(255, 255, 255, 0.2); }
+footer a { color: rgba(255, 255, 255, 0.6); text-decoration: none; }
+
+/* tooltip */
+#tooltip {
+  position: fixed;
+  display: none;
+  pointer-events: none;
+  background: #000;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  padding: 6px 9px;
+  font-size: 12px;
+  color: #fff;
+  z-index: 10;
+  white-space: pre;
+}
+
+@media (max-width: 720px) {
+  .grid { grid-template-columns: 1fr; }
+  .cards { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+}
