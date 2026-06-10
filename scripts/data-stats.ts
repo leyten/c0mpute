@@ -84,6 +84,14 @@ async function main() {
   const freePrompts = one(`SELECT COALESCE(SUM(used),0) AS used, COUNT(*) AS users FROM free_prompt_usage`);
   const freeImages = one(`SELECT COALESCE(SUM(used),0) AS used, COUNT(*) AS users FROM free_image_usage`);
   const apiKeys = one(`SELECT COUNT(*) AS n FROM api_keys WHERE revoked=0`).n;
+  // Referral aggregates (tables exist once the first code/binding is created)
+  let referrals: Row = { signups: 0, earnedUsd: 0 };
+  try {
+    referrals = {
+      signups: one(`SELECT COUNT(*) AS n FROM referrals`).n,
+      earnedUsd: Math.round((one(`SELECT COALESCE(SUM(usd),0) AS t FROM referral_earnings`).t) * 100) / 100,
+    };
+  } catch {}
 
   // --- revenue (credits; 1 credit = $0.01) ---
   const depositEvents = all(`
@@ -154,6 +162,7 @@ async function main() {
       freePrompts: { used: freePrompts.used, users: freePrompts.users },
       freeImages: { used: freeImages.used, users: freeImages.users },
       apiKeys,
+      referrals,
     },
     revenue: { depositEvents, spendDaily, payoutEvents, earningsDaily },
     zero: {
