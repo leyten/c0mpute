@@ -40,7 +40,7 @@ html, body {
   -webkit-font-smoothing: none;
   text-rendering: optimizeSpeed;
 }
-.pxnum .dollar { font-family: 'Courier New', 'Monaco', monospace; font-size: 0.9em; }
+.dollar { font-family: 'Courier New', 'Monaco', monospace; font-size: 0.9em; }
 
 /* logo 0: same treatment as the homepage wordmark — oversized argent glyph,
    normal weight */
