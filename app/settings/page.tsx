@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 
-type Tab = 'account' | 'worker' | 'developer' | 'usage';
+type Tab = 'account' | 'worker' | 'developer' | 'usage' | 'referrals';
 
 export default function SettingsPage() {
   const router = useRouter();
@@ -39,7 +39,7 @@ export default function SettingsPage() {
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const hash = window.location.hash.replace('#', '') as Tab;
-      if (['account', 'worker', 'usage'].includes(hash)) {
+      if (['account', 'worker', 'usage', 'referrals'].includes(hash)) {
         setActiveTab(hash);
       }
     }
@@ -58,6 +58,8 @@ export default function SettingsPage() {
   const [apiKeyGenerating, setApiKeyGenerating] = useState(false);
   const [apiKeyError, setApiKeyError] = useState<string | null>(null);
   const [earnings, setEarnings] = useState<{pendingBalance: number; todayEarnings: number; totalEarnings: number; wallet: string | null} | null>(null);
+  const [referrals, setReferrals] = useState<{code: string; link: string; referredCount: number; earnedUsd: number; earnedUsdThisMonth: number; recent: {tier: string; usd: number; created_at: string}[]} | null>(null);
+  const [refCopied, setRefCopied] = useState(false);
   const [withdrawAddress, setWithdrawAddress] = useState('');
   const [withdrawAmount, setWithdrawAmount] = useState('');
   const [withdrawLoading, setWithdrawLoading] = useState(false);
@@ -115,6 +117,16 @@ export default function SettingsPage() {
     } catch {}
   };
 
+  // Fetch referral stats
+  const fetchReferrals = async () => {
+    try {
+      const t = await getAccessToken();
+      if (!t) return;
+      const res = await fetch('/api/referrals', { headers: { Authorization: `Bearer ${t}` } });
+      if (res.ok) setReferrals(await res.json());
+    } catch {}
+  };
+
   // Fetch credits
   const fetchCredits = async () => {
     try {
@@ -146,6 +158,8 @@ export default function SettingsPage() {
       fetchEarnings();
     } else if (activeTab === 'developer') {
       fetchApiKeys();
+    } else if (activeTab === 'referrals') {
+      fetchReferrals();
     } else if (activeTab === 'usage') {
       fetchCredits();
       fetchUsage();
@@ -329,6 +343,7 @@ export default function SettingsPage() {
     { id: 'worker', label: 'Worker' },
     { id: 'developer', label: 'API' },
     { id: 'usage', label: 'Usage' },
+    { id: 'referrals', label: 'Referrals' },
   ];
 
   if (isLoading) {
@@ -730,6 +745,61 @@ models:    c0mpute-pro  ·  c0mpute-max  ·  c0mpute-max-think`}</code>
                     </div>
                   </div>
                 ) : null}
+              </section>
+            </div>
+          )}
+
+          {/* Referrals Tab */}
+          {activeTab === 'referrals' && (
+            <div className="space-y-8">
+              <section className="border border-white/10 bg-white/[0.02] p-6 rounded-2xl">
+                <h2 className="pixel-serif text-white text-xl mb-4">Referrals</h2>
+                <p className="pixel-sans text-white/60 text-xs mb-4">Share your link. You earn <span className="text-white">5%</span> of the <span className="dollar">$</span>USDC value of every prompt your referrals pay for. Forever.</p>
+                {referrals ? (
+                  <div>
+                    <div className="flex items-center gap-2 mb-5">
+                      <div className="flex-1 bg-white/[0.03] border border-white/10 rounded-lg p-3 font-mono text-[#80a0c1] text-xs overflow-x-auto whitespace-nowrap">{referrals.link}</div>
+                      <button
+                        onClick={() => { navigator.clipboard.writeText(referrals.link); setRefCopied(true); setTimeout(() => setRefCopied(false), 2000); }}
+                        className="pixel-sans text-xs px-3 py-3 rounded-lg border border-white/10 text-white/70 hover:text-white hover:bg-white/5 transition-colors flex-shrink-0"
+                      >
+                        {refCopied ? 'Copied' : 'Copy'}
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-3 gap-4 mb-4">
+                      <div className="text-center p-3 bg-white/[0.02] border border-white/5 rounded-xl">
+                        <div className="pixel-serif text-white text-xl">{referrals.referredCount}</div>
+                        <div className="pixel-sans text-white/70 text-[11px] mt-1">Referred</div>
+                      </div>
+                      <div className="text-center p-3 bg-white/[0.02] border border-white/5 rounded-xl">
+                        <div className="pixel-serif text-green-400 text-xl"><span className="dollar">$</span>{referrals.earnedUsdThisMonth.toFixed(2)}</div>
+                        <div className="pixel-sans text-white/70 text-[11px] mt-1">This Month</div>
+                      </div>
+                      <div className="text-center p-3 bg-white/[0.02] border border-white/5 rounded-xl">
+                        <div className="pixel-serif text-white/70 text-lg"><span className="dollar">$</span>{referrals.earnedUsd.toFixed(2)}</div>
+                        <div className="pixel-sans text-white/70 text-[11px] mt-1">All Time</div>
+                      </div>
+                    </div>
+                    {referrals.recent.length > 0 ? (
+                      <div className="pt-2 border-t border-white/5">
+                        <div className="pixel-sans text-white/60 text-[11px] uppercase tracking-wider mb-2">Recent earnings</div>
+                        <div className="space-y-1.5">
+                          {referrals.recent.map((r, i) => (
+                            <div key={i} className="flex items-center justify-between pixel-sans text-xs">
+                              <span className="text-white/50">{new Date(r.created_at).toLocaleDateString()} · {r.tier}</span>
+                              <span className="text-green-400/90"><span className="dollar">$</span>{r.usd.toFixed(4)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="pixel-sans text-white/50 text-xs pt-2 border-t border-white/5">No earnings yet — they show up here the moment a referral pays for a prompt.</p>
+                    )}
+                    <p className="pixel-sans text-white/55 text-[11px] mt-4">Referrals bind when someone signs up after using your link (valid 30 days from click). Free prompts and staking allowance usage do not pay referral fees. Earnings are withdrawable as <span className="dollar">$</span>USDC (rolling out).</p>
+                  </div>
+                ) : (
+                  <div className="pixel-sans text-white/50 text-xs">Loading...</div>
+                )}
               </section>
             </div>
           )}
