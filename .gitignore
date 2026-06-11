@@ -64,3 +64,20 @@ next-env.d.ts
 scripts/.signup-watch.baseline
 _shot.js
 data-site/stats.json
+
+# internal docs — local only, not for the public repo
+ACTION-PLAN.md
+API_PLAN.md
+BRAND.md
+DECENTRALIZATION_DESIGN.md
+GROWTH_PLAN.md
+IMAGE_GEN_SETUP.md
+MLC-BUILD-GUIDE.md
+REFERRAL_PLAN.md
+RESEARCH*.md
+STAKE_TO_USE_SPEC.md
+STATE.md
+VENICE_LESSONS.md
+ZERO_LAUNCH_CHECKLIST.md
+todo_c0mpute.md
+webgpu-perf-research.md
