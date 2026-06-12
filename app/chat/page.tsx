@@ -1587,13 +1587,14 @@ export default function UserPage() {
                   </div>
                 )}
 
-                {/* Image generation indicator */}
+                {/* Image generation placeholder — skeleton the size of the
+                    upcoming image with a scanning stripe */}
                 {isGeneratingImage && (
-                  <div className="flex justify-center">
-                    <div className="px-4 py-2 bg-white/[0.03] border border-white/10 rounded-lg">
-                      <p className="pixel-sans text-white/70 text-sm">
-                        Generating image... (~30s)
-                      </p>
+                  <div className="msg-in flex flex-col items-start">
+                    <div className="w-full px-1">
+                      <div className="img-skeleton">
+                        <span className="img-skeleton-label pixel-sans">generating image…</span>
+                      </div>
                     </div>
                   </div>
                 )}

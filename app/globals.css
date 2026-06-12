@@ -599,3 +599,37 @@ input[type='number'] {
 .msg-in {
   animation: msg-in 0.18s ease-out;
 }
+
+/* Image-generation placeholder: skeleton box the size of the upcoming image
+   with a horizontal band sweeping down it (progressive-render feel). */
+.img-skeleton {
+  position: relative;
+  overflow: hidden;
+  width: 320px;
+  height: 320px;
+  max-width: 100%;
+  border-radius: 0.75rem;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  background: rgba(255, 255, 255, 0.04);
+}
+.img-skeleton::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 64px;
+  top: -64px;
+  background: linear-gradient(to bottom, transparent, rgba(255, 255, 255, 0.10), transparent);
+  animation: img-scan 2.4s linear infinite;
+}
+@keyframes img-scan {
+  from { top: -64px; }
+  to { top: 100%; }
+}
+.img-skeleton-label {
+  position: absolute;
+  bottom: 10px;
+  left: 12px;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.45);
+}
