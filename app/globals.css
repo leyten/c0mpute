@@ -307,8 +307,10 @@
   text-rendering: optimizeLegibility;
 }
 .chat-answer {
-  color: #f2f2f2;
-  --tw-prose-invert-body: #f2f2f2;
+  /* body a step dimmer than bold (leyten 2026-06-12) — keeps bold/headings
+     popping at pure white while regular text stops glaring */
+  color: #d9d9d9;
+  --tw-prose-invert-body: #d9d9d9;
   --tw-prose-invert-bold: #ffffff;
   --tw-prose-invert-headings: #ffffff;
   --tw-prose-invert-bullets: #b8b8b8;
