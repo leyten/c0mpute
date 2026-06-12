@@ -176,7 +176,8 @@ async function runStakerRewards(): Promise<void> {
   const custUsd = reserved * (custMature / totalMature);
   const ocUsd = reserved * (ocMature / totalMature);
   const distCust = distributeEpochRewards(custUsd);            // DB claimable (custodial)
-  const distOc = await distributeOnchainRewards(ocUsd);        // fund on-chain reward vaults
+  // swap rails injected so auto-compounders get ZERO staked instead of USDC
+  const distOc = await distributeOnchainRewards(ocUsd, { findGraduatedPool, buyZeroWithUsdc, isDryRun });
   const distributed = distCust + distOc;
   if (distributed < reserved) {
     creditStakerRewards(reserved - distributed, 'epoch_rounding');
