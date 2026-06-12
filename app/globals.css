@@ -307,28 +307,12 @@
   text-rendering: optimizeLegibility;
 }
 .chat-answer {
-  /* Readable sans for message text — Courier New renders hairline-thin on
-     dark backgrounds. Mono stays for code spans/blocks and UI labels. */
-  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   color: #f2f2f2;
   --tw-prose-invert-body: #f2f2f2;
   --tw-prose-invert-bold: #ffffff;
   --tw-prose-invert-headings: #ffffff;
   --tw-prose-invert-bullets: #b8b8b8;
   --tw-prose-invert-counters: #cfcfcf;
-}
-.chat-answer code,
-.chat-answer pre,
-.chat-answer pre * {
-  font-family: ui-monospace, 'SFMono-Regular', 'JetBrains Mono', Menlo, Consolas, monospace;
-}
-
-/* Same readable sans for the composer input and thinking text */
-.chat-sans {
-  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  font-smooth: auto;
 }
 
 /* Tables in answers were horizontally cramped — columns touched because the
