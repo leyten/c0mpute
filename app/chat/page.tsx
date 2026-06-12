@@ -1128,13 +1128,13 @@ export default function UserPage() {
   if (!authLoading && !isAuthenticated && !anonToken) {
     if (anonLoading) {
       return (
-        <div className="h-screen bg-black flex items-center justify-center">
+        <div className="h-screen bg-[#0e0f12] flex items-center justify-center">
           <div className="pixel-sans text-white/50 text-sm">Loading…</div>
         </div>
       );
     }
     return (
-      <div className="h-screen bg-black flex items-center justify-center">
+      <div className="h-screen bg-[#0e0f12] flex items-center justify-center">
         <div className="text-center border border-white/10 bg-white/[0.02] rounded-2xl p-8 max-w-md mx-4">
           <div className="pixel-serif text-white text-4xl mb-4">🔒</div>
           <h1 className="pixel-serif text-white text-2xl mb-3">Sign in to c0mpute</h1>
@@ -1171,7 +1171,7 @@ export default function UserPage() {
   };
 
   return (
-    <div className="h-screen bg-black flex flex-col ui-readable">
+    <div className="h-screen bg-[#0e0f12] flex flex-col ui-readable">
       {showOnboarding && (
         <OnboardingModal
           freePromptLimit={freePromptLimit}
@@ -1194,7 +1194,7 @@ export default function UserPage() {
         />
       )}
       {/* Header */}
-      <header className="border-b border-white/10 bg-black/80 backdrop-blur-sm z-50">
+      <header className="border-b border-white/[0.07] bg-[#0b0c0e] z-50">
         <div className="px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-4">
             <button
@@ -1283,7 +1283,7 @@ export default function UserPage() {
           <div className="md:hidden absolute inset-0 bg-black/60 z-20" onClick={() => setSidebarOpen(false)} />
         )}
         {/* Sidebar — in-flow on desktop, overlay drawer on mobile */}
-        <aside className={`${sidebarOpen ? 'w-72 max-md:translate-x-0' : 'w-0 max-md:-translate-x-full'} max-md:absolute max-md:inset-y-0 max-md:left-0 max-md:z-30 max-md:w-72 max-md:bg-black border-r border-white/10 bg-black/50 flex flex-col transition-all duration-300 overflow-hidden`}>
+        <aside className={`${sidebarOpen ? 'w-72 max-md:translate-x-0' : 'w-0 max-md:-translate-x-full'} max-md:absolute max-md:inset-y-0 max-md:left-0 max-md:z-30 max-md:w-72 max-md:bg-[#0b0c0e] border-r border-white/[0.07] bg-[#0b0c0e] flex flex-col transition-all duration-300 overflow-hidden`}>
           {/* New Chat Button */}
           <div className="py-2">
             <button
@@ -1618,7 +1618,7 @@ export default function UserPage() {
                 <button
                   onClick={scrollToBottom}
                   aria-label="Scroll to bottom"
-                  className="absolute bottom-36 right-5 z-10 w-9 h-9 rounded-full bg-[#0a0a0a] border border-white/15 flex items-center justify-center hover:bg-white/10 transition-colors cursor-pointer"
+                  className="absolute bottom-36 right-5 z-10 w-9 h-9 rounded-full bg-[#1a1c21] border border-white/15 flex items-center justify-center hover:bg-white/10 transition-colors cursor-pointer"
                 >
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-white/80"><path d="M12 5v14M19 12l-7 7-7-7" /></svg>
                 </button>
@@ -1626,7 +1626,7 @@ export default function UserPage() {
 
               {/* Input Area — floating composer */}
               <div className="relative px-4 pb-4">
-                <div className="pointer-events-none absolute bottom-full left-0 right-0 h-14 bg-gradient-to-t from-black to-transparent" />
+                <div className="pointer-events-none absolute bottom-full left-0 right-0 h-14 bg-gradient-to-t from-[#0e0f12] to-transparent" />
                 <div className="max-w-3xl mx-auto">
                   {(() => {
                     const nativeCount = (networkStats as any)?.nativeWorkers || 0;
@@ -1661,7 +1661,7 @@ export default function UserPage() {
                     </div>
                   )}
                   {/* Composer panel — textarea on top, controls inside */}
-                  <div className="bg-[#0a0a0a] border border-white/10 rounded-2xl focus-within:border-white/25 transition-colors">
+                  <div className="bg-[#16181d] border border-white/[0.08] rounded-2xl focus-within:border-white/20 transition-colors">
                     <textarea
                       ref={inputRef}
                       rows={1}
@@ -1695,7 +1695,7 @@ export default function UserPage() {
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={`transition-transform ${modelMenuOpen ? 'rotate-180' : ''}`}><path d="M6 9l6 6 6-6" /></svg>
                       </button>
                       {modelMenuOpen && (
-                        <div className="absolute bottom-full left-0 mb-2 w-60 bg-[#0a0a0a] border border-white/10 rounded-xl p-1 z-50 shadow-xl">
+                        <div className="absolute bottom-full left-0 mb-2 w-60 bg-[#1a1c21] border border-white/10 rounded-xl p-1 z-50 shadow-xl">
                           {PLANS.map((plan) => {
                             const isSel = plan.id === selectedPlan;
                             return (
