@@ -1171,7 +1171,7 @@ export default function UserPage() {
   };
 
   return (
-    <div className="h-screen bg-black flex flex-col ui-readable chat-ui">
+    <div className="h-screen bg-black flex flex-col ui-readable">
       {showOnboarding && (
         <OnboardingModal
           freePromptLimit={freePromptLimit}
