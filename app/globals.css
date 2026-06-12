@@ -185,6 +185,22 @@
   font-display: swap;
 }
 
+/* JetBrains Mono — readable mono for the chat UI (self-hosted) */
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('/fonts/JetBrainsMono-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('/fonts/JetBrainsMono-Bold.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
 /* Pixelated serif font styling */
 .pixel-serif-wrapper {
   display: inline-block;
@@ -307,9 +323,11 @@
   text-rendering: optimizeLegibility;
 }
 .chat-answer {
-  /* Readable sans for message text — Courier New renders hairline-thin on
-     dark backgrounds. Mono stays for code spans/blocks and UI labels. */
-  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  /* JetBrains Mono for message text (leyten's pick over system sans) —
+     keeps the terminal identity but with real stroke weight; Courier New
+     rendered hairline-thin on dark backgrounds. */
+  font-family: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', Consolas, monospace;
+  font-size: 15px;
   color: #f2f2f2;
   --tw-prose-invert-body: #f2f2f2;
   --tw-prose-invert-bold: #ffffff;
@@ -323,12 +341,22 @@
   font-family: ui-monospace, 'SFMono-Regular', 'JetBrains Mono', Menlo, Consolas, monospace;
 }
 
-/* Same readable sans for the composer input and thinking text */
+/* Same font for the composer input and thinking text */
 .chat-sans {
-  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  font-family: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', Consolas, monospace;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   font-smooth: auto;
+}
+
+/* Chat page: every Courier (pixel-sans) label switches to JetBrains Mono —
+   sidebar, chips, buttons, stats. Brand serif (logo, pixel-serif accents)
+   keeps argent-pixel untouched. Scoped via .chat-ui on the page root. */
+.chat-ui .pixel-sans,
+.chat-ui .pixel-sans strong,
+.chat-ui .pixel-sans b {
+  font-family: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', Consolas, monospace;
+  text-shadow: none;
 }
 
 /* Tables in answers were horizontally cramped — columns touched because the
