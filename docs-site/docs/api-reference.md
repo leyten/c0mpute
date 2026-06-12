@@ -66,6 +66,26 @@ curl https://c0mpute.ai/api/v1/balance \
 
 Use it to check remaining credit before a batch of requests or to surface a low-balance warning in your integration.
 
+## Image generation
+
+`POST /v1/images/generations` — OpenAI-compatible, uncensored image generation (Chroma1-HD on contributor GPUs). 20 credits per image. Images are returned inline as base64 and **never stored** server-side.
+
+```bash
+curl https://c0mpute.ai/api/v1/images/generations \
+  -H "Authorization: Bearer $C0MPUTE_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "a neon-lit alley in the rain, cinematic", "size": "1024x1024"}'
+```
+
+```python
+from openai import OpenAI
+client = OpenAI(base_url="https://c0mpute.ai/api/v1", api_key="sk-c0mpute-...")
+img = client.images.generate(prompt="a neon-lit alley in the rain, cinematic", response_format="b64_json")
+png_b64 = img.data[0].b64_json
+```
+
+Parameters: `prompt` (required), `size` ("WIDTHxHEIGHT", default 1024x1024), `negative_prompt`, `seed`, `nsfw` (boolean, default false — SFW mode runs an output classifier; the absolute safety line is enforced in both modes). `n` must be 1 and `response_format` must be `b64_json` (no URLs — nothing is stored). Renders take ~30s; errors use OpenAI shapes (`402 insufficient_credits`, `503` when no image GPU is free).
+
 ## Chat completions
 
 `POST /v1/chat/completions`

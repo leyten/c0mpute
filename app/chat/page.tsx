@@ -175,13 +175,23 @@ function loadChatsFromStorage(): ChatWithMessages[] {
   }
 }
 
-// Helper to save chats to localStorage
+// Helper to save chats to localStorage. Generated images are large base64
+// PNGs that can blow the ~5MB localStorage quota — on quota failure, retry
+// with assistant images stripped (text history beats losing persistence).
 function saveChatsToStorage(chats: ChatWithMessages[]): void {
   if (typeof window === 'undefined') return;
   try {
     localStorage.setItem(CHATS_STORAGE_KEY, JSON.stringify(chats));
-  } catch (err) {
-    console.error('Error saving chats to localStorage:', err);
+  } catch {
+    try {
+      const slim = chats.map(c => ({
+        ...c,
+        messages: c.messages.map(m => m.role === 'assistant' && m.images ? { ...m, images: undefined } : m),
+      }));
+      localStorage.setItem(CHATS_STORAGE_KEY, JSON.stringify(slim));
+    } catch (err) {
+      console.error('Error saving chats to localStorage:', err);
+    }
   }
 }
 
@@ -388,6 +398,8 @@ export default function UserPage() {
     setOnJobAssigned,
     setOnJobSearching,
     setOnJobSources,
+    setOnJobGeneratingImage,
+    setOnJobImage,
   } = useSocket(isAuthenticated ? socketAuthToken : anonToken);
   
   // Chat state - now storing full chats with messages locally
@@ -425,6 +437,11 @@ export default function UserPage() {
   const [pendingSources, setPendingSources] = useState<{ title: string; url: string; description: string }[]>([]);
   const pendingSourcesRef = useRef<{ title: string; url: string; description: string }[]>([]);
   useEffect(() => { pendingSourcesRef.current = pendingSources; }, [pendingSources]);
+  // Images produced by the generate_image tool during the current response
+  const [isGeneratingImage, setIsGeneratingImage] = useState(false);
+  const [pendingGenImages, setPendingGenImages] = useState<string[]>([]);
+  const pendingGenImagesRef = useRef<string[]>([]);
+  useEffect(() => { pendingGenImagesRef.current = pendingGenImages; }, [pendingGenImages]);
   
   // Credit system state
   const [creditBalance, setCreditBalance] = useState<number>(0);
@@ -762,7 +779,10 @@ export default function UserPage() {
     thinkingStartRef.current = null;
     thinkingElapsedRef.current = null;
     setThinkingElapsed(null);
-    
+    setPendingGenImages([]);
+    pendingGenImagesRef.current = [];
+    setIsGeneratingImage(false);
+
     try {
       // Get auth token — Privy when logged in, the anon token otherwise.
       const authToken = isAuthenticated ? await getAccessToken() : anonToken;
@@ -912,7 +932,8 @@ export default function UserPage() {
         if (sources.length > 0) {
           finalContent += `\n---SOURCES---${JSON.stringify(sources)}`;
         }
-        saveMessage(activeChat.id, 'assistant', finalContent, jobId);
+        const genImages = pendingGenImagesRef.current;
+        saveMessage(activeChat.id, 'assistant', finalContent, jobId, genImages.length > 0 ? genImages : undefined);
         streamBufferRef.current = '';
         setStreamingContent('');
 
@@ -921,6 +942,9 @@ export default function UserPage() {
         currentJobIdRef.current = null;
         setCurrentJobId(null);
         setPendingSources([]);
+        setPendingGenImages([]);
+        pendingGenImagesRef.current = [];
+        setIsGeneratingImage(false);
         refreshCredits();
 
         autoScrollIfPinned();
@@ -949,6 +973,29 @@ export default function UserPage() {
     return () => setOnJobSources(null);
   }, [setOnJobSources]);
 
+  // Handle generate_image tool: progress indicator + the rendered images
+  useEffect(() => {
+    setOnJobGeneratingImage((_jobId: string) => {
+      setIsGeneratingImage(true);
+      // Safety net: renders take ~30s; never leave the indicator stuck
+      setTimeout(() => setIsGeneratingImage(false), 120000);
+    });
+    return () => setOnJobGeneratingImage(null);
+  }, [setOnJobGeneratingImage]);
+
+  useEffect(() => {
+    setOnJobImage((_jobId: string, images: string[]) => {
+      setIsGeneratingImage(false);
+      setPendingGenImages(prev => {
+        const next = [...prev, ...images];
+        pendingGenImagesRef.current = next;
+        return next;
+      });
+      autoScrollIfPinned();
+    });
+    return () => setOnJobImage(null);
+  }, [setOnJobImage, autoScrollIfPinned]);
+
   // Handle job error
   useEffect(() => {
     setOnJobError((jobId, errorMsg) => {
@@ -956,6 +1003,7 @@ export default function UserPage() {
       if (jobId === currentJobIdRef.current) {
         if (queueTimeoutRef.current) { clearTimeout(queueTimeoutRef.current); queueTimeoutRef.current = null; }
         setIsSearching(false);
+        setIsGeneratingImage(false);
         setChatState('error');
         setError(errorMsg);
         setStreamingContent('');
@@ -1454,11 +1502,13 @@ export default function UserPage() {
                             : 'w-full px-1'
                         }`}
                       >
-                        {/* Display images if present */}
+                        {/* Display images: user uploads small, generated images large */}
                         {message.images && message.images.length > 0 && (
                           <div className="flex flex-wrap gap-2 mb-2">
                             {message.images.map((img, imgIdx) => (
-                              <img key={imgIdx} src={`data:image/jpeg;base64,${img}`} alt="Uploaded" className="max-w-[200px] max-h-[200px] rounded-lg object-cover" />
+                              message.role === 'assistant'
+                                ? <img key={imgIdx} src={`data:image/png;base64,${img}`} alt="Generated" className="max-w-[320px] max-h-[320px] rounded-xl border border-white/10" />
+                                : <img key={imgIdx} src={`data:image/jpeg;base64,${img}`} alt="Uploaded" className="max-w-[200px] max-h-[200px] rounded-lg object-cover" />
                             ))}
                           </div>
                         )}
@@ -1507,6 +1557,13 @@ export default function UserPage() {
                       </div>
                       <div className="w-full px-1">
                         <SourceStrip sources={pendingSources} />
+                        {pendingGenImages.length > 0 && (
+                          <div className="flex flex-wrap gap-2 mb-2">
+                            {pendingGenImages.map((img, i) => (
+                              <img key={i} src={`data:image/png;base64,${img}`} alt="Generated" className="max-w-[320px] max-h-[320px] rounded-xl border border-white/10" />
+                            ))}
+                          </div>
+                        )}
                         {streamResponse && (
                           <div className="chat-answer pixel-sans text-white/90 text-base leading-[1.75] prose prose-invert prose-base max-w-none prose-p:my-3 prose-li:my-1 prose-ol:my-3 prose-ul:my-3 prose-headings:mt-5 prose-headings:mb-2 prose-headings:text-white prose-headings:font-semibold prose-strong:text-white prose-strong:font-extrabold prose-code:text-white/80 prose-code:bg-white/[0.06] prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-a:text-blue-400 prose-a:no-underline hover:prose-a:underline prose-hr:my-5 prose-hr:border-white/10 [&_br]:block [&_br]:content-[''] [&_br]:mt-2.5">
                             <Markdown options={buildMarkdownOverrides(pendingSources)}>{mathToTags(streamResponse)}</Markdown>
@@ -1525,6 +1582,17 @@ export default function UserPage() {
                     <div className="px-4 py-2 bg-white/[0.03] border border-white/10 rounded-lg">
                       <p className="pixel-sans text-white/70 text-sm">
                         Searching the web...
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Image generation indicator */}
+                {isGeneratingImage && (
+                  <div className="flex justify-center">
+                    <div className="px-4 py-2 bg-white/[0.03] border border-white/10 rounded-lg">
+                      <p className="pixel-sans text-white/70 text-sm">
+                        Generating image... (~30s)
                       </p>
                     </div>
                   </div>
