@@ -225,3 +225,17 @@ footer a { color: rgba(255, 255, 255, 0.6); text-decoration: none; }
   .grid { grid-template-columns: 1fr; }
   .cards { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
 }
+
+/* Site-wide Courier thickening (leyten 2026-06-12): text-stroke fakes the
+   medium weight Courier doesn't have. Pixel families stay crisp/unstroked. */
+body {
+  -webkit-text-stroke: 0.35px currentColor;
+}
+.pixel-serif,
+.pxnum,
+.mc {
+  -webkit-text-stroke: 0;
+}
+strong, b {
+  -webkit-text-stroke: 0.2px currentColor;
+}

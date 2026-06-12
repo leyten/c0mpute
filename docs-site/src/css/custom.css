@@ -454,3 +454,16 @@ table tr:nth-child(even) {
     padding: 0 0.5rem;
   }
 }
+
+/* Site-wide Courier thickening (leyten 2026-06-12): text-stroke fakes the
+   medium weight Courier doesn't have. Pixel-serif headings stay unstroked. */
+body {
+  -webkit-text-stroke: 0.35px currentColor;
+}
+h1, h2, h3, h4, h5, h6,
+.navbar__title {
+  -webkit-text-stroke: 0;
+}
+strong, b {
+  -webkit-text-stroke: 0.2px currentColor;
+}
