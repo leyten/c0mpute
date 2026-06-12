@@ -517,7 +517,7 @@ export default function UserPage() {
   // Refs
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const currentJobIdRef = useRef<string | null>(null);
   const queueTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Streaming render throttle. Tokens accumulate in a ref (the authoritative full
@@ -537,13 +537,18 @@ export default function UserPage() {
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     stickToBottomRef.current = true;
+    setShowScrollDown(false);
   }, []);
 
-  // Track whether the user has scrolled up; if so, stop yanking them down
+  // Track whether the user has scrolled up; if so, stop yanking them down.
+  // Also drives the floating scroll-to-bottom button.
+  const [showScrollDown, setShowScrollDown] = useState(false);
   const handleMessagesScroll = useCallback(() => {
     const el = messagesContainerRef.current;
     if (!el) return;
-    stickToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+    const pinned = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+    stickToBottomRef.current = pinned;
+    setShowScrollDown(!pinned);
   }, []);
 
   // Auto-scroll during streaming, but only while pinned to the bottom
@@ -729,6 +734,7 @@ export default function UserPage() {
 
     const content = inputValue.trim() || (pendingImages.length > 0 ? 'What is in this image?' : '');
     setInputValue('');
+    if (inputRef.current) inputRef.current.style.height = 'auto';
     setError(null);
     
     // Save user message to local storage (with images if any)
@@ -1114,18 +1120,7 @@ export default function UserPage() {
     }
   }, [activeChat]);
 
-  // Handle keyboard shortcuts
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Enter' && !e.shiftKey && document.activeElement === inputRef.current) {
-        e.preventDefault();
-        sendMessage();
-      }
-    };
-    
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [sendMessage]);
+  // Enter-to-send lives on the composer textarea itself (Shift+Enter = newline)
 
   // Not logged in: let anonymous visitors through to the chat on their free
   // prompts (anonToken present). Only show the sign-in screen when an anon
@@ -1176,7 +1171,7 @@ export default function UserPage() {
   };
 
   return (
-    <div className="h-screen bg-black flex flex-col">
+    <div className="h-screen bg-black flex flex-col ui-readable">
       {showOnboarding && (
         <OnboardingModal
           freePromptLimit={freePromptLimit}
@@ -1204,10 +1199,12 @@ export default function UserPage() {
           <div className="flex items-center gap-4">
             <button
               onClick={() => setSidebarOpen(!sidebarOpen)}
-              className="p-2 hover:bg-white/5 transition-colors md:hidden"
+              title="Toggle sidebar"
+              className="p-2 rounded-lg hover:bg-white/5 transition-colors cursor-pointer"
             >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-white">
-                <path d="M3 12h18M3 6h18M3 18h18" />
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-white/70">
+                <rect x="3" y="4" width="18" height="16" rx="2" />
+                <path d="M9 4v16" />
               </svg>
             </button>
             <a href="/" className="cursor-pointer pixel-serif-logo text-white text-lg font-bold flex items-center">
@@ -1316,10 +1313,10 @@ export default function UserPage() {
                 {chats.map((chat) => (
                   <div
                     key={chat.id}
-                    className={`group px-3 py-3 mx-2 mb-1 cursor-pointer transition-colors rounded-lg ${
-                      activeChat?.id === chat.id 
-                        ? 'bg-white/10 border border-white/20' 
-                        : 'bg-white/[0.02] hover:bg-white/10 border border-transparent'
+                    className={`group px-3 py-2.5 mx-2 mb-0.5 cursor-pointer transition-colors rounded-lg ${
+                      activeChat?.id === chat.id
+                        ? 'bg-white/[0.09]'
+                        : 'hover:bg-white/[0.05]'
                     }`}
                     onClick={() => editingChatId !== chat.id && fetchChat(chat.id)}
                   >
@@ -1401,7 +1398,7 @@ export default function UserPage() {
         </aside>
 
         {/* Main Chat Area */}
-        <main className="flex-1 flex flex-col min-w-0">
+        <main className="flex-1 flex flex-col min-w-0 relative">
           {!activeChat ? (
             // Empty state
             <div className="flex-1 flex items-center justify-center">
@@ -1442,13 +1439,19 @@ export default function UserPage() {
                   return (
                     <div
                       key={message.id}
-                      className={`group/msg flex flex-col ${message.role === 'user' ? 'items-end' : 'items-start'}`}
+                      className={`group/msg msg-in flex flex-col ${message.role === 'user' ? 'items-end' : 'items-start'}`}
                     >
+                      {message.role === 'assistant' && (
+                        <div className="flex items-center gap-2 mb-1.5 px-1">
+                          <span className="w-2 h-2 bg-green-400/80" />
+                          <span className="pixel-serif text-white/90 text-sm">c0mpute</span>
+                        </div>
+                      )}
                       <div
                         className={`${
                           message.role === 'user'
-                            ? 'max-w-[85%] px-4 py-2.5 bg-white/[0.11] rounded-2xl border border-white/[0.10]'
-                            : 'w-full px-4 py-3 bg-white/[0.05] rounded-2xl border border-white/[0.12]'
+                            ? 'max-w-[75%] px-4 py-2.5 bg-white/[0.08] rounded-2xl'
+                            : 'w-full px-1'
                         }`}
                       >
                         {/* Display images if present */}
@@ -1497,8 +1500,12 @@ export default function UserPage() {
                   const { thinking: streamThinking, response: streamResponse } = parseThinking(filterDisclaimers(streamingContent));
                   const isStillThinking = streamThinking !== null && !streamResponse;
                   return (
-                    <div className="flex justify-start">
-                      <div className="w-full px-4 py-3 bg-white/[0.05] rounded-2xl border border-white/[0.12]">
+                    <div className="msg-in flex flex-col items-start">
+                      <div className="flex items-center gap-2 mb-1.5 px-1">
+                        <span className="w-2 h-2 bg-green-400/80 animate-pulse" />
+                        <span className="pixel-serif text-white/90 text-sm">c0mpute</span>
+                      </div>
+                      <div className="w-full px-1">
                         <SourceStrip sources={pendingSources} />
                         {streamResponse && (
                           <div className="chat-answer pixel-sans text-white/90 text-base leading-[1.75] prose prose-invert prose-base max-w-none prose-p:my-3 prose-li:my-1 prose-ol:my-3 prose-ul:my-3 prose-headings:mt-5 prose-headings:mb-2 prose-headings:text-white prose-headings:font-semibold prose-strong:text-white prose-strong:font-extrabold prose-code:text-white/80 prose-code:bg-white/[0.06] prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-a:text-blue-400 prose-a:no-underline hover:prose-a:underline prose-hr:my-5 prose-hr:border-white/10 [&_br]:block [&_br]:content-[''] [&_br]:mt-2.5">
@@ -1542,13 +1549,15 @@ export default function UserPage() {
                 
                 {/* Processing indicator */}
                 {chatState === 'streaming' && !streamingContent && (
-                  <div className="flex justify-start">
-                    <div className="p-4 bg-white/[0.02] border border-white/5 rounded-lg">
-                      <div className="flex gap-1">
-                        <span className="w-2 h-2 bg-white/50 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                        <span className="w-2 h-2 bg-white/50 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                        <span className="w-2 h-2 bg-white/50 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
-                      </div>
+                  <div className="msg-in flex flex-col items-start">
+                    <div className="flex items-center gap-2 mb-1.5 px-1">
+                      <span className="w-2 h-2 bg-green-400/80 animate-pulse" />
+                      <span className="pixel-serif text-white/90 text-sm">c0mpute</span>
+                    </div>
+                    <div className="flex gap-1 px-1 py-1">
+                      <span className="w-1.5 h-1.5 bg-white/50 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                      <span className="w-1.5 h-1.5 bg-white/50 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                      <span className="w-1.5 h-1.5 bg-white/50 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
                     </div>
                   </div>
                 )}
@@ -1604,9 +1613,21 @@ export default function UserPage() {
               </div>
               </div>
 
-              {/* Input Area */}
-              <div className="border-t border-white/10 p-4">
-                <div className="max-w-4xl mx-auto">
+              {/* Floating scroll-to-bottom button */}
+              {showScrollDown && (
+                <button
+                  onClick={scrollToBottom}
+                  aria-label="Scroll to bottom"
+                  className="absolute bottom-36 right-5 z-10 w-9 h-9 rounded-full bg-[#0a0a0a] border border-white/15 flex items-center justify-center hover:bg-white/10 transition-colors cursor-pointer"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-white/80"><path d="M12 5v14M19 12l-7 7-7-7" /></svg>
+                </button>
+              )}
+
+              {/* Input Area — floating composer */}
+              <div className="relative px-4 pb-4">
+                <div className="pointer-events-none absolute bottom-full left-0 right-0 h-14 bg-gradient-to-t from-black to-transparent" />
+                <div className="max-w-3xl mx-auto">
                   {(() => {
                     const nativeCount = (networkStats as any)?.nativeWorkers || 0;
                     const browserCount = (networkStats as any)?.browserWorkers || 0;
@@ -1639,8 +1660,31 @@ export default function UserPage() {
                       ))}
                     </div>
                   )}
-                  {/* Model picker + options — composer bar */}
-                  <div className="flex items-center gap-2 mb-2">
+                  {/* Composer panel — textarea on top, controls inside */}
+                  <div className="bg-[#0a0a0a] border border-white/10 rounded-2xl focus-within:border-white/25 transition-colors">
+                    <textarea
+                      ref={inputRef}
+                      rows={1}
+                      value={inputValue}
+                      onChange={(e) => {
+                        if (e.target.value.length <= MAX_INPUT_CHARS) {
+                          setInputValue(e.target.value);
+                        }
+                        const el = e.target;
+                        el.style.height = 'auto';
+                        el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                          e.preventDefault();
+                          sendMessage();
+                        }
+                      }}
+                      placeholder={isConnected ? (pendingImages.length > 0 ? 'Describe the image...' : 'Ask anything...') : 'Connecting to network...'}
+                      disabled={chatState !== 'idle' || !isConnected}
+                      className="w-full bg-transparent px-4 pt-3.5 pb-1.5 pixel-sans text-white text-base placeholder:text-white/40 focus:outline-none resize-none overflow-y-auto disabled:opacity-50"
+                    />
+                  <div className="flex items-center gap-1.5 px-2.5 pb-2.5">
                     <div className="relative" ref={modelMenuRef}>
                       <button
                         onClick={() => setModelMenuOpen(o => !o)}
@@ -1682,8 +1726,7 @@ export default function UserPage() {
                         <span className="text-[10px]">{deepThinking ? 'ON · 20 cr' : 'OFF'}</span>
                       </button>
                     )}
-                  </div>
-                  <div className="flex gap-3">
+                    <div className="flex-1" />
                     {/* Hidden file input for image uploads — only mounted on Max tier */}
                     {selectedPlan === 'max' && (
                       <input
@@ -1709,59 +1752,37 @@ export default function UserPage() {
                         }}
                       />
                     )}
-                    <div className="flex-1 relative">
-                      {/* Image upload icon — inline left, only on Max tier */}
-                      {selectedPlan === 'max' && (
-                        <button
-                          onClick={() => imageInputRef.current?.click()}
-                          disabled={chatState !== 'idle' || !isConnected || pendingImages.length >= 4}
-                          className="absolute left-4 top-1/2 -translate-y-1/2 text-white/70 hover:text-white/80 transition-colors disabled:opacity-20 disabled:cursor-not-allowed"
-                          title="Upload image (Max tier)"
-                          aria-label="Upload image"
-                        >
-                          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                            <rect x="3" y="3" width="18" height="18" rx="2" />
-                            <circle cx="8.5" cy="8.5" r="1.5" />
-                            <path d="M21 15l-5-5L5 21" />
-                          </svg>
-                        </button>
-                      )}
-                      <input
-                        ref={inputRef}
-                        type="text"
-                        value={inputValue}
-                        onChange={(e) => {
-                          if (e.target.value.length <= MAX_INPUT_CHARS) {
-                            setInputValue(e.target.value);
-                          }
-                        }}
-                        placeholder={isConnected ? (pendingImages.length > 0 ? "Describe the image..." : "Type your message...") : "Connecting to network..."}
-                        disabled={chatState !== 'idle' || !isConnected}
-                        className={`w-full bg-white/[0.02] border border-white/10 rounded-xl ${selectedPlan === 'max' ? 'pl-12' : 'pl-5'} pr-5 py-4 pixel-sans text-white text-base placeholder:text-white/45 focus:outline-none focus:border-white/30 disabled:opacity-50`}
-                      />
-                      {/* Character counter */}
-                      <span className={`absolute top-1/2 -translate-y-1/2 right-4 pixel-sans text-xs ${
-                        inputValue.length > MAX_INPUT_CHARS * 0.9 
-                          ? 'text-red-400' 
-                          : inputValue.length > MAX_INPUT_CHARS * 0.75 
-                            ? 'text-[#80a0c1]' 
-                            : 'text-white/60'
-                      }`}>
+                    {selectedPlan === 'max' && (
+                      <button
+                        onClick={() => imageInputRef.current?.click()}
+                        disabled={chatState !== 'idle' || !isConnected || pendingImages.length >= 4}
+                        className="cursor-pointer p-2 rounded-lg text-white/60 hover:text-white hover:bg-white/[0.06] transition-colors disabled:opacity-20 disabled:cursor-not-allowed"
+                        title="Upload image (Max tier)"
+                        aria-label="Upload image"
+                      >
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <rect x="3" y="3" width="18" height="18" rx="2" />
+                          <circle cx="8.5" cy="8.5" r="1.5" />
+                          <path d="M21 15l-5-5L5 21" />
+                        </svg>
+                      </button>
+                    )}
+                    {/* Character counter — only when approaching the limit */}
+                    {inputValue.length > MAX_INPUT_CHARS * 0.75 && (
+                      <span className={`pixel-sans text-xs mr-1 ${inputValue.length > MAX_INPUT_CHARS * 0.9 ? 'text-red-400' : 'text-white/50'}`}>
                         {inputValue.length}/{MAX_INPUT_CHARS}
                       </span>
-                    </div>
+                    )}
                     <button
                       onClick={sendMessage}
                       disabled={(!inputValue.trim() && pendingImages.length === 0) || inputValue.length > MAX_INPUT_CHARS || chatState !== 'idle' || !isConnected}
-                      className="bg-black border border-white/10 rounded-xl px-5 flex items-center justify-center hover:bg-white/5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="cursor-pointer w-9 h-9 rounded-full bg-white hover:bg-white/90 flex items-center justify-center transition-all disabled:opacity-25 disabled:cursor-not-allowed"
                       aria-label="Send"
                     >
-                      <img src="/PixelSendIcon.png" alt="Send" width={24} height={24} />
+                      <img src="/PixelSendIcon.png" alt="Send" width={18} height={18} className="invert" />
                     </button>
                   </div>
-                  <p className="pixel-sans text-white/55 text-sm mt-2 text-center">
-                    Press Enter to send
-                  </p>
+                  </div>
                 </div>
               </div>
             </>
