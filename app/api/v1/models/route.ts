@@ -37,16 +37,19 @@ export async function GET(req: NextRequest) {
   const proUp = counts ? counts.browser > 0 || counts.native > 0 : true; // unknown → assume up
   const maxUp = counts ? counts.native > 0 : true;
   const created = 1748000000;
-  const model = (id: string, available: boolean, description: string) => ({
+  // Flat per-message pricing (credits; 1 credit = $0.01) — c0mpute bills per
+  // request, not per token. Costs mirror the orchestrator's charge table.
+  const model = (id: string, available: boolean, description: string, credits: number) => ({
     id, object: 'model', created, owned_by: 'c0mpute', available, description,
+    pricing: { type: 'per_message', credits, usd: credits / 100 },
   });
 
   return NextResponse.json({
     object: 'list',
     data: [
-      model('c0mpute-pro', proUp, 'Uncensored 8B, fast. Pro tier.'),
-      model('c0mpute-max', maxUp, 'Uncensored 27B with tools + vision + large context. Max tier.'),
-      model('c0mpute-max-think', maxUp, 'c0mpute-max with extended chain-of-thought reasoning.'),
+      model('c0mpute-pro', proUp, 'Uncensored 8B, fast. Pro tier.', 10),
+      model('c0mpute-max', maxUp, 'Uncensored 27B with tools + vision + large context. Max tier.', 15),
+      model('c0mpute-max-think', maxUp, 'c0mpute-max with extended chain-of-thought reasoning.', 20),
     ],
   });
 }

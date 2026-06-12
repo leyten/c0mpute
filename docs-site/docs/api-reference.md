@@ -31,7 +31,7 @@ Requests are billed to the credit balance of the account that owns the key. Top 
 | `c0mpute-max` | Uncensored 27B with tools, vision, and large context. |
 | `c0mpute-max-think` | `c0mpute-max` with extended chain-of-thought reasoning. |
 
-`GET /v1/models` lists them with a live `available` flag (Max requires a native GPU worker to be online). Always check availability if you depend on Max.
+`GET /v1/models` lists them with a live `available` flag (Max requires a native GPU worker to be online) and a `pricing` object (`{ "type": "per_message", "credits": 10, "usd": 0.10 }`). Always check availability if you depend on Max.
 
 ## Pricing
 
@@ -44,6 +44,27 @@ Billing is **flat per request** — you know the exact cost before you send it, 
 | `c0mpute-max-think` | 20 | $0.20 |
 
 1 credit = $0.01. Buy credits with USDC from the [dashboard](https://c0mpute.ai/settings). A request that returns a tool call (one step of an agent loop) is one request. Rate limit: 60 requests/minute per key.
+
+## Balance
+
+`GET /v1/balance` returns the credit balance left on the account that owns the key:
+
+```bash
+curl https://c0mpute.ai/api/v1/balance \
+  -H "Authorization: Bearer $C0MPUTE_API_KEY"
+```
+
+```json
+{
+  "object": "balance",
+  "credits": 1250,
+  "usd": 12.50,
+  "total_deposited": 2000,
+  "total_spent": 750
+}
+```
+
+Use it to check remaining credit before a batch of requests or to surface a low-balance warning in your integration.
 
 ## Chat completions
 
