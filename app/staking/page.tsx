@@ -60,6 +60,9 @@ export default function StakingPage() {
   const [allowance, setAllowance] = useState<{ enabled: boolean; dailyAllowance: number; usedToday: number; remaining: number } | null>(null);
   const [stakeAmt, setStakeAmt] = useState('');
   const [unstakeAmt, setUnstakeAmt] = useState('');
+  const [autoCompound, setAutoCompound] = useState<boolean | null>(null);
+  const [acHistory, setAcHistory] = useState<{ usd: number; zeroUi: number; createdAt: string }[]>([]);
+  const [acBusy, setAcBusy] = useState(false);
   const [walletZero, setWalletZero] = useState<number | null>(null);
   const [vaultAddr, setVaultAddr] = useState<string | null>(null);
   const [copiedVault, setCopiedVault] = useState(false);
@@ -106,8 +109,25 @@ export default function StakingPage() {
       }
       const rc = await fetch('/api/staking/status', { headers: { Authorization: `Bearer ${t}` } });
       if (rc.ok) { const dc = await rc.json(); setCustodial(dc.stakedAmount ?? 0); setCustodialRewards(dc.claimableUsd ?? 0); }
+      const ra = await fetch('/api/staking/autocompound', { headers: { Authorization: `Bearer ${t}` } });
+      if (ra.ok) { const da = await ra.json(); setAutoCompound(!!da.enabled); setAcHistory(da.history ?? []); }
     } catch {}
   }, [getAccessToken, wallets]);
+
+  const toggleAutoCompound = async () => {
+    if (autoCompound === null || acBusy) return;
+    setAcBusy(true);
+    try {
+      const t = await getAccessToken();
+      const r = await fetch('/api/staking/autocompound', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: !autoCompound }),
+      });
+      if (r.ok) { const d = await r.json(); setAutoCompound(!!d.enabled); }
+    } catch {}
+    finally { setAcBusy(false); }
+  };
 
   const handleMigrate = async () => {
     setMigrating(true); setMigrateMsg(null);
@@ -347,6 +367,33 @@ export default function StakingPage() {
                 <button disabled={!!busy || !mintsConfigured() || !(claimable > 0)} onClick={() => run('Claim', (o) => buildClaimTx(o, claimable))} className={btn}>
                   {busy === 'Claim' ? 'Confirm in wallet…' : <>Claim <span className="dollar">$</span>{num(claimable)} USDC</>}
                 </button>
+              </section>
+
+              <section className={card}>
+                <div className="flex items-center justify-between mb-2">
+                  <h2 className="pixel-serif text-white text-xl">Auto-compound</h2>
+                  <button
+                    onClick={toggleAutoCompound}
+                    disabled={autoCompound === null || acBusy}
+                    aria-label="Toggle auto-compound"
+                    className={`relative w-11 h-6 rounded-full transition-colors disabled:opacity-40 ${autoCompound ? 'bg-green-500/70' : 'bg-white/15'}`}
+                  >
+                    <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all ${autoCompound ? 'left-[22px]' : 'left-0.5'}`} />
+                  </button>
+                </div>
+                <p className="pixel-sans text-white/55 text-[11px]">
+                  When on, your daily USDC rewards are used to buy <span className="dollar">$</span>ZERO and staked straight into your vault — only you can ever withdraw it. Compounded stake starts earning after the normal 24h.
+                </p>
+                {autoCompound && acHistory.length > 0 && (
+                  <div className="mt-3 pt-3 border-t border-white/5 space-y-1">
+                    {acHistory.slice(0, 5).map((h, i) => (
+                      <div key={i} className="flex items-center justify-between pixel-sans text-[11px]">
+                        <span className="text-white/45">{new Date(h.createdAt).toLocaleDateString()}</span>
+                        <span className="text-white/70"><span className="dollar">$</span>{h.usd.toFixed(2)} → <span className="text-green-400/80">{intnum(h.zeroUi)} ZERO</span></span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </section>
 
               {msg && <p className="pixel-sans text-green-400/80 text-xs">{msg}</p>}
