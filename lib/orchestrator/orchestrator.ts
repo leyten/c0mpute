@@ -411,7 +411,7 @@ export class Orchestrator {
         const toolPassthrough = isInternal && Array.isArray(data.tools) && data.tools.length > 0;
         const subsidyCredits = (usedFreePrompt || usedStakerAllowance) ? listCredits : 0;
         const subsidyKind = usedStakerAllowance ? 'allowance' : (usedFreePrompt ? 'free' : undefined);
-        const job = this.submitJob(socket.id, data.messages, data.model, privyUserId, deepThinking, creditCost, subsidyCredits, toolPassthrough ? data.tools : undefined, toolPassthrough, subsidyKind);
+        const job = this.submitJob(socket.id, data.messages, data.model, privyUserId, deepThinking, creditCost, subsidyCredits, toolPassthrough ? data.tools : undefined, toolPassthrough, subsidyKind, isInternal);
         if (job) {
           callback({ jobId: job.id });
           console.log(`[Orchestrator] Job submitted: ${job.id} (model: ${data.model || 'any'}${deepThinking ? ', deep-thinking' : ''}) user=${privyUserId}`);
@@ -500,6 +500,7 @@ export class Orchestrator {
         if (worker) { worker.status = 'idle'; worker.jobsCompleted++; this.totalJobsCompleted++; }
         const submitter = this.io.sockets.sockets.get(job.submitterSocketId);
         if (submitter) submitter.emit('image:done', { jobId: job.id, image: data.image, seed: job.seed, width: job.width, height: job.height });
+        this.settleImageTool(job.id, data.image);
         // Pay the worker for the render (same revenue-share model as text jobs).
         if (worker?.privyUserId) {
           try {
@@ -551,6 +552,7 @@ export class Orchestrator {
         if (worker) worker.status = 'idle';
         const submitter = this.io.sockets.sockets.get(job.submitterSocketId);
         if (submitter) submitter.emit('image:error', { jobId: job.id, error: data.error || 'Image worker failed.', code: 'WORKER_ERROR' });
+        this.settleImageTool(job.id, new Error(data.error || 'Image worker failed.'));
         this.imageJobs.delete(data.jobId);
         this.processImageQueue();
       });
@@ -651,15 +653,28 @@ export class Orchestrator {
     if (hasSearch && userSocket) {
       userSocket.emit('job:searching', { jobId });
     }
+    const hasImageGen = toolCalls.some(tc => tc.function.name === 'generate_image');
+    if (hasImageGen && userSocket) {
+      userSocket.emit('job:generating_image', { jobId });
+    }
 
     console.log(`[Orchestrator] Job ${jobId}: executing tools — ${toolCalls.map(tc => tc.function.name).join(', ')}`);
 
     // Execute all tool calls
-    const { messages, sources } = await executeToolCalls(toolCalls);
+    const { messages, sources, images } = await executeToolCalls(toolCalls, {
+      privyUserId: job.privyUserId,
+      renderImage: (workflow, meta) => this.renderImageInternal(workflow, meta),
+    });
 
     // Send sources to user for display
     if (sources && sources.length > 0 && userSocket) {
       userSocket.emit('job:sources', { jobId, sources });
+    }
+
+    // Send tool-generated images to the user (rendered inline in the chat;
+    // never stored server-side — same privacy posture as /create)
+    if (images && images.length > 0 && userSocket) {
+      userSocket.emit('job:image', { jobId, images });
     }
 
     // Send tool results back to the worker
@@ -742,6 +757,45 @@ export class Orchestrator {
   // connected at all, fail queued jobs immediately so the user sees "busy"
   // rather than hanging; if workers exist but are busy, jobs wait and this is
   // re-run when one frees.
+  // In-process image renders for the generate_image chat tool: resolved/rejected
+  // by the same image:result / image:error / timeout paths as web renders.
+  private imageToolResolvers: Map<string, { resolve: (img: string) => void; reject: (e: Error) => void }> = new Map();
+
+  private settleImageTool(jobId: string, outcome: string | Error): boolean {
+    const r = this.imageToolResolvers.get(jobId);
+    if (!r) return false;
+    this.imageToolResolvers.delete(jobId);
+    if (typeof outcome === 'string') r.resolve(outcome);
+    else r.reject(outcome);
+    return true;
+  }
+
+  /** Render an image on the worker pool from inside the orchestrator (chat tool). */
+  renderImageInternal(
+    workflow: Record<string, unknown>,
+    meta: { privyUserId: string; seed?: number; width?: number; height?: number; creditsCharged: number },
+  ): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const jobId = uuidv4();
+      this.imageJobs.set(jobId, {
+        id: jobId,
+        submitterSocketId: '',
+        workflow,
+        privyUserId: meta.privyUserId,
+        seed: meta.seed,
+        width: meta.width,
+        height: meta.height,
+        creditsCharged: meta.creditsCharged,
+        subsidized: false,
+        status: 'pending',
+        submittedAt: Date.now(),
+      });
+      this.imageToolResolvers.set(jobId, { resolve, reject });
+      this.imageQueue.push(jobId);
+      this.processImageQueue();
+    });
+  }
+
   private processImageQueue() {
     while (this.imageQueue.length > 0) {
       const idle = [...this.workers.values()].find((w) => w.type === 'image' && w.status === 'idle');
@@ -754,6 +808,7 @@ export class Orchestrator {
             if (job.timer) clearTimeout(job.timer);
             const sub = this.io.sockets.sockets.get(job.submitterSocketId);
             if (sub) sub.emit('image:error', { jobId, error: 'No image workers are online right now. Try again shortly.', code: 'NO_IMAGE_WORKER' });
+            this.settleImageTool(jobId, new Error('No image workers are online right now.'));
             this.imageJobs.delete(jobId);
           }
         }
@@ -784,6 +839,7 @@ export class Orchestrator {
     }
     const sub = this.io.sockets.sockets.get(job.submitterSocketId);
     if (sub) sub.emit('image:error', { jobId, error: 'Image generation timed out.', code: 'TIMEOUT' });
+    this.settleImageTool(jobId, new Error('Image generation timed out.'));
     this.imageJobs.delete(jobId);
     console.warn(`[Orchestrator] Image job ${jobId} timed out`);
     this.processImageQueue();
@@ -797,6 +853,7 @@ export class Orchestrator {
         if (job.timer) clearTimeout(job.timer);
         const sub = this.io.sockets.sockets.get(job.submitterSocketId);
         if (sub) sub.emit('image:error', { jobId, error: 'Image worker disconnected mid-render.', code: 'WORKER_GONE' });
+        this.settleImageTool(jobId, new Error('Image worker disconnected mid-render.'));
         this.imageJobs.delete(jobId);
       } else if (job.submitterSocketId === socketId) {
         if (job.timer) clearTimeout(job.timer);
@@ -817,6 +874,7 @@ export class Orchestrator {
     clientTools?: ToolDefinition[],
     toolPassthrough: boolean = false,
     subsidyKind?: 'free' | 'allowance',
+    internal: boolean = false,
   ): Job | null {
     try {
       const jobId = uuidv4();
@@ -833,6 +891,7 @@ export class Orchestrator {
         subsidyKind,
         clientTools,
         toolPassthrough,
+        internal,
         status: 'pending',
         createdAt: new Date(),
       };
@@ -942,9 +1001,14 @@ export class Orchestrator {
 
       // Tools: API passthrough jobs use the caller's own tools (returned to the
       // agent, not run server-side); everything else gets the built-in tools.
+      // generate_image is withheld from API-bridge jobs — an API client has no
+      // socket channel to receive the rendered image, so it would charge the
+      // user for a picture nobody sees.
       const tools = job.toolPassthrough
         ? (job.clientTools && job.clientTools.length ? job.clientTools : undefined)
-        : (idleWorker.capabilities.tools ? AVAILABLE_TOOLS : undefined);
+        : (idleWorker.capabilities.tools
+          ? (job.internal ? AVAILABLE_TOOLS.filter((t) => t.function.name !== 'generate_image') : AVAILABLE_TOOLS)
+          : undefined);
 
       workerSocket.emit('job:new', { jobId: job.id, messages, tools, think: job.think ?? false });
 

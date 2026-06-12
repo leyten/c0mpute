@@ -91,6 +91,9 @@ export interface Job {
   clientTools?: ToolDefinition[];
   toolPassthrough?: boolean;
   pendingToolCalls?: ToolCall[];
+  // API-bridge job (v1 completions): the generate_image server tool is withheld
+  // because an API client has no socket channel to receive the rendered image.
+  internal?: boolean;
 }
 
 export interface ChatMessage {
@@ -105,6 +108,8 @@ export interface ChatMessage {
 export interface ServerToClientEvents {
   'job:searching': (data: { jobId: string }) => void;
   'job:sources': (data: { jobId: string; sources: { title: string; url: string; description: string }[] }) => void;
+  'job:generating_image': (data: { jobId: string }) => void;
+  'job:image': (data: { jobId: string; images: string[] }) => void;
   'job:assigned': (data: { jobId: string; workerId: string }) => void;
   'job:token': (data: { jobId: string; token: string }) => void;
   'job:complete': (data: { jobId: string; response: string }) => void;

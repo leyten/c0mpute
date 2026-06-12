@@ -30,6 +30,8 @@ interface UseSocketReturn {
   setOnJobCancel: (handler: ((jobId: string) => void) | null) => void;
   setOnJobSearching: (handler: ((jobId: string) => void) | null) => void;
   setOnJobSources: (handler: ((jobId: string, sources: { title: string; url: string; description: string }[]) => void) | null) => void;
+  setOnJobGeneratingImage: (handler: ((jobId: string) => void) | null) => void;
+  setOnJobImage: (handler: ((jobId: string, images: string[]) => void) | null) => void;
   nativeStatus: { online: boolean; workerId?: string; jobsCompleted: number; tokensGenerated: number; tokPerSec: number; currentJob?: string } | null;
 }
 
@@ -48,6 +50,8 @@ export function useSocket(authToken?: string | null): UseSocketReturn {
   const onJobCancelRef = useRef<((jobId: string) => void) | null>(null);
   const onJobSearchingRef = useRef<((jobId: string) => void) | null>(null);
   const onJobSourcesRef = useRef<((jobId: string, sources: { title: string; url: string; description: string }[]) => void) | null>(null);
+  const onJobGeneratingImageRef = useRef<((jobId: string) => void) | null>(null);
+  const onJobImageRef = useRef<((jobId: string, images: string[]) => void) | null>(null);
 
   useEffect(() => {
     // Don't connect until we have an auth token
@@ -129,6 +133,18 @@ export function useSocket(authToken?: string | null): UseSocketReturn {
     socket.on('job:sources', (data: { jobId: string; sources: { title: string; url: string; description: string }[] }) => {
       if (onJobSourcesRef.current) {
         onJobSourcesRef.current(data.jobId, data.sources);
+      }
+    });
+
+    (socket as any).on('job:generating_image', (data: { jobId: string }) => {
+      if (onJobGeneratingImageRef.current) {
+        onJobGeneratingImageRef.current(data.jobId);
+      }
+    });
+
+    (socket as any).on('job:image', (data: { jobId: string; images: string[] }) => {
+      if (onJobImageRef.current) {
+        onJobImageRef.current(data.jobId, data.images);
       }
     });
 
@@ -219,5 +235,7 @@ export function useSocket(authToken?: string | null): UseSocketReturn {
     setOnJobCancel: useCallback((handler: ((jobId: string) => void) | null) => { onJobCancelRef.current = handler; }, []),
     setOnJobSearching: useCallback((handler: ((jobId: string) => void) | null) => { onJobSearchingRef.current = handler; }, []),
     setOnJobSources: useCallback((handler: ((jobId: string, sources: { title: string; url: string; description: string }[]) => void) | null) => { onJobSourcesRef.current = handler; }, []),
+    setOnJobGeneratingImage: useCallback((handler: ((jobId: string) => void) | null) => { onJobGeneratingImageRef.current = handler; }, []),
+    setOnJobImage: useCallback((handler: ((jobId: string, images: string[]) => void) | null) => { onJobImageRef.current = handler; }, []),
   };
 }
