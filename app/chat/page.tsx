@@ -284,7 +284,7 @@ function ThinkingDropdown({ thinking, isStreaming, elapsedSeconds, defaultOpen }
         )}
       </button>
       {isOpen && (
-        <div className="mt-2 ml-5 pl-3 border-l border-white/10 text-white/70 text-base leading-relaxed whitespace-pre-wrap chat-sans">
+        <div className="mt-2 ml-5 pl-3 border-l border-white/10 text-white/70 text-base leading-relaxed whitespace-pre-wrap pixel-sans">
           {thinking}
         </div>
       )}
@@ -1682,7 +1682,7 @@ export default function UserPage() {
                       }}
                       placeholder={isConnected ? (pendingImages.length > 0 ? 'Describe the image...' : 'Ask anything...') : 'Connecting to network...'}
                       disabled={chatState !== 'idle' || !isConnected}
-                      className="w-full bg-transparent px-4 pt-3.5 pb-1.5 chat-sans text-white text-base placeholder:text-white/40 focus:outline-none resize-none overflow-y-auto disabled:opacity-50"
+                      className="w-full bg-transparent px-4 pt-3.5 pb-1.5 pixel-sans text-white text-base placeholder:text-white/40 focus:outline-none resize-none overflow-y-auto disabled:opacity-50"
                     />
                   <div className="flex items-center gap-1.5 px-2.5 pb-2.5">
                     <div className="relative" ref={modelMenuRef}>
