@@ -313,6 +313,24 @@
   --tw-prose-invert-headings: #ffffff;
   --tw-prose-invert-bullets: #b8b8b8;
   --tw-prose-invert-counters: #cfcfcf;
+  /* Courier renders hairline-thin on black; a subtle text-stroke fakes the
+     medium weight the font doesn't have, +1px size for presence. Approved by
+     leyten 2026-06-12 over font swaps — the font itself is brand. */
+  -webkit-text-stroke: 0.35px currentColor;
+  font-size: 17px;
+}
+.chat-answer strong,
+.chat-answer b,
+.chat-answer h1,
+.chat-answer h2,
+.chat-answer h3 {
+  -webkit-text-stroke: 0.2px currentColor;
+}
+
+/* Same thickening for the chat page UI labels (sidebar, chips, composer),
+   scoped via .chat-ui on the page root so the rest of the site is untouched. */
+.chat-ui .pixel-sans {
+  -webkit-text-stroke: 0.3px currentColor;
 }
 
 /* Tables in answers were horizontally cramped — columns touched because the
