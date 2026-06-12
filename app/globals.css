@@ -307,14 +307,12 @@
   text-rendering: optimizeLegibility;
 }
 .chat-answer {
-  /* Softened from pure white-on-black — full-contrast text on #000 read as
-     harsh; body sits a step below white, bold/headings one step above body. */
-  color: #d7dade;
-  --tw-prose-invert-body: #d7dade;
-  --tw-prose-invert-bold: #f1f2f4;
-  --tw-prose-invert-headings: #eceef1;
-  --tw-prose-invert-bullets: #9da1a8;
-  --tw-prose-invert-counters: #b4b8bf;
+  color: #f2f2f2;
+  --tw-prose-invert-body: #f2f2f2;
+  --tw-prose-invert-bold: #ffffff;
+  --tw-prose-invert-headings: #ffffff;
+  --tw-prose-invert-bullets: #b8b8b8;
+  --tw-prose-invert-counters: #cfcfcf;
 }
 
 /* Tables in answers were horizontally cramped — columns touched because the
