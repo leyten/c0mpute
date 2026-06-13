@@ -150,12 +150,23 @@ function buildMarkdownOverrides(sources: { title: string; url: string; descripti
 
 type ChatState = 'idle' | 'queued' | 'streaming' | 'error';
 
-// Plan definitions — maps user-facing plans to internal model IDs
+// Plan definitions — maps user-facing models to internal model IDs.
+// `workerModel` matches the orchestrator MODEL_CATALOG so per-model worker
+// counts line up. `vision`/`thinking` gate the composer controls, since not
+// every model supports them (e.g. SuperGemma is text-only, no vision/thinking).
 const PLANS = [
-  { id: 'pro' as const, name: 'Pro', cost: 10, costLabel: '10 cr', modelId: 'Qwen3-8B-c0mpute-q4f16_1-MLC', description: 'Higher quality, uncensored', features: ['Qwen3 8B model', 'Browser-powered', 'Uncensored'] },
-  { id: 'max' as const, name: 'Max', cost: 15, costLabel: '15 cr', modelId: 'native-max', description: 'Best quality + tools + vision', features: ['Qwen3.5 27B model', 'Native inference', 'Uncensored', 'Web search (tool calling)', 'Vision (image input)', 'Thinking mode'] },
+  { id: 'pro' as const, name: 'Pro', cost: 10, costLabel: '10 cr', modelId: 'Qwen3-8B-c0mpute-q4f16_1-MLC', tier: 'pro' as const, workerModel: null, vision: false, thinking: false, description: 'Higher quality, uncensored', features: ['Qwen3 8B model', 'Browser-powered', 'Uncensored'] },
+  { id: 'max' as const, name: 'Qwen3.5 27B', cost: 15, costLabel: '15 cr', modelId: 'native-max', tier: 'max' as const, workerModel: 'qwen3.5-27b-abliterated', vision: true, thinking: true, description: 'Best quality, tools, vision, thinking', features: ['Qwen3.5 27B model', 'Native inference', 'Uncensored', 'Web search (tool calling)', 'Vision (image input)', 'Thinking mode'] },
+  { id: 'max-sg' as const, name: 'SuperGemma4 26B', cost: 15, costLabel: '15 cr', modelId: 'native-supergemma', tier: 'max' as const, workerModel: 'supergemma4-26b', vision: false, thinking: true, description: 'Newer, faster, tools', features: ['SuperGemma4 26B (MoE)', 'Native inference', 'Uncensored', 'Web search (tool calling)', 'Thinking mode'] },
 ] as const;
 type PlanId = typeof PLANS[number]['id'];
+
+// Online worker count for a given plan's model: per-model for native (max)
+// models so the indicator reflects the actual model, not the whole tier.
+function planWorkerCount(plan: typeof PLANS[number], stats: any): number {
+  if (plan.tier === 'max') return (stats?.nativeByModel?.[plan.workerModel ?? ''] as number) || 0;
+  return (stats?.browserWorkers as number) || 0;
+}
 
 // Local storage keys
 const CHATS_STORAGE_KEY = 'c0mpute_chats';
@@ -504,7 +515,9 @@ export default function UserPage() {
   // Save plan to DB
   const savePlan = async (plan: PlanId) => {
     setSelectedPlan(plan);
-    if (plan !== 'max') setDeepThinking(false);
+    const planObj = PLANS.find(p => p.id === plan);
+    if (!planObj?.thinking) setDeepThinking(false);
+    if (!planObj?.vision) setPendingImages([]);
     setModelMenuOpen(false);
     setTierSwitch(null);
     if (!socketAuthToken) return;
@@ -736,16 +749,20 @@ export default function UserPage() {
       return;
     }
 
-    // If the selected tier has no workers but another tier does, offer a
-    // one-tap switch instead of silently queueing into a tier nobody serves.
-    const nativeCount = (networkStatsRef.current as any)?.nativeWorkers || 0;
-    const browserCount = (networkStatsRef.current as any)?.browserWorkers || 0;
-    const isMaxTier = selectedModel === 'native-max';
-    const selectedTierHasWorkers = isMaxTier ? nativeCount > 0 : browserCount > 0;
-    const otherTierCount = isMaxTier ? browserCount : nativeCount;
-    if (!selectedTierHasWorkers && otherTierCount > 0) {
-      setTierSwitch({ to: isMaxTier ? 'pro' : 'max', toLabel: isMaxTier ? 'Pro' : 'Max', toCount: otherTierCount });
-      return;
+    // If the selected model has no workers but another model does, offer a
+    // one-tap switch instead of silently queueing into a model nobody serves.
+    // Per-model now: a supergemma job can't run on a qwen worker and vice versa.
+    const stats = networkStatsRef.current as any;
+    if (planWorkerCount(selectedPlanObj, stats) === 0) {
+      const alt = PLANS
+        .filter(p => p.id !== selectedPlan && planWorkerCount(p, stats) > 0)
+        // prefer another model in the same tier (same price/quality) over a downgrade
+        .sort((a, b) => (b.tier === selectedPlanObj.tier ? 1 : 0) - (a.tier === selectedPlanObj.tier ? 1 : 0)
+          || planWorkerCount(b, stats) - planWorkerCount(a, stats))[0];
+      if (alt) {
+        setTierSwitch({ to: alt.id, toLabel: alt.name, toCount: planWorkerCount(alt, stats) });
+        return;
+      }
     }
     setTierSwitch(null);
 
@@ -759,14 +776,16 @@ export default function UserPage() {
     const userMessage = saveMessage(activeChat.id, 'user', content, undefined, images);
     setPendingImages([]);
     
-    // Build messages for context (last 10 messages) — include images for vision
-    const contextMessages: { role: 'system' | 'user' | 'assistant' | 'tool'; content: string; images?: string[] }[] = 
+    // Build messages for context (last 10 messages) — include images only for
+    // vision models. Text-only models (e.g. supergemma) reject any multimodal
+    // data, so strip images from history when the selected model has no vision.
+    const contextMessages: { role: 'system' | 'user' | 'assistant' | 'tool'; content: string; images?: string[] }[] =
       [...(activeChat.messages || []).slice(-10), userMessage].map(m => {
         const msg: { role: 'system' | 'user' | 'assistant' | 'tool'; content: string; images?: string[] } = {
           role: m.role as 'system' | 'user' | 'assistant',
           content: m.content,
         };
-        if (m.images && m.images.length > 0) {
+        if (selectedPlanObj.vision && m.images && m.images.length > 0) {
           msg.images = m.images;
         }
         return msg;
@@ -796,7 +815,7 @@ export default function UserPage() {
         messages: contextMessages,
         model: selectedModel,
         authToken,
-        think: selectedModel === 'native-max' ? deepThinking : false,
+        think: selectedPlanObj.thinking ? deepThinking : false,
       });
 
       // Anonymous: track free prompts left and nudge when down to the last one.
@@ -817,9 +836,7 @@ export default function UserPage() {
         // Only fail the job if it's still unassigned AND no worker for this tier
         // is online. If workers exist but are busy, leave it queued.
         const stats = networkStatsRef.current as any;
-        const tierWorkers = selectedModel === 'native-max'
-          ? (stats?.nativeWorkers || 0)
-          : (stats?.browserWorkers || 0);
+        const tierWorkers = planWorkerCount(selectedPlanObj, stats);
         if (currentJobIdRef.current === jobId && tierWorkers === 0) {
           currentJobIdRef.current = null;
           setCurrentJobId(null);
@@ -1121,7 +1138,7 @@ export default function UserPage() {
             messages: [{ role: 'user', content: pendingPrompt }],
             model: selectedModel,
             authToken,
-            think: selectedModel === 'native-max' ? deepThinking : false,
+            think: selectedPlanObj.thinking ? deepThinking : false,
           });
           if (!isAuthenticated && typeof freeRemaining === 'number') {
             setAnonRemaining(freeRemaining);
@@ -1658,7 +1675,7 @@ export default function UserPage() {
                   <div className="flex justify-center">
                     <div className="px-5 py-3 bg-[#80a0c1]/10 border border-[#80a0c1]/20 rounded-lg text-center">
                       <p className="pixel-sans text-[#80a0c1] text-sm mb-2">
-                        No workers online for {selectedPlan === 'max' ? 'Max' : 'Pro'} right now. {tierSwitch.toCount} {tierSwitch.toCount === 1 ? 'worker' : 'workers'} online for {tierSwitch.toLabel}.
+                        No workers online for {selectedPlanObj.name} right now. {tierSwitch.toCount} {tierSwitch.toCount === 1 ? 'worker' : 'workers'} online for {tierSwitch.toLabel}.
                       </p>
                       <div className="flex items-center justify-center gap-3">
                         <button
@@ -1698,16 +1715,16 @@ export default function UserPage() {
                 <div className="pointer-events-none absolute bottom-full left-0 right-0 h-14 bg-gradient-to-t from-black to-transparent" />
                 <div className="max-w-3xl mx-auto">
                   {(() => {
-                    const nativeCount = (networkStats as any)?.nativeWorkers || 0;
-                    const browserCount = (networkStats as any)?.browserWorkers || 0;
-                    const hasWorkers = selectedModel === 'native-max' ? nativeCount > 0 : browserCount > 0;
-                    const otherCount = selectedModel === 'native-max' ? browserCount : nativeCount;
-                    // Only promise queueing when NO tier can serve. If another tier is
+                    const hasWorkers = planWorkerCount(selectedPlanObj, networkStats) > 0;
+                    const otherCount = PLANS
+                      .filter(p => p.id !== selectedPlan)
+                      .reduce((n, p) => n + planWorkerCount(p, networkStats), 0);
+                    // Only promise queueing when NO model can serve. If another model is
                     // online, sending shows a one-tap switch prompt instead of queueing.
                     if (!hasWorkers && otherCount === 0 && isConnected) {
                       return (
                         <div className="pixel-sans text-white/70 text-xs text-center mb-2">
-                          No {selectedModel === 'native-max' ? 'native' : 'browser'} workers are online — your message will queue until one connects
+                          No workers are online for {selectedPlanObj.name} — your message will queue until one connects
                         </div>
                       );
                     }
@@ -1784,7 +1801,7 @@ export default function UserPage() {
                         </div>
                       )}
                     </div>
-                    {selectedPlan === 'max' && (
+                    {selectedPlanObj.thinking && (
                       <button
                         onClick={() => setDeepThinking(v => !v)}
                         className={`cursor-pointer flex items-center gap-2 pixel-sans text-xs px-3 py-2 rounded-lg border transition-colors ${deepThinking ? 'border-[#80a0c1]/40 bg-[#80a0c1]/15 text-[#80a0c1]' : 'border-white/10 bg-white/[0.03] text-white/50 hover:bg-white/[0.06]'}`}
@@ -1796,8 +1813,8 @@ export default function UserPage() {
                       </button>
                     )}
                     <div className="flex-1" />
-                    {/* Hidden file input for image uploads — only mounted on Max tier */}
-                    {selectedPlan === 'max' && (
+                    {/* Hidden file input for image uploads — only on vision models */}
+                    {selectedPlanObj.vision && (
                       <input
                         ref={imageInputRef}
                         type="file"
@@ -1821,7 +1838,7 @@ export default function UserPage() {
                         }}
                       />
                     )}
-                    {selectedPlan === 'max' && (
+                    {selectedPlanObj.vision && (
                       <button
                         onClick={() => imageInputRef.current?.click()}
                         disabled={chatState !== 'idle' || !isConnected || pendingImages.length >= 4}

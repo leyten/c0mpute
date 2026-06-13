@@ -6,6 +6,15 @@ import { useAuth } from '@/hooks/useAuth';
 
 type Tab = 'account' | 'worker' | 'developer' | 'usage' | 'referrals';
 
+// Selectable models (must mirror the chat composer + orchestrator catalog).
+type PlanId = 'pro' | 'max' | 'max-sg';
+const PLAN_OPTIONS: { id: PlanId; name: string; cost: string; features: string[] }[] = [
+  { id: 'pro', name: 'Pro', cost: '10 cr', features: ['Qwen3 8B', 'Browser-powered', 'Uncensored'] },
+  { id: 'max', name: 'Qwen3.5 27B', cost: '15 cr', features: ['Qwen3.5 27B', 'Native inference', 'Uncensored', 'Web search', 'Vision'] },
+  { id: 'max-sg', name: 'SuperGemma4 26B', cost: '15 cr', features: ['SuperGemma4 26B (MoE)', 'Native inference', 'Uncensored', 'Web search', 'Thinking'] },
+];
+const planName = (id: PlanId): string => PLAN_OPTIONS.find(p => p.id === id)?.name ?? id;
+
 export default function SettingsPage() {
   const router = useRouter();
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -70,8 +79,8 @@ export default function SettingsPage() {
   // Usage tab state
   const [credits, setCredits] = useState<{balance: number; totalDeposited?: number; totalSpent?: number; depositWallet?: string; recentTransactions?: {created_at: string; type: string; amount: number; description: string}[]; config?: {creditsPerUsd: number}} | null>(null);
   const [usage, setUsage] = useState<{totalRequests: number; totalTokens: number; byModel: {model: string; requests: number; tokens: number}[]} | null>(null);
-  const [activePlan, setActivePlan] = useState<'pro' | 'max'>('pro');
-  const [planConfirm, setPlanConfirm] = useState<'pro' | 'max' | null>(null);
+  const [activePlan, setActivePlan] = useState<PlanId>('pro');
+  const [planConfirm, setPlanConfirm] = useState<PlanId | null>(null);
   const [planSwitching, setPlanSwitching] = useState(false);
   const [checkingDeposit, setCheckingDeposit] = useState(false);
   const [depositResult, setDepositResult] = useState<string | null>(null);
@@ -175,7 +184,7 @@ export default function SettingsPage() {
     }
   }, [activeTab, isAuthenticated]);
 
-  const switchPlan = async (plan: 'pro' | 'max') => {
+  const switchPlan = async (plan: PlanId) => {
     setPlanSwitching(true);
     try {
       const t = await getAccessToken();
@@ -862,11 +871,8 @@ models:    c0mpute-pro  ·  c0mpute-max  ·  c0mpute-max-think`}</code>
               {/* Plan Selection */}
               <section className="border border-white/10 bg-white/[0.02] p-6 rounded-2xl">
                 <h2 className="pixel-serif text-white text-xl mb-4">Plan</h2>
-                <div className="grid grid-cols-2 gap-3">
-                  {([
-                    { id: 'pro', name: 'Pro', cost: '10 cr', features: ['Qwen3 8B', 'Browser-powered', 'Uncensored'] },
-                    { id: 'max', name: 'Max', cost: '15 cr', features: ['Qwen3.5 27B', 'Native inference', 'Uncensored', 'Web search'] },
-                  ] as const).map((plan) => {
+                <div className="grid grid-cols-3 gap-3">
+                  {PLAN_OPTIONS.map((plan) => {
                     const isActive = activePlan === plan.id;
                     return (
                       <div
@@ -904,7 +910,7 @@ models:    c0mpute-pro  ·  c0mpute-max  ·  c0mpute-max-think`}</code>
               {planConfirm && (
                 <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[100] flex items-center justify-center p-4" onClick={() => setPlanConfirm(null)}>
                   <div className="bg-[#0a0a0a] border border-white/10 rounded-2xl p-6 max-w-sm w-full" onClick={e => e.stopPropagation()}>
-                    <h3 className="pixel-serif text-white text-lg mb-2">Switch to {planConfirm.charAt(0).toUpperCase() + planConfirm.slice(1)}?</h3>
+                    <h3 className="pixel-serif text-white text-lg mb-2">Switch to {planName(planConfirm)}?</h3>
                     <p className="pixel-sans text-white/70 text-sm mb-5">
                       This will change the model used for all future messages.
                     </p>
