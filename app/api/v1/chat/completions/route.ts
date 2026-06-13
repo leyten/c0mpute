@@ -23,6 +23,9 @@ function mapModel(model: string | undefined): { model: string; think: boolean } 
       return { model: 'native-max', think: false };
     case 'c0mpute-max-think':
       return { model: 'native-max', think: true };
+    case 'supergemma4-26b':
+    case 'c0mpute-max-supergemma':
+      return { model: 'native-supergemma', think: false };
     case 'c0mpute-pro':
     case '':
     case undefined as any:

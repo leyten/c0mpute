@@ -149,6 +149,8 @@ export interface NetworkStats {
   workersOnline: number;
   browserWorkers: number;
   nativeWorkers: number;
+  /** Native worker counts broken down by the model string they run. */
+  nativeByModel?: Record<string, number>;
   jobsInQueue: number;
   jobsCompleted: number;
   tokensGenerated: number;
@@ -158,10 +160,68 @@ export interface NetworkStats {
 /** Model tier as selected by the user */
 export type ModelTier = 'pro' | 'max';
 
-/** Map user-facing model IDs to tiers */
+/** A selectable model in the catalog. */
+export interface ModelCatalogEntry {
+  tier: ModelTier;
+  /**
+   * For native (max) models, the exact `model` string a worker must report at
+   * registration to be allowed to serve this model. Lets one tier hold several
+   * distinct models and route each job to a worker actually running it.
+   */
+  workerModel?: string;
+}
+
+/**
+ * User-facing model IDs (the `model` field on job:submit) → routing info.
+ * Add an entry here to make a new model selectable; pair it with a worker that
+ * registers the matching `workerModel` string.
+ */
+export const MODEL_CATALOG: Record<string, ModelCatalogEntry> = {
+  'native-max': { tier: 'max', workerModel: 'qwen3.5-27b-abliterated' },
+  'native-supergemma': { tier: 'max', workerModel: 'supergemma4-26b' },
+};
+
+/** Map user-facing model IDs to tiers (defaults to pro for browser models). */
 export function getModelTier(modelId?: string): ModelTier {
-  if (modelId === 'native-max') return 'max';
-  return 'pro';
+  return MODEL_CATALOG[modelId ?? '']?.tier ?? 'pro';
+}
+
+/**
+ * The exact worker `model` string required to serve this model, or undefined
+ * when any worker in the tier qualifies (e.g. browser/pro models).
+ */
+export function getRequiredWorkerModel(modelId?: string): string | undefined {
+  return MODEL_CATALOG[modelId ?? '']?.workerModel;
+}
+
+// Worker selection weighting. Jobs are assigned to idle workers by weighted
+// random choice, weight = avg tok/s, so earnings spread across the pool instead
+// of winner-takes-all while still favoring faster workers (better UX).
+//   FLOOR    — min tok/s used in the weight, so a worker with 0 measured speed
+//              still gets a real chance (not frozen out).
+//   EXPONENT — 1 = linear by speed; raise (>1) to favor faster workers harder
+//              (e.g. when demand grows and UX speed matters more than fairness).
+export const WORKER_WEIGHT_FLOOR = 5;
+export const WORKER_WEIGHT_EXPONENT = 1;
+export function selectionWeight(tokPerSec: number): number {
+  return Math.pow(Math.max(tokPerSec, WORKER_WEIGHT_FLOOR), WORKER_WEIGHT_EXPONENT);
+}
+
+/**
+ * Whether a worker can serve a job requesting `requestedModelId`. Max models may
+ * pin a specific worker model (so a supergemma job only goes to a supergemma
+ * worker); pro/browser models match any browser worker running c0mpute/dolphin.
+ */
+export function workerServesModel(
+  worker: { type: 'browser' | 'native' | 'image'; model: string },
+  requestedModelId?: string,
+): boolean {
+  if (getModelTier(requestedModelId) === 'max') {
+    const required = getRequiredWorkerModel(requestedModelId);
+    return worker.type === 'native' && (!required || worker.model === required);
+  }
+  return worker.type === 'browser'
+    && (worker.model.includes('c0mpute') || worker.model.includes('dolphin'));
 }
 
 export const MAX_INPUT_CHARS = 2000;

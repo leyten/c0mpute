@@ -11,6 +11,8 @@ import {
   ClientToServerEvents,
   NetworkStats,
   getModelTier,
+  workerServesModel,
+  selectionWeight,
 } from './types';
 import { verifyPrivyToken } from '../privy-server';
 import { incrementPromptsSent, verifyWorkerToken, recordCompletedJob, recordEarning, spendCredits, getCreditBalance, refundCredits, isWorkerBanned, recordWorkerStrike, recordCanaryResult, consumeFreePrompt, getTodayFreeSubsidyUsd, anonGrantFreePrompt } from '../db';
@@ -933,38 +935,33 @@ export class Orchestrator {
     for (let i = 0; i < this.jobQueue.length; i++) {
       const j = this.jobs.get(this.jobQueue[i]);
       if (!j) continue;
-      const tier = getModelTier(j.requestedModel);
-      // Pick the FASTEST idle worker that matches the tier, not just the first
-      // one found — otherwise a single slow worker in the pool makes ~half the
-      // requests crawl (and agents time out). Prefer real measured throughput,
-      // falling back to the registration benchmark.
-      let bestWorker: WorkerInfo | null = null;
-      let bestSocketId: string | null = null;
-      let bestSpeed = -1;
+      // Weighted-random pick among idle matching workers, weight = avg tok/s
+      // (measured throughput, falling back to the registration benchmark). This
+      // spreads earnings across the pool instead of always paying the single
+      // fastest worker, while still favoring faster workers so users mostly get
+      // good speed. Tunable via WORKER_WEIGHT_* in types.ts. Anti-cheat (canaries)
+      // still strikes/bans workers that fake high tok/s.
+      const eligible: { worker: WorkerInfo; socketId: string; weight: number }[] = [];
+      let totalWeight = 0;
       for (const [socketId, worker] of this.workers) {
         if (worker.status !== 'idle') continue;
-        let tierMatch = false;
-        if (tier === 'max') {
-          tierMatch = worker.type === 'native';
-        } else {
-          tierMatch = worker.type === 'browser' && (worker.model.includes('c0mpute') || worker.model.includes('dolphin'));
-        }
-        if (!tierMatch) continue;
+        if (!workerServesModel(worker, j.requestedModel)) continue;
         const samples = worker.measuredTokPerSec ?? [];
         const speed = samples.length
           ? samples.reduce((a, b) => a + b, 0) / samples.length
           : (worker.tokPerSec || 0);
-        if (speed > bestSpeed) {
-          bestSpeed = speed;
-          bestWorker = worker;
-          bestSocketId = socketId;
-        }
+        const weight = selectionWeight(speed);
+        eligible.push({ worker, socketId, weight });
+        totalWeight += weight;
       }
-      if (bestWorker) {
+      if (eligible.length) {
+        let r = Math.random() * totalWeight;
+        let chosen = eligible[eligible.length - 1];
+        for (const e of eligible) { if ((r -= e.weight) <= 0) { chosen = e; break; } }
         matchedJob = j;
         matchedJobIndex = i;
-        idleWorker = bestWorker;
-        workerSocketId = bestSocketId;
+        idleWorker = chosen.worker;
+        workerSocketId = chosen.socketId;
         break;
       }
     }
@@ -1511,40 +1508,38 @@ export class Orchestrator {
     }
   }
 
-  private getWorkerCounts(): { browser: number; native: number } {
+  private getWorkerCounts(): { browser: number; native: number; nativeByModel: Record<string, number> } {
     let browser = 0;
     let native = 0;
+    const nativeByModel: Record<string, number> = {};
     for (const w of this.workers.values()) {
-      if (w.type === 'native') native++;
-      else browser++;
+      if (w.type === 'native') {
+        native++;
+        nativeByModel[w.model] = (nativeByModel[w.model] ?? 0) + 1;
+      } else browser++;
     }
-    return { browser, native };
+    return { browser, native, nativeByModel };
   }
 
-  private broadcastStats() {
-    const counts = this.getWorkerCounts();
-    const stats: NetworkStats = {
-      workersOnline: this.workers.size,
-      browserWorkers: counts.browser,
-      nativeWorkers: counts.native,
-      jobsInQueue: this.jobQueue.length,
-      jobsCompleted: this.totalJobsCompleted,
-      tokensGenerated: this.totalTokensGenerated,
-      avgJobDurationMs: this.getAvgJobDuration(),
-    };
-    this.io.emit('stats:update', stats);
-  }
-
-  getStats(): NetworkStats {
+  private buildStats(): NetworkStats {
     const counts = this.getWorkerCounts();
     return {
       workersOnline: this.workers.size,
       browserWorkers: counts.browser,
       nativeWorkers: counts.native,
+      nativeByModel: counts.nativeByModel,
       jobsInQueue: this.jobQueue.length,
       jobsCompleted: this.totalJobsCompleted,
       tokensGenerated: this.totalTokensGenerated,
       avgJobDurationMs: this.getAvgJobDuration(),
     };
+  }
+
+  private broadcastStats() {
+    this.io.emit('stats:update', this.buildStats());
+  }
+
+  getStats(): NetworkStats {
+    return this.buildStats();
   }
 }

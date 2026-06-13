@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
   const privyId = await getPrivyId(req);
   if (!privyId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const { plan } = await req.json();
-  if (!['pro', 'max'].includes(plan)) {
+  if (!['pro', 'max', 'max-sg'].includes(plan)) {
     return NextResponse.json({ error: 'Invalid plan' }, { status: 400 });
   }
   const db = getDb();
