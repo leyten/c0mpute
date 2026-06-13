@@ -2,7 +2,7 @@
 
 Native CLI worker for the [c0mpute.ai](https://c0mpute.ai) distributed inference network. Connects to the orchestrator over Socket.io and serves jobs from your GPU. A worker runs in **one of two modes** — text or image — chosen on first run:
 
-- **Max (text)** — LLM inference via [ollama](https://ollama.com) (Qwen 3.5 27B abliterated).
+- **Max (text)** — LLM inference via [ollama](https://ollama.com). Pick a model: **Qwen3.5 27B** or **SuperGemma4 26B** (both uncensored).
 - **Image** — text-to-image via [ComfyUI](https://github.com/comfyanonymous/ComfyUI) + the uncensored Chroma1-HD model.
 
 ## Quick Start
@@ -18,11 +18,18 @@ npx @c0mpute/worker --token <your-token> --mode max     # text worker
 npx @c0mpute/worker --token <your-token> --mode image   # image worker
 ```
 
-Get a token at [c0mpute.ai/earn](https://c0mpute.ai/earn). Only the chosen mode's model is downloaded — never both.
+For a Max worker it then asks which model to run and shows how many workers are live on each, recommending the one with the fewest (so new supply balances the network). Skip that prompt with `--model`:
+
+```bash
+npx @c0mpute/worker --token <your-token> --mode max --model qwen        # Qwen3.5 27B
+npx @c0mpute/worker --token <your-token> --mode max --model supergemma  # SuperGemma4 26B
+```
+
+Get a token at [c0mpute.ai/earn](https://c0mpute.ai/earn). Only the chosen mode + model is downloaded — never more than one.
 
 ## Max (text) worker
 
-Runs Qwen 3.5 27B abliterated via ollama. On first run it automatically starts/configures ollama (flash-attention + q8 KV cache on NVIDIA for ~36% more speed), pulls the model (~17GB), tunes a VRAM-adaptive context window (24GB → 32K, 48GB+ → 64K), runs a speed benchmark, and serves jobs (streaming, vision, tool calling, thinking).
+Runs your chosen model via ollama: **Qwen3.5 27B** (tools, vision, thinking) or **SuperGemma4 26B** (MoE, newer, faster, tools — text only). On first run it automatically starts/configures ollama (flash-attention + q8 KV cache on NVIDIA for ~36% more speed), pulls the model (~17GB), tunes a VRAM-adaptive context window (24GB → 32K, 48GB+ → 64K), runs a speed benchmark, and serves jobs (streaming + tool calling, plus vision/thinking on models that support them). Your model choice is remembered; change it with `--model`.
 
 > Supervise ollama yourself? Set `C0MPUTE_MANAGE_OLLAMA=0` to use your running instance.
 
@@ -47,6 +54,7 @@ On startup it:
 ```
 --token <token>   Authentication token from c0mpute.ai (required)
 --mode <mode>     "max" (text) or "image". Prompts on first run if omitted.
+--model <model>   Max model: "qwen" or "supergemma". Prompts on first run if omitted.
 --url <url>       Orchestrator URL (default: https://c0mpute.ai)
 --benchmark       Run benchmark only, then exit (Max mode)
 --version         Show version

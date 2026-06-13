@@ -2,12 +2,12 @@
 export declare const DEFAULT_ORCHESTRATOR_URL = "https://c0mpute.ai";
 /** Ollama API base URL */
 export declare const OLLAMA_URL = "http://127.0.0.1:11434";
-/** Ollama model name (custom model created from Modelfile) */
-export declare const OLLAMA_MODEL = "c0mpute-max";
-/** Base model to pull from ollama registry */
-export declare const OLLAMA_BASE_MODEL = "huihui_ai/qwen3.5-abliterated:27b";
-/** Human-readable model name sent to orchestrator */
-export declare const DEFAULT_MODEL_NAME = "qwen3.5-27b-abliterated";
+/** Ollama model name (custom model created from Modelfile). */
+export declare const OLLAMA_MODEL: string;
+/** Base model to pull from ollama registry. */
+export declare const OLLAMA_BASE_MODEL: string;
+/** Human-readable model name sent to orchestrator (the catalog routing key). */
+export declare const DEFAULT_MODEL_NAME: string;
 /** Number of tokens to generate during benchmark */
 export declare const BENCHMARK_TOKENS = 64;
 /** Minimum tok/s to register with orchestrator */
