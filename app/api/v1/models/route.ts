@@ -37,6 +37,7 @@ export async function GET(req: NextRequest) {
   const proUp = counts ? counts.browser > 0 || counts.native > 0 : true; // unknown → assume up
   const maxUp = counts ? (counts.byModel['qwen3.5-27b-abliterated'] ?? 0) > 0 : true;
   const sgUp = counts ? (counts.byModel['supergemma4-26b'] ?? 0) > 0 : true;
+  const codeUp = counts ? (counts.byModel['devstral-24b'] ?? 0) > 0 : true;
   const created = 1748000000;
   // Flat per-message pricing (credits; 1 credit = $0.01) — c0mpute bills per
   // request, not per token. Costs mirror the orchestrator's charge table.
@@ -52,6 +53,7 @@ export async function GET(req: NextRequest) {
       model('c0mpute-max', maxUp, 'Uncensored 27B with tools + vision + large context. Max tier.', 15),
       model('c0mpute-max-think', maxUp, 'c0mpute-max with extended chain-of-thought reasoning.', 20),
       model('supergemma4-26b', sgUp, 'Uncensored SuperGemma4 26B MoE with tools. Newer, faster. Max tier.', 15),
+      model('code', codeUp, 'Devstral 24B — agentic coding model (powers c0mpute code). Max tier.', 15),
     ],
   });
 }
