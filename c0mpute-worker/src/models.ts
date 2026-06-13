@@ -34,6 +34,15 @@ export const WORKER_MODELS: Record<string, WorkerModelSpec> = {
     approxSizeGb: 17,
     note: 'MoE, newer, faster, tools (text-only)',
   },
+  code: {
+    key: 'code',
+    label: 'Devstral 24B (code)',
+    ollamaModel: 'c0mpute-code',
+    baseModel: 'devstral',
+    modelName: 'devstral-24b',
+    approxSizeGb: 14,
+    note: 'agentic coding model — powers c0mpute code',
+  },
 };
 
 export type WorkerModelKey = keyof typeof WORKER_MODELS;

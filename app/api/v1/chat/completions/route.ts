@@ -26,6 +26,10 @@ function mapModel(model: string | undefined): { model: string; think: boolean } 
     case 'supergemma4-26b':
     case 'c0mpute-max-supergemma':
       return { model: 'native-supergemma', think: false };
+    case 'code':
+    case 'devstral-24b':
+    case 'c0mpute-code':
+      return { model: 'native-code', think: false };
     case 'c0mpute-pro':
     case '':
     case undefined as any:

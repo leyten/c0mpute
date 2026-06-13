@@ -179,6 +179,9 @@ export interface ModelCatalogEntry {
 export const MODEL_CATALOG: Record<string, ModelCatalogEntry> = {
   'native-max': { tier: 'max', workerModel: 'qwen3.5-27b-abliterated' },
   'native-supergemma': { tier: 'max', workerModel: 'supergemma4-26b' },
+  // 'code' = devstral 24B, the agentic-coding model that powers c0mpute code.
+  // Served via the API/CLI (not the consumer chat picker). Max-tier hardware/price.
+  'native-code': { tier: 'max', workerModel: 'devstral-24b' },
 };
 
 /** Map user-facing model IDs to tiers (defaults to pro for browser models). */
