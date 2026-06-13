@@ -2,12 +2,18 @@
 export const DEFAULT_ORCHESTRATOR_URL = 'https://c0mpute.ai';
 /** Ollama API base URL */
 export const OLLAMA_URL = 'http://127.0.0.1:11434';
-/** Ollama model name (custom model created from Modelfile) */
-export const OLLAMA_MODEL = 'c0mpute-max';
-/** Base model to pull from ollama registry */
-export const OLLAMA_BASE_MODEL = 'huihui_ai/qwen3.5-abliterated:27b';
-/** Human-readable model name sent to orchestrator */
-export const DEFAULT_MODEL_NAME = 'qwen3.5-27b-abliterated';
+// A worker runs one model. The CLI picks the model and sets these env vars
+// before this module loads (see index.ts); when unset we fall back to the
+// registry default (Qwen3.5 27B). The model name must match a workerModel in the
+// orchestrator's MODEL_CATALOG so jobs route here.
+import { WORKER_MODELS, DEFAULT_WORKER_MODEL } from './models.js';
+const defaultModel = WORKER_MODELS[DEFAULT_WORKER_MODEL];
+/** Ollama model name (custom model created from Modelfile). */
+export const OLLAMA_MODEL = process.env.C0MPUTE_OLLAMA_MODEL || defaultModel.ollamaModel;
+/** Base model to pull from ollama registry. */
+export const OLLAMA_BASE_MODEL = process.env.C0MPUTE_BASE_MODEL || defaultModel.baseModel;
+/** Human-readable model name sent to orchestrator (the catalog routing key). */
+export const DEFAULT_MODEL_NAME = process.env.C0MPUTE_MODEL_NAME || defaultModel.modelName;
 /** Number of tokens to generate during benchmark */
 export const BENCHMARK_TOKENS = 64;
 /** Minimum tok/s to register with orchestrator */
