@@ -19,7 +19,7 @@ You send a message. The orchestrator finds an available worker. The worker runs 
 | Tier | Model | Cost | Where it runs | Notes |
 |------|-------|------|---------------|-------|
 | **Pro** | Qwen3 8B Uncensored | 10 credits | Browser (WebGPU) | ~4.3GB / 6GB VRAM, uncensored |
-| **Max** | Qwen3.5 27B abliterated | 15 credits (20 with deep thinking) | Native workers | uncensored + web search + vision |
+| **Max** | Qwen3.5 27B or SuperGemma4 26B (your choice) | 15 credits (20 with deep thinking) | Native workers | both uncensored; pick from the chat model picker; + web search + vision |
 
 ## Credits and the <span class="dollar">$</span>ZERO token
 

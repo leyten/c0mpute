@@ -5,7 +5,7 @@ title: Troubleshooting
 
 # Troubleshooting
 
-## "Device too slow: X tok/s (minimum: 5 tok/s)"
+## "Your device is too slow (X tok/s). Minimum required: 5 tok/s."
 
 Your GPU is not being used. ollama is running on CPU, which is too slow for the network.
 
@@ -35,7 +35,7 @@ Metal auto-detects on Apple Silicon. If performance is unexpectedly low:
 ## "Connection error: Invalid authentication token"
 
 - Your worker token may be expired or invalid
-- Generate a new one from [c0mpute.ai/worker](https://c0mpute.ai/worker) → Native Worker → Get Worker Token
+- Generate a new one from [c0mpute.ai/earn](https://c0mpute.ai/earn) → Native Worker → Get Worker Token
 - Make sure you're logged in to the same account that generated the token
 - Tokens start with `cwt_` — make sure you copied the full string
 
@@ -74,4 +74,5 @@ Key point: `nvidia-smi` should work **inside WSL**, not just in PowerShell. CUDA
 - Check that your worker benchmarks above 5 tok/s (minimum threshold)
 - Make sure you're running the right model (Max tier only runs on native workers)
 - The network matches jobs based on availability — if many workers are online, jobs are distributed
-- Check the worker page at c0mpute.ai/worker for network status
+- A qwen worker only receives qwen jobs and a supergemma worker only supergemma jobs, so picking a model with no demand can mean no jobs
+- Check the worker page at c0mpute.ai/earn for network status

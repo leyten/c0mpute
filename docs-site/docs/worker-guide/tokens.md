@@ -9,7 +9,7 @@ Worker tokens authenticate your native worker with the c0mpute network. They lin
 
 ## Generating a token
 
-1. Go to [c0mpute.ai/worker](https://c0mpute.ai/worker)
+1. Go to [c0mpute.ai/earn](https://c0mpute.ai/earn)
 2. Log in with your X (Twitter) account
 3. Scroll to **Native Worker**
 4. Click **Get Worker Token**

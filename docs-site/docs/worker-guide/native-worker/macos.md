@@ -29,6 +29,15 @@ npx @c0mpute/worker --token <your-token>
 
 That's it. ollama automatically detects Metal on Apple Silicon — no extra drivers or configuration needed.
 
+A Max worker asks which model to run (Qwen3.5 27B or SuperGemma4 26B), showing how many workers are live on each and recommending the one with fewest. Only the chosen model downloads (~17GB). Skip the prompt with a flag:
+
+```bash
+npx @c0mpute/worker --token <your-token> --mode max --model qwen        # Qwen3.5 27B
+npx @c0mpute/worker --token <your-token> --mode max --model supergemma  # SuperGemma4 26B
+```
+
+Get a token at [c0mpute.ai/earn](https://c0mpute.ai/earn).
+
 On first run, the model downloads (~17GB) and a benchmark runs to verify performance.
 
 ## Expected performance

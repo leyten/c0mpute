@@ -22,9 +22,9 @@ Invite someone to c0mpute and earn **5% of the USDC value of every prompt they p
 | Paid image generation | yes |
 | Paid API usage | yes |
 | Free daily prompts | no |
-| Staker-allowance (stake-to-use) credits | no |
+| Staker-allowance (stake-to-use) credits | yes |
 
-Only **self-paid** usage counts. If it didn't cost your referral anything, it doesn't pay you anything.
+Both **self-paid** usage and **staker-allowance** usage count toward referral earnings (5% of the job's list-price value). Only free/onboarding prompts don't pay.
 
 ## Where the 5% comes from
 

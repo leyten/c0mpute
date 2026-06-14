@@ -47,6 +47,15 @@ nvcc --version # Should show CUDA version
 npx @c0mpute/worker --token <your-token>
 ```
 
+A Max worker asks which model to run (Qwen3.5 27B or SuperGemma4 26B), showing how many workers are live on each and recommending the one with fewest. Only the chosen model downloads (~17GB). Skip the prompt with a flag:
+
+```bash
+npx @c0mpute/worker --token <your-token> --mode max --model qwen        # Qwen3.5 27B
+npx @c0mpute/worker --token <your-token> --mode max --model supergemma  # SuperGemma4 26B
+```
+
+Get a token at [c0mpute.ai/earn](https://c0mpute.ai/earn).
+
 ## Option 2: Native Windows (PowerShell)
 
 ### Install Node.js
@@ -79,6 +88,6 @@ Fixes:
 1. Make sure `nvcc --version` works in your terminal
 2. Make sure `nvidia-smi` shows your GPU
 3. If using native Windows, try WSL instead — it handles CUDA paths more reliably
-4. Delete `node_modules` and try again: `rm -rf node_modules && npx @c0mpute/worker --token <your-token>`
+4. Make sure [ollama](https://ollama.com) is installed and running, and that it detects your GPU/CUDA (run `ollama ps` while a job is active — it should show the model on GPU, not CPU)
 
 **WSL typically gives better performance and fewer issues than native Windows.** If you're having trouble with native Windows, switch to WSL.
