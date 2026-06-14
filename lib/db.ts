@@ -315,16 +315,21 @@ export function recordEarning(data: {
     'INSERT INTO worker_earnings (id, privy_id, job_id, tier, tokens, earning_usd, created_at, subsidized, subsidy_kind) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
   ).run(id, data.privyId, data.jobId, data.tier, data.tokensGenerated, earning, now, data.subsidized ? 1 : 0, data.subsidyKind ?? null);
 
-  // Referral cut on self-paid usage only: subsidized jobs carry revenueUsd 0
-  // and never book one. Sits after the UNIQUE(job_id) earnings insert, so it's
-  // once-per-job like the margin (and double-guarded by UNIQUE in its own table).
+  // Referral cut. Self-paid jobs pay 5% out of their revenue (netted from margin
+  // below). Staker-allowance jobs also book it — there's no revenue, so it's a
+  // treasury-funded payout on the job's list-price value, letting referrers earn
+  // from a referee's allowance usage too. Free/onboarding jobs stay excluded.
+  // Sits after the UNIQUE(job_id) earnings insert, so it's once-per-job like the
+  // margin (and double-guarded by UNIQUE in its own table).
   let referralUsd = 0;
-  if (data.payerPrivyId && revenueUsd > 0) {
+  const referralBasisUsd = revenueUsd > 0 ? revenueUsd
+    : (data.subsidyKind === 'allowance' ? payoutBaseUsd : 0);
+  if (data.payerPrivyId && referralBasisUsd > 0) {
     referralUsd = recordReferralEarning({
       payerPrivyId: data.payerPrivyId,
       jobId: data.jobId,
       tier: data.tier,
-      revenueUsd,
+      revenueUsd: referralBasisUsd,
     });
   }
 
