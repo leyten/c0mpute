@@ -14,6 +14,7 @@ import {
   getTokenUsdPrice,
 } from '@/lib/token-price';
 import { isTreasuryConfigured, sweepDepositToken } from '@/lib/payout';
+import { refundStraySol } from '@/lib/sol-refund';
 
 // Rate limit: 1 check per 10 seconds per user
 const lastCheck: Map<string, number> = new Map();
@@ -121,15 +122,29 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // This address only accepts USDC. If a user sent native SOL by mistake, send
+    // it straight back to them and tell them on the page.
+    let solNote = '';
+    try {
+      const stray = await refundStraySol(privyId, depositWallet);
+      if (stray.kind === 'refunded') {
+        solNote = `This address only accepts USDC. We detected ${stray.sol.toFixed(4)} SOL sent by mistake and returned it to your wallet.`;
+      } else if (stray.kind === 'unknown_sender') {
+        solNote = `This address only accepts USDC. We detected ${stray.sol.toFixed(4)} SOL here but couldn't auto-identify the sender to refund it — please reach out and we'll return it.`;
+      }
+    } catch (solErr) {
+      console.error('[Credits] SOL refund check failed:', solErr);
+    }
+
     const updated = getCreditBalance(privyId);
 
     if (totalCredited > 0) {
-      return NextResponse.json({ credited: totalCredited, newBalance: updated.balance });
+      return NextResponse.json({ credited: totalCredited, newBalance: updated.balance, ...(solNote ? { message: solNote } : {}) });
     }
     return NextResponse.json({
       credited: 0,
       balance: updated.balance,
-      message: notes.length ? notes.join('; ') : 'No new deposits found',
+      message: solNote || (notes.length ? notes.join('; ') : 'No new deposits found'),
     });
   } catch (err) {
     console.error('[Credits] Check deposit error:', err);
