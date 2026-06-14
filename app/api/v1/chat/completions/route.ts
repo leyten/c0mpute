@@ -167,7 +167,7 @@ export async function POST(req: NextRequest) {
 
   const mapped = mapModel(body.model);
   if (!mapped) {
-    return oaiError(`Unknown model '${body.model}'. Available: c0mpute-pro, c0mpute-max, c0mpute-max-think.`, 'invalid_request_error', 404, 'model_not_found');
+    return oaiError(`Unknown model '${body.model}'. Available: c0mpute-pro, c0mpute-max, c0mpute-max-think, supergemma4-26b, code.`, 'invalid_request_error', 404, 'model_not_found');
   }
   const requestedModel = body.model || 'c0mpute-pro';
 
