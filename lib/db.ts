@@ -351,6 +351,19 @@ export function getTodayFreeSubsidyUsd(): number {
   return row.total;
 }
 
+// Same as getTodayFreeSubsidyUsd but bounded to the current UTC hour. Used to
+// enforce the hourly sub-cap so one burst can't drain the whole daily budget.
+export function getThisHourFreeSubsidyUsd(): number {
+  ensureEarningsTables();
+  const db = getDb();
+  const hourStart = new Date();
+  hourStart.setUTCMinutes(0, 0, 0);
+  const row = db.prepare(
+    "SELECT COALESCE(SUM(earning_usd), 0) as total FROM worker_earnings WHERE subsidized = 1 AND (subsidy_kind IS NULL OR subsidy_kind != 'allowance') AND created_at >= ?"
+  ).get(hourStart.toISOString()) as { total: number };
+  return row.total;
+}
+
 export function getTodayEarnings(privyId: string): number {
   ensureEarningsTables();
   const db = getDb();

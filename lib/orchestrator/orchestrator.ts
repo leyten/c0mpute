@@ -15,8 +15,8 @@ import {
   selectionWeight,
 } from './types';
 import { verifyPrivyToken } from '../privy-server';
-import { incrementPromptsSent, verifyWorkerToken, recordCompletedJob, recordEarning, spendCredits, getCreditBalance, refundCredits, isWorkerBanned, recordWorkerStrike, recordCanaryResult, consumeFreePrompt, getTodayFreeSubsidyUsd, anonGrantFreePrompt } from '../db';
-import { FREE_PROMPT_LIMIT, FREE_SUBSIDY_DAILY_CAP_USD, STAKER_ALLOWANCE_ENABLED, ANON_FREE_PROMPT_LIMIT, ANON_IP_DAILY_CAP } from '../tokenomics';
+import { incrementPromptsSent, verifyWorkerToken, recordCompletedJob, recordEarning, spendCredits, getCreditBalance, refundCredits, isWorkerBanned, recordWorkerStrike, recordCanaryResult, consumeFreePrompt, getTodayFreeSubsidyUsd, getThisHourFreeSubsidyUsd, anonGrantFreePrompt } from '../db';
+import { FREE_PROMPT_LIMIT, FREE_SUBSIDY_DAILY_CAP_USD, FREE_SUBSIDY_HOURLY_CAP_USD, STAKER_ALLOWANCE_ENABLED, ANON_FREE_PROMPT_LIMIT, ANON_IP_DAILY_CAP } from '../tokenomics';
 import { verifyAnonToken } from '../anon-auth';
 import { CREDITS_PER_USD } from '../token-price';
 import { getWorkerRevenueShare } from '../staking';
@@ -346,6 +346,10 @@ export class Orchestrator {
         if (isAnon) {
           if (getTodayFreeSubsidyUsd() >= FREE_SUBSIDY_DAILY_CAP_USD) {
             callback({ error: "Free prompts are at today's limit. Sign in to keep going.", code: 'ANON_CAP_GLOBAL' });
+            return;
+          }
+          if (getThisHourFreeSubsidyUsd() >= FREE_SUBSIDY_HOURLY_CAP_USD) {
+            callback({ error: "Free prompts are busy right now. Try again shortly or sign in to keep going.", code: 'ANON_CAP_HOURLY' });
             return;
           }
           const grant = anonGrantFreePrompt((socket as any).anonAid, (socket as any).anonIpHash, ANON_FREE_PROMPT_LIMIT, ANON_IP_DAILY_CAP);
