@@ -28,7 +28,17 @@ export async function POST(request: NextRequest) {
     // Referral binding is signup-only: the profile must not exist yet.
     const isNewAccount = !getProfileByPrivyId(authUserId);
 
-    // Per-IP cap on NEW account creation — stops bots mass-minting accounts.
+    // Close the drain: NEW accounts require a real X login. Wallet-only signups are
+    // disabled — bots were mass-minting wallet accounts (many per second). Existing
+    // accounts are unaffected and can still link a wallet.
+    if (isNewAccount && !twitter?.id) {
+      return NextResponse.json(
+        { error: 'Sign in with X to create an account.' },
+        { status: 403 }
+      );
+    }
+
+    // Per-IP cap on NEW account creation — secondary defense for X signups.
     if (isNewAccount && !recordNewAccountForIp(hashIp(clientIp(request)), ACCOUNT_CREATE_IP_DAILY_CAP)) {
       return NextResponse.json(
         { error: 'Too many accounts created from your network today. Please try again later.' },
