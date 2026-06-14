@@ -59,13 +59,20 @@ export const FREE_IMAGE_LIMIT = Number(process.env.FREE_IMAGE_LIMIT || 3);
 // API response, or docs — a worker only ever sees their earnings. Dial via env.
 export const FREE_SUBSIDY_DAILY_CAP_USD = Number(process.env.FREE_SUBSIDY_DAILY_CAP_USD || 50);
 
+// Hourly sub-cap inside the daily cap. Prevents a single actor (e.g. rotating IPs
+// from a proxy pool) from draining the whole day's budget in one burst and locking
+// out legit free users in other timezones — access gets smeared across the day.
+// Set above the flat daily/24 average so genuine bursts still go through; the daily
+// cap above remains the real ceiling. Dial via env.
+export const FREE_SUBSIDY_HOURLY_CAP_USD = Number(process.env.FREE_SUBSIDY_HOURLY_CAP_USD || 3);
+
 // Anonymous (pre-login) free prompts. A visitor gets ANON_FREE_PROMPT_LIMIT free
 // prompts per session before being asked to sign in. ANON_IP_DAILY_CAP bounds how
 // many free prompts a single IP can dispense per UTC day, so clearing cookies to
 // reset the session is capped. The global FREE_SUBSIDY_DAILY_CAP_USD above is the
 // hard ceiling on total spend regardless.
 export const ANON_FREE_PROMPT_LIMIT = Number(process.env.ANON_FREE_PROMPT_LIMIT || FREE_PROMPT_LIMIT);
-export const ANON_IP_DAILY_CAP = Number(process.env.ANON_IP_DAILY_CAP || 30);
+export const ANON_IP_DAILY_CAP = Number(process.env.ANON_IP_DAILY_CAP || 8);
 
 // ── Staker inference allowance (Venice-style "stake → daily free inference") ──
 // FLAGGED OFF by default. When on, matured-stake holders draw a daily pro-rata
