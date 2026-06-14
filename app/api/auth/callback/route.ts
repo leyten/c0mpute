@@ -1,7 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getProfileByPrivyId, upsertProfile } from '@/lib/db';
+import { getProfileByPrivyId, upsertProfile, recordNewAccountForIp } from '@/lib/db';
 import { getAuthUserId } from '@/lib/privy-server';
 import { bindReferral } from '@/lib/referrals';
+import { hashIp } from '@/lib/anon-auth';
+import { ACCOUNT_CREATE_IP_DAILY_CAP } from '@/lib/tokenomics';
+
+function clientIp(req: NextRequest): string {
+  const xff = req.headers.get('x-forwarded-for');
+  if (xff) return xff.split(',')[0].trim();
+  return req.headers.get('x-real-ip') || '0.0.0.0';
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -19,6 +27,14 @@ export async function POST(request: NextRequest) {
 
     // Referral binding is signup-only: the profile must not exist yet.
     const isNewAccount = !getProfileByPrivyId(authUserId);
+
+    // Per-IP cap on NEW account creation — stops bots mass-minting accounts.
+    if (isNewAccount && !recordNewAccountForIp(hashIp(clientIp(request)), ACCOUNT_CREATE_IP_DAILY_CAP)) {
+      return NextResponse.json(
+        { error: 'Too many accounts created from your network today. Please try again later.' },
+        { status: 429 }
+      );
+    }
 
     const profile = upsertProfile({
       privy_id: authUserId,
