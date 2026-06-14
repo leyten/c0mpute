@@ -74,6 +74,10 @@ export const FREE_SUBSIDY_HOURLY_CAP_USD = Number(process.env.FREE_SUBSIDY_HOURL
 export const ANON_FREE_PROMPT_LIMIT = Number(process.env.ANON_FREE_PROMPT_LIMIT || FREE_PROMPT_LIMIT);
 export const ANON_IP_DAILY_CAP = Number(process.env.ANON_IP_DAILY_CAP || 8);
 
+// Max NEW accounts a single IP can create per UTC day. Stops bots mass-minting
+// wallet accounts to farm the free tier. Generous for real humans/households.
+export const ACCOUNT_CREATE_IP_DAILY_CAP = Number(process.env.ACCOUNT_CREATE_IP_DAILY_CAP || 5);
+
 // ── Staker inference allowance (Venice-style "stake → daily free inference") ──
 // FLAGGED OFF by default. When on, matured-stake holders draw a daily pro-rata
 // allowance of FREE inference from the capped pool below before paying USDC.

@@ -99,6 +99,40 @@ export function deleteProfile(privyId: string) {
   db.prepare('DELETE FROM profiles WHERE privy_id = ?').run(privyId);
 }
 
+// True only if the account has a real X (Twitter) login. Wallet-only accounts
+// return false — used to gate onboarding free prompts to X signups so a bot can't
+// farm the free tier by mass-minting wallet accounts.
+export function profileHasXLogin(privyId: string): boolean {
+  const p = getProfileByPrivyId(privyId) as { x_id?: string | null } | undefined;
+  return !!(p && p.x_id);
+}
+
+// Per-IP daily cap on NEW account creation, so a single IP can't mass-mint
+// accounts. Returns false (deny) once the IP is over the cap for the UTC day.
+// Only call when an account is actually being created.
+function ensureAccountIpTable() {
+  getDb().exec(`
+    CREATE TABLE IF NOT EXISTS account_ip_daily (
+      ip_hash TEXT NOT NULL,
+      day TEXT NOT NULL,
+      count INTEGER DEFAULT 0,
+      PRIMARY KEY (ip_hash, day)
+    );
+  `);
+}
+export function recordNewAccountForIp(ipHash: string, dailyCap: number): boolean {
+  ensureAccountIpTable();
+  const db = getDb();
+  const day = new Date().toISOString().slice(0, 10); // UTC date
+  const row = db.prepare('SELECT count FROM account_ip_daily WHERE ip_hash = ? AND day = ?').get(ipHash, day) as { count: number } | undefined;
+  if ((row?.count ?? 0) >= dailyCap) return false;
+  db.prepare(`
+    INSERT INTO account_ip_daily (ip_hash, day, count) VALUES (?, ?, 1)
+    ON CONFLICT(ip_hash, day) DO UPDATE SET count = count + 1
+  `).run(ipHash, day);
+  return true;
+}
+
 export function updateBalance(privyId: string, balance: number | string) {
   return updateProfile(privyId, {
     zero_balance: balance,
