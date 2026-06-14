@@ -991,7 +991,7 @@ models:    c0mpute-pro  ·  c0mpute-max  ·  c0mpute-max-think`}</code>
                       if (res.ok) {
                         if (data.credited > 0) {
                           setCredits(prev => prev ? { ...prev, balance: data.newBalance } : prev);
-                          setDepositResult(`+${data.credited} credits added`);
+                          setDepositResult(`+${data.credited} credits added` + (data.message ? ` — ${data.message}` : ''));
                         } else {
                           setDepositResult(data.message || 'No new deposits found');
                         }
