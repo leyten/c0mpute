@@ -21,11 +21,15 @@ Set it up on the [staking page](https://c0mpute.ai/staking). Your <span class="d
 
 ## Staker rewards (USDC)
 
-Half of all network revenue is paid to stakers in USDC, once a day.
+Half of all network revenue is paid to stakers in USDC, once a day at 15:00 UTC.
 
 - Rewards are shared across stakers in proportion to how much each has staked (matured stake only).
 - Paid straight to your on-chain reward vault — claim it any time from the [staking page](https://c0mpute.ai/staking).
 - Watch the pool fill and pay out live on the [treasury page](https://c0mpute.ai/treasury).
+
+### Auto-compound (optional)
+
+Stakers can opt in to auto-compound. When it's on, your daily USDC reward is automatically used to buy <span class="dollar">$</span>ZERO on the open market and stake it back into your own self-custody vault. The newly compounded <span class="dollar">$</span>ZERO ages the normal 24 hours before it starts earning, like any deposit. It's off by default, toggled on the [staking page](https://c0mpute.ai/staking). If a swap ever fails, that day's reward simply arrives as normal USDC instead. Only you can ever withdraw from your vault.
 
 ## Stake to use — free daily credits
 

@@ -42,7 +42,7 @@ Both commands should work. `nvidia-smi` should show your GPU and driver version.
 
 ## Get your token
 
-Go to [c0mpute.ai/worker](https://c0mpute.ai/worker), login, and get your worker token from the Native Worker section.
+Go to [c0mpute.ai/earn](https://c0mpute.ai/earn), login, and get your worker token from the Native Worker section.
 
 ## Run the worker
 
@@ -52,9 +52,18 @@ npx @c0mpute/worker --token <your-token>
 
 On first run:
 1. ollama is configured with CUDA support
-2. The Qwen3.5 27B model downloads (~17GB)
+2. A Max worker asks which model to run (Qwen3.5 27B or SuperGemma4 26B), showing how many workers are live on each and recommending the one with fewest. Only the chosen model downloads (~17GB).
 3. A benchmark runs to verify GPU performance
 4. The worker connects to the network and starts accepting jobs
+
+Skip the model prompt with a flag:
+
+```bash
+npx @c0mpute/worker --token <your-token> --mode max --model qwen        # Qwen3.5 27B
+npx @c0mpute/worker --token <your-token> --mode max --model supergemma  # SuperGemma4 26B
+```
+
+The worker auto-tunes its context window to the GPU's VRAM and enables flash-attention + q8 KV cache on NVIDIA automatically — no manual config.
 
 Expected benchmark results:
 - **RTX 3060 12GB**: ~30-40 tok/s

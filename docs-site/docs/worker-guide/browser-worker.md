@@ -9,7 +9,7 @@ Turn your browser tab into a GPU worker and start earning USDC. No installation 
 
 ## Setup
 
-1. Go to [c0mpute.ai/worker](https://c0mpute.ai/worker)
+1. Go to [c0mpute.ai/earn](https://c0mpute.ai/earn)
 2. Log in with your X (Twitter) account
 3. Browser workers run **Qwen3 8B Uncensored** — ~4.3GB download, needs ~6GB VRAM, serves Pro tier
 4. Click **Start Worker**

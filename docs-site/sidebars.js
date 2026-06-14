@@ -9,6 +9,7 @@ const sidebars = {
     'staking',
     'referrals',
     'image-generation',
+    'c0mpute-code',
     'api-reference',
     {
       type: 'category',

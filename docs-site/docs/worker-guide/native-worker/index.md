@@ -33,9 +33,20 @@ npx @c0mpute/worker --token <your-token>
 
 That's it. One command. ollama handles model download and GPU detection automatically.
 
+## Choose a model
+
+A Max worker asks which model to run and shows how many workers are live on each, recommending the one with the fewest (so new supply balances the network). Skip the prompt with `--model`:
+
+```bash
+npx @c0mpute/worker --token <your-token> --mode max --model qwen        # Qwen3.5 27B
+npx @c0mpute/worker --token <your-token> --mode max --model supergemma  # SuperGemma4 26B
+```
+
+Only the chosen model is downloaded (~17GB). Get a token at [c0mpute.ai/earn](https://c0mpute.ai/earn).
+
 ## Get your token
 
-1. Go to [c0mpute.ai/worker](https://c0mpute.ai/worker)
+1. Go to [c0mpute.ai/earn](https://c0mpute.ai/earn)
 2. Log in with your X (Twitter) account
 3. Scroll to **Native Worker** section
 4. Click **Get Worker Token**

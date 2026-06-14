@@ -17,11 +17,12 @@ The central routing layer. A Node.js server using Socket.io that coordinates eve
 
 - **Authentication** — validates user sessions and worker tokens via Privy
 - **Job queue** — receives user requests, queues them by tier, and matches them to available workers
-- **Worker registry** — tracks all connected workers: type (browser/native), model, status (idle/busy), performance stats
+- **Worker registry** — tracks all connected workers: type (browser/native/image), model, status (idle/busy), performance stats
 - **Tier routing** — directs jobs to the correct worker type:
   - Pro → browser workers running Qwen3 8B Uncensored
-  - Max → native workers running Qwen3.5 27B abliterated
-- **Search** — for Max tier, runs Brave Search API queries, fetches and extracts content from the top 3 results, and injects summarized context into the prompt
+  - Max → native workers (multi-model: Qwen3.5 27B or SuperGemma4 26B; plus a Devstral "code" model via API/CLI)
+- **Worker selection** — among the eligible idle workers serving the requested model, picks one by weighted-random choice (weight = measured tokens/sec), spreading earnings while favoring speed
+- **Tool calls** — when a model requests the `web_search` tool, runs the Brave Search API query, fetches and extracts content from the top 3 results, and returns it to the model as a tool result
 - **Stats broadcast** — pushes real-time network stats (active workers, queue depth, jobs completed) to all connected clients every 5 seconds
 
 The orchestrator does **not** store conversations or prompt content. It routes traffic and discards it.
@@ -44,7 +45,11 @@ Run as a Node.js process that drives a local ollama instance for inference with 
 - **Metal** — Apple Silicon
 - **Vulkan** — AMD and Intel GPUs
 
-Native workers exclusively run **Qwen3.5 27B abliterated** and serve Max tier requests. They authenticate with a worker token and connect to the orchestrator via Socket.io.
+Native workers serve Max tier requests exclusively. Max is multi-model: workers serve **Qwen3.5 27B** and **SuperGemma4 26B** (both uncensored, user-selectable), plus a Devstral "code" model available via the API/CLI. They authenticate with a worker token and connect to the orchestrator via Socket.io.
+
+### Image workers (ComfyUI)
+
+Run [ComfyUI](https://github.com/comfyanonymous/ComfyUI) on an independent GPU and serve the `generate_image` tool exposed on the Max tier. They authenticate with a worker token and connect to the orchestrator via Socket.io.
 
 ## Job lifecycle
 
@@ -52,7 +57,7 @@ Native workers exclusively run **Qwen3.5 27B abliterated** and serve Max tier re
 1. User sends message
 2. Orchestrator receives request, determines tier
 3. Request enters tier-specific queue
-4. Orchestrator matches request to an idle worker of the correct type
+4. Orchestrator matches request to an idle worker of the correct type — among the eligible idle workers, selection is weighted-random by each worker's measured tokens/sec (spreads earnings while favoring speed)
 5. Job assigned to worker
 6. Worker runs inference, streams tokens back to orchestrator
 7. Orchestrator relays tokens to user in real-time
@@ -61,15 +66,16 @@ Native workers exclusively run **Qwen3.5 27B abliterated** and serve Max tier re
 
 ## Search flow (Max tier)
 
+Web search is a model-driven tool call, not a pre-fetch. The model decides when to search:
+
 ```
 1. User sends message (Max tier)
-2. Orchestrator extracts search query from the message
-3. Brave Search API returns top results
+2. Worker runs the model; the model emits a web_search tool call
+3. Orchestrator runs the Brave Search API query
 4. Orchestrator fetches top 3 page URLs and extracts content
-5. Summarized search context injected into the prompt
-6. Enriched prompt sent to native worker
-7. Worker generates response grounded in web content
-8. Response streams back with source citations
+5. Results returned to the model as a tool result
+6. Model continues generating, now grounded in web content
+7. Response streams back with source citations
 ```
 
 ## Stats

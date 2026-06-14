@@ -24,7 +24,8 @@ The orchestrator is a Node.js server using Socket.io for real-time communication
 - **Job queue** — managing incoming requests and matching them to available workers
 - **Worker registry** — tracking which workers are online, their capabilities, and current load
 - **Routing** — directing jobs to the right worker type based on the selected tier
-- **Search** — running web searches for Max tier requests and injecting context
+- **Worker selection** — picking which idle worker gets the job (weighted-random by measured tokens/sec)
+- **Tool calls** — running web searches when a model requests one, and feeding the results back
 - **Stats** — broadcasting real-time network statistics every 5 seconds
 
 The orchestrator does not store conversations. It routes traffic and moves on.
@@ -41,18 +42,26 @@ The model downloads once and caches in the browser. Subsequent starts are instan
 
 Native workers run on your machine using [ollama](https://ollama.com), which supports CUDA (NVIDIA), Metal (Apple Silicon), and Vulkan (AMD/Intel) acceleration.
 
-Native workers run **Qwen3.5 27B abliterated** and serve Max tier requests exclusively. They require a high-VRAM GPU (20GB+ recommended, e.g. RTX 3090/4090) and deliver 30+ tokens per second depending on hardware.
+Native workers serve Max tier requests exclusively. Max is a multi-model tier — workers serve **Qwen3.5 27B** and **SuperGemma4 26B**, both uncensored, and the user picks which one from the chat model picker (a Devstral "code" model is also available via the API/CLI). They require a high-VRAM GPU (20GB+ recommended, e.g. RTX 3090/4090) and deliver 30+ tokens per second depending on hardware.
+
+## Image workers
+
+Image workers are a third worker type: independent GPUs running [ComfyUI](https://github.com/comfyanonymous/ComfyUI) for image generation. Image generation is exposed as a `generate_image` tool on the Max tier — the model calls it when an image is requested, and the image worker renders the result.
 
 ## Job routing
 
 | Tier | Worker type | Model |
 |------|-------------|-------|
 | Pro | Browser (WebGPU) | Qwen3 8B Uncensored |
-| Max | Native (ollama) | Qwen3.5 27B abliterated |
+| Max | Native (ollama) | Qwen3.5 27B or SuperGemma4 26B (+ Devstral "code" via API/CLI) |
+
+## Worker selection
+
+When a job is ready, the orchestrator looks at the idle workers that serve the requested model and picks one by **weighted-random choice**. Each worker's weight is its measured average tokens/sec (with a floor so the slowest workers still get some traffic). Faster workers get more jobs, but work and earnings spread across the whole pool instead of always landing on the single fastest worker.
 
 ## Web search (Max tier only)
 
-When a Max tier user sends a message, the orchestrator can run a web search using the Brave Search API. It takes the top results, fetches their page content, and injects a summarized context into the prompt before sending it to the worker. The model then responds with information grounded in real, up-to-date web content and cites its sources.
+Web search is model-driven. The model itself decides whether to call the `web_search` tool. When it does, the orchestrator runs the search (Brave Search API), feeds the results back to the model as a tool result, and the model continues from there — a round trip, not a pre-fetch. The model then responds with information grounded in real, up-to-date web content and cites its sources.
 
 ## Token streaming
 
