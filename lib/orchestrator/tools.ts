@@ -114,7 +114,7 @@ export async function executeTool(toolCall: ToolCall, ctx?: ToolContext): Promis
         return fail(`The user does not have enough credits — image generation costs ${IMAGE_CREDITS} credits. Tell them to top up in Settings.`);
       }
 
-      console.log(`[Tools] generate_image for ${ctx.privyUserId}: "${prompt.slice(0, 80)}"`);
+      console.log(`[Tools] generate_image for ${ctx.privyUserId} (${prompt.length} chars)`);
       try {
         const { workflow, seed, width, height } = buildImageWorkflow({
           prompt,
@@ -150,7 +150,7 @@ export async function executeTool(toolCall: ToolCall, ctx?: ToolContext): Promis
         };
       }
 
-      console.log(`[Tools] web_search: "${query}"${freshness ? ` (freshness=${freshness})` : ''}`);
+      console.log(`[Tools] web_search (${query.length} chars)${freshness ? ` (freshness=${freshness})` : ''}`);
 
       try {
         const rawResults = await braveSearch(query, freshness);
