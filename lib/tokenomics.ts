@@ -118,9 +118,9 @@ export const REFERRAL_REVENUE_SHARE = pct('REFERRAL_REVENUE_SHARE', 0.05);
 // ── Staking ──
 
 // Minimum whole ZERO a worker must stake to qualify for the boosted share.
-// Default 1,000,000 = 0.1% of the 1B pump.fun supply. Retune at launch once
+// Default 500,000 = 0.05% of the 1B pump.fun supply. Retune at launch once
 // price is known.
-export const WORKER_STAKE_THRESHOLD = Number(process.env.WORKER_STAKE_THRESHOLD || 1_000_000);
+export const WORKER_STAKE_THRESHOLD = Number(process.env.WORKER_STAKE_THRESHOLD || 500_000);
 
 // A stake must be held this long before it earns epoch rewards or the worker
 // boost. Each deposit ages on its own clock (see lib/staking.ts), so only the

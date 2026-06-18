@@ -44,7 +44,7 @@ You can see your remaining allowance on the [staking page](https://c0mpute.ai/st
 
 ## Worker boost
 
-Workers who stake at least **1,000,000 <span class="dollar">$</span>ZERO** (held for 24h) earn a higher revenue share on every job they complete — **80% instead of 70%**. So if you run a worker, staking pays you twice: the staker rewards, plus a bigger cut of each job.
+Workers who stake at least **500,000 <span class="dollar">$</span>ZERO** (held for 24h) earn a higher revenue share on every job they complete — **80% instead of 70%**. So if you run a worker, staking pays you twice: the staker rewards, plus a bigger cut of each job.
 
 See the [worker guide](/worker-guide/browser-worker) to start earning.
 
