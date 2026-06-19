@@ -21,6 +21,22 @@ export const OLLAMA_BASE_MODEL = process.env.C0MPUTE_BASE_MODEL || defaultModel.
 /** Human-readable model name sent to orchestrator (the catalog routing key). */
 export const DEFAULT_MODEL_NAME = process.env.C0MPUTE_MODEL_NAME || defaultModel.modelName;
 
+/**
+ * How long ollama keeps the model resident in VRAM after a request. Default -1 =
+ * stay loaded for as long as ollama runs, so an idle worker doesn't get its model
+ * evicted (which makes the next job pay a slow cold reload, ~20s on a 27B). Sent
+ * on every inference + the warmup so the model is pinned from startup on. Override
+ * with C0MPUTE_KEEP_ALIVE (an ollama duration like "30m", or a number of seconds,
+ * or "-1"). Passed per-request so it works on every platform, including a Mac
+ * ollama daemon we don't restart.
+ */
+export const KEEP_ALIVE: number | string = (() => {
+  const raw = process.env.C0MPUTE_KEEP_ALIVE;
+  if (raw === undefined || raw === '') return -1;
+  // numeric (incl. -1) → number of seconds; anything else → ollama duration string
+  return /^-?\d+$/.test(raw) ? Number(raw) : raw;
+})();
+
 /** Number of tokens to generate during benchmark */
 export const BENCHMARK_TOKENS = 64;
 

@@ -1,4 +1,4 @@
-import { OLLAMA_URL, OLLAMA_MODEL, MAX_OUTPUT_TOKENS, MAX_OUTPUT_TOKENS_THINKING } from './config.js';
+import { OLLAMA_URL, OLLAMA_MODEL, MAX_OUTPUT_TOKENS, MAX_OUTPUT_TOKENS_THINKING, KEEP_ALIVE } from './config.js';
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
@@ -80,6 +80,7 @@ export async function runInference(
     messages,
     think,
     stream: true,
+    keep_alive: KEEP_ALIVE,   // pin the model in VRAM so idle workers don't cold-reload
     options: {
       num_predict: think ? MAX_OUTPUT_TOKENS_THINKING : MAX_OUTPUT_TOKENS,
       num_gpu: 999,   // Force GPU — workaround for ollama bug #3732
@@ -207,6 +208,7 @@ export async function benchmarkInference(tokenCount: number): Promise<number> {
       messages: [{ role: 'user', content: 'Write a short paragraph about distributed computing.' }],
       think: false,
       stream: true,
+      keep_alive: KEEP_ALIVE,   // warmup leaves the model resident for the first real job
       options: {
         num_predict: tokenCount,
         num_gpu: 999,
