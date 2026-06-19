@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, unlinkSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { homedir } from 'os';
@@ -28,21 +28,38 @@ function saveConfig(patch) {
     }
     catch { /* non-fatal */ }
 }
+function clearConfig() {
+    try {
+        if (existsSync(CONFIG_FILE))
+            unlinkSync(CONFIG_FILE);
+    }
+    catch { /* non-fatal */ }
+}
 function ask(question) {
     return new Promise((resolve) => {
         const rl = createInterface({ input: process.stdin, output: process.stdout });
         rl.question(question, (ans) => { rl.close(); resolve(ans.trim()); });
     });
 }
-function promptMode() {
+// Prompt for the worker mode. `current` (the last saved choice) becomes the
+// default — pressing Enter keeps it, so re-prompting every startup costs one
+// keystroke for unchanged setups.
+function promptMode(current) {
     console.log('\nWhat should this worker run?');
-    console.log('  1) Max worker      — text/chat inference (Ollama, ~17GB model)');
-    console.log('  2) Image generation — text-to-image (ComfyUI + Chroma, ~14GB model)\n');
-    return ask('Enter 1 or 2: ').then((a) => (a === '2' ? 'image' : 'max'));
+    console.log(`  1) Max worker      — text/chat inference (Ollama, ~17GB model)${current === 'max' ? '  <- current' : ''}`);
+    console.log(`  2) Image generation — text-to-image (ComfyUI + Chroma, ~14GB model)${current === 'image' ? '  <- current' : ''}`);
+    const def = current === 'image' ? 2 : current === 'max' ? 1 : null;
+    return ask(`\nEnter 1 or 2${def ? ` [${def}]` : ''}: `).then((a) => {
+        if (a === '' && current)
+            return current; // Enter keeps the saved choice
+        return a === '2' ? 'image' : 'max';
+    });
 }
-// Resolve the worker mode: explicit --mode flag wins, then the saved choice,
-// then an interactive first-run prompt. Don't download two models — only the
-// chosen stack is set up downstream.
+// Resolve the worker mode: explicit --mode flag wins, otherwise re-prompt on
+// every interactive startup (defaulting to the last choice) so switching between
+// max and image never requires the --mode flag or a reset. Headless runs (no
+// TTY, e.g. pm2/systemd) reuse the saved choice silently. Don't download two
+// models — only the chosen stack is set up downstream.
 async function resolveMode(flag) {
     if (flag === 'max' || flag === 'image') {
         saveConfig({ mode: flag });
@@ -51,12 +68,14 @@ async function resolveMode(flag) {
     if (flag)
         throw new Error(`Invalid --mode "${flag}" (use "max" or "image").`);
     const saved = readConfig().mode;
-    if (saved)
-        return saved;
     if (!process.stdin.isTTY) {
+        if (saved) {
+            console.log(`Using saved mode "${saved}" (no interactive terminal). Pass --mode to change.`);
+            return saved;
+        }
         throw new Error('No mode chosen. Re-run with --mode max  or  --mode image (no interactive terminal available).');
     }
-    const chosen = await promptMode();
+    const chosen = await promptMode(saved);
     saveConfig({ mode: chosen });
     return chosen;
 }
@@ -83,7 +102,7 @@ function fetchActiveCounts(url, token) {
         socket.on('connect_error', () => finish(null));
     });
 }
-async function promptModel(url, token) {
+async function promptModel(url, token, current) {
     console.log('\nFetching live network status...');
     const counts = await fetchActiveCounts(url, token);
     const recommended = recommendModel(counts);
@@ -92,17 +111,25 @@ async function promptModel(url, token) {
     keys.forEach((key, i) => {
         const m = WORKER_MODELS[key];
         const active = counts ? `${counts[m.modelName] ?? 0} active` : 'active count unavailable';
-        const rec = key === recommended ? '  <- recommended (fewest active)' : '';
-        console.log(`  ${i + 1}) ${m.label} — ${m.note} · ${active}${rec}`);
+        const tags = [];
+        if (key === current)
+            tags.push('current');
+        if (key === recommended)
+            tags.push('recommended (fewest active)');
+        const tag = tags.length ? `  <- ${tags.join(', ')}` : '';
+        console.log(`  ${i + 1}) ${m.label} — ${m.note} · ${active}${tag}`);
     });
-    const recIndex = keys.indexOf(recommended) + 1;
-    const ans = await ask(`\nEnter 1-${keys.length} [${recIndex}]: `);
-    const idx = ans === '' ? recIndex - 1 : parseInt(ans, 10) - 1;
-    return keys[idx] ?? recommended;
+    // Default to the last saved choice; fall back to the recommendation on first run.
+    const defKey = current ?? recommended;
+    const defIndex = keys.indexOf(defKey) + 1;
+    const ans = await ask(`\nEnter 1-${keys.length} [${defIndex}]: `);
+    const idx = ans === '' ? defIndex - 1 : parseInt(ans, 10) - 1;
+    return keys[idx] ?? defKey;
 }
-// Resolve which model a Max worker runs: --model flag wins, then saved choice,
-// then an interactive prompt with live counts. Headless with no choice falls
-// back to the default model.
+// Resolve which model a Max worker runs: --model flag wins, otherwise re-prompt
+// on every interactive startup (defaulting to the last choice) so switching
+// models never requires the --model flag or a reset. Headless runs reuse the
+// saved choice, or fall back to the default model on first run.
 async function resolveModel(flag, url, token) {
     if (flag) {
         if (!isWorkerModelKey(flag)) {
@@ -111,14 +138,17 @@ async function resolveModel(flag, url, token) {
         saveConfig({ model: flag });
         return flag;
     }
-    const saved = readConfig().model;
-    if (saved && isWorkerModelKey(saved))
-        return saved;
+    const savedRaw = readConfig().model;
+    const saved = savedRaw && isWorkerModelKey(savedRaw) ? savedRaw : undefined;
     if (!process.stdin.isTTY) {
+        if (saved) {
+            console.log(`Using saved model "${saved}" (no interactive terminal). Pass --model to change.`);
+            return saved;
+        }
         console.log(`No model chosen, defaulting to ${WORKER_MODELS[DEFAULT_WORKER_MODEL].label}. Use --model to pick (${Object.keys(WORKER_MODELS).join(', ')}).`);
         return DEFAULT_WORKER_MODEL;
     }
-    const chosen = await promptModel(url, token);
+    const chosen = await promptModel(url, token, saved);
     saveConfig({ model: chosen });
     return chosen;
 }
@@ -127,13 +157,17 @@ program
     .name('c0mpute-worker')
     .description('Native worker for the c0mpute.ai distributed inference network')
     .version(pkg.version)
-    .requiredOption('--token <token>', 'Authentication token from c0mpute.ai')
+    .option('--token <token>', 'Authentication token from c0mpute.ai')
     .option('--url <url>', 'Orchestrator URL', 'https://c0mpute.ai')
     .option('--mode <mode>', 'Worker mode: "max" (text) or "image" (image gen). Prompts on first run if omitted.')
     .option('--model <model>', `Max model to run: ${Object.keys(WORKER_MODELS).join(' | ')}. Prompts on first run if omitted.`)
     .option('--benchmark', 'Run benchmark only, then exit')
     .action(async (opts) => {
     console.log(`c0mpute worker v${pkg.version}`);
+    if (!opts.token) {
+        console.error('Error: --token is required. Get yours at https://c0mpute.ai (Worker tab).\nTo change a remembered mode/model, run "c0mpute-worker reset".');
+        process.exit(1);
+    }
     try {
         const mode = await resolveMode(opts.mode);
         console.log(`Mode: ${mode === 'image' ? 'image generation' : 'max (text)'}`);
@@ -160,6 +194,13 @@ program
         console.error(`Fatal: ${err.message}`);
         process.exit(1);
     }
+});
+program
+    .command('reset')
+    .description('Clear the saved worker mode/model so the next start re-prompts (e.g. to switch between max and image)')
+    .action(() => {
+    clearConfig();
+    console.log('Saved worker config cleared. Next run will ask for mode (and model) again.');
 });
 program.parse();
 //# sourceMappingURL=index.js.map
