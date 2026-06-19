@@ -1,4 +1,7 @@
 import { spawn, execSync } from 'child_process';
+import { existsSync, writeFileSync } from 'fs';
+import { join } from 'path';
+import os from 'os';
 import { OLLAMA_URL, OLLAMA_MODEL, OLLAMA_BASE_MODEL, SYSTEM_PROMPT, } from './config.js';
 import { checkOllama, modelExists } from './inference.js';
 // Detect total GPU VRAM (MB) so the worker self-tunes its context window to its
@@ -66,8 +69,112 @@ function stopOllama() {
     }
     catch { /* nothing running */ }
 }
-function spawnOllama(env) {
-    const child = spawn('ollama', ['serve'], {
+/** Per-OS download page, used in error messages when auto-install can't proceed. */
+function ollamaDownloadLink() {
+    if (process.platform === 'win32')
+        return 'https://ollama.com/download/windows';
+    if (process.platform === 'darwin')
+        return 'https://ollama.com/download/mac';
+    return 'https://ollama.com/download/linux';
+}
+/**
+ * Locate the ollama executable. Checks PATH first, then the per-OS default
+ * install location — a freshly-installed ollama often isn't on the current
+ * process's PATH yet (Windows in particular won't refresh PATH until the
+ * terminal is reopened). Returns the full path, or null if not found.
+ */
+function resolveOllamaBin() {
+    try {
+        const cmd = process.platform === 'win32' ? 'where ollama' : 'command -v ollama';
+        const found = execSync(cmd, { stdio: ['ignore', 'pipe', 'ignore'] })
+            .toString()
+            .trim()
+            .split('\n')[0]
+            .trim();
+        if (found)
+            return found;
+    }
+    catch { /* not on PATH */ }
+    const candidates = [];
+    if (process.platform === 'win32') {
+        const local = process.env.LOCALAPPDATA || join(os.homedir(), 'AppData', 'Local');
+        candidates.push(join(local, 'Programs', 'Ollama', 'ollama.exe'));
+        candidates.push('C:\\Program Files\\Ollama\\ollama.exe');
+    }
+    else if (process.platform === 'darwin') {
+        candidates.push('/opt/homebrew/bin/ollama', '/usr/local/bin/ollama', '/Applications/Ollama.app/Contents/Resources/ollama');
+    }
+    else {
+        candidates.push('/usr/local/bin/ollama', '/usr/bin/ollama', join(os.homedir(), '.ollama', 'bin', 'ollama'));
+    }
+    for (const c of candidates) {
+        if (existsSync(c))
+            return c;
+    }
+    return null;
+}
+async function downloadFile(url, dest) {
+    const res = await fetch(url);
+    if (!res.ok)
+        throw new Error(`download failed: ${url} → ${res.status}`);
+    writeFileSync(dest, Buffer.from(await res.arrayBuffer()));
+}
+/**
+ * Auto-install ollama for the operator — the worker should be plug-and-play, not
+ * make contributors hand-install dependencies. Uses winget (Windows), Homebrew
+ * (macOS), or the official install.sh (Linux). Returns the resolved binary path
+ * on success; throws with the correct per-OS download link if it can't.
+ */
+async function installOllama() {
+    console.log('Ollama not found — installing it for you (one-time setup)...');
+    try {
+        if (process.platform === 'win32') {
+            let wingetOk = false;
+            try {
+                execSync('winget --version', { stdio: 'ignore' });
+                wingetOk = true;
+            }
+            catch { /* winget unavailable */ }
+            if (wingetOk) {
+                execSync('winget install --id Ollama.Ollama -e --silent ' +
+                    '--accept-package-agreements --accept-source-agreements', { stdio: 'inherit' });
+            }
+            else {
+                // No winget (older Windows) — fall back to the silent Inno Setup installer.
+                const installer = join(os.tmpdir(), 'OllamaSetup.exe');
+                console.log('  winget unavailable — downloading the Ollama installer...');
+                await downloadFile('https://ollama.com/download/OllamaSetup.exe', installer);
+                execSync(`"${installer}" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART`, { stdio: 'inherit' });
+            }
+        }
+        else if (process.platform === 'darwin') {
+            try {
+                execSync('brew --version', { stdio: 'ignore' });
+            }
+            catch {
+                throw new Error('Homebrew not installed');
+            }
+            execSync('brew install ollama', { stdio: 'inherit' });
+        }
+        else {
+            // Linux — the official one-liner.
+            execSync('curl -fsSL https://ollama.com/install.sh | sh', { stdio: 'inherit' });
+        }
+    }
+    catch (e) {
+        throw new Error(`Automatic Ollama install failed (${e?.message || e}).\n` +
+            `  Please install it manually from ${ollamaDownloadLink()} and re-run the worker.`);
+    }
+    const bin = resolveOllamaBin();
+    if (!bin) {
+        throw new Error('Ollama installed but its binary could not be located. ' +
+            `Reopen your terminal so PATH refreshes, or install from ${ollamaDownloadLink()}.`);
+    }
+    console.log('Ollama installed.');
+    return bin;
+}
+function spawnOllama(bin, env) {
+    const child = spawn(bin, ['serve'], {
         env: { ...process.env, ...env },
         detached: true,
         stdio: 'ignore',
@@ -86,6 +193,18 @@ async function ensureOllamaRunning() {
     const up = await checkOllama();
     if (up && !manage)
         return; // already running, nothing to tune (non-NVIDIA or opted out)
+    // We need to (re)start ollama — make sure the binary exists, auto-installing it
+    // if it's missing (plug-and-play: never ask the operator to hand-install).
+    let bin = resolveOllamaBin();
+    if (!bin) {
+        if (up) {
+            // Already serving but we can't find the binary to restart it for tuning —
+            // just use the running instance as-is rather than reinstalling.
+            console.log('Ollama is running but its path is unknown; skipping flash-attn restart.');
+            return;
+        }
+        bin = await installOllama();
+    }
     if (up && manage) {
         console.log('Restarting Ollama with flash-attention + q8 KV cache (NVIDIA detected)...');
         stopOllama();
@@ -94,14 +213,14 @@ async function ensureOllamaRunning() {
     else {
         console.log('Starting Ollama...');
     }
-    spawnOllama(env);
+    spawnOllama(bin, env);
     for (let i = 0; i < 40; i++) {
         await sleep(1000);
         if (await checkOllama())
             return;
     }
-    throw new Error('Could not start Ollama. Install it and ensure it is on PATH:\n' +
-        '  curl -fsSL https://ollama.com/install.sh | sh');
+    throw new Error('Could not start Ollama after installing/locating it. ' +
+        `Try running "ollama serve" manually, or reinstall from ${ollamaDownloadLink()}.`);
 }
 /**
  * Ensure ollama is installed, running, and the c0mpute-max model is available.

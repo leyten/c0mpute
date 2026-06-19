@@ -11,14 +11,14 @@ Native CLI worker for the [c0mpute.ai](https://c0mpute.ai) distributed inference
 npx @c0mpute/worker --token <your-token>
 ```
 
-On first run it asks which mode to run (Max or Image) and remembers your choice. Skip the prompt with `--mode`:
+It asks which mode to run (Max or Image) on every interactive start, defaulting to your last choice — just press Enter to keep it, or pick the other to switch. Skip the prompt entirely with `--mode`:
 
 ```bash
 npx @c0mpute/worker --token <your-token> --mode max     # text worker
 npx @c0mpute/worker --token <your-token> --mode image   # image worker
 ```
 
-For a Max worker it then asks which model to run and shows how many workers are live on each, recommending the one with the fewest (so new supply balances the network). Skip that prompt with `--model`:
+For a Max worker it then asks which model to run (again every interactive start, defaulting to your last choice) and shows how many workers are live on each, recommending the one with the fewest (so new supply balances the network). Skip that prompt with `--model`:
 
 ```bash
 npx @c0mpute/worker --token <your-token> --mode max --model qwen        # Qwen3.5 27B
@@ -29,7 +29,7 @@ Get a token at [c0mpute.ai/earn](https://c0mpute.ai/earn). Only the chosen mode 
 
 ## Max (text) worker
 
-Runs your chosen model via ollama: **Qwen3.5 27B** (tools, vision, thinking) or **SuperGemma4 26B** (MoE, newer, faster, tools — text only). On first run it automatically starts/configures ollama (flash-attention + q8 KV cache on NVIDIA for ~36% more speed), pulls the model (~17GB), tunes a VRAM-adaptive context window (24GB → 32K, 48GB+ → 64K), runs a speed benchmark, and serves jobs (streaming + tool calling, plus vision/thinking on models that support them). Your model choice is remembered; change it with `--model`.
+Runs your chosen model via ollama: **Qwen3.5 27B** (tools, vision, thinking) or **SuperGemma4 26B** (MoE, newer, faster, tools — text only). On first run it automatically installs ollama if it's missing (winget on Windows, Homebrew on macOS, the official script on Linux), starts/configures it (flash-attention + q8 KV cache on NVIDIA for ~36% more speed), pulls the model (~17GB), tunes a VRAM-adaptive context window (24GB → 32K, 48GB+ → 64K), runs a speed benchmark, and serves jobs (streaming + tool calling, plus vision/thinking on models that support them). Every interactive start re-asks your model with the last one as default; press Enter to keep it or pass `--model` to set it directly.
 
 > Supervise ollama yourself? Set `C0MPUTE_MANAGE_OLLAMA=0` to use your running instance.
 
