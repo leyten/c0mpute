@@ -15,7 +15,7 @@ import {
   selectionWeight,
 } from './types';
 import { verifyPrivyToken } from '../privy-server';
-import { incrementPromptsSent, verifyWorkerToken, recordCompletedJob, recordEarning, spendCredits, getCreditBalance, refundCredits, isWorkerBanned, recordWorkerStrike, recordCanaryResult, consumeFreePrompt, getTodayFreeSubsidyUsd, getThisHourFreeSubsidyUsd, anonGrantFreePrompt, profileHasXLogin } from '../db';
+import { incrementPromptsSent, verifyWorkerToken, recordCompletedJob, recordEarning, spendCredits, getCreditBalance, refundCredits, isWorkerBanned, recordWorkerStrike, recordCanaryResult, consumeFreePrompt, getTodayFreeSubsidyUsd, getThisHourFreeSubsidyUsd, anonGrantFreePrompt, profileHasLogin } from '../db';
 import { FREE_PROMPT_LIMIT, FREE_SUBSIDY_DAILY_CAP_USD, FREE_SUBSIDY_HOURLY_CAP_USD, STAKER_ALLOWANCE_ENABLED, ANON_FREE_PROMPT_LIMIT, ANON_IP_DAILY_CAP } from '../tokenomics';
 import { verifyAnonToken } from '../anon-auth';
 import { CREDITS_PER_USD } from '../token-price';
@@ -372,14 +372,15 @@ export class Orchestrator {
           return;
         }
 
-        // Onboarding: new X accounts get FREE_PROMPT_LIMIT free prompts (any tier,
-        // incl. Max) before any credits are charged. Gated to accounts with a real
-        // X login — wallet-only accounts get NO free prompts, so a bot can't farm
-        // the free tier by mass-minting wallet accounts.
+        // Onboarding: new accounts get FREE_PROMPT_LIMIT free prompts (any tier,
+        // incl. Max) before any credits are charged. Applies to any real login —
+        // X signups AND wallet (e.g. Phantom) logins. Mass-minting abuse stays
+        // bounded by the daily/hourly free-subsidy USD caps and the per-IP
+        // account-creation cap, not by the login type.
         // API-originated jobs always charge — never consume onboarding free
         // prompts or the treasury subsidy (that path is human-onboarding only).
         let usedFreePrompt = false;
-        if (creditCost > 0 && !isInternal && profileHasXLogin(privyUserId) && consumeFreePrompt(privyUserId, FREE_PROMPT_LIMIT)) {
+        if (creditCost > 0 && !isInternal && profileHasLogin(privyUserId) && consumeFreePrompt(privyUserId, FREE_PROMPT_LIMIT)) {
           creditCost = 0;
           usedFreePrompt = true;
           console.log(`[Orchestrator] Free prompt used by ${privyUserId} (${requestedTierForCredits})`);
@@ -1497,6 +1498,10 @@ export class Orchestrator {
       ? {
           online: true,
           workerId: nativeWorker.id,
+          // epoch ms the worker connected — the card derives live uptime from this,
+          // so it works for native workers (run via CLI, not in the browser) and is
+          // identical on every device the user opens.
+          connectedAt: nativeWorker.connectedAt.getTime(),
           jobsCompleted: nativeWorker.jobsCompleted,
           tokensGenerated: nativeWorker.tokensGenerated,
           tokPerSec: nativeWorker.tokPerSec,

@@ -107,6 +107,14 @@ export function profileHasXLogin(privyId: string): boolean {
   return !!(p && p.x_id);
 }
 
+// True if the account is a real onboarded login — either an X (Twitter) login or
+// a connected wallet. Used to gate onboarding free prompts; abuse stays bounded by
+// the daily/hourly free-subsidy USD caps and the per-IP account-creation cap.
+export function profileHasLogin(privyId: string): boolean {
+  const p = getProfileByPrivyId(privyId) as { x_id?: string | null; wallet_address?: string | null } | undefined;
+  return !!(p && (p.x_id || p.wallet_address));
+}
+
 // Per-IP daily cap on NEW account creation, so a single IP can't mass-mint
 // accounts. Returns false (deny) once the IP is over the cap for the UTC day.
 // Only call when an account is actually being created.
@@ -235,13 +243,19 @@ export function recordCompletedJob(data: {
   `).run(data.workerPrivyId, data.tokensGenerated, earningPoints, now, now, data.tokensGenerated, earningPoints, now);
 }
 
-export function getWorkerStats(privyId: string): { totalJobs: number; totalTokens: number; totalEarningPoints: number; totalSolPaid: string; lastActiveAt: string | null } | null {
+export function getWorkerStats(privyId: string): { totalJobs: number; paidJobs: number; totalTokens: number; totalEarningPoints: number; totalSolPaid: string; lastActiveAt: string | null } | null {
   ensureWorkerStatsTable();
   const db = getDb();
   const row = db.prepare('SELECT * FROM worker_stats WHERE privy_id = ?').get(privyId) as any;
   if (!row) return null;
+  // "Jobs" on the worker card must reflect jobs the worker was actually PAID for —
+  // total_jobs also counts completions that earned the worker nothing (subsidized/
+  // failed), which made e.g. 81 jobs show next to $1.57. Each worker_earnings row is
+  // one paid job.
+  const paid = db.prepare('SELECT COUNT(*) AS c FROM worker_earnings WHERE privy_id = ?').get(privyId) as any;
   return {
     totalJobs: row.total_jobs,
+    paidJobs: paid?.c ?? 0,
     totalTokens: row.total_tokens,
     totalEarningPoints: row.total_earning_points,
     totalSolPaid: row.total_sol_paid,
