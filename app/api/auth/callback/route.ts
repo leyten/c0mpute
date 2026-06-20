@@ -3,13 +3,8 @@ import { getProfileByPrivyId, upsertProfile, recordNewAccountForIp } from '@/lib
 import { getAuthUserId } from '@/lib/privy-server';
 import { bindReferral } from '@/lib/referrals';
 import { hashIp } from '@/lib/anon-auth';
+import { clientIp } from '@/lib/client-ip';
 import { ACCOUNT_CREATE_IP_DAILY_CAP } from '@/lib/tokenomics';
-
-function clientIp(req: NextRequest): string {
-  const xff = req.headers.get('x-forwarded-for');
-  if (xff) return xff.split(',')[0].trim();
-  return req.headers.get('x-real-ip') || '0.0.0.0';
-}
 
 export async function POST(request: NextRequest) {
   try {
