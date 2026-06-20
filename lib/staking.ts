@@ -401,17 +401,12 @@ export function markRewardPayoutCompleted(payoutId: string, txHash: string): voi
   ).run(txHash, new Date().toISOString(), payoutId);
 }
 
+// A transfer that throws may still have broadcast on-chain (e.g. a confirmation
+// timeout). Restoring claimable_usd would let the user claim the same reward
+// again and be paid twice. Instead park the payout in 'needs_review' and leave
+// the balance debited until an operator confirms whether the tx landed.
 export function markRewardPayoutFailed(payoutId: string): void {
   const db = getDb();
-  const row = db.prepare("SELECT privy_id, amount_usd FROM staking_reward_payouts WHERE id = ? AND status = 'pending_transfer'").get(payoutId) as
-    | { privy_id: string; amount_usd: number }
-    | undefined;
-  if (!row) return;
-  const txn = db.transaction(() => {
-    db.prepare("UPDATE staking_reward_payouts SET status = 'failed', completed_at = ? WHERE id = ?")
-      .run(new Date().toISOString(), payoutId);
-    db.prepare('UPDATE staking_rewards SET claimable_usd = claimable_usd + ?, updated_at = ? WHERE privy_id = ?')
-      .run(row.amount_usd, new Date().toISOString(), row.privy_id);
-  });
-  txn();
+  db.prepare("UPDATE staking_reward_payouts SET status = 'needs_review', completed_at = ? WHERE id = ? AND status = 'pending_transfer'")
+    .run(new Date().toISOString(), payoutId);
 }

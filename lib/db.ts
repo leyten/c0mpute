@@ -435,7 +435,7 @@ export function getPendingBalance(privyId: string): number {
     'SELECT COALESCE(SUM(earning_usd), 0) as total FROM worker_earnings WHERE privy_id = ?'
   ).get(privyId) as { total: number };
   const payoutsRow = db.prepare(
-    "SELECT COALESCE(SUM(amount_usd), 0) as total FROM worker_payouts WHERE privy_id = ? AND status IN ('pending_transfer', 'completed')"
+    "SELECT COALESCE(SUM(amount_usd), 0) as total FROM worker_payouts WHERE privy_id = ? AND status IN ('pending_transfer', 'completed', 'needs_review')"
   ).get(privyId) as { total: number };
   // Referral earnings ride the same withdrawal rails: one pending balance,
   // one payout ledger, so requestPayout's double-claim guard covers both.
@@ -528,11 +528,17 @@ export function markPayoutCompleted(payoutId: string, txHash: string): void {
   ).run(txHash, new Date().toISOString(), payoutId);
 }
 
+// A transfer that throws may still have broadcast on-chain (e.g. a confirmation
+// timeout after the tx was submitted). Auto-restoring the balance would let the
+// user withdraw again and be paid twice. Instead hold the funds by parking the
+// payout in 'needs_review' (still counted against the withdrawable balance in
+// getPendingBalance) until an operator confirms whether the tx landed and
+// resolves it to 'completed' (it did) or 'failed'/'cancelled' (it didn't).
 export function markPayoutFailed(payoutId: string): void {
   ensureEarningsTables();
   const db = getDb();
   db.prepare(
-    "UPDATE worker_payouts SET status = 'failed', completed_at = ? WHERE id = ? AND status = 'pending_transfer'"
+    "UPDATE worker_payouts SET status = 'needs_review', completed_at = ? WHERE id = ? AND status = 'pending_transfer'"
   ).run(new Date().toISOString(), payoutId);
 }
 
