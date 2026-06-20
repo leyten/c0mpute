@@ -7,7 +7,7 @@ import { io, Socket } from 'socket.io-client';
 
 const ORCH_URL = process.env.INTERNAL_ORCHESTRATOR_URL || 'http://127.0.0.1:3004';
 
-export interface ImageJobResult { image: string; seed?: number; width?: number; height?: number }
+export interface ImageJobResult { image: string; jobId?: string; seed?: number; width?: number; height?: number }
 
 export class ImageJobError extends Error {
   code?: string;
@@ -28,7 +28,7 @@ export async function submitImageJob(
     const timer = setTimeout(() => finish(() => reject(new ImageJobError('Image generation timed out.', 'TIMEOUT'))), 200_000);
 
     socket.on('connect_error', () => finish(() => reject(new ImageJobError('Could not reach the image network.', 'ORCH_UNREACHABLE'))));
-    socket.on('image:done', (d: any) => finish(() => resolve({ image: d.image, seed: d.seed, width: d.width, height: d.height })));
+    socket.on('image:done', (d: any) => finish(() => resolve({ image: d.image, jobId: d.jobId, seed: d.seed, width: d.width, height: d.height })));
     socket.on('image:error', (d: any) => finish(() => reject(new ImageJobError(d.error || 'Image generation failed.', d.code))));
     socket.on('connect', () => {
       socket.emit('image:submit', { workflow, privyUserId: meta.privyId, seed: meta.seed, width: meta.width, height: meta.height, creditsCharged: meta.creditsCharged, subsidized: meta.subsidized }, (ack: any) => {
