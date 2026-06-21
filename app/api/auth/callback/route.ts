@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getProfileByPrivyId, upsertProfile, recordNewAccountForIp } from '@/lib/db';
-import { getAuthUserId } from '@/lib/privy-server';
+import { getAuthUserId, userOwnsSolanaWallet } from '@/lib/privy-server';
 import { bindReferral } from '@/lib/referrals';
 import { hashIp } from '@/lib/anon-auth';
 import { ACCOUNT_CREATE_IP_DAILY_CAP } from '@/lib/tokenomics';
@@ -46,11 +46,22 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // SECURITY: never persist identity fields straight from the request body.
+    // A wallet is only written if the caller PROVABLY controls it (linked in
+    // Privy) — the same gate /api/profile/link-wallet already uses. Otherwise any
+    // logged-in user could set wallet_address to a large staker's wallet and
+    // inherit its stake-derived perks (worker revenue boost + daily free-credit
+    // allowance). X identity is written only on first creation, so an existing
+    // account can't be re-pointed at someone else's handle by a later callback.
+    let verifiedWallet: string | null = null;
+    if (typeof wallet === 'string' && wallet && (await userOwnsSolanaWallet(authUserId, wallet))) {
+      verifiedWallet = wallet;
+    }
+
     const profile = upsertProfile({
       privy_id: authUserId,
-      wallet_address: wallet || null,
-      x_username: twitter?.username || null,
-      x_id: twitter?.id || null,
+      ...(verifiedWallet ? { wallet_address: verifiedWallet } : {}),
+      ...(isNewAccount ? { x_username: twitter?.username || null, x_id: twitter?.id || null } : {}),
     });
 
     if (isNewAccount && typeof refCode === 'string' && refCode) {
