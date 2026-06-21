@@ -1086,6 +1086,11 @@ export function getCreditBalance(privyId: string): { balance: number; totalDepos
 }
 
 export function addCredits(privyId: string, amount: number, txHash?: string, description?: string): void {
+  // Never mint a non-positive or non-finite amount — a NaN/negative here would
+  // corrupt the balance and total_deposited. Callers must pass a real credit count.
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw new Error(`addCredits: refusing non-positive/non-finite amount (${amount})`);
+  }
   ensureCreditTables();
   const db = getDb();
   const now = new Date().toISOString();
@@ -1108,6 +1113,8 @@ export function addCredits(privyId: string, amount: number, txHash?: string, des
 }
 
 export function spendCredits(privyId: string, amount: number, description?: string): boolean {
+  // A non-positive/non-finite spend is a bug; a negative would add balance.
+  if (!Number.isFinite(amount) || amount <= 0) return false;
   ensureCreditTables();
   const db = getDb();
   const now = new Date().toISOString();
@@ -1129,6 +1136,8 @@ export function spendCredits(privyId: string, amount: number, description?: stri
 }
 
 export function refundCredits(privyId: string, amount: number, description?: string): void {
+  // A non-positive/non-finite refund is a bug; a negative would silently debit.
+  if (!Number.isFinite(amount) || amount <= 0) return;
   ensureCreditTables();
   const db = getDb();
   const now = new Date().toISOString();
