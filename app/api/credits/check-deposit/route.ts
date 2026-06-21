@@ -32,8 +32,15 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json();
 
-  // DEV-ONLY: add credits directly
-  if (body.action === 'dev_add' && process.env.NODE_ENV !== 'production') {
+  // DEV-ONLY: add credits directly. Double-gated so a single misconfigured env
+  // can't open a credit-minting backdoor: requires BOTH a non-production NODE_ENV
+  // AND an explicit ALLOW_DEV_CREDITS=true opt-in (default off). On any real
+  // deployment neither minting nor this branch is reachable.
+  if (
+    body.action === 'dev_add' &&
+    process.env.NODE_ENV !== 'production' &&
+    process.env.ALLOW_DEV_CREDITS === 'true'
+  ) {
     const amount = Number(body.amount);
     if (!amount || amount <= 0 || amount > 10000) {
       return NextResponse.json({ error: 'Invalid amount' }, { status: 400 });
