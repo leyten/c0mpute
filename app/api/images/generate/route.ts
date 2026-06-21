@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyPrivyToken } from '@/lib/privy-server';
-import { resolveApiKey, spendCredits, refundCredits, consumeFreeImage, refundFreeImage, getTodayFreeSubsidyUsd } from '@/lib/db';
+import { resolveApiKey, spendCredits, refundCredits, consumeFreeImage, refundFreeImage, getTodayFreeSubsidyUsd, reverseWorkerEarning } from '@/lib/db';
 import { consumeStakerAllowance, refundStakerAllowance } from '@/lib/staker-allowance';
 import { STAKER_ALLOWANCE_ENABLED, FREE_IMAGE_LIMIT, FREE_SUBSIDY_DAILY_CAP_USD } from '@/lib/tokenomics';
 import { buildImageWorkflow, IMAGE_CREDITS, IMAGE_MODEL_ID } from '@/lib/image-gen';
@@ -90,9 +90,11 @@ export async function POST(req: NextRequest) {
   });
 
   let image: string;
+  let jobId: string | undefined;
   try {
     const result = await submitImageJob(workflow, { privyId, seed, width, height, creditsCharged: IMAGE_CREDITS, subsidized: usedFreeImage });
     image = result.image;
+    jobId = result.jobId;
   } catch (err: any) {
     refund('Image generation failed');
     const code = err instanceof ImageJobError ? err.code : undefined;
@@ -115,6 +117,10 @@ export async function POST(req: NextRequest) {
     const verdict = await classifyImageNsfw(Buffer.from(image, 'base64'));
     if (verdict.classifierUp && verdict.nsfw) {
       refund('SFW request produced adult content');
+      // The render was rejected after the fact, so reverse the worker (and
+      // referral) earning already booked for it on image:result — otherwise the
+      // worker is paid for output we threw away and refunded.
+      if (jobId) reverseWorkerEarning(jobId);
       return NextResponse.json(
         { error: 'That came out as adult content. Turn on NSFW (18+) to allow it, or adjust your prompt.' },
         { status: 400 }

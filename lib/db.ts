@@ -442,6 +442,26 @@ export function getPendingBalance(privyId: string): number {
   return Math.max(0, earningsRow.total + getReferralEarningsTotal(privyId) - payoutsRow.total);
 }
 
+// Reverse the worker (and referral) earnings booked for a job. Used when a
+// render is rejected and refunded after it already completed: the worker was
+// paid on image:result, but the central policy then threw the output away and
+// refunded the requester. Without this, someone running their own image worker
+// could return content that gets refunded to the requester while the worker
+// keeps a withdrawable earning.
+export function reverseWorkerEarning(jobId: string): void {
+  ensureEarningsTables();
+  const db = getDb();
+  const txn = db.transaction(() => {
+    db.prepare('DELETE FROM worker_earnings WHERE job_id = ?').run(jobId);
+    try {
+      db.prepare('DELETE FROM referral_earnings WHERE job_id = ?').run(jobId);
+    } catch {
+      // referral table may not exist yet; nothing to reverse there.
+    }
+  });
+  txn();
+}
+
 export function getTotalEarnings(privyId: string): number {
   ensureEarningsTables();
   const db = getDb();
