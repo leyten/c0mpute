@@ -22,13 +22,17 @@ export async function POST(req: NextRequest) {
   }
 
   let name = 'default';
+  let freeOnly = false;
   try {
     const body = await req.json();
     if (body.name) name = String(body.name).slice(0, 50);
+    // free_only ("resale") key: scoped to spend ONLY the staking allowance, never
+    // the owner's deposited USDC — safe to hand to a marketplace like UsePod.
+    freeOnly = body.free_only === true;
   } catch {}
 
-  const key = createApiKey(privyId, name);
-  return NextResponse.json({ key });
+  const key = createApiKey(privyId, name, freeOnly);
+  return NextResponse.json({ key, free_only: freeOnly });
 }
 
 // GET — list active keys (metadata only, never the raw key)

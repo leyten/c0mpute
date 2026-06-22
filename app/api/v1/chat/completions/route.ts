@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { io, Socket } from 'socket.io-client';
-import { resolveApiKey } from '@/lib/db';
+import { resolveApiKeyFull, getApiKeyRequestsToday, bumpApiKeyRequest } from '@/lib/db';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -129,6 +129,10 @@ function mapToolCallsOut(toolCalls: any[]): any[] {
 // The orchestrator's per-account 20/5min limit is skipped for API jobs in favor
 // of this per-key limit.
 const RATE_LIMIT_PER_MIN = Number(process.env.API_RATE_LIMIT_PER_MIN || 60);
+// Persistent per-day request cap for free-only ("resale") keys — survives web
+// restarts (unlike the in-memory per-minute limiter) and bounds resale abuse on
+// top of the already pool-capped staking allowance. 0 = unlimited.
+const FREE_ONLY_DAILY_CAP = Number(process.env.API_FREE_ONLY_DAILY_CAP || 2000);
 const rateBuckets = new Map<string, number[]>();
 function rateLimited(key: string): boolean {
   const now = Date.now();
@@ -146,13 +150,19 @@ export async function POST(req: NextRequest) {
     return oaiError('Missing bearer API key.', 'invalid_request_error', 401, 'invalid_api_key');
   }
   const rawKey = authHeader.slice(7).trim();
-  const privyId = resolveApiKey(rawKey);
-  if (!privyId) {
+  const resolved = resolveApiKeyFull(rawKey);
+  if (!resolved) {
     return oaiError('Invalid API key.', 'invalid_request_error', 401, 'invalid_api_key');
   }
+  const { privyId, keyId, freeOnly } = resolved;
   if (rateLimited(rawKey)) {
     return oaiError(`Rate limit exceeded (${RATE_LIMIT_PER_MIN} requests/min per key).`, 'rate_limit_exceeded', 429, 'rate_limit_exceeded');
   }
+  // Persistent daily cap for resale keys.
+  if (freeOnly && FREE_ONLY_DAILY_CAP > 0 && getApiKeyRequestsToday(keyId) >= FREE_ONLY_DAILY_CAP) {
+    return oaiError(`Daily request cap reached for this key (${FREE_ONLY_DAILY_CAP}/day).`, 'rate_limit_exceeded', 429, 'rate_limit_exceeded');
+  }
+  bumpApiKeyRequest(keyId);
 
   // ── Body ──
   let body: any;
@@ -234,7 +244,7 @@ export async function POST(req: NextRequest) {
       const t = setTimeout(() => resolve({ httpErr: { status: 504, type: 'timeout', message: 'Inference timed out.' } }), 15_000);
       socket.on('connect_error', () => { clearTimeout(t); resolve({ httpErr: { status: 503, type: 'api_error', message: 'Could not reach inference network.' } }); });
       socket.on('connect', () => {
-        socket.emit('job:submit', { messages: workerMessages, model: mapped.model, think: mapped.think, privyUserId: privyId, tools }, (ack: { jobId?: string; error?: string }) => {
+        socket.emit('job:submit', { messages: workerMessages, model: mapped.model, think: mapped.think, privyUserId: privyId, tools, freeOnly }, (ack: { jobId?: string; error?: string }) => {
           clearTimeout(t);
           if (ack?.error) { resolve({ ackErr: ack.error }); return; }
           jobId = ack?.jobId ?? null;
@@ -247,7 +257,7 @@ export async function POST(req: NextRequest) {
       try { socket.disconnect(); } catch {}
       if (pre.ackErr) {
         const e = pre.ackErr.toLowerCase();
-        if (e.includes('insufficient credits')) return oaiError(pre.ackErr, 'insufficient_quota', 402);
+        if (e.includes('insufficient credits') || e.includes('allowance')) return oaiError(pre.ackErr, 'insufficient_quota', 402);
         if (e.includes('rate limit')) return oaiError(pre.ackErr, 'rate_limit_exceeded', 429);
         return oaiError(pre.ackErr, 'invalid_request_error', 400);
       }
@@ -301,11 +311,11 @@ export async function POST(req: NextRequest) {
       socket.on('connect', () => {
         socket!.emit(
           'job:submit',
-          { messages: workerMessages, model: mapped.model, think: mapped.think, privyUserId: privyId, tools },
+          { messages: workerMessages, model: mapped.model, think: mapped.think, privyUserId: privyId, tools, freeOnly },
           (ack: { jobId?: string; error?: string }) => {
             if (ack?.error) {
               const e = ack.error.toLowerCase();
-              if (e.includes('insufficient credits')) fail(402, 'insufficient_quota', ack.error);
+              if (e.includes('insufficient credits') || e.includes('allowance')) fail(402, 'insufficient_quota', ack.error);
               else if (e.includes('rate limit')) fail(429, 'rate_limit_exceeded', ack.error);
               else fail(400, 'invalid_request_error', ack.error);
               return;
