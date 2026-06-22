@@ -67,7 +67,11 @@ export default function SettingsPage() {
   const [newApiKey, setNewApiKey] = useState<string | null>(null);
   const [apiKeyGenerating, setApiKeyGenerating] = useState(false);
   const [apiKeyError, setApiKeyError] = useState<string | null>(null);
-  const [newKeyFreeOnly, setNewKeyFreeOnly] = useState(false);
+  // Staking allowance — gates the resale-key card (only shown to stakers who
+  // actually have a daily allowance to resell).
+  const [allowance, setAllowance] = useState<{ enabled: boolean; dailyAllowance: number; usedToday: number; remaining: number } | null>(null);
+  const [newResaleKey, setNewResaleKey] = useState<string | null>(null);
+  const [resaleKeyGenerating, setResaleKeyGenerating] = useState(false);
   const [earnings, setEarnings] = useState<{pendingBalance: number; todayEarnings: number; totalEarnings: number; wallet: string | null} | null>(null);
   const [referrals, setReferrals] = useState<{code: string; link: string; referredCount: number; earnedUsd: number; earnedUsdThisMonth: number; recent: {tier: string; usd: number; created_at: string}[]} | null>(null);
   const [refCopied, setRefCopied] = useState(false);
@@ -169,6 +173,7 @@ export default function SettingsPage() {
       fetchEarnings();
     } else if (activeTab === 'developer') {
       fetchApiKeys();
+      fetchAllowance();
     } else if (activeTab === 'referrals') {
       fetchReferrals();
     } else if (activeTab === 'usage') {
@@ -248,8 +253,8 @@ export default function SettingsPage() {
     } catch {} finally { setLoadingApiKeys(false); }
   };
 
-  const generateApiKey = async () => {
-    setApiKeyGenerating(true);
+  const generateApiKey = async (freeOnly = false) => {
+    if (freeOnly) setResaleKeyGenerating(true); else setApiKeyGenerating(true);
     setApiKeyError(null);
     try {
       const t = await getAccessToken();
@@ -257,14 +262,23 @@ export default function SettingsPage() {
       const res = await fetch('/api/api-keys', {
         method: 'POST',
         headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: 'default', free_only: newKeyFreeOnly }),
+        body: JSON.stringify({ name: freeOnly ? 'resale' : 'default', free_only: freeOnly }),
       });
       const data = await res.json();
       if (!res.ok) { setApiKeyError(data.error || 'Failed to generate key.'); return; }
-      setNewApiKey(data.key);
+      if (freeOnly) setNewResaleKey(data.key); else setNewApiKey(data.key);
       fetchApiKeys();
     } catch { setApiKeyError('Failed to generate key.'); }
-    finally { setApiKeyGenerating(false); }
+    finally { if (freeOnly) setResaleKeyGenerating(false); else setApiKeyGenerating(false); }
+  };
+
+  const fetchAllowance = async () => {
+    try {
+      const t = await getAccessToken();
+      if (!t) return;
+      const res = await fetch('/api/staking/onchain-status', { headers: { Authorization: `Bearer ${t}` } });
+      if (res.ok) { const d = await res.json(); setAllowance(d.allowance ?? null); }
+    } catch {}
   };
 
   const revokeApiKey = async (keyId: string) => {
@@ -734,19 +748,7 @@ export default function SettingsPage() {
 models:    c0mpute-pro  ·  c0mpute-max  ·  c0mpute-max-think`}</code>
                 </div>
 
-                <label className="flex items-start gap-2 mb-4 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={newKeyFreeOnly}
-                    onChange={(e) => setNewKeyFreeOnly(e.target.checked)}
-                    className="mt-0.5 accent-[#80a0c1]"
-                  />
-                  <span className="pixel-sans text-white/60 text-xs">
-                    Resale key — spends only your daily staking allowance, never your deposited balance. Safe to share with a marketplace.
-                  </span>
-                </label>
-
-                <button onClick={generateApiKey} disabled={apiKeyGenerating} className="cursor-pointer pixel-serif text-sm px-6 py-3 rounded-xl bg-[#80a0c1]/15 border border-[#80a0c1]/30 text-[#80a0c1] hover:bg-[#80a0c1]/25 transition-colors disabled:opacity-50 mb-4">
+                <button onClick={() => generateApiKey(false)} disabled={apiKeyGenerating} className="cursor-pointer pixel-serif text-sm px-6 py-3 rounded-xl bg-[#80a0c1]/15 border border-[#80a0c1]/30 text-[#80a0c1] hover:bg-[#80a0c1]/25 transition-colors disabled:opacity-50 mb-4">
                   {apiKeyGenerating ? 'Generating...' : 'Generate New Key'}
                 </button>
 
@@ -775,6 +777,44 @@ models:    c0mpute-pro  ·  c0mpute-max  ·  c0mpute-max-think`}</code>
                   </div>
                 ) : null}
               </section>
+
+              {/* Resale key card — only for stakers who actually have a daily
+                  allowance to resell. Spends allowance only, never deposited USDC. */}
+              {allowance?.enabled && allowance.dailyAllowance > 0 && (
+                <section className="border border-[#80a0c1]/30 bg-[#80a0c1]/[0.04] p-6 rounded-2xl">
+                  <h2 className="pixel-serif text-white text-xl mb-2">Resale key</h2>
+                  <p className="pixel-sans text-white/70 text-sm mb-4">
+                    You have <span className="text-[#80a0c1]">{allowance.dailyAllowance}</span> credits/day of staking allowance ({allowance.remaining} left today). A resale key lets a marketplace spend only this daily allowance — never your deposited balance — so you can sell your unused inference. Safe to share.
+                  </p>
+
+                  <div className="flex items-center gap-2 bg-white/[0.03] border border-white/10 rounded-lg p-3 mb-2">
+                    <code className="font-mono text-sm flex-1 whitespace-nowrap overflow-x-auto select-all" style={{color: newResaleKey ? '#80a0c1' : 'rgba(255,255,255,0.35)'}}>
+                      {newResaleKey || 'sk-c0mpute-...'}
+                    </code>
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(newResaleKey || '');
+                        setCopied('resalekey');
+                        setTimeout(() => setCopied(null), 2000);
+                      }}
+                      disabled={!newResaleKey}
+                      className="pixel-sans text-xs px-2.5 py-1.5 rounded-lg border border-white/10 text-white/70 hover:text-white hover:bg-white/5 transition-colors flex-shrink-0 disabled:opacity-40"
+                    >
+                      {copied === 'resalekey' ? 'Copied' : 'Copy'}
+                    </button>
+                  </div>
+
+                  {newResaleKey && (
+                    <p className="pixel-sans text-white/60 text-xs mb-4">
+                      Resale key generated — copy it now. It won&apos;t be shown again.
+                    </p>
+                  )}
+
+                  <button onClick={() => generateApiKey(true)} disabled={resaleKeyGenerating} className="cursor-pointer pixel-serif text-sm px-6 py-3 rounded-xl bg-[#80a0c1]/15 border border-[#80a0c1]/30 text-[#80a0c1] hover:bg-[#80a0c1]/25 transition-colors disabled:opacity-50">
+                    {resaleKeyGenerating ? 'Generating...' : 'Generate Resale Key'}
+                  </button>
+                </section>
+              )}
             </div>
           )}
 
