@@ -401,6 +401,15 @@ export class Orchestrator {
           }
         }
 
+        // Free-only ("resale") API keys may spend ONLY the staking allowance above.
+        // If the allowance didn't cover this job, reject here instead of falling
+        // through to the owner's deposited USDC — this is what lets a staker safely
+        // hand a resale key to a third party without exposing their real balance.
+        if (creditCost > 0 && isInternal && data.freeOnly === true) {
+          callback({ error: 'Insufficient staking allowance for this key. Resale keys can only spend the daily staking allowance.', code: 'ALLOWANCE_EXHAUSTED' });
+          return;
+        }
+
         if (creditCost > 0) {
           const creditBalance = getCreditBalance(privyUserId);
           if (creditBalance.balance < creditCost) {

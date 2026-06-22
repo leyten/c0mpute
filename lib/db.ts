@@ -674,7 +674,19 @@ function ensureApiKeysTable() {
       last_used_at TEXT,
       revoked INTEGER DEFAULT 0
     );
+    CREATE TABLE IF NOT EXISTS api_key_usage (
+      key_id TEXT NOT NULL,
+      day TEXT NOT NULL,
+      requests INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (key_id, day)
+    );
   `);
+  // free_only: a "resale" key scoped to spend ONLY the owner's staking allowance,
+  // never their deposited USDC. Added via migration so existing keys default to 0.
+  const cols = db.prepare(`PRAGMA table_info(api_keys)`).all() as { name: string }[];
+  if (!cols.some((c) => c.name === 'free_only')) {
+    db.exec(`ALTER TABLE api_keys ADD COLUMN free_only INTEGER DEFAULT 0`);
+  }
 }
 
 function generateApiKey(): string {
@@ -682,37 +694,49 @@ function generateApiKey(): string {
   return 'sk-c0mpute-' + crypto.randomBytes(24).toString('base64url');
 }
 
-export function createApiKey(privyId: string, name?: string): string {
+export function createApiKey(privyId: string, name?: string, freeOnly = false): string {
   ensureApiKeysTable();
   const db = getDb();
   const key = generateApiKey();
   const id = crypto.randomUUID();
   const now = new Date().toISOString();
   db.prepare(
-    'INSERT INTO api_keys (id, privy_id, key_hash, name, created_at) VALUES (?, ?, ?, ?, ?)'
-  ).run(id, privyId, hashToken(key), name || 'default', now);
+    'INSERT INTO api_keys (id, privy_id, key_hash, name, created_at, free_only) VALUES (?, ?, ?, ?, ?, ?)'
+  ).run(id, privyId, hashToken(key), name || 'default', now, freeOnly ? 1 : 0);
   return key;
 }
 
 // Resolve a raw API key to its owner's privy_id (or null). Updates last_used_at.
 export function resolveApiKey(rawKey: string): string | null {
+  return resolveApiKeyFull(rawKey)?.privyId ?? null;
+}
+
+// Full resolve: owner + key id + scope. free_only keys may spend ONLY the staking
+// allowance (the orchestrator rejects rather than touching deposited USDC).
+export function resolveApiKeyFull(rawKey: string): { privyId: string; keyId: string; freeOnly: boolean } | null {
   ensureApiKeysTable();
   const db = getDb();
   const hash = hashToken(rawKey);
   const row = db.prepare(
-    'SELECT privy_id FROM api_keys WHERE key_hash = ? AND revoked = 0'
-  ).get(hash) as { privy_id: string } | undefined;
+    'SELECT id, privy_id, free_only FROM api_keys WHERE key_hash = ? AND revoked = 0'
+  ).get(hash) as { id: string; privy_id: string; free_only: number } | undefined;
   if (!row) return null;
   db.prepare('UPDATE api_keys SET last_used_at = ? WHERE key_hash = ?').run(new Date().toISOString(), hash);
-  return row.privy_id;
+  return { privyId: row.privy_id, keyId: row.id, freeOnly: row.free_only === 1 };
 }
 
-export function getApiKeys(privyId: string): { id: string; name: string; created_at: string; last_used_at: string | null }[] {
+export function getApiKeys(privyId: string): { id: string; name: string; created_at: string; last_used_at: string | null; free_only: number; requests_today: number }[] {
   ensureApiKeysTable();
   const db = getDb();
+  const day = new Date().toISOString().slice(0, 10);
   return db.prepare(
-    'SELECT id, name, created_at, last_used_at FROM api_keys WHERE privy_id = ? AND revoked = 0 ORDER BY created_at DESC'
-  ).all(privyId) as any[];
+    `SELECT k.id, k.name, k.created_at, k.last_used_at, k.free_only,
+            COALESCE(u.requests, 0) AS requests_today
+       FROM api_keys k
+       LEFT JOIN api_key_usage u ON u.key_id = k.id AND u.day = ?
+      WHERE k.privy_id = ? AND k.revoked = 0
+      ORDER BY k.created_at DESC`
+  ).all(day, privyId) as any[];
 }
 
 export function revokeApiKey(keyId: string, privyId: string): boolean {
@@ -722,6 +746,31 @@ export function revokeApiKey(keyId: string, privyId: string): boolean {
     'UPDATE api_keys SET revoked = 1 WHERE id = ? AND privy_id = ?'
   ).run(keyId, privyId);
   return result.changes > 0;
+}
+
+// Today's request count for a key (UTC day). Used for per-key metering + the
+// persistent daily cap on resale keys (survives web restarts, unlike the
+// in-memory per-minute limiter).
+export function getApiKeyRequestsToday(keyId: string): number {
+  ensureApiKeysTable();
+  const db = getDb();
+  const day = new Date().toISOString().slice(0, 10);
+  const row = db.prepare('SELECT requests FROM api_key_usage WHERE key_id = ? AND day = ?').get(keyId, day) as
+    | { requests: number }
+    | undefined;
+  return row?.requests ?? 0;
+}
+
+// Increment a key's request count for today. Returns the new count.
+export function bumpApiKeyRequest(keyId: string): number {
+  ensureApiKeysTable();
+  const db = getDb();
+  const day = new Date().toISOString().slice(0, 10);
+  db.prepare(
+    `INSERT INTO api_key_usage (key_id, day, requests) VALUES (?, ?, 1)
+     ON CONFLICT(key_id, day) DO UPDATE SET requests = requests + 1`
+  ).run(keyId, day);
+  return getApiKeyRequestsToday(keyId);
 }
 
 // ── Generated images (image-gen feature) ──

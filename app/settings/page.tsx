@@ -62,11 +62,12 @@ export default function SettingsPage() {
   const [tokenGenerating, setTokenGenerating] = useState(false);
   const [tokenError, setTokenError] = useState<string | null>(null);
   // API keys (public inference API)
-  const [apiKeys, setApiKeys] = useState<{id: string; name: string; created_at: string; last_used_at: string | null}[]>([]);
+  const [apiKeys, setApiKeys] = useState<{id: string; name: string; created_at: string; last_used_at: string | null; free_only?: number; requests_today?: number}[]>([]);
   const [loadingApiKeys, setLoadingApiKeys] = useState(false);
   const [newApiKey, setNewApiKey] = useState<string | null>(null);
   const [apiKeyGenerating, setApiKeyGenerating] = useState(false);
   const [apiKeyError, setApiKeyError] = useState<string | null>(null);
+  const [newKeyFreeOnly, setNewKeyFreeOnly] = useState(false);
   const [earnings, setEarnings] = useState<{pendingBalance: number; todayEarnings: number; totalEarnings: number; wallet: string | null} | null>(null);
   const [referrals, setReferrals] = useState<{code: string; link: string; referredCount: number; earnedUsd: number; earnedUsdThisMonth: number; recent: {tier: string; usd: number; created_at: string}[]} | null>(null);
   const [refCopied, setRefCopied] = useState(false);
@@ -256,7 +257,7 @@ export default function SettingsPage() {
       const res = await fetch('/api/api-keys', {
         method: 'POST',
         headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: 'default' }),
+        body: JSON.stringify({ name: 'default', free_only: newKeyFreeOnly }),
       });
       const data = await res.json();
       if (!res.ok) { setApiKeyError(data.error || 'Failed to generate key.'); return; }
@@ -733,6 +734,18 @@ export default function SettingsPage() {
 models:    c0mpute-pro  ·  c0mpute-max  ·  c0mpute-max-think`}</code>
                 </div>
 
+                <label className="flex items-start gap-2 mb-4 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={newKeyFreeOnly}
+                    onChange={(e) => setNewKeyFreeOnly(e.target.checked)}
+                    className="mt-0.5 accent-[#80a0c1]"
+                  />
+                  <span className="pixel-sans text-white/60 text-xs">
+                    Resale key — spends only your daily staking allowance, never your deposited balance. Safe to share with a marketplace.
+                  </span>
+                </label>
+
                 <button onClick={generateApiKey} disabled={apiKeyGenerating} className="cursor-pointer pixel-serif text-sm px-6 py-3 rounded-xl bg-[#80a0c1]/15 border border-[#80a0c1]/30 text-[#80a0c1] hover:bg-[#80a0c1]/25 transition-colors disabled:opacity-50 mb-4">
                   {apiKeyGenerating ? 'Generating...' : 'Generate New Key'}
                 </button>
@@ -747,6 +760,9 @@ models:    c0mpute-pro  ·  c0mpute-max  ·  c0mpute-max-think`}</code>
                         <div key={k.id} className="flex items-center justify-between px-3 py-2 bg-white/[0.02] border border-white/5 rounded-lg">
                           <div>
                             <span className="pixel-sans text-white/70 text-xs font-mono">{k.id.slice(0, 8)}...</span>
+                            {k.free_only ? (
+                              <span className="pixel-sans text-[#80a0c1] text-[10px] ml-2 px-1.5 py-0.5 rounded border border-[#80a0c1]/30">resale</span>
+                            ) : null}
                             <span className="pixel-sans text-white/55 text-[10px] ml-2">created {new Date(k.created_at).toLocaleDateString()}</span>
                             {k.last_used_at && (
                               <span className="pixel-sans text-white/55 text-[10px] ml-2">last used {new Date(k.last_used_at).toLocaleDateString()}</span>

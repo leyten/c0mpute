@@ -131,7 +131,7 @@ export interface ServerToClientEvents {
 }
 
 export interface ClientToServerEvents {
-  'job:submit': (data: { messages?: ChatMessage[]; model?: string; authToken?: string; think?: boolean; privyUserId?: string; tools?: ToolDefinition[] }, callback: (response: { jobId: string; freeRemaining?: number } | { error: string; code?: string }) => void) => void;
+  'job:submit': (data: { messages?: ChatMessage[]; model?: string; authToken?: string; think?: boolean; privyUserId?: string; tools?: ToolDefinition[]; freeOnly?: boolean }, callback: (response: { jobId: string; freeRemaining?: number } | { error: string; code?: string }) => void) => void;
   'worker:register': (data: { model: string; authToken?: string; tokPerSec?: number; type?: 'browser' | 'native' | 'image'; capabilities?: WorkerCapabilities }, callback: (response: { workerId: string } | { error: string }) => void) => void;
   'worker:unregister': () => void;
   'job:token': (data: { jobId: string; token: string }) => void;
