@@ -453,6 +453,10 @@ export default function UserPage() {
   useEffect(() => { pendingSourcesRef.current = pendingSources; }, [pendingSources]);
   // Images produced by the generate_image tool during the current response
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
+  // True between job:generating_image and the image landing. The render is async
+  // now, so the model's text turn (job:complete) finishes BEFORE the image — this
+  // keeps the "generating image…" skeleton up until job:image / job:image_error.
+  const awaitingImageRef = useRef(false);
   const [pendingGenImages, setPendingGenImages] = useState<string[]>([]);
   const pendingGenImagesRef = useRef<string[]>([]);
   useEffect(() => { pendingGenImagesRef.current = pendingGenImages; }, [pendingGenImages]);
@@ -806,6 +810,7 @@ export default function UserPage() {
     setThinkingElapsed(null);
     setPendingGenImages([]);
     pendingGenImagesRef.current = [];
+    awaitingImageRef.current = false;
     setIsGeneratingImage(false);
 
     try {
@@ -967,7 +972,10 @@ export default function UserPage() {
         setPendingSources([]);
         setPendingGenImages([]);
         pendingGenImagesRef.current = [];
-        setIsGeneratingImage(false);
+        // Keep the "generating image…" skeleton up if the async render is still
+        // in flight (model text finishes before the image lands); job:image /
+        // job:image_error clears it.
+        if (!awaitingImageRef.current) setIsGeneratingImage(false);
         refreshCredits();
 
         autoScrollIfPinned();
@@ -1000,14 +1008,17 @@ export default function UserPage() {
   useEffect(() => {
     setOnJobGeneratingImage((_jobId: string) => {
       setIsGeneratingImage(true);
-      // Safety net: renders take ~30s; never leave the indicator stuck
-      setTimeout(() => setIsGeneratingImage(false), 120000);
+      awaitingImageRef.current = true;
+      // Safety net: never leave the skeleton stuck past the orchestrator's 180s
+      // render ceiling if the image/error event is somehow missed.
+      setTimeout(() => { awaitingImageRef.current = false; setIsGeneratingImage(false); }, 200000);
     });
     return () => setOnJobGeneratingImage(null);
   }, [setOnJobGeneratingImage]);
 
   useEffect(() => {
     setOnJobImage((jobId: string, images: string[]) => {
+      awaitingImageRef.current = false;
       setIsGeneratingImage(false);
       // The render is async now, so the image can arrive AFTER the model's text
       // turn already saved its assistant message. If that message exists, attach
@@ -1046,6 +1057,7 @@ export default function UserPage() {
   // generating indicator without nuking the completed text response.
   useEffect(() => {
     setOnJobImageError((_jobId: string, errorMsg: string) => {
+      awaitingImageRef.current = false;
       setIsGeneratingImage(false);
       setError(errorMsg || 'Image generation failed. You were refunded.');
     });
@@ -1059,6 +1071,7 @@ export default function UserPage() {
       if (jobId === currentJobIdRef.current) {
         if (queueTimeoutRef.current) { clearTimeout(queueTimeoutRef.current); queueTimeoutRef.current = null; }
         setIsSearching(false);
+        awaitingImageRef.current = false;
         setIsGeneratingImage(false);
         setChatState('error');
         setError(errorMsg);
