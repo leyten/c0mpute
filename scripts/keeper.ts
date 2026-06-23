@@ -225,6 +225,8 @@ async function scheduleLoop(): Promise<void> {
 // `tsx scripts/keeper.ts once` runs a single cycle and exits (cron/manual use).
 if (process.argv[2] === 'once') {
   runCycle().then(() => process.exit(0));
+} else if (process.argv[2] === 'buyback') {
+  runBuyback().then(() => process.exit(0));
 } else {
   scheduleLoop();
   console.log('[Keeper] Started — scheduling daily cycles');

@@ -15,7 +15,11 @@ const db = new Database(join(ROOT, 'data', 'c0mpute.db'));
 db.pragma('journal_mode = WAL');
 
 const ORCH_URL = 'http://127.0.0.1:3004';
-const SITE_URL = process.env.DATASTATS_SITE_URL || 'https://c0mpute.ai';
+// Hit the local origin, NOT the public domain: since c0mpute.ai went behind
+// Cloudflare's "Under Attack" mode (2026-06-20), a server-side fetch to the
+// public URL gets the JS-challenge HTML instead of JSON, which silently nulled
+// the treasury tiles on data.c0mpute.ai. Local bypasses Cloudflare entirely.
+const SITE_URL = process.env.DATASTATS_SITE_URL || 'http://127.0.0.1:3003';
 const OUT = join(ROOT, 'data-site', 'stats.json');
 
 // Internal/test accounts excluded from public revenue + user numbers.
