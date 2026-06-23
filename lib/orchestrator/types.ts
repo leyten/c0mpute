@@ -116,6 +116,7 @@ export interface ServerToClientEvents {
   'job:sources': (data: { jobId: string; sources: { title: string; url: string; description: string }[] }) => void;
   'job:generating_image': (data: { jobId: string }) => void;
   'job:image': (data: { jobId: string; images: string[] }) => void;
+  'job:image_error': (data: { jobId: string; error: string }) => void;
   'job:assigned': (data: { jobId: string; workerId: string }) => void;
   'job:token': (data: { jobId: string; token: string }) => void;
   'job:complete': (data: { jobId: string; response: string }) => void;

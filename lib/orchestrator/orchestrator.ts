@@ -740,7 +740,7 @@ export class Orchestrator {
     console.log(`[Orchestrator] Job ${jobId}: executing tools — ${toolCalls.map(tc => tc.function.name).join(', ')}`);
 
     // Execute all tool calls
-    const { messages, sources, images } = await executeToolCalls(toolCalls, {
+    const { messages, sources, images, pendingImages } = await executeToolCalls(toolCalls, {
       privyUserId: job.privyUserId,
       renderImage: (workflow, meta) => this.renderImageInternal(workflow, meta),
     });
@@ -750,14 +750,40 @@ export class Orchestrator {
       userSocket.emit('job:sources', { jobId, sources });
     }
 
-    // Send tool-generated images to the user (rendered inline in the chat;
-    // never stored server-side — same privacy posture as /create)
+    // Legacy synchronous images (none today — generate_image now defers; kept defensive)
     if (images && images.length > 0 && userSocket) {
       userSocket.emit('job:image', { jobId, images });
     }
 
-    // Send tool results back to the worker
+    // Send tool results back to the worker immediately so its tool-result wait
+    // never blocks on the GPU render. The model writes its turn now; the image
+    // lands a few seconds later via the async render below.
     workerSocket.emit(`job:tool_result:${jobId}` as any, { results: messages });
+
+    // Fire deferred image renders async. Each delivers to the user (keyed to this
+    // chat jobId) when it lands, or refunds + signals an error if it fails. Never
+    // stored server-side — same privacy posture as /create.
+    if (pendingImages && pendingImages.length > 0) {
+      for (const pi of pendingImages) {
+        this.renderImageInternal(pi.workflow, {
+          privyUserId: pi.privyUserId,
+          seed: pi.seed,
+          width: pi.width,
+          height: pi.height,
+          creditsCharged: pi.creditsCharged,
+        })
+          .then((image) => {
+            const us = this.io.sockets.sockets.get(job.userSocketId);
+            if (us) us.emit('job:image', { jobId, images: [image] });
+          })
+          .catch((err) => {
+            try { pi.refund(); } catch (e) { console.error('[Orchestrator] image refund failed:', e); }
+            const us = this.io.sockets.sockets.get(job.userSocketId);
+            if (us) us.emit('job:image_error', { jobId, error: err instanceof Error ? err.message : 'Image generation failed.' });
+            console.warn(`[Orchestrator] Deferred image render failed for job ${jobId}: ${err instanceof Error ? err.message : err}`);
+          });
+      }
+    }
   }
 
   private cleanupUserJobs(userSocketId: string) {
