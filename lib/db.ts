@@ -659,6 +659,39 @@ export function revokeWorkerToken(tokenId: string, privyId: string): boolean {
   return result.changes > 0;
 }
 
+// ── Node identity binding (shard step 2.3) ──
+// Maps a swarm node's libp2p PeerId to its c0mpute account, recorded only after the node
+// proves it controls the key (see lib/identity.ts) under a valid cwt_ token. This is how
+// per-node pay + per-node reputation attribute to the right owner.
+
+function ensureWorkerIdentityTable() {
+  const db = getDb();
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS worker_identity (
+      peer_id TEXT PRIMARY KEY,
+      privy_id TEXT NOT NULL,
+      bound_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_worker_identity_privy ON worker_identity(privy_id);
+  `);
+}
+
+export function bindPeerId(peerId: string, privyId: string): void {
+  ensureWorkerIdentityTable();
+  const db = getDb();
+  db.prepare(
+    `INSERT INTO worker_identity (peer_id, privy_id, bound_at) VALUES (?, ?, ?)
+     ON CONFLICT(peer_id) DO UPDATE SET privy_id = excluded.privy_id, bound_at = excluded.bound_at`
+  ).run(peerId, privyId, new Date().toISOString());
+}
+
+export function getPeerIdOwner(peerId: string): string | null {
+  ensureWorkerIdentityTable();
+  const db = getDb();
+  const row = db.prepare('SELECT privy_id FROM worker_identity WHERE peer_id = ?').get(peerId) as { privy_id: string } | undefined;
+  return row ? row.privy_id : null;
+}
+
 // ── API Keys (public inference API) ──
 // Mirrors worker_tokens: store only the sha256 hash, show the raw key once.
 
@@ -936,6 +969,25 @@ export function isWorkerBanned(privyId: string): { banned: boolean; reason?: str
   const row = db.prepare('SELECT banned, ban_reason FROM worker_reputation WHERE privy_id = ?').get(privyId) as any;
   if (!row || !row.banned) return { banned: false };
   return { banned: true, reason: row.ban_reason || undefined };
+}
+
+// Age of an account, in ms, measured from the EARLIEST timestamp we've ever seen for
+// it — the first profile row or the first worker token minted, whichever is older.
+// Token-only Sybil accounts (no profile) still get a real age from their first token.
+// Returns 0 when nothing is known (treated as brand-new / ineligible).
+export function getAccountAgeMs(privyId: string): number {
+  const db = getDb();
+  const row = db.prepare(`
+    SELECT MIN(ts) AS first FROM (
+      SELECT created_at AS ts FROM profiles WHERE privy_id = ?
+      UNION ALL
+      SELECT created_at AS ts FROM worker_tokens WHERE privy_id = ?
+    )
+  `).get(privyId, privyId) as { first: string | null } | undefined;
+  if (!row || !row.first) return 0;
+  const firstMs = new Date(row.first).getTime();
+  if (!Number.isFinite(firstMs)) return 0;
+  return Math.max(0, Date.now() - firstMs);
 }
 
 export function recordWorkerStrike(privyId: string, kind: 'canary' | 'coherence' | 'speed'): { totalStrikes: number; banned: boolean } {

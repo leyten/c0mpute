@@ -17,7 +17,7 @@ export async function GET(req: NextRequest) {
   const history = getWorkerJobHistory(privyId, 20);
 
   return NextResponse.json({
-    stats: stats || { totalJobs: 0, totalTokens: 0, totalEarningPoints: 0, totalSolPaid: '0', lastActiveAt: null },
+    stats: stats || { totalJobs: 0, paidJobs: 0, totalTokens: 0, totalEarningPoints: 0, totalSolPaid: '0', lastActiveAt: null },
     recentJobs: history,
   });
 }
