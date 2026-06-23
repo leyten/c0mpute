@@ -125,10 +125,15 @@ export async function startWorker(options: WorkerOptions): Promise<void> {
         return;
       }
 
+      // Must exceed the orchestrator's longest server-side tool: image renders
+      // get up to 180s (IMAGE_JOB_TIMEOUT_MS), and the orchestrator always sends
+      // back a result (success or error) within that window. 30s was shorter than
+      // a cold/queued image render, so generate_image surfaced "Tool execution
+      // timed out" even though the image was still rendering. 200s clears it.
       const timeout = setTimeout(() => {
         cleanup();
-        reject(new Error('Tool execution timed out (30s)'));
-      }, 30_000);
+        reject(new Error('Tool execution timed out (200s)'));
+      }, 200_000);
 
       socket.once(`job:tool_result:${jobId}`, (data: { results: ChatMessage[] }) => {
         cleanup();
