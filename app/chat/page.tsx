@@ -779,13 +779,16 @@ export default function UserPage() {
     // Build messages for context (last 10 messages) — include images only for
     // vision models. Text-only models (e.g. supergemma) reject any multimodal
     // data, so strip images from history when the selected model has no vision.
+    // Only USER-uploaded images are valid model input; generated images live on
+    // assistant messages and are display-only output — feeding them back is
+    // useless and crashes text-only workers ("image input not supported").
     const contextMessages: { role: 'system' | 'user' | 'assistant' | 'tool'; content: string; images?: string[] }[] =
       [...(activeChat.messages || []).slice(-10), userMessage].map(m => {
         const msg: { role: 'system' | 'user' | 'assistant' | 'tool'; content: string; images?: string[] } = {
           role: m.role as 'system' | 'user' | 'assistant',
           content: m.content,
         };
-        if (selectedPlanObj.vision && m.images && m.images.length > 0) {
+        if (selectedPlanObj.vision && m.role === 'user' && m.images && m.images.length > 0) {
           msg.images = m.images;
         }
         return msg;

@@ -1100,6 +1100,18 @@ export class Orchestrator {
 
       let messages = job.messages;
 
+      // Generated images are display-only artifacts (shown to the user inline,
+      // never stored) — they must never be fed back to the model as input. An
+      // assistant-message image is useless as context and crashes text-only
+      // workers with "image input is not supported — mmproj". Strip them before
+      // dispatch regardless of client; user-uploaded images (user role) stay for
+      // vision-capable workers.
+      if (messages && messages.some(m => m.role === 'assistant' && m.images && m.images.length > 0)) {
+        messages = messages.map(m =>
+          m.role === 'assistant' && m.images ? { ...m, images: undefined } : m
+        );
+      }
+
       // Inject system prompt for native workers only (browser workers handle their own)
       if (idleWorker.type === 'native' && messages && messages.length > 0 && !messages.some(m => m.role === 'system')) {
         messages = [
