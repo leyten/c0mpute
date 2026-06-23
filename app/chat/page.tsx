@@ -853,7 +853,7 @@ export default function UserPage() {
         setChatState('idle');
         setAnonRemaining(0);
         setAnonModal('empty');
-      } else if (code === 'ANON_CAP_IP' || code === 'ANON_CAP_GLOBAL') {
+      } else if (code === 'ANON_CAP_IP' || code === 'ANON_CAP_GLOBAL' || code === 'ANON_CAP_HOURLY') {
         setChatState('idle');
         setAnonModal('softlogin');
       } else {
@@ -1150,7 +1150,7 @@ export default function UserPage() {
           const code = err instanceof Error ? err.message : '';
           if (code === 'ANON_NO_PROMPTS') {
             setChatState('idle'); setAnonRemaining(0); setAnonModal('empty');
-          } else if (code === 'ANON_CAP_IP' || code === 'ANON_CAP_GLOBAL') {
+          } else if (code === 'ANON_CAP_IP' || code === 'ANON_CAP_GLOBAL' || code === 'ANON_CAP_HOURLY') {
             setChatState('idle'); setAnonModal('softlogin');
           } else {
             console.error('Error submitting pending prompt job:', err);

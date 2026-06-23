@@ -15,7 +15,7 @@ import {
   selectionWeight,
 } from './types';
 import { verifyPrivyToken } from '../privy-server';
-import { incrementPromptsSent, verifyWorkerToken, recordCompletedJob, recordEarning, spendCredits, getCreditBalance, refundCredits, isWorkerBanned, recordWorkerStrike, recordCanaryResult, consumeFreePrompt, getTodayFreeSubsidyUsd, getThisHourFreeSubsidyUsd, anonGrantFreePrompt, profileHasLogin } from '../db';
+import { incrementPromptsSent, verifyWorkerToken, recordCompletedJob, recordEarning, spendCredits, getCreditBalance, refundCredits, isWorkerBanned, recordWorkerStrike, recordCanaryResult, consumeFreePrompt, getTodayFreeSubsidyUsd, getThisHourFreeSubsidyUsd, anonGrantFreePrompt, profileHasLogin, getAccountAgeMs } from '../db';
 import { FREE_PROMPT_LIMIT, FREE_SUBSIDY_DAILY_CAP_USD, FREE_SUBSIDY_HOURLY_CAP_USD, STAKER_ALLOWANCE_ENABLED, ANON_FREE_PROMPT_LIMIT, ANON_IP_DAILY_CAP } from '../tokenomics';
 import { verifyAnonToken } from '../anon-auth';
 import { CREDITS_PER_USD } from '../token-price';
@@ -76,6 +76,19 @@ export class Orchestrator {
   private readonly TOK_SAMPLE_WINDOW = 5;
   private readonly MIN_SAMPLES_TO_JUDGE = 3;
   private readonly MAX_FAKE_STRIKES = 3;
+  // Per-account concurrent-worker cap. Each socket counts as one "worker online",
+  // so one account opening a flood of connections inflates the public count and
+  // vacuums treasury-subsidized free jobs. Cap how many workers a single account
+  // may run at once; overflow registrations are rejected. Override via env.
+  private readonly MAX_WORKERS_PER_ACCOUNT = Number(process.env.MAX_WORKERS_PER_ACCOUNT) || 10;
+  // Per-IP farm caps. A single machine running many workers — or many DISTINCT
+  // accounts — is the same-hardware Sybil farm. Real IP is restored from Cloudflare.
+  private readonly MAX_WORKERS_PER_IP = Number(process.env.MAX_WORKERS_PER_IP) || 10;
+  private readonly MAX_ACCOUNTS_PER_IP = Number(process.env.MAX_ACCOUNTS_PER_IP) || 5;
+  // Subsidized free jobs + the public worker count only go to accounts at least this
+  // old, so a freshly-minted throwaway can't farm the free lane or inflate the count.
+  // Paid jobs are unaffected. Default 48h; tune via MIN_WORKER_ACCOUNT_AGE_HOURS.
+  private readonly MIN_WORKER_ACCOUNT_AGE_MS = (Number(process.env.MIN_WORKER_ACCOUNT_AGE_HOURS) || 48) * 3_600_000;
 
   // Canary challenges (#A): synthetic known-answer jobs that look like real jobs to
   // the worker, used to prove it's actually running a model. Sent at most ~1-in-15
@@ -98,12 +111,17 @@ export class Orchestrator {
   getPublicStats() {
     const byType: Record<'native' | 'browser' | 'image', number> = { native: 0, browser: 0, image: 0 };
     let busy = 0;
+    let online = 0;
     for (const w of this.workers.values()) {
+      // Exclude un-aged (freshly-minted) accounts from the public count so the
+      // "X workers online" number reflects real operators, not throwaway floods.
+      if (!w.accountAgeOk) continue;
+      online++;
       byType[w.type]++;
       if (w.status === 'busy') busy++;
     }
     return {
-      workersOnline: this.workers.size,
+      workersOnline: online,
       byType,
       busy,
       queueDepth: this.jobQueue.length + this.imageQueue.length,
@@ -244,6 +262,29 @@ export class Orchestrator {
           callback({ error: `This account is banned from running a worker${ban.reason ? `: ${ban.reason}` : ''}.` });
           return;
         }
+        // Real client IP, restored from Cloudflare by nginx (X-Real-IP / XFF).
+        const workerIp = (socket.handshake.headers['x-real-ip'] as string)
+          || (socket.handshake.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim()
+          || socket.handshake.address;
+        // Per-account concurrent-worker cap — stops one account flooding the
+        // orchestrator with worker connections to inflate the count and farm
+        // subsidized free jobs. All of an account's worker tokens share this cap.
+        if (this.countWorkersForAccount(privyUserId) >= this.MAX_WORKERS_PER_ACCOUNT) {
+          callback({ error: `Worker limit reached for this account (max ${this.MAX_WORKERS_PER_ACCOUNT} concurrent workers).` });
+          return;
+        }
+        // Per-IP farm caps — one machine running a pile of workers, or a pile of
+        // distinct accounts, is the same-hardware Sybil farm. Block the overflow.
+        if (this.countWorkersForIp(workerIp) >= this.MAX_WORKERS_PER_IP) {
+          callback({ error: `Too many workers from this network (max ${this.MAX_WORKERS_PER_IP} per IP).` });
+          return;
+        }
+        if (this.countAccountsForIp(workerIp, privyUserId) >= this.MAX_ACCOUNTS_PER_IP) {
+          callback({ error: `Too many accounts running workers from this network (max ${this.MAX_ACCOUNTS_PER_IP} per IP).` });
+          return;
+        }
+        // Account-age gate (counts + subsidized free jobs only; paid jobs unaffected).
+        const accountAgeOk = getAccountAgeMs(privyUserId) >= this.MIN_WORKER_ACCOUNT_AGE_MS;
         const workerType = data.type || 'browser';
         const tokPerSec = data.tokPerSec || 0;
         // Image workers don't produce tokens, so the tok/s throughput floor
@@ -259,13 +300,15 @@ export class Orchestrator {
           capabilities.vision = false;
           capabilities.tools = false;
         }
-        const workerId = this.registerWorker(socket, data.model, privyUserId, tokPerSec, workerType, capabilities);
+        const workerId = this.registerWorker(socket, data.model, privyUserId, tokPerSec, workerType, capabilities, workerIp, accountAgeOk);
         if (workerId) {
           callback({ workerId });
           socket.emit('worker:registered', { workerId });
-          console.log(`[Orchestrator] Worker registered: ${workerId} (${data.model}) ${tokPerSec.toFixed(1)} tok/s type=${workerType} caps=${JSON.stringify(capabilities)} user=${privyUserId}`);
+          console.log(`[Orchestrator] Worker registered: ${workerId} (${data.model}) ${tokPerSec.toFixed(1)} tok/s type=${workerType} caps=${JSON.stringify(capabilities)} user=${privyUserId} ip=${workerIp} aged=${accountAgeOk}`);
           this.broadcastStats();
-          if (workerType === 'native' && privyUserId) {
+          // Both native (text) and image workers are user-run CLI workers, so both
+          // drive the "your worker is online" card. Only 'browser' is excluded.
+          if ((workerType === 'native' || workerType === 'image') && privyUserId) {
             this.pushNativeStatus(privyUserId);
           }
         } else {
@@ -558,6 +601,8 @@ export class Orchestrator {
         }
         this.imageJobs.delete(data.jobId);
         console.log(`[Orchestrator] Image job ${job.id} completed by ${worker?.id || socket.id}`);
+        // Refresh the worker card so its images-rendered count ticks up live.
+        if (worker?.privyUserId) this.pushNativeStatus(worker.privyUserId);
         this.processImageQueue();
       });
 
@@ -577,13 +622,13 @@ export class Orchestrator {
 
       socket.on('disconnect', () => {
         const worker = this.workers.get(socket.id);
-        const wasNative = worker?.type === 'native';
+        const wasUserWorker = worker?.type === 'native' || worker?.type === 'image';
         const userId = worker?.privyUserId;
         this.unregisterWorker(socket.id);
         this.cleanupUserJobs(socket.id);
         this.cleanupImageJobs(socket.id);
         this.broadcastStats();
-        if (wasNative && userId) {
+        if (wasUserWorker && userId) {
           this.pushNativeStatus(userId);
         }
         this.processImageQueue();
@@ -728,7 +773,37 @@ export class Orchestrator {
     }
   }
 
-  private registerWorker(socket: Socket, model: string, privyUserId?: string, tokPerSec: number = 0, type: 'browser' | 'native' | 'image' = 'browser', capabilities: WorkerCapabilities = {}): string | null {
+  private countWorkersForAccount(privyUserId: string): number {
+    let n = 0;
+    for (const w of this.workers.values()) {
+      if (w.privyUserId === privyUserId) n++;
+    }
+    return n;
+  }
+
+  private countWorkersForIp(ip?: string): number {
+    if (!ip) return 0;
+    let n = 0;
+    for (const w of this.workers.values()) {
+      if (w.ip === ip) n++;
+    }
+    return n;
+  }
+
+  // Distinct accounts already running a worker from this IP, NOT counting the one
+  // trying to register (so an account's own reconnect never trips its own cap).
+  private countAccountsForIp(ip: string | undefined, exceptPrivyId: string): number {
+    if (!ip) return 0;
+    const accounts = new Set<string>();
+    for (const w of this.workers.values()) {
+      if (w.ip === ip && w.privyUserId && w.privyUserId !== exceptPrivyId) {
+        accounts.add(w.privyUserId);
+      }
+    }
+    return accounts.size;
+  }
+
+  private registerWorker(socket: Socket, model: string, privyUserId?: string, tokPerSec: number = 0, type: 'browser' | 'native' | 'image' = 'browser', capabilities: WorkerCapabilities = {}, ip?: string, accountAgeOk: boolean = false): string | null {
     try {
       const workerId = uuidv4();
       const worker: WorkerInfo = {
@@ -743,6 +818,8 @@ export class Orchestrator {
         tokensGenerated: 0,
         tokPerSec,
         privyUserId,
+        ip,
+        accountAgeOk,
       };
       this.workers.set(socket.id, worker);
       return workerId;
@@ -962,6 +1039,9 @@ export class Orchestrator {
       for (const [socketId, worker] of this.workers) {
         if (worker.status !== 'idle') continue;
         if (!workerServesModel(worker, j.requestedModel)) continue;
+        // Subsidized free jobs (treasury pays the worker) only go to aged accounts,
+        // so a freshly-minted throwaway can't farm the free lane. Paid jobs are open.
+        if (j.subsidyKind === 'free' && !worker.accountAgeOk) continue;
         const samples = worker.measuredTokPerSec ?? [];
         const speed = samples.length
           ? samples.reduce((a, b) => a + b, 0) / samples.length
@@ -1423,7 +1503,7 @@ export class Orchestrator {
     if (socket) socket.disconnect(true);
     this.unregisterWorker(worker.socketId);
     this.broadcastStats();
-    if (worker.type === 'native' && worker.privyUserId) {
+    if ((worker.type === 'native' || worker.type === 'image') && worker.privyUserId) {
       this.pushNativeStatus(worker.privyUserId);
     }
   }
@@ -1495,26 +1575,32 @@ export class Orchestrator {
   }
 
   private pushNativeStatus(privyUserId: string) {
-    let nativeWorker: WorkerInfo | null = null;
+    // Both native (text) and image workers are user-run CLI workers and should
+    // light up the "your worker is online" card; only in-browser 'browser'
+    // workers are excluded. Image workers report 0 tok/s by design (they render
+    // images, not tokens) — the `type` field lets the card show images-rendered
+    // instead of a misleading "0 tok/s".
+    let userWorker: WorkerInfo | null = null;
     for (const w of this.workers.values()) {
-      if (w.privyUserId === privyUserId && w.type === 'native') {
-        nativeWorker = w;
+      if (w.privyUserId === privyUserId && (w.type === 'native' || w.type === 'image')) {
+        userWorker = w;
         break;
       }
     }
 
-    const statusData = nativeWorker
+    const statusData = userWorker
       ? {
           online: true,
-          workerId: nativeWorker.id,
+          workerId: userWorker.id,
+          type: userWorker.type,
           // epoch ms the worker connected — the card derives live uptime from this,
-          // so it works for native workers (run via CLI, not in the browser) and is
-          // identical on every device the user opens.
-          connectedAt: nativeWorker.connectedAt.getTime(),
-          jobsCompleted: nativeWorker.jobsCompleted,
-          tokensGenerated: nativeWorker.tokensGenerated,
-          tokPerSec: nativeWorker.tokPerSec,
-          currentJob: nativeWorker.status === 'busy' ? 'processing' : undefined,
+          // so it works for CLI workers (run outside the browser) and is identical
+          // on every device the user opens.
+          connectedAt: userWorker.connectedAt.getTime(),
+          jobsCompleted: userWorker.jobsCompleted,
+          tokensGenerated: userWorker.tokensGenerated,
+          tokPerSec: userWorker.tokPerSec,
+          currentJob: userWorker.status === 'busy' ? 'processing' : undefined,
         }
       : { online: false, jobsCompleted: 0, tokensGenerated: 0, tokPerSec: 0 };
 
@@ -1522,29 +1608,33 @@ export class Orchestrator {
       const sid = (socket as any).privyUserId;
       if (sid === privyUserId) {
         const worker = this.workers.get(socketId);
-        if (worker && worker.type === 'native') continue;
+        if (worker && (worker.type === 'native' || worker.type === 'image')) continue;
         socket.emit('native:status', statusData);
       }
     }
   }
 
-  private getWorkerCounts(): { browser: number; native: number; nativeByModel: Record<string, number> } {
+  private getWorkerCounts(): { browser: number; native: number; nativeByModel: Record<string, number>; total: number } {
     let browser = 0;
     let native = 0;
+    let total = 0;
     const nativeByModel: Record<string, number> = {};
     for (const w of this.workers.values()) {
+      // Un-aged (freshly-minted) accounts don't count toward the public network stats.
+      if (!w.accountAgeOk) continue;
+      total++;
       if (w.type === 'native') {
         native++;
         nativeByModel[w.model] = (nativeByModel[w.model] ?? 0) + 1;
       } else browser++;
     }
-    return { browser, native, nativeByModel };
+    return { browser, native, nativeByModel, total };
   }
 
   private buildStats(): NetworkStats {
     const counts = this.getWorkerCounts();
     return {
-      workersOnline: this.workers.size,
+      workersOnline: counts.total,
       browserWorkers: counts.browser,
       nativeWorkers: counts.native,
       nativeByModel: counts.nativeByModel,

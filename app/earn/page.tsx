@@ -391,7 +391,8 @@ export default function WorkerPage() {
   const [loadingText, setLoadingText] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [stats, setStats] = useState<WorkerStats>({ jobsCompleted: 0, tokensGenerated: 0, uptime: 0 });
-  const [lifetimeStats, setLifetimeStats] = useState<{ totalJobs: number; totalTokens: number; totalEarningPoints: number } | null>(null);
+  const [lifetimeStats, setLifetimeStats] = useState<{ totalJobs: number; paidJobs: number; totalTokens: number; totalEarningPoints: number } | null>(null);
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const [todayEarnings, setTodayEarnings] = useState<{ todayEarnings: number } | null>(null);
   const [lifetimeEarned, setLifetimeEarned] = useState(0);
   const [workerId, setWorkerId] = useState<string | null>(null);
@@ -504,6 +505,15 @@ export default function WorkerPage() {
       }
     };
   }, [status]);
+
+  // Tick a clock once a second while a native worker is online, so its uptime
+  // (derived from the orchestrator-provided connectedAt) counts up live.
+  useEffect(() => {
+    if (!nativeStatus?.online || !nativeStatus.connectedAt) return;
+    setNowMs(Date.now());
+    const id = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [nativeStatus?.online, nativeStatus?.connectedAt]);
 
   // Process incoming job — simple plaintext, search handled by orchestrator
   const processJob = useCallback(async (jobId: string, messages?: ChatMessage[]) => {
@@ -932,7 +942,7 @@ export default function WorkerPage() {
                   {nativeStatus?.online && (
                     <span className="pixel-sans text-xs px-2 py-1 rounded-md bg-amber-500/15 text-amber-400 border border-amber-500/30 flex items-center gap-1.5">
                       <svg className="w-3 h-3" viewBox="0 0 24 24" fill="currentColor"><path d="M13 2L3 14h8l-1 8 10-12h-8l1-8z" /></svg>
-                      Native
+                      {nativeStatus.type === 'image' ? 'Image' : 'Native'}
                     </span>
                   )}
                 </div>
@@ -988,16 +998,16 @@ export default function WorkerPage() {
                   <div className="pixel-sans text-white/60 text-xs mt-2"><span className="dollar">$</span>USDC</div>
                 </div>
                 <div className="flex flex-col items-center justify-center p-4 bg-white/[0.02] border border-white/5 rounded-xl min-h-[90px]">
-                  <div className="pixel-serif text-white text-lg md:text-xl font-mono whitespace-nowrap">{formatUptime(stats.uptime)}</div>
+                  <div className="pixel-serif text-white text-lg md:text-xl font-mono whitespace-nowrap">{formatUptime(nativeStatus?.online && nativeStatus.connectedAt ? Math.max(0, Math.floor((nowMs - nativeStatus.connectedAt) / 1000)) : stats.uptime)}</div>
                   <div className="pixel-sans text-white/70 text-xs mt-2">Uptime</div>
                 </div>
                 <div className="flex flex-col items-center justify-center p-4 bg-white/[0.02] border border-white/5 rounded-xl min-h-[90px]">
-                  <div className="pixel-serif text-white text-2xl md:text-3xl">{lifetimeStats?.totalJobs ?? (nativeStatus?.online ? nativeStatus.jobsCompleted : stats.jobsCompleted)}</div>
+                  <div className="pixel-serif text-white text-2xl md:text-3xl">{lifetimeStats?.paidJobs ?? (nativeStatus?.online ? nativeStatus.jobsCompleted : stats.jobsCompleted)}</div>
                   <div className="pixel-sans text-white/70 text-xs mt-2">Jobs</div>
                 </div>
                 <div className="flex flex-col items-center justify-center p-4 bg-white/[0.02] border border-white/5 rounded-xl min-h-[90px]">
-                  <div className="pixel-serif text-white text-2xl md:text-3xl">{nativeStatus?.online ? nativeStatus.tokPerSec.toFixed(1) : benchmarkTokPerSec > 0 ? benchmarkTokPerSec.toFixed(1) : '—'}</div>
-                  <div className="pixel-sans text-white/70 text-xs mt-2">tok/s</div>
+                  <div className="pixel-serif text-white text-2xl md:text-3xl">{nativeStatus?.online && nativeStatus.type === 'image' ? nativeStatus.jobsCompleted : nativeStatus?.online ? nativeStatus.tokPerSec.toFixed(1) : benchmarkTokPerSec > 0 ? benchmarkTokPerSec.toFixed(1) : '—'}</div>
+                  <div className="pixel-sans text-white/70 text-xs mt-2">{nativeStatus?.online && nativeStatus.type === 'image' ? 'images' : 'tok/s'}</div>
                 </div>
               </div>
 

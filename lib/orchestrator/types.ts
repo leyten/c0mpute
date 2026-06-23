@@ -21,6 +21,12 @@ export interface WorkerInfo {
   tokensGenerated: number;
   tokPerSec: number;
   privyUserId?: string;
+  // Real client IP (restored from Cloudflare). Used for per-IP farm caps.
+  ip?: string;
+  // Account old enough (see MIN_WORKER_ACCOUNT_AGE_HOURS) to count in the public
+  // worker stats and to be paid for subsidized free jobs. Fresh accounts can still
+  // serve PAID jobs — they just can't farm the free lane or pad the count.
+  accountAgeOk?: boolean;
   // Real throughput measured from completed jobs (server tokens / wall time).
   // Rolling window used to catch workers that pass the signup benchmark then degrade.
   measuredTokPerSec?: number[];
@@ -121,7 +127,7 @@ export interface ServerToClientEvents {
   'job:counted': (data: { jobId: string; tokensGenerated: number }) => void;
   'worker:registered': (data: { workerId: string }) => void;
   'stats:update': (data: NetworkStats) => void;
-  'native:status': (data: { online: boolean; workerId?: string; jobsCompleted: number; tokensGenerated: number; tokPerSec: number; currentJob?: string }) => void;
+  'native:status': (data: { online: boolean; workerId?: string; connectedAt?: number; jobsCompleted: number; tokensGenerated: number; tokPerSec: number; currentJob?: string }) => void;
   // Image generation (decentralized). Orchestrator -> worker: a job to run.
   'image:job': (data: { jobId: string; workflow: Record<string, unknown> }) => void;
   'image:cancel': (data: { jobId: string }) => void;

@@ -32,7 +32,7 @@ interface UseSocketReturn {
   setOnJobSources: (handler: ((jobId: string, sources: { title: string; url: string; description: string }[]) => void) | null) => void;
   setOnJobGeneratingImage: (handler: ((jobId: string) => void) | null) => void;
   setOnJobImage: (handler: ((jobId: string, images: string[]) => void) | null) => void;
-  nativeStatus: { online: boolean; workerId?: string; jobsCompleted: number; tokensGenerated: number; tokPerSec: number; currentJob?: string } | null;
+  nativeStatus: { online: boolean; workerId?: string; type?: 'native' | 'image'; connectedAt?: number; jobsCompleted: number; tokensGenerated: number; tokPerSec: number; currentJob?: string } | null;
 }
 
 export function useSocket(authToken?: string | null): UseSocketReturn {
