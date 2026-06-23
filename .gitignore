@@ -83,3 +83,11 @@ ZERO_LAUNCH_CHECKLIST.md
 todo_c0mpute.md
 webgpu-perf-research.md
 COMPUTE_CODE_SPEC.md
+
+# internal one-off ops / incident-response scripts — local only, never publish
+/privy-purge.ts
+/restore-real-wallets.ts
+/wallet-review.ts
+/worker-restore.ts
+/scripts/goodwill-jbrukh.ts
+/scripts/backfill-cap-victims.ts
