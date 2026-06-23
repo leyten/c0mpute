@@ -16,7 +16,7 @@ import {
 } from './types';
 import { verifyPrivyToken } from '../privy-server';
 import { incrementPromptsSent, verifyWorkerToken, recordCompletedJob, recordEarning, spendCredits, getCreditBalance, refundCredits, isWorkerBanned, recordWorkerStrike, recordCanaryResult, consumeFreePrompt, getTodayFreeSubsidyUsd, getThisHourFreeSubsidyUsd, anonGrantFreePrompt, profileHasLogin, getAccountAgeMs } from '../db';
-import { FREE_PROMPT_LIMIT, FREE_SUBSIDY_DAILY_CAP_USD, FREE_SUBSIDY_HOURLY_CAP_USD, STAKER_ALLOWANCE_ENABLED, ANON_FREE_PROMPT_LIMIT, ANON_IP_DAILY_CAP } from '../tokenomics';
+import { FREE_PROMPT_LIMIT, FREE_SUBSIDY_DAILY_CAP_USD, FREE_SUBSIDY_HOURLY_CAP_USD, STAKER_ALLOWANCE_ENABLED, ANON_FREE_PROMPT_LIMIT, ANON_IP_DAILY_CAP, WORKER_STAKED_REVENUE_SHARE } from '../tokenomics';
 import { verifyAnonToken } from '../anon-auth';
 import { CREDITS_PER_USD } from '../token-price';
 import { getWorkerRevenueShare } from '../staking';
@@ -387,11 +387,19 @@ export class Orchestrator {
         // per-session limit, the per-IP daily cap, and the global daily $ subsidy
         // cap. An anon socket can never reach the credit/staker paths below.
         if (isAnon) {
-          if (getTodayFreeSubsidyUsd() >= FREE_SUBSIDY_DAILY_CAP_USD) {
+          // Worst-case worker payout for this free job (highest revenue share), so
+          // we never admit a free prompt the treasury can't fully pay a worker for.
+          // This aligns the submit gate with the payout gate below: a bare ">= cap"
+          // check stalls one job under the cap (the paid-subsidy total never reaches
+          // it because payout refuses), so every worker serving a free job past that
+          // point earned $0 until the UTC reset. Reserving the worst case here closes
+          // that.
+          const projectedSubsidyUsd = (listCredits / CREDITS_PER_USD) * WORKER_STAKED_REVENUE_SHARE;
+          if (getTodayFreeSubsidyUsd() + projectedSubsidyUsd > FREE_SUBSIDY_DAILY_CAP_USD) {
             callback({ error: "Free prompts are at today's limit. Sign in to keep going.", code: 'ANON_CAP_GLOBAL' });
             return;
           }
-          if (getThisHourFreeSubsidyUsd() >= FREE_SUBSIDY_HOURLY_CAP_USD) {
+          if (getThisHourFreeSubsidyUsd() + projectedSubsidyUsd > FREE_SUBSIDY_HOURLY_CAP_USD) {
             callback({ error: "Free prompts are busy right now. Try again shortly or sign in to keep going.", code: 'ANON_CAP_HOURLY' });
             return;
           }
@@ -423,10 +431,18 @@ export class Orchestrator {
         // API-originated jobs always charge — never consume onboarding free
         // prompts or the treasury subsidy (that path is human-onboarding only).
         let usedFreePrompt = false;
-        if (creditCost > 0 && !isInternal && profileHasLogin(privyUserId) && consumeFreePrompt(privyUserId, FREE_PROMPT_LIMIT)) {
-          creditCost = 0;
-          usedFreePrompt = true;
-          console.log(`[Orchestrator] Free prompt used by ${privyUserId} (${requestedTierForCredits})`);
+        if (creditCost > 0 && !isInternal && profileHasLogin(privyUserId)) {
+          // Same subsidy-cap reservation as the anon path: only grant the onboarding
+          // free prompt if the daily cap can still pay a worker for it (worst-case
+          // share). If not, fall through to staker allowance / credits — the user
+          // keeps their free-prompt count rather than burning it on a job no worker
+          // gets paid for. consumeFreePrompt is only called when there's room.
+          const projectedSubsidyUsd = (listCredits / CREDITS_PER_USD) * WORKER_STAKED_REVENUE_SHARE;
+          if (getTodayFreeSubsidyUsd() + projectedSubsidyUsd <= FREE_SUBSIDY_DAILY_CAP_USD && consumeFreePrompt(privyUserId, FREE_PROMPT_LIMIT)) {
+            creditCost = 0;
+            usedFreePrompt = true;
+            console.log(`[Orchestrator] Free prompt used by ${privyUserId} (${requestedTierForCredits})`);
+          }
         }
 
         // Staker inference allowance: matured-stake holders draw a daily pro-rata
