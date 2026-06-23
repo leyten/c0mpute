@@ -411,10 +411,13 @@ export default function UserPage() {
     setOnJobSources,
     setOnJobGeneratingImage,
     setOnJobImage,
+    setOnJobImageError,
   } = useSocket(isAuthenticated ? socketAuthToken : anonToken);
   
   // Chat state - now storing full chats with messages locally
   const [chats, setChats] = useState<ChatWithMessages[]>([]);
+  const chatsRef = useRef<ChatWithMessages[]>([]);
+  useEffect(() => { chatsRef.current = chats; }, [chats]);
   const [activeChat, setActiveChat] = useState<ChatWithMessages | null>(null);
   const [chatState, setChatState] = useState<ChatState>('idle');
   const [streamingContent, setStreamingContent] = useState('');
@@ -1004,17 +1007,50 @@ export default function UserPage() {
   }, [setOnJobGeneratingImage]);
 
   useEffect(() => {
-    setOnJobImage((_jobId: string, images: string[]) => {
+    setOnJobImage((jobId: string, images: string[]) => {
       setIsGeneratingImage(false);
-      setPendingGenImages(prev => {
-        const next = [...prev, ...images];
-        pendingGenImagesRef.current = next;
-        return next;
-      });
+      // The render is async now, so the image can arrive AFTER the model's text
+      // turn already saved its assistant message. If that message exists, attach
+      // the image to it retroactively (and persist); otherwise buffer it for the
+      // job:complete handler to attach.
+      const exists = (chatsRef.current || []).some(c =>
+        c.messages.some(m => m.role === 'assistant' && m.job_id === jobId));
+      if (exists) {
+        setChats(prevChats => {
+          const updatedChats = prevChats.map(chat => {
+            const idx = chat.messages.findIndex(m => m.role === 'assistant' && m.job_id === jobId);
+            if (idx === -1) return chat;
+            const msgs = [...chat.messages];
+            msgs[idx] = { ...msgs[idx], images: [...(msgs[idx].images || []), ...images] };
+            const updatedChat = { ...chat, messages: msgs };
+            setActiveChat(prev => prev?.id === chat.id ? updatedChat : prev);
+            return updatedChat;
+          });
+          saveChatsToStorage(updatedChats);
+          return updatedChats;
+        });
+      } else {
+        setPendingGenImages(prev => {
+          const next = [...prev, ...images];
+          pendingGenImagesRef.current = next;
+          return next;
+        });
+      }
       autoScrollIfPinned();
     });
     return () => setOnJobImage(null);
   }, [setOnJobImage, autoScrollIfPinned]);
+
+  // Async image render failed (after the model's turn already completed). The
+  // user was refunded server-side; surface a non-fatal note and clear the
+  // generating indicator without nuking the completed text response.
+  useEffect(() => {
+    setOnJobImageError((_jobId: string, errorMsg: string) => {
+      setIsGeneratingImage(false);
+      setError(errorMsg || 'Image generation failed. You were refunded.');
+    });
+    return () => setOnJobImageError(null);
+  }, [setOnJobImageError]);
 
   // Handle job error
   useEffect(() => {

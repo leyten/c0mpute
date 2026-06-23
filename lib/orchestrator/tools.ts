@@ -35,6 +35,23 @@ export type ToolContext = {
   ) => Promise<string>;
 };
 
+/**
+ * A deferred image render. generate_image does its synchronous work (safety check,
+ * credit spend, workflow build) and returns this instead of awaiting the render, so
+ * the worker's tool-result wait never blocks on the GPU. The orchestrator fires the
+ * render async, delivers the image to the user when it lands, and calls refund() if
+ * it fails.
+ */
+export type PendingImage = {
+  workflow: Record<string, unknown>;
+  privyUserId: string;
+  seed?: number;
+  width?: number;
+  height?: number;
+  creditsCharged: number;
+  refund: () => void;
+};
+
 export const AVAILABLE_TOOLS: ToolDefinition[] = [
   {
     type: 'function',
@@ -84,7 +101,7 @@ export const AVAILABLE_TOOLS: ToolDefinition[] = [
 /**
  * Execute a tool call and return the result as a ChatMessage.
  */
-export async function executeTool(toolCall: ToolCall, ctx?: ToolContext): Promise<{ message: ChatMessage; sources?: { title: string; url: string; description: string }[]; images?: string[] }> {
+export async function executeTool(toolCall: ToolCall, ctx?: ToolContext): Promise<{ message: ChatMessage; sources?: { title: string; url: string; description: string }[]; images?: string[]; pendingImage?: PendingImage }> {
   const { name, arguments: args } = toolCall.function;
 
   switch (name) {
@@ -92,7 +109,7 @@ export async function executeTool(toolCall: ToolCall, ctx?: ToolContext): Promis
       const prompt = ((args.prompt as string) || '').trim();
       const fail = (content: string) => ({ message: { role: 'tool' as const, content, tool_name: name } });
       if (!prompt) return fail('Error: no image prompt provided.');
-      if (!ctx?.renderImage || !ctx.privyUserId) return fail('Image generation is not available right now.');
+      if (!ctx?.privyUserId) return fail('Image generation is not available right now.');
 
       // Same safety floor as /create. Chat is the uncensored surface, so the
       // NSFW gate is open — only the absolute line is enforced.
@@ -107,34 +124,51 @@ export async function executeTool(toolCall: ToolCall, ctx?: ToolContext): Promis
 
       // Pay order mirrors /create minus the onboarding free images: staker
       // allowance first, then paid credits.
+      const userId = ctx.privyUserId;
       let usedAllowance = false;
-      if (STAKER_ALLOWANCE_ENABLED && consumeStakerAllowance(ctx.privyUserId, IMAGE_CREDITS)) {
+      if (STAKER_ALLOWANCE_ENABLED && consumeStakerAllowance(userId, IMAGE_CREDITS)) {
         usedAllowance = true;
-      } else if (!spendCredits(ctx.privyUserId, IMAGE_CREDITS, 'Image generation (chat)')) {
+      } else if (!spendCredits(userId, IMAGE_CREDITS, 'Image generation (chat)')) {
         return fail(`The user does not have enough credits — image generation costs ${IMAGE_CREDITS} credits. Tell them to top up in Settings.`);
       }
+      const refund = () => {
+        if (usedAllowance) refundStakerAllowance(userId, IMAGE_CREDITS);
+        else refundCredits(userId, IMAGE_CREDITS, 'Image generation failed (chat)');
+      };
 
-      console.log(`[Tools] generate_image for ${ctx.privyUserId} (${prompt.length} chars)`);
+      let built;
       try {
-        const { workflow, seed, width, height } = buildImageWorkflow({
+        built = buildImageWorkflow({
           prompt,
           negativePrompt: typeof args.negative_prompt === 'string' ? args.negative_prompt : undefined,
         });
-        const image = await ctx.renderImage(workflow, { privyUserId: ctx.privyUserId, seed, width, height, creditsCharged: IMAGE_CREDITS });
-        return {
-          message: {
-            role: 'tool',
-            content: 'Image generated successfully and already shown to the user inline. Briefly describe what you created in one or two sentences — do not output the image data or a link.',
-            tool_name: name,
-          },
-          images: [image],
-        };
       } catch (err) {
-        if (usedAllowance) refundStakerAllowance(ctx.privyUserId, IMAGE_CREDITS);
-        else refundCredits(ctx.privyUserId, IMAGE_CREDITS, 'Image generation failed (chat)');
-        console.error('[Tools] generate_image failed:', err instanceof Error ? err.message : err);
+        refund();
+        console.error('[Tools] generate_image build failed:', err instanceof Error ? err.message : err);
         return fail(`Image generation failed: ${err instanceof Error ? err.message : 'unknown error'}. The user was refunded. Tell them briefly.`);
       }
+
+      // Don't await the GPU render here — that would block the worker's tool-result
+      // wait. Hand the render back to the orchestrator to run async (it delivers the
+      // image to the user when it lands and refunds on failure), and let the model
+      // finish its turn immediately.
+      console.log(`[Tools] generate_image for ${userId} (${prompt.length} chars, deferred render)`);
+      return {
+        message: {
+          role: 'tool',
+          content: 'Image generation has started; the image will appear for the user automatically in a few seconds. Tell the user their image is on the way in one short sentence — do not output image data or a link, and do not claim it is already visible.',
+          tool_name: name,
+        },
+        pendingImage: {
+          workflow: built.workflow,
+          privyUserId: userId,
+          seed: built.seed,
+          width: built.width,
+          height: built.height,
+          creditsCharged: IMAGE_CREDITS,
+          refund,
+        },
+      };
     }
 
     case 'web_search': {
@@ -213,6 +247,7 @@ export async function executeToolCalls(toolCalls: ToolCall[], ctx?: ToolContext)
   messages: ChatMessage[];
   sources?: { title: string; url: string; description: string }[];
   images?: string[];
+  pendingImages?: PendingImage[];
 }> {
   const results = await Promise.all(toolCalls.map(tc => executeTool(tc, ctx)));
 
@@ -225,10 +260,15 @@ export async function executeToolCalls(toolCalls: ToolCall[], ctx?: ToolContext)
   const allImages = results
     .filter(r => r.images)
     .flatMap(r => r.images!);
+  // Deferred image renders the orchestrator must fire async (see PendingImage)
+  const pendingImages = results
+    .filter(r => r.pendingImage)
+    .map(r => r.pendingImage!);
 
   return {
     messages,
     sources: allSources.length > 0 ? allSources : undefined,
     images: allImages.length > 0 ? allImages : undefined,
+    pendingImages: pendingImages.length > 0 ? pendingImages : undefined,
   };
 }
