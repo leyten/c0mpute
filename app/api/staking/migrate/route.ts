@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyPrivyToken } from '@/lib/privy-server';
-import { getStakingWalletSecret } from '@/lib/staking';
+import { getStakingWalletSecret, reserveClaimableForMigrate, restoreClaimableAfterFailedMigrate } from '@/lib/staking';
 import { isTreasuryConfigured, getTokenUiBalance, loadTreasuryKeypair } from '@/lib/payout';
 import { getZeroMint, isZeroLaunched } from '@/lib/tokenomics';
 import { migrateLotsToOnchain, fundStakerRewardVault, rewardVault } from '@/lib/keeper/onchain-rewards';
@@ -32,24 +32,23 @@ function custodialPubkey(privyId: string): string | null {
   db.close();
   return row?.public_key ?? null;
 }
-function readClaimableUsd(privyId: string): number {
-  const db = new Database(path.join(process.cwd(), 'data', 'c0mpute.db'), { readonly: true });
-  const row = db.prepare('SELECT claimable_usd FROM staking_rewards WHERE privy_id = ?').get(privyId) as { claimable_usd: number } | undefined;
-  db.close();
-  return row?.claimable_usd ?? 0;
-}
-// Zero the custodial claimable AFTER the on-chain reward vault is funded + verified.
-function clearClaimableUsd(privyId: string, amount: number): void {
-  const db = new Database(path.join(process.cwd(), 'data', 'c0mpute.db'));
-  db.prepare('UPDATE staking_rewards SET claimable_usd = MAX(0, claimable_usd - ?), updated_at = ? WHERE privy_id = ?')
-    .run(amount, new Date().toISOString(), privyId);
-  db.close();
-}
 
 // POST /api/staking/migrate — move the caller's custodial staked ZERO into their own
 // on-chain self-custody stake vault (beneficiary = their linked wallet). One-click,
 // user-initiated. Verifies on-chain after the move and preserves 24h maturity.
 export async function POST(req: NextRequest) {
+  // EMERGENCY DISABLE 2026-06-20: migrate reads claimable_usd, funds the on-chain
+  // reward vault during a multi-second await, then clears the ledger — sharing NO
+  // lock with claim-rewards. A concurrent claim atomically debits + pays the same
+  // R in cash while migrate funds that R on-chain, so the treasury pays twice (the
+  // MAX(0,..) clear hides it from the ledger). Disabled until the claimable debit
+  // is reserved atomically up-front (mirror createRewardWithdrawal's reservation)
+  // so claim and migrate cannot both win the same balance. Re-enable by setting
+  // MIGRATE_ENABLED=true once the reservation fix lands.
+  if (process.env.MIGRATE_ENABLED !== 'true') {
+    return NextResponse.json({ error: 'Migration is temporarily disabled for maintenance' }, { status: 503 });
+  }
+
   const auth = req.headers.get('authorization');
   if (!auth?.startsWith('Bearer ')) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const privyId = await verifyPrivyToken(auth.slice(7));
@@ -113,24 +112,31 @@ export async function POST(req: NextRequest) {
     }
 
     // ── 2. migrate pending USDC rewards into the on-chain reward vault ──
+    // Reserve (atomically debit) the claimable BEFORE the slow on-chain funding,
+    // so a concurrent claim-rewards can't also pay this same balance out in cash
+    // while we move it on-chain (that was the double-spend). Restore on failure.
     let migratedRewards = 0;
-    const claimable = readClaimableUsd(privyId);
-    if (claimable > 0.000001) {
-      // Idempotent: only top up the SHORTFALL between what's owed and what's already in
-      // the reward vault, so a retry (or a prior lag-induced false-fail) can't double-fund.
-      const usdcMint = process.env.NEXT_PUBLIC_ONCHAIN_USDC_MINT || process.env.ONCHAIN_USDC_MINT;
-      let inVault = 0;
-      if (usdcMint) {
-        const rv = rewardVault(owner, new PublicKey(usdcMint));
-        try { inVault = Number((await getAccount(conn, rv, 'confirmed', TOKEN_PROGRAM_ID)).amount) / 1e6; } catch {}
+    const reserved = reserveClaimableForMigrate(privyId);
+    if (reserved > 0.000001) {
+      try {
+        // Idempotent: only top up the SHORTFALL between what's owed and what's already
+        // in the reward vault, so a retry (or a prior lag-induced false-fail) can't double-fund.
+        const usdcMint = process.env.NEXT_PUBLIC_ONCHAIN_USDC_MINT || process.env.ONCHAIN_USDC_MINT;
+        let inVault = 0;
+        if (usdcMint) {
+          const rv = rewardVault(owner, new PublicKey(usdcMint));
+          try { inVault = Number((await getAccount(conn, rv, 'confirmed', TOKEN_PROGRAM_ID)).amount) / 1e6; } catch {}
+        }
+        const needed = reserved - inVault;
+        if (needed > 0.000001) {
+          // fundStakerRewardVault verifies (with retry) the vault increased by `needed`.
+          await fundStakerRewardVault(conn, treasury, owner, needed);
+        }
+        migratedRewards = reserved;
+      } catch (e) {
+        restoreClaimableAfterFailedMigrate(privyId, reserved); // funding failed — give the rewards back
+        throw e;
       }
-      const needed = claimable - inVault;
-      if (needed > 0.000001) {
-        // fundStakerRewardVault verifies (with retry) the vault increased by `needed`.
-        await fundStakerRewardVault(conn, treasury, owner, needed);
-      }
-      clearClaimableUsd(privyId, claimable); // clear ledger only after vault holds >= owed
-      migratedRewards = claimable;
     }
 
     if (migratedZero === 0 && migratedRewards === 0) {

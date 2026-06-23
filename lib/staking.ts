@@ -415,3 +415,40 @@ export function markRewardPayoutFailed(payoutId: string): void {
   });
   txn();
 }
+
+// Atomically reserve (debit to zero) the caller's claimable USDC rewards BEFORE
+// migrate's slow on-chain vault funding. This mirrors createRewardWithdrawal's
+// debit-before-act: both run as serialized SQLite write transactions, so whoever
+// commits first takes the balance and the other sees 0. That closes the
+// claim-rewards vs migrate double-spend — a concurrent claim then fails
+// 'insufficient', and a migrate after a claim finds nothing to move. Returns the
+// reserved amount (0 if nothing claimable or a claim is already in flight). If
+// the on-chain funding later fails, the caller MUST call
+// restoreClaimableAfterFailedMigrate so the user keeps their rewards.
+export function reserveClaimableForMigrate(privyId: string): number {
+  const db = getDb();
+  const txn = db.transaction((): number => {
+    const inflight = db.prepare(
+      "SELECT id FROM staking_reward_payouts WHERE privy_id = ? AND status = 'pending_transfer'"
+    ).get(privyId);
+    if (inflight) return 0; // a claim is mid-flight; let it settle, don't double-move
+    const row = db.prepare('SELECT claimable_usd FROM staking_rewards WHERE privy_id = ?').get(privyId) as
+      | { claimable_usd: number }
+      | undefined;
+    const claimable = row?.claimable_usd ?? 0;
+    if (claimable <= 0.000001) return 0;
+    db.prepare('UPDATE staking_rewards SET claimable_usd = 0, updated_at = ? WHERE privy_id = ?')
+      .run(new Date().toISOString(), privyId);
+    return claimable;
+  });
+  return txn();
+}
+
+// Restore a reservation when migrate's on-chain funding fails, so the user keeps
+// their claimable rewards (mirrors markRewardPayoutFailed's restore).
+export function restoreClaimableAfterFailedMigrate(privyId: string, amount: number): void {
+  if (!(amount > 0)) return;
+  const db = getDb();
+  db.prepare('UPDATE staking_rewards SET claimable_usd = claimable_usd + ?, updated_at = ? WHERE privy_id = ?')
+    .run(amount, new Date().toISOString(), privyId);
+}
