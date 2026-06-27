@@ -23,6 +23,7 @@ import { getWorkerRevenueShare } from '../staking';
 import { consumeStakerAllowance, recordStakerRequest } from '../staker-allowance';
 import { scanOutput, BLOCKED_MESSAGE } from '../safety';
 import { AVAILABLE_TOOLS, executeToolCalls } from './tools';
+import { verifyCoverage } from '../receipt';
 
 // Load search server module for Brave API key initialization
 try {
@@ -515,7 +516,7 @@ export class Orchestrator {
         if (!job) return;
         const worker = this.workers.get(socket.id);
         if (!worker || worker.id !== job.assignedWorker) return;
-        this.handleJobComplete(data.jobId, data.response, data.tokensGenerated);
+        this.handleJobComplete(data.jobId, data.response, data.tokensGenerated, data.receipts);
       });
 
       socket.on('job:error', (data) => {
@@ -1204,7 +1205,7 @@ export class Orchestrator {
     this.broadcastStats();
   }
 
-  private handleJobComplete(jobId: string, response: string, _workerReportedTokens: number) {
+  private handleJobComplete(jobId: string, response: string, _workerReportedTokens: number, receipts?: Record<string, unknown>[]) {
     const job = this.jobs.get(jobId);
     if (!job) return;
 
@@ -1298,6 +1299,28 @@ export class Orchestrator {
       }
     }
 
+    // SHARD RECEIPT VERIFICATION: when a shard coordinator attaches signed per-stage
+    // receipts to the job completion, verify them before paying. A failed receipt
+    // (bad sig, coverage gap, wrong signer) means the worker gets no pay and a strike.
+    // Absence of receipts = backward-compatible (existing single-worker workers).
+    let receiptsValid = true;
+    if (receipts && receipts.length > 0) {
+      try {
+        // Layer count is model-specific; use the model config or a sane default.
+        // The receipt set must tile [0:layerCount] with no gaps.
+        const layerCount = this.getLayerCountForModel(worker?.model);
+        verifyCoverage(receipts, layerCount);
+        console.log(`[Orchestrator] Job ${jobId}: ${receipts.length} shard receipts verified (coverage [0:${layerCount}])`);
+      } catch (err) {
+        receiptsValid = false;
+        console.error(`[Orchestrator] Job ${jobId} receipt verification FAILED — no pay: ${(err as Error).message}`);
+        if (worker?.privyUserId) {
+          const rep = recordWorkerStrike(worker.privyUserId, 'receipt');
+          if (rep.banned) this.kickWorker(worker, `banned: receipt verification failed`);
+        }
+      }
+    }
+
     if (worker) {
       worker.jobsCompleted++;
       worker.tokensGenerated += cappedTokens;
@@ -1313,7 +1336,7 @@ export class Orchestrator {
       }
     }
 
-    if (worker?.privyUserId) {
+    if (worker?.privyUserId && receiptsValid) {
       try {
         recordCompletedJob({
           jobId,
@@ -1602,6 +1625,22 @@ export class Orchestrator {
       if (worker.id === workerId) return worker;
     }
     return null;
+  }
+
+  /**
+   * Map a model name to its layer count for shard receipt coverage verification.
+   * The receipt set must tile [0:layerCount] with no gaps. When the model is unknown
+   * or the worker serves a local model (not sharded), returns 0 (receipts ignored).
+   */
+  private getLayerCountForModel(model?: string): number {
+    if (!model) return 0;
+    const m = model.toLowerCase();
+    // Known frontier models served by the shard engine
+    if (m.includes('minimax-m2') || m.includes('m2.5')) return 62;
+    if (m.includes('glm-5') || m.includes('glm5') || m.includes('glm-4.5')) return 78;
+    if (m.includes('gpt-oss') || m.includes('gptoss')) return 120;
+    if (m.includes('deepseek') && m.includes('v3')) return 61;
+    return 0;
   }
 
   private findWorkerSocketId(workerId: string): string | null {

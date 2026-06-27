@@ -990,7 +990,7 @@ export function getAccountAgeMs(privyId: string): number {
   return Math.max(0, Date.now() - firstMs);
 }
 
-export function recordWorkerStrike(privyId: string, kind: 'canary' | 'coherence' | 'speed'): { totalStrikes: number; banned: boolean } {
+export function recordWorkerStrike(privyId: string, kind: 'canary' | 'coherence' | 'speed' | 'receipt'): { totalStrikes: number; banned: boolean } {
   ensureReputationTable();
   ensureReputationRow(privyId);
   const db = getDb();

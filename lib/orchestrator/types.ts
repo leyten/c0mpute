@@ -142,7 +142,7 @@ export interface ClientToServerEvents {
   'worker:register': (data: { model: string; authToken?: string; tokPerSec?: number; type?: 'browser' | 'native' | 'image'; capabilities?: WorkerCapabilities }, callback: (response: { workerId: string } | { error: string }) => void) => void;
   'worker:unregister': () => void;
   'job:token': (data: { jobId: string; token: string }) => void;
-  'job:complete': (data: { jobId: string; response: string; tokensGenerated: number }) => void;
+  'job:complete': (data: { jobId: string; response: string; tokensGenerated: number; receipts?: Record<string, unknown>[] }) => void;
   'job:error': (data: { jobId: string; error: string }) => void;
   'job:tool_call': (data: { jobId: string; toolCalls: ToolCall[] }) => void;
   // Image generation. Internal web -> orchestrator: submit a render.
