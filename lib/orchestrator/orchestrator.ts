@@ -19,7 +19,7 @@ import {
 import { planRing, reportRingTelemetry } from './ringScheduler';
 import { buildRingAssignments, type RingStageWorker } from './ringAssembly';
 import { verifyPrivyToken } from '../privy-server';
-import { incrementPromptsSent, verifyWorkerToken, recordCompletedJob, recordEarning, recordRingEarnings, getPeerIdOwner, spendCredits, getCreditBalance, refundCredits, isWorkerBanned, recordWorkerStrike, recordCanaryResult, consumeFreePrompt, getTodayFreeSubsidyUsd, getThisHourFreeSubsidyUsd, anonGrantFreePrompt, profileHasLogin, getAccountAgeMs } from '../db';
+import { incrementPromptsSent, verifyWorkerToken, recordCompletedJob, recordEarning, recordRingEarnings, getPeerIdOwner, bindPeerId, spendCredits, getCreditBalance, refundCredits, isWorkerBanned, recordWorkerStrike, recordCanaryResult, consumeFreePrompt, getTodayFreeSubsidyUsd, getThisHourFreeSubsidyUsd, anonGrantFreePrompt, profileHasLogin, getAccountAgeMs } from '../db';
 import { FREE_PROMPT_LIMIT, FREE_SUBSIDY_DAILY_CAP_USD, FREE_SUBSIDY_HOURLY_CAP_USD, STAKER_ALLOWANCE_ENABLED, ANON_FREE_PROMPT_LIMIT, ANON_IP_DAILY_CAP, WORKER_STAKED_REVENUE_SHARE } from '../tokenomics';
 import { verifyAnonToken } from '../anon-auth';
 import { CREDITS_PER_USD } from '../token-price';
@@ -28,7 +28,7 @@ import { consumeStakerAllowance, recordStakerRequest } from '../staker-allowance
 import { scanOutput, BLOCKED_MESSAGE } from '../safety';
 import { AVAILABLE_TOOLS, executeToolCalls } from './tools';
 import { verifyCoverage, pubkeyToPeerId, type ShardReceipt } from '../receipt';
-import { receiptPubkeyFromPeerId } from '../identity';
+import { receiptPubkeyFromPeerId, verifyBindingProof } from '../identity';
 import { splitRingPayout } from './shardPayout';
 
 // Load search server module for Brave API key initialization
@@ -313,6 +313,24 @@ export class Orchestrator {
           if (!data.peerId || !data.multiaddr || typeof data.vramGb !== 'number' || data.vramGb <= 0) {
             callback({ error: 'Shard workers must report peerId, multiaddr, and vramGb at registration.' });
             return;
+          }
+          // C6: proof-gated PeerId binding. The worker must sign its own peerId with the
+          // node key behind that PeerId, proving it controls the identity it advertises.
+          // On success, bind PeerId -> privyUserId so payouts are attributable. Without this,
+          // getPeerIdOwner() returns null and stage shares are silently unpaid.
+          if (!data.bindingSig) {
+            callback({ error: 'Shard workers must provide a bindingSig (signature of peerId with node key).' });
+            return;
+          }
+          if (!verifyBindingProof(data.peerId, data.peerId, data.bindingSig)) {
+            callback({ error: 'PeerId binding proof failed — worker does not control the advertised identity.' });
+            return;
+          }
+          // Bind PeerId -> account so receipt payout via getPeerIdOwner() resolves.
+          if (privyUserId) {
+            try { bindPeerId(data.peerId, privyUserId); } catch (e) {
+              console.error('[Orchestrator] bindPeerId failed:', e);
+            }
           }
         }
         const capabilities: WorkerCapabilities = data.capabilities || {};
@@ -1229,7 +1247,16 @@ export class Orchestrator {
   // smoke). Cleared on completion/teardown alongside ringSigners.
   private ringStages: Map<string, { model: string; stages: { node_id: string; n_layers: number }[] }> = new Map();
 
+  // C7: re-entrancy guard. processShardQueue is async (awaits planRing) and called from
+  // both registration + processQueue. A worker joining during the await re-enters, sees
+  // the same idle pool, and can double-assign workers or double-process a job.
+  private assemblingRing = false;
+
   private async processShardQueue() {
+    // C7: simple in-flight guard — one ring assembly at a time.
+    if (this.assemblingRing) return;
+    this.assemblingRing = true;
+    try {
     // one ring at a time per tick — assembling a ring consumes a pool of workers
     const shardJobIds = this.jobQueue.filter(id => isShardModel(this.jobs.get(id)?.requestedModel));
     if (shardJobIds.length === 0) return;
@@ -1247,13 +1274,14 @@ export class Orchestrator {
       );
       if (pool.length === 0) continue;   // no capacity yet — keep queued
 
-      // RTT mesh: we don't have a live probe between volunteer workers yet, so seed a
-      // flat mesh (the scheduler still does the VRAM fit; topology falls back to input
-      // order). A real mesh probe is a later refinement — wire it into rttMesh here.
+      // C9: RTT mesh — COLD ESTIMATE. We don't have a live probe between volunteer workers
+      // yet, so every edge is seeded at 50ms. This means the throughput-aware scheduler's
+      // WAN term is constant and est_tok_s should NOT be trusted as a real number until a
+      // real mesh probe is wired in (have workers ping neighbours during job:ring_ready).
       const rttMesh: Record<string, Record<string, number>> = {};
       for (const a of pool) {
         rttMesh[a.id] = {};
-        for (const b of pool) if (a.id !== b.id) rttMesh[a.id][b.id] = 50;
+        for (const b of pool) if (a.id !== b.id) rttMesh[a.id][b.id] = 50;  // cold prior
       }
 
       const plan = await planRing(
@@ -1282,7 +1310,10 @@ export class Orchestrator {
       try {
         assignments = buildRingAssignments(jobId, spec.enginePath, plan.ring, {
           messages: job.messages || [],
-          maxNew: 64, K: 4, depth: 2,
+          // C8: pull gen params from the job/spec instead of hard-coded values.
+          maxNew: job.maxTokens ?? 64,
+          K: 4,
+          depth: 2,
         }, spec.layerCount);
       } catch (err) {
         console.error(`[Orchestrator] Ring job ${jobId} assembly failed: ${(err as Error).message}`);
@@ -1318,6 +1349,7 @@ export class Orchestrator {
       job.startedAt = new Date();
       const stageWorkers: RingStageWorker[] = plan.ring;
       const coordinator = stageWorkers[0];
+      job.assignedWorker = coordinator.workerId;   // C1: coordinator drives tokens + completion
       this.ringPending.set(jobId, { ready: new Set(), nstages: assignments.length, coordinatorSocketId: coordinator.socketId });
       // remember each stage's node_id (worker.id) + layer count for completion telemetry
       this.ringStages.set(jobId, {
@@ -1337,6 +1369,10 @@ export class Orchestrator {
       const userSocket = this.io.sockets.sockets.get(job.userSocketId);
       if (userSocket) userSocket.emit('job:assigned', { jobId, workerId: coordinator.workerId });
       console.log(`[Orchestrator] Ring job ${jobId} dispatched: ${assignments.length} stages, coordinator ${coordinator.workerId}`);
+    }
+    } finally {
+      // C7: release the guard so the next tick can assemble another ring.
+      this.assemblingRing = false;
     }
   }
 
@@ -1509,28 +1545,47 @@ export class Orchestrator {
       }
     }
 
+    // C3: a ring job we dispatched that completes with NO receipts proves nothing.
+    // Without this guard, isRingJob falls false and the single-worker else-if pays the
+    // coordinator the full job pay with zero proof of work. Must ship with C1 (which
+    // sets assignedWorker to the coordinator) or it opens a free-pay path.
+    const expectedRingJob = this.ringSigners.has(jobId) || this.ringStages.has(jobId);
+
     // SHARD RECEIPT VERIFICATION: when a shard coordinator attaches signed per-stage
     // receipts to the job completion, verify them before paying. A failed receipt
     // (bad sig, coverage gap, wrong signer) means the worker gets no pay and a strike.
-    // Absence of receipts = backward-compatible (existing single-worker workers).
     let receiptsValid = true;
-    if (receipts && receipts.length > 0) {
+    if (expectedRingJob && (!receipts || receipts.length === 0)) {
+      // C3: a dispatched ring with no receipts -> no pay, no fallback to single-worker.
+      receiptsValid = false;
+      console.error(`[Orchestrator] Ring job ${jobId} completed with no receipts — no pay`);
+      if (worker?.privyUserId) {
+        const rep = recordWorkerStrike(worker.privyUserId, 'receipt');
+        if (rep.banned) this.kickWorker(worker, `banned: ring job completed with no receipts`);
+      }
+    } else if (receipts && receipts.length > 0) {
       try {
-        // Layer count is model-specific; use the model config or a sane default.
-        // The receipt set must tile [0:layerCount] with no gaps.
-        const layerCount = this.getLayerCountForModel(worker?.model);
+        // C5: resolve layer count from the shard model spec (single source of truth),
+        // not from a separate getLayerCountForModel() that can drift.
+        const spec = getShardModelSpec(job.requestedModel);
+        const layerCount = spec?.layerCount ?? 0;
+        if (layerCount === 0) {
+          throw new Error(`cannot determine layer count for model ${job.requestedModel || '?'}`);
+        }
         // Signer binding: the pubkey -> [lo,hi] map the orchestrator recorded when it
         // ASSIGNED this ring. Passing it to verifyCoverage forces every block to be
         // signed by the node actually assigned that block — without it, a coordinator
         // could sign all N blocks with its own keys (all tiling [0:N], all valid sigs)
-        // and splitRingPayout would pay the whole job to the attacker. A multi-receipt
-        // job with NO recorded binding was never dispatched as a ring by us → reject.
+        // and splitRingPayout would pay the whole job to the attacker.
+        // C10: ANY receipt completion (single or multi) with no recorded binding was
+        // never dispatched as a ring by us → reject. The only way into the ring payout
+        // path is a ring we actually dispatched.
         const binding = this.ringSigners.get(jobId);
-        if (receipts.length > 1 && !binding) {
-          throw new Error('multi-stage receipts on a job with no recorded ring assignment');
+        if (!binding) {
+          throw new Error('receipts on a job with no recorded ring assignment');
         }
         verifyCoverage(receipts, layerCount, binding);
-        console.log(`[Orchestrator] Job ${jobId}: ${receipts.length} shard receipts verified (coverage [0:${layerCount}]${binding ? ', signer-bound' : ''})`);
+        console.log(`[Orchestrator] Job ${jobId}: ${receipts.length} shard receipts verified (coverage [0:${layerCount}], signer-bound)`);
       } catch (err) {
         receiptsValid = false;
         console.error(`[Orchestrator] Job ${jobId} receipt verification FAILED — no pay: ${(err as Error).message}`);
@@ -1562,7 +1617,11 @@ export class Orchestrator {
     // node never bound a PeerId to an account are unattributable and skipped (their
     // share is simply not paid — the work was still verified, but there's no payee).
     // Falls through to the single-worker path below only when this is NOT a ring job.
-    const isRingJob = receipts && receipts.length > 0 && receiptsValid;
+    // C3: a ring job is one we DISPATCHED as a ring (expectedRingJob), not just one
+    // that happened to arrive with receipts. This stops a non-ring worker from
+    // crafting receipts to enter the ring payout path, and stops a ring job with
+    // failed/empty receipts from falling through to single-worker pay.
+    const isRingJob = expectedRingJob && receipts && receipts.length > 0 && receiptsValid;
     if (isRingJob) {
       try {
         const revenueCredits = job.creditsCharged || 0;
@@ -1610,7 +1669,9 @@ export class Orchestrator {
       } catch (err) {
         console.error('[Orchestrator] Ring payout failed:', (err as Error).message);
       }
-    } else if (worker?.privyUserId && receiptsValid) {
+    } else if (!expectedRingJob && worker?.privyUserId && receiptsValid) {
+      // C3: single-worker payout ONLY for non-ring jobs. A ring job that failed
+      // receipt verification must NOT fall through to this path.
       try {
         recordCompletedJob({
           jobId,
@@ -1671,8 +1732,12 @@ export class Orchestrator {
       userSocket.emit('job:complete', { jobId, response });
     }
 
-    // Ring job done: drop the signer binding so the map doesn't grow unbounded.
-    this.ringSigners.delete(jobId);
+    // C4: ring cleanup. On success, call teardownRing(jobId, false) which frees ALL
+    // stage workers (not just the coordinator), emits job:ring_teardown so stages
+    // tear down their sidecar/specpipe, and deletes ringPending/ringSigners/ringStages.
+    // The old code only idled the coordinator and manually deleted two maps, leaking
+    // N-1 workers as busy forever + never deleting ringPending.
+    // Telemetry must read ringStages BEFORE teardown deletes it.
 
     // Feed measured throughput back to scheduler_svc so future plans learn the real fleet.
     // accept_rate is derivable from what specpipe genuinely measured (mean_accept / K, or
@@ -1699,7 +1764,10 @@ export class Orchestrator {
       }
       void reportRingTelemetry(this.SCHEDULER_URL, rec);
     }
-    this.ringStages.delete(jobId);
+    // C4: single cleanup point — frees all stages, deletes all three ring maps.
+    if (expectedRingJob) {
+      this.teardownRing(jobId, /* requeue */ false);
+    }
 
     // Tell the worker a real job landed so it can log/count it. Canaries return
     // early above and never reach here, so they stay invisible on the terminal.
@@ -1929,22 +1997,6 @@ export class Orchestrator {
       if (worker.id === workerId) return worker;
     }
     return null;
-  }
-
-  /**
-   * Map a model name to its layer count for shard receipt coverage verification.
-   * The receipt set must tile [0:layerCount] with no gaps. When the model is unknown
-   * or the worker serves a local model (not sharded), returns 0 (receipts ignored).
-   */
-  private getLayerCountForModel(model?: string): number {
-    if (!model) return 0;
-    const m = model.toLowerCase();
-    // Known frontier models served by the shard engine
-    if (m.includes('minimax-m2') || m.includes('m2.5')) return 62;
-    if (m.includes('glm-5') || m.includes('glm5') || m.includes('glm-4.5')) return 78;
-    if (m.includes('gpt-oss') || m.includes('gptoss')) return 120;
-    if (m.includes('deepseek') && m.includes('v3')) return 61;
-    return 0;
   }
 
   private findWorkerSocketId(workerId: string): string | null {

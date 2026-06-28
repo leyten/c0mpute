@@ -127,9 +127,16 @@ export function verifyCoverage(
       throw new ReceiptError(`receipt block [${lo}:${hi}] outside [0:${layerCount}]`);
     }
     if (expectedBySigner) {
-      const pub = r['pubkey'] as string;
-      const want = expectedBySigner.get(pub);
-      if (want && (want[0] !== lo || want[1] !== hi)) {
+      // C2: reject signers NOT in the binding at all. The old `if (want && ...)` check
+      // skipped unknown pubkeys entirely, so a coordinator could forge N keypairs it
+      // controls, sign all N blocks tiling [0:layerCount], bind those keys to its own
+      // accounts, and pass verification. This is the actual forgery fix.
+      const pub = r['pubkey'];
+      if (typeof pub !== 'string' || !expectedBySigner.has(pub)) {
+        throw new ReceiptError('receipt signer was not assigned to this job');
+      }
+      const want = expectedBySigner.get(pub)!;
+      if (want[0] !== lo || want[1] !== hi) {
         throw new ReceiptError(
           `signer ${pub.slice(0, 12)}.. attested [${lo}:${hi}], assigned [${want[0]}:${want[1]}]`,
         );
@@ -149,6 +156,16 @@ export function verifyCoverage(
   }
   if (cursor !== layerCount) {
     throw new ReceiptError(`layer coverage ends at ${cursor}, expected ${layerCount}`);
+  }
+  // C2: every assigned signer must have produced a receipt. Catches a node silently
+  // dropped or substituted even if the remaining spans still tile [0:layerCount].
+  if (expectedBySigner) {
+    const seen = new Set(receipts.map(r => r['pubkey'] as string));
+    for (const pub of expectedBySigner.keys()) {
+      if (!seen.has(pub)) {
+        throw new ReceiptError(`assigned signer ${pub.slice(0, 12)}.. produced no receipt`);
+      }
+    }
   }
 }
 

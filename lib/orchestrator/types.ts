@@ -135,6 +135,9 @@ export interface Job {
   // API-bridge job (v1 completions): the generate_image server tool is withheld
   // because an API client has no socket channel to receive the rendered image.
   internal?: boolean;
+  // C8: per-job max output tokens (e.g. from API max_tokens). Used by processShardQueue
+  // for ring generation params. Falls back to 64 when unset (the ring default).
+  maxTokens?: number;
 }
 
 export interface ChatMessage {
@@ -184,7 +187,7 @@ export interface ServerToClientEvents {
 
 export interface ClientToServerEvents {
   'job:submit': (data: { messages?: ChatMessage[]; model?: string; authToken?: string; think?: boolean; privyUserId?: string; tools?: ToolDefinition[]; freeOnly?: boolean }, callback: (response: { jobId: string; freeRemaining?: number } | { error: string; code?: string }) => void) => void;
-  'worker:register': (data: { model: string; authToken?: string; tokPerSec?: number; type?: 'browser' | 'native' | 'image' | 'shard'; capabilities?: WorkerCapabilities; vramGb?: number; peerId?: string; multiaddr?: string }, callback: (response: { workerId: string } | { error: string }) => void) => void;
+  'worker:register': (data: { model: string; authToken?: string; tokPerSec?: number; type?: 'browser' | 'native' | 'image' | 'shard'; capabilities?: WorkerCapabilities; vramGb?: number; peerId?: string; multiaddr?: string; bindingSig?: string }, callback: (response: { workerId: string } | { error: string }) => void) => void;
   'worker:unregister': () => void;
   'job:token': (data: { jobId: string; token: string }) => void;
   'job:complete': (data: { jobId: string; response: string; tokensGenerated: number; receipts?: Record<string, unknown>[] }) => void;
@@ -289,6 +292,10 @@ export function workerServesModel(
 export const MAX_INPUT_CHARS = 2000;
 export const MAX_OUTPUT_TOKENS = 4096;
 
+// C8: optional per-job max output tokens. When set (e.g. by the API), overrides the
+// ring default of 64 for generation. Falls back via ?? in processShardQueue.
+
+
 // ── Shard (pipeline-parallel) model registry ──
 // Models too big for one GPU, served by a RING of shard workers. The user-facing model
 // id (job:submit `model`) maps to the fit params the scheduler needs: total layer count,
@@ -315,7 +322,10 @@ export const SHARD_MODELS: Record<string, ShardModelSpec> = {
   'shard-gpt-oss-120b': {
     workerModel: 'gpt-oss-120b',
     enginePath: '/root/models/gpt-oss-120b',
-    layerCount: 120,
+    layerCount: 36,        // C5: was 120 (that is the param count, not layers). 36 is what
+    //                    the proofs ran: gateway.py "36 layers", ROADMAP "MXFP4, 36 layers",
+    //                    PROOF.md "3 stages, 12 layers each" = 36. With 120, receipts tile
+    //                    [0:36] but verifyCoverage expects [0:120] → honest node gets struck.
     gbPerLayer: 0.95,
     kvGbPerLayer: 0.03,
   },
