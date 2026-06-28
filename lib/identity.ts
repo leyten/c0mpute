@@ -38,6 +38,14 @@ function ed25519PubFromPeerId(peerId: string): Buffer {
   return raw.subarray(6, 38);
 }
 
+// The base64 raw-pubkey a shard RECEIPT carries (shard/receipt.py signs with the same
+// node key the PeerId embeds), derived from a worker's advertised PeerId. Lets the
+// orchestrator bind "this node was assigned [lo,hi]" to the exact pubkey the receipt
+// will show — closing the forged-receipt payout hole. Throws on a non-ed25519 PeerId.
+export function receiptPubkeyFromPeerId(peerId: string): string {
+  return ed25519PubFromPeerId(peerId).toString('base64');
+}
+
 // True iff `sigB64` is a valid signature of `nonce` by the key behind `peerId`.
 export function verifyBindingProof(peerId: string, nonce: string, sigB64: string): boolean {
   try {

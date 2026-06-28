@@ -4,12 +4,13 @@ import { runInference, ChatMessage, ToolCall, ToolDefinition } from './inference
 import { ensureSetup } from './setup.js';
 import { runBenchmark } from './benchmark.js';
 import { startImageWorker } from './image-worker.js';
+import { startShardWorker } from './shard-worker.js';
 
 interface WorkerOptions {
   token: string;
   orchestratorUrl?: string;
   benchmarkOnly?: boolean;
-  mode?: 'max' | 'image';
+  mode?: 'max' | 'image' | 'shard';
 }
 
 interface JobData {
@@ -30,6 +31,13 @@ export async function startWorker(options: WorkerOptions): Promise<void> {
   // Image workers run an entirely different stack (ComfyUI, not Ollama).
   if (options.mode === 'image') {
     return startImageWorker({ token, orchestratorUrl });
+  }
+
+  // Shard workers serve one pipeline stage of a ring (specpipe + libp2p sidecar),
+  // not a whole model on one GPU. Entirely separate stack from Ollama.
+  if (options.mode === 'shard') {
+    const { startShardWorker } = await import('./shard-worker.js');
+    return startShardWorker({ token, orchestratorUrl });
   }
 
   // Step 1: Ensure ollama is running and model is ready

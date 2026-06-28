@@ -176,6 +176,8 @@ export interface ServerToClientEvents {
   // is the successor stage's dialable libp2p addr ('' for the tail). isCoordinator
   // marks the head, which also drives generation and streams tokens back.
   'job:ring_assign': (data: RingAssignment) => void;
+  // Orchestrator -> coordinator (head): all N stages reported ready, start driving generation.
+  'job:ring_drive': (data: { jobId: string }) => void;
   // Orchestrator -> ring: tear down (job done, failed, or a stage dropped).
   'job:ring_teardown': (data: { jobId: string }) => void;
 }
@@ -286,3 +288,45 @@ export function workerServesModel(
 
 export const MAX_INPUT_CHARS = 2000;
 export const MAX_OUTPUT_TOKENS = 4096;
+
+// ── Shard (pipeline-parallel) model registry ──
+// Models too big for one GPU, served by a RING of shard workers. The user-facing model
+// id (job:submit `model`) maps to the fit params the scheduler needs: total layer count,
+// model bytes/layer at the served quant, KV bytes/layer, and the engine model path the
+// stages load. Add an entry to make a big model servable; pair it with shard workers
+// reporting matching `model`. layerCount MUST match shard/receipt.py coverage tiling and
+// the orchestrator's getLayerCountForModel.
+export interface ShardModelSpec {
+  workerModel: string;   // the `model` string shard workers register with
+  enginePath: string;    // path the specpipe stages load (on the worker box)
+  layerCount: number;    // transformer layers — receipts must tile [0:layerCount]
+  gbPerLayer: number;    // model bytes/layer at the served quant (for the VRAM fit)
+  kvGbPerLayer: number;  // KV bytes/layer at the target context
+}
+
+export const SHARD_MODELS: Record<string, ShardModelSpec> = {
+  'shard-glm-5.2': {
+    workerModel: 'GLM-5.2',
+    enginePath: '/root/models/GLM-5.2',
+    layerCount: 78,
+    gbPerLayer: 1.05,
+    kvGbPerLayer: 0.04,
+  },
+  'shard-gpt-oss-120b': {
+    workerModel: 'gpt-oss-120b',
+    enginePath: '/root/models/gpt-oss-120b',
+    layerCount: 120,
+    gbPerLayer: 0.95,
+    kvGbPerLayer: 0.03,
+  },
+};
+
+/** The shard model spec for a user-facing model id, or undefined if it's not a ring model. */
+export function getShardModelSpec(modelId?: string): ShardModelSpec | undefined {
+  return SHARD_MODELS[modelId ?? ''];
+}
+
+/** Whether a job requests a sharded (ring) model rather than a single-worker model. */
+export function isShardModel(modelId?: string): boolean {
+  return !!SHARD_MODELS[modelId ?? ''];
+}

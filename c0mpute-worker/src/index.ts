@@ -17,7 +17,7 @@ const CONFIG_DIR = join(homedir(), '.config', 'c0mpute-worker');
 const CONFIG_FILE = join(CONFIG_DIR, 'config.json');
 
 interface SavedConfig {
-  mode?: 'max' | 'image';
+  mode?: 'max' | 'image' | 'shard';
   model?: WorkerModelKey;
 }
 
@@ -51,7 +51,7 @@ function ask(question: string): Promise<string> {
 // Prompt for the worker mode. `current` (the last saved choice) becomes the
 // default — pressing Enter keeps it, so re-prompting every startup costs one
 // keystroke for unchanged setups.
-function promptMode(current?: 'max' | 'image'): Promise<'max' | 'image'> {
+function promptMode(current?: 'max' | 'image' | 'shard'): Promise<'max' | 'image' | 'shard'> {
   console.log('\nWhat should this worker run?');
   console.log(`  1) Max worker      — text/chat inference (Ollama, ~17GB model)${current === 'max' ? '  <- current' : ''}`);
   console.log(`  2) Image generation — text-to-image (ComfyUI + Chroma, ~14GB model)${current === 'image' ? '  <- current' : ''}`);
@@ -67,9 +67,9 @@ function promptMode(current?: 'max' | 'image'): Promise<'max' | 'image'> {
 // max and image never requires the --mode flag or a reset. Headless runs (no
 // TTY, e.g. pm2/systemd) reuse the saved choice silently. Don't download two
 // models — only the chosen stack is set up downstream.
-async function resolveMode(flag?: string): Promise<'max' | 'image'> {
-  if (flag === 'max' || flag === 'image') { saveConfig({ mode: flag }); return flag; }
-  if (flag) throw new Error(`Invalid --mode "${flag}" (use "max" or "image").`);
+async function resolveMode(flag?: string): Promise<'max' | 'image' | 'shard'> {
+  if (flag === 'max' || flag === 'image' || flag === 'shard') { saveConfig({ mode: flag }); return flag; }
+  if (flag) throw new Error(`Invalid --mode "${flag}" (use "max", "image", or "shard").`);
   const saved = readConfig().mode;
   if (!process.stdin.isTTY) {
     if (saved) { console.log(`Using saved mode "${saved}" (no interactive terminal). Pass --mode to change.`); return saved; }

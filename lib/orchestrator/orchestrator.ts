@@ -13,7 +13,11 @@ import {
   getModelTier,
   workerServesModel,
   selectionWeight,
+  isShardModel,
+  getShardModelSpec,
 } from './types';
+import { planRing } from './ringScheduler';
+import { buildRingAssignments, type RingStageWorker } from './ringAssembly';
 import { verifyPrivyToken } from '../privy-server';
 import { incrementPromptsSent, verifyWorkerToken, recordCompletedJob, recordEarning, recordRingEarnings, getPeerIdOwner, spendCredits, getCreditBalance, refundCredits, isWorkerBanned, recordWorkerStrike, recordCanaryResult, consumeFreePrompt, getTodayFreeSubsidyUsd, getThisHourFreeSubsidyUsd, anonGrantFreePrompt, profileHasLogin, getAccountAgeMs } from '../db';
 import { FREE_PROMPT_LIMIT, FREE_SUBSIDY_DAILY_CAP_USD, FREE_SUBSIDY_HOURLY_CAP_USD, STAKER_ALLOWANCE_ENABLED, ANON_FREE_PROMPT_LIMIT, ANON_IP_DAILY_CAP, WORKER_STAKED_REVENUE_SHARE } from '../tokenomics';
@@ -24,6 +28,7 @@ import { consumeStakerAllowance, recordStakerRequest } from '../staker-allowance
 import { scanOutput, BLOCKED_MESSAGE } from '../safety';
 import { AVAILABLE_TOOLS, executeToolCalls } from './tools';
 import { verifyCoverage, pubkeyToPeerId, type ShardReceipt } from '../receipt';
+import { receiptPubkeyFromPeerId } from '../identity';
 import { splitRingPayout } from './shardPayout';
 
 // Load search server module for Brave API key initialization
@@ -295,11 +300,20 @@ export class Orchestrator {
         const accountAgeOk = getAccountAgeMs(privyUserId) >= this.MIN_WORKER_ACCOUNT_AGE_MS;
         const workerType = data.type || 'browser';
         const tokPerSec = data.tokPerSec || 0;
-        // Image workers don't produce tokens, so the tok/s throughput floor
-        // doesn't apply to them. Text workers must still clear it.
-        if (workerType !== 'image' && tokPerSec < this.MIN_TOK_PER_SEC) {
+        // Image AND shard workers don't produce solo tokens (image renders; shard
+        // serves one pipeline stage of a ring), so the tok/s throughput floor doesn't
+        // apply to them. Text workers must still clear it.
+        if (workerType !== 'image' && workerType !== 'shard' && tokPerSec < this.MIN_TOK_PER_SEC) {
           callback({ error: `Your device is too slow (${tokPerSec.toFixed(1)} tok/s). Minimum required: ${this.MIN_TOK_PER_SEC} tok/s.` });
           return;
+        }
+        // Shard workers must advertise a libp2p identity (peerId + dialable multiaddr)
+        // and their VRAM, or they can't be placed in a ring. Reject incomplete ones.
+        if (workerType === 'shard') {
+          if (!data.peerId || !data.multiaddr || typeof data.vramGb !== 'number' || data.vramGb <= 0) {
+            callback({ error: 'Shard workers must report peerId, multiaddr, and vramGb at registration.' });
+            return;
+          }
         }
         const capabilities: WorkerCapabilities = data.capabilities || {};
         // Browser workers don't have search/vision/tools
@@ -308,12 +322,14 @@ export class Orchestrator {
           capabilities.vision = false;
           capabilities.tools = false;
         }
-        const workerId = this.registerWorker(socket, data.model, privyUserId, tokPerSec, workerType, capabilities, workerIp, accountAgeOk);
+        const workerId = this.registerWorker(socket, data.model, privyUserId, tokPerSec, workerType, capabilities, workerIp, accountAgeOk, data.vramGb, data.peerId, data.multiaddr);
         if (workerId) {
           callback({ workerId });
           socket.emit('worker:registered', { workerId });
-          console.log(`[Orchestrator] Worker registered: ${workerId} (${data.model}) ${tokPerSec.toFixed(1)} tok/s type=${workerType} caps=${JSON.stringify(capabilities)} user=${privyUserId} ip=${workerIp} aged=${accountAgeOk}`);
+          console.log(`[Orchestrator] Worker registered: ${workerId} (${data.model}) ${tokPerSec.toFixed(1)} tok/s type=${workerType}${workerType === 'shard' ? ` vram=${data.vramGb}GB peer=${(data.peerId || '').slice(0, 12)}..` : ''} caps=${JSON.stringify(capabilities)} user=${privyUserId} ip=${workerIp} aged=${accountAgeOk}`);
           this.broadcastStats();
+          // After a shard worker joins, a previously un-fillable ring job may now fit.
+          if (workerType === 'shard') this.processShardQueue();
           // Both native (text) and image workers are user-run CLI workers, so both
           // drive the "your worker is online" card. Only 'browser' is excluded.
           if ((workerType === 'native' || workerType === 'image') && privyUserId) {
@@ -532,6 +548,19 @@ export class Orchestrator {
         const worker = this.workers.get(socket.id);
         if (!worker || worker.id !== job.assignedWorker) return;
         this.handleJobError(data.jobId, data.error);
+      });
+
+      // ── Shard ring stage lifecycle (worker -> orchestrator) ──
+      // Only a worker actually assigned to this ring job may report on it.
+      socket.on('job:ring_ready', (data) => {
+        const worker = this.workers.get(socket.id);
+        if (!worker || worker.ringJobId !== data.jobId) return;
+        this.handleRingReady(data.jobId, data.stage);
+      });
+      socket.on('job:ring_failed', (data) => {
+        const worker = this.workers.get(socket.id);
+        if (!worker || worker.ringJobId !== data.jobId) return;
+        this.handleRingFailed(data.jobId, data.stage, data.error);
       });
 
       // Tool call from worker — model wants to use a tool
@@ -853,7 +882,7 @@ export class Orchestrator {
     return accounts.size;
   }
 
-  private registerWorker(socket: Socket, model: string, privyUserId?: string, tokPerSec: number = 0, type: 'browser' | 'native' | 'image' | 'shard' = 'browser', capabilities: WorkerCapabilities = {}, ip?: string, accountAgeOk: boolean = false): string | null {
+  private registerWorker(socket: Socket, model: string, privyUserId?: string, tokPerSec: number = 0, type: 'browser' | 'native' | 'image' | 'shard' = 'browser', capabilities: WorkerCapabilities = {}, ip?: string, accountAgeOk: boolean = false, vramGb?: number, peerId?: string, multiaddr?: string): string | null {
     try {
       const workerId = uuidv4();
       const worker: WorkerInfo = {
@@ -870,6 +899,10 @@ export class Orchestrator {
         privyUserId,
         ip,
         accountAgeOk,
+        // shard-only transport identity (undefined for other worker types)
+        vramGb,
+        peerId,
+        multiaddr,
       };
       this.workers.set(socket.id, worker);
       return workerId;
@@ -1070,6 +1103,13 @@ export class Orchestrator {
 
     if (this.jobQueue.length === 0) return;
 
+    // Shard (ring) jobs are served by N workers assembled into a pipeline, not one
+    // idle worker — route them to their own scheduler. Single-worker matching below
+    // ignores them so a ring job never gets handed to a lone worker.
+    if (this.jobQueue.some(id => isShardModel(this.jobs.get(id)?.requestedModel))) {
+      this.processShardQueue();
+    }
+
     let matchedJob: Job | null = null;
     let matchedJobIndex = -1;
     let idleWorker: WorkerInfo | null = null;
@@ -1078,6 +1118,7 @@ export class Orchestrator {
     for (let i = 0; i < this.jobQueue.length; i++) {
       const j = this.jobs.get(this.jobQueue[i]);
       if (!j) continue;
+      if (isShardModel(j.requestedModel)) continue;   // handled by processShardQueue
       // Weighted-random pick among idle matching workers, weight = avg tok/s
       // (measured throughput, falling back to the registration benchmark). This
       // spreads earnings across the pool instead of always paying the single
@@ -1173,6 +1214,149 @@ export class Orchestrator {
     }
 
     this.updateQueuePositions();
+  }
+
+  // ── Shard (pipeline-parallel) ring scheduling ──
+  // A ring job is served by N shard workers, each holding a contiguous layer block.
+  // This gathers idle shard workers, asks scheduler_svc for the VRAM fit + min-latency
+  // order, dispatches a stage to each, records the signer binding (anti-forgery), and
+  // waits for all stages to report ready before telling the coordinator to drive.
+  private readonly SCHEDULER_URL = process.env.SHARD_SCHEDULER_URL || 'http://127.0.0.1:8088';
+  private ringPending: Map<string, { ready: Set<number>; nstages: number; coordinatorSocketId: string }> = new Map();
+
+  private async processShardQueue() {
+    // one ring at a time per tick — assembling a ring consumes a pool of workers
+    const shardJobIds = this.jobQueue.filter(id => isShardModel(this.jobs.get(id)?.requestedModel));
+    if (shardJobIds.length === 0) return;
+
+    for (const jobId of shardJobIds) {
+      const job = this.jobs.get(jobId);
+      if (!job || job.status !== 'pending') continue;
+      const spec = getShardModelSpec(job.requestedModel);
+      if (!spec) continue;
+
+      // idle shard workers running this model with a full transport identity
+      const pool = [...this.workers.values()].filter(
+        w => w.type === 'shard' && w.status === 'idle' && w.model === spec.workerModel
+          && typeof w.vramGb === 'number' && !!w.peerId && !!w.multiaddr,
+      );
+      if (pool.length === 0) continue;   // no capacity yet — keep queued
+
+      // RTT mesh: we don't have a live probe between volunteer workers yet, so seed a
+      // flat mesh (the scheduler still does the VRAM fit; topology falls back to input
+      // order). A real mesh probe is a later refinement — wire it into rttMesh here.
+      const rttMesh: Record<string, Record<string, number>> = {};
+      for (const a of pool) {
+        rttMesh[a.id] = {};
+        for (const b of pool) if (a.id !== b.id) rttMesh[a.id][b.id] = 50;
+      }
+
+      const plan = await planRing(
+        pool,
+        { model: spec.workerModel, totalLayers: spec.layerCount, gbPerLayer: spec.gbPerLayer,
+          kvGbPerLayer: spec.kvGbPerLayer, rttMesh },
+        this.SCHEDULER_URL,
+      );
+      if (!plan.ok) {
+        // not enough VRAM in the pool yet, or scheduler down — keep the job queued and
+        // try again when another worker joins (registration calls processShardQueue).
+        console.log(`[Orchestrator] Ring job ${jobId} not placeable yet: ${plan.reason}`);
+        continue;
+      }
+
+      // Build the per-stage assignments (wiring identical to launch_libp2p.py).
+      let assignments;
+      try {
+        assignments = buildRingAssignments(jobId, spec.enginePath, plan.ring, {
+          messages: job.messages || [],
+          maxNew: 64, K: 4, depth: 2,
+        }, spec.layerCount);
+      } catch (err) {
+        console.error(`[Orchestrator] Ring job ${jobId} assembly failed: ${(err as Error).message}`);
+        continue;
+      }
+
+      // Anti-forgery binding: map the exact receipt pubkey each assigned node will sign
+      // with (derived from its PeerId — shard/receipt.py signs with the key the PeerId
+      // embeds) to the layer block it was assigned. handleJobComplete passes this to
+      // verifyCoverage, which then REJECTS any receipt whose [lo,hi] doesn't match what
+      // that pubkey was assigned. Without it a coordinator could sign all N blocks with
+      // its own keys and steal the whole payout.
+      const binding = new Map<string, [number, number]>();
+      for (let i = 0; i < plan.ring.length; i++) {
+        const sw = plan.ring[i];
+        try {
+          const pk = receiptPubkeyFromPeerId(sw.peerId);
+          binding.set(pk, [sw.lo, sw.hi]);
+        } catch (err) {
+          console.error(`[Orchestrator] Ring job ${jobId}: bad PeerId for ${sw.workerId}, cannot bind — aborting ring`);
+          binding.clear();
+          break;
+        }
+      }
+      if (binding.size !== plan.ring.length) {
+        // couldn't bind every stage -> don't dispatch an unverifiable ring
+        continue;
+      }
+      this.ringSigners.set(jobId, binding);
+
+      // mark the pool stages busy + assign the ring
+      job.status = 'processing';
+      job.startedAt = new Date();
+      const stageWorkers: RingStageWorker[] = plan.ring;
+      const coordinator = stageWorkers[0];
+      this.ringPending.set(jobId, { ready: new Set(), nstages: assignments.length, coordinatorSocketId: coordinator.socketId });
+
+      for (let i = 0; i < assignments.length; i++) {
+        const sw = stageWorkers[i];
+        const worker = this.workers.get(sw.socketId);
+        if (worker) { worker.status = 'busy'; worker.ringJobId = jobId; }
+        const sock = this.io.sockets.sockets.get(sw.socketId);
+        if (sock) sock.emit('job:ring_assign', assignments[i]);
+      }
+      // remove from the pending queue (it's now processing)
+      this.jobQueue = this.jobQueue.filter(id => id !== jobId);
+      const userSocket = this.io.sockets.sockets.get(job.userSocketId);
+      if (userSocket) userSocket.emit('job:assigned', { jobId, workerId: coordinator.workerId });
+      console.log(`[Orchestrator] Ring job ${jobId} dispatched: ${assignments.length} stages, coordinator ${coordinator.workerId}`);
+    }
+  }
+
+  // A stage reports it warmed its specpipe stage + sidecar. When all N are ready, the
+  // ring is formed end-to-end; the coordinator (already sent its gen params in the
+  // assign) begins driving on its own once its neighbours are reachable. We just track
+  // readiness for observability + teardown-on-timeout.
+  private handleRingReady(jobId: string, stage: number) {
+    const p = this.ringPending.get(jobId);
+    if (!p) return;
+    p.ready.add(stage);
+    if (p.ready.size === p.nstages) {
+      console.log(`[Orchestrator] Ring job ${jobId} fully formed (${p.nstages} stages ready)`);
+    }
+  }
+
+  // A stage failed to launch — tear the whole ring down, free the workers, requeue.
+  private handleRingFailed(jobId: string, stage: number, error: string) {
+    console.error(`[Orchestrator] Ring job ${jobId} stage ${stage} failed: ${error} — tearing down`);
+    this.teardownRing(jobId, /* requeue */ true);
+  }
+
+  private teardownRing(jobId: string, requeue: boolean) {
+    for (const w of this.workers.values()) {
+      if (w.ringJobId === jobId) {
+        const sock = this.io.sockets.sockets.get(w.socketId);
+        if (sock) sock.emit('job:ring_teardown', { jobId });
+        w.status = 'idle';
+        w.ringJobId = undefined;
+      }
+    }
+    this.ringPending.delete(jobId);
+    this.ringSigners.delete(jobId);
+    const job = this.jobs.get(jobId);
+    if (job && requeue) {
+      job.status = 'pending';
+      if (!this.jobQueue.includes(jobId)) this.jobQueue.push(jobId);
+    }
   }
 
   private handleJobToken(jobId: string, token: string) {
