@@ -161,8 +161,8 @@ export async function startShardWorker(options: ShardWorkerOptions): Promise<voi
           });
           coord.on('exit', (code) => {
             if (code === 0) {
-              const { response, receipts } = readResult(dumpPath, receiptsPath);
-              socket.emit('job:complete', { jobId: a.jobId, response, tokensGenerated: 0, receipts });
+              const { response, receipts, perf } = readResult(dumpPath, receiptsPath);
+              socket.emit('job:complete', { jobId: a.jobId, response, tokensGenerated: 0, receipts, perf } as any);
             } else {
               socket.emit('job:ring_failed', { jobId: a.jobId, stage: a.stage, error: `coordinator exited ${code}` });
             }
@@ -200,16 +200,30 @@ export async function startShardWorker(options: ShardWorkerOptions): Promise<voi
 // text/tok_s} and --receipts-out {ok, receipts:[...]}. Fail closed on receipts: if the
 // file is missing/garbled, return [] so handleJobComplete treats the ring as unverifiable
 // and pays nobody (better than paying on an unproven run).
-function readResult(dumpPath: string, receiptsPath: string): { response: string; receipts: Record<string, unknown>[] } {
+function readResult(dumpPath: string, receiptsPath: string): {
+  response: string; receipts: Record<string, unknown>[];
+  perf?: { tokens?: number; rounds?: number; meanAccept?: number; K?: number; tokS?: number };
+} {
   let response = '';
   let receipts: Record<string, unknown>[] = [];
+  let perf: { tokens?: number; rounds?: number; meanAccept?: number; K?: number; tokS?: number } | undefined;
   try {
     const d = JSON.parse(readFileSync(dumpPath, 'utf-8'));
     response = typeof d.text === 'string' ? d.text : (typeof d.response === 'string' ? d.response : '');
+    // Throughput telemetry the coordinator measured this run: tokens/rounds/mean_accept/K
+    // let the orchestrator feed scheduler_svc /telemetry so future plans learn the real
+    // accept rate. All genuinely measured by specpipe — nothing synthesized here.
+    perf = {
+      tokens: typeof d.n_tokens === 'number' ? d.n_tokens : undefined,
+      rounds: typeof d.rounds === 'number' ? d.rounds : undefined,
+      meanAccept: typeof d.mean_accept === 'number' ? d.mean_accept : undefined,
+      K: typeof d.K === 'number' ? d.K : undefined,
+      tokS: typeof d.tok_s_warm === 'number' ? d.tok_s_warm : undefined,
+    };
   } catch { /* no dump → empty response */ }
   try {
     const r = JSON.parse(readFileSync(receiptsPath, 'utf-8'));
     if (r && r.ok && Array.isArray(r.receipts)) receipts = r.receipts;
   } catch { /* no receipts → fail closed (unpaid) */ }
-  return { response, receipts };
+  return { response, receipts, perf };
 }

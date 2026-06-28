@@ -16,7 +16,7 @@ import {
   isShardModel,
   getShardModelSpec,
 } from './types';
-import { planRing } from './ringScheduler';
+import { planRing, reportRingTelemetry } from './ringScheduler';
 import { buildRingAssignments, type RingStageWorker } from './ringAssembly';
 import { verifyPrivyToken } from '../privy-server';
 import { incrementPromptsSent, verifyWorkerToken, recordCompletedJob, recordEarning, recordRingEarnings, getPeerIdOwner, spendCredits, getCreditBalance, refundCredits, isWorkerBanned, recordWorkerStrike, recordCanaryResult, consumeFreePrompt, getTodayFreeSubsidyUsd, getThisHourFreeSubsidyUsd, anonGrantFreePrompt, profileHasLogin, getAccountAgeMs } from '../db';
@@ -539,7 +539,7 @@ export class Orchestrator {
         if (!job) return;
         const worker = this.workers.get(socket.id);
         if (!worker || worker.id !== job.assignedWorker) return;
-        this.handleJobComplete(data.jobId, data.response, data.tokensGenerated, data.receipts);
+        this.handleJobComplete(data.jobId, data.response, data.tokensGenerated, data.receipts, (data as any).perf);
       });
 
       socket.on('job:error', (data) => {
@@ -1223,6 +1223,11 @@ export class Orchestrator {
   // waits for all stages to report ready before telling the coordinator to drive.
   private readonly SCHEDULER_URL = process.env.SHARD_SCHEDULER_URL || 'http://127.0.0.1:8088';
   private ringPending: Map<string, { ready: Set<number>; nstages: number; coordinatorSocketId: string }> = new Map();
+  // jobId -> per-stage (worker.id == scheduler node_id, n_layers, model) recorded at dispatch,
+  // so on completion we can post real throughput telemetry to scheduler_svc /telemetry (which
+  // learns accept_rate per model; per-node ms/layer needs stage-level timing from the fleet
+  // smoke). Cleared on completion/teardown alongside ringSigners.
+  private ringStages: Map<string, { model: string; stages: { node_id: string; n_layers: number }[] }> = new Map();
 
   private async processShardQueue() {
     // one ring at a time per tick — assembling a ring consumes a pool of workers
@@ -1254,7 +1259,11 @@ export class Orchestrator {
       const plan = await planRing(
         pool,
         { model: spec.workerModel, totalLayers: spec.layerCount, gbPerLayer: spec.gbPerLayer,
-          kvGbPerLayer: spec.kvGbPerLayer, rttMesh },
+          kvGbPerLayer: spec.kvGbPerLayer, rttMesh,
+          // Throughput-aware: let the scheduler choose the subset+order that maximizes
+          // predicted tok/s (compute + WAN + accept), learning per-GPU speed from past runs
+          // (reportRingTelemetry on completion). Falls back to VRAM-fit if the pool is cold.
+          objective: 'tok_s', K: 4 },
         this.SCHEDULER_URL,
       );
       if (!plan.ok) {
@@ -1262,6 +1271,10 @@ export class Orchestrator {
         // try again when another worker joins (registration calls processShardQueue).
         console.log(`[Orchestrator] Ring job ${jobId} not placeable yet: ${plan.reason}`);
         continue;
+      }
+      if (plan.estTokS != null) {
+        console.log(`[Orchestrator] Ring job ${jobId} planned ~${plan.estTokS} tok/s `
+          + `(${plan.ring.length} stages, ~${plan.estRoundMs}ms/round)`);
       }
 
       // Build the per-stage assignments (wiring identical to launch_libp2p.py).
@@ -1306,6 +1319,11 @@ export class Orchestrator {
       const stageWorkers: RingStageWorker[] = plan.ring;
       const coordinator = stageWorkers[0];
       this.ringPending.set(jobId, { ready: new Set(), nstages: assignments.length, coordinatorSocketId: coordinator.socketId });
+      // remember each stage's node_id (worker.id) + layer count for completion telemetry
+      this.ringStages.set(jobId, {
+        model: spec.workerModel,
+        stages: stageWorkers.map(sw => ({ node_id: sw.workerId, n_layers: sw.hi - sw.lo })),
+      });
 
       for (let i = 0; i < assignments.length; i++) {
         const sw = stageWorkers[i];
@@ -1352,6 +1370,7 @@ export class Orchestrator {
     }
     this.ringPending.delete(jobId);
     this.ringSigners.delete(jobId);
+    this.ringStages.delete(jobId);
     const job = this.jobs.get(jobId);
     if (job && requeue) {
       job.status = 'pending';
@@ -1396,7 +1415,7 @@ export class Orchestrator {
     this.broadcastStats();
   }
 
-  private handleJobComplete(jobId: string, response: string, _workerReportedTokens: number, receipts?: Record<string, unknown>[]) {
+  private handleJobComplete(jobId: string, response: string, _workerReportedTokens: number, receipts?: Record<string, unknown>[], perf?: { tokens?: number; rounds?: number; meanAccept?: number; K?: number; tokS?: number }) {
     const job = this.jobs.get(jobId);
     if (!job) return;
 
@@ -1654,6 +1673,33 @@ export class Orchestrator {
 
     // Ring job done: drop the signer binding so the map doesn't grow unbounded.
     this.ringSigners.delete(jobId);
+
+    // Feed measured throughput back to scheduler_svc so future plans learn the real fleet.
+    // accept_rate is derivable from what specpipe genuinely measured (mean_accept / K, or
+    // tokens/rounds/K); per-stage compute timing isn't in receipts yet (a fleet-smoke
+    // instrumentation item) so we post what's real and leave ms/layer to its priors until
+    // then. Fire-and-forget — reportRingTelemetry swallows errors so it never blocks completion.
+    const rs = this.ringStages.get(jobId);
+    if (rs && perf && (perf.rounds || perf.meanAccept != null)) {
+      const tokens = perf.meanAccept != null && perf.K
+        ? undefined : perf.tokens;   // prefer mean_accept directly when present
+      const rec: Parameters<typeof reportRingTelemetry>[1] = {
+        model: rs.model,
+        stages: rs.stages,           // node_id + n_layers (compute_ms omitted — not measured yet)
+        K: perf.K,
+        rounds: perf.rounds,
+        tokens,
+      };
+      // When the coordinator reported mean_accept, convert it to the tokens/rounds the store
+      // expects (accept_rate = mean_accept / K): emit one synthetic round so the EWMA folds in
+      // the exact measured accept fraction without needing the raw counts.
+      if (perf.meanAccept != null && perf.K) {
+        rec.rounds = 1;
+        rec.tokens = Math.max(0, Math.min(perf.meanAccept, perf.K));
+      }
+      void reportRingTelemetry(this.SCHEDULER_URL, rec);
+    }
+    this.ringStages.delete(jobId);
 
     // Tell the worker a real job landed so it can log/count it. Canaries return
     // early above and never reach here, so they stay invisible on the terminal.

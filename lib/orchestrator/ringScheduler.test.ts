@@ -117,6 +117,50 @@ await (async () => {
   check('empty pool -> ok:false', r.ok === false && !called);
 })();
 
+// ── throughput objective: objective/K forwarded, est_tok_s mapped back ──
+await (async () => {
+  const plan: SchedulerPlan = {
+    ok: true, model: 'GLM-5.2', coordinator: 'A', ring_order: ['A', 'B'], objective: 'tok_s',
+    est_tok_s: 42.5, est_round_ms: 94.1,
+    stages: [{ stage: 0, node_id: 'A', lo: 0, hi: 40, n_layers: 40 },
+             { stage: 1, node_id: 'B', lo: 40, hi: 78, n_layers: 38 }],
+  };
+  const { f, getBody } = stubFetch(plan);
+  const tokInput: PlanInput = { ...input, objective: 'tok_s', K: 4, maxStages: 6 };
+  const r = await planRing([shardWorker('A', 48), shardWorker('B', 24)], tokInput, 'http://s', f);
+  check('objective tok_s forwarded', getBody().objective === 'tok_s');
+  check('K forwarded', getBody().K === 4);
+  check('max_stages forwarded', getBody().max_stages === 6);
+  check('est_tok_s mapped to result', r.ok === true && (r as any).estTokS === 42.5);
+  check('est_round_ms mapped to result', r.ok === true && (r as any).estRoundMs === 94.1);
+  // default (no objective) omits the field entirely (byte-compat with old callers)
+  const { f: f2, getBody: gb2 } = stubFetch({
+    ok: true, model: 'GLM-5.2', coordinator: 'A', ring_order: ['A'],
+    stages: [{ stage: 0, node_id: 'A', lo: 0, hi: 78, n_layers: 78 }],
+  });
+  await planRing([shardWorker('A', 48)], input, 'http://s', f2);
+  check('no objective -> field omitted', !('objective' in gb2()) && !('K' in gb2()));
+})();
+
+// ── reportRingTelemetry: posts to /telemetry, swallows errors ──
+await (async () => {
+  const { reportRingTelemetry } = await import('./ringScheduler');
+  let url = '', body: any = null;
+  const f = (async (u: string, opts: any) => {
+    url = u; body = JSON.parse(opts.body);
+    return { ok: true, status: 200, json: async () => ({ ok: true }) } as Response;
+  }) as unknown as typeof fetch;
+  const rec = { model: 'GLM-5.2', stages: [{ node_id: 'A', n_layers: 40 }], rounds: 1, tokens: 2.5, K: 4 };
+  const ok = await reportRingTelemetry('http://s/', rec, f);
+  check('telemetry hits /telemetry endpoint', url === 'http://s/telemetry');
+  check('telemetry body carries stages + K', body.stages[0].node_id === 'A' && body.K === 4);
+  check('telemetry returns true on 200', ok === true);
+  // a thrown fetch must NOT propagate (learning is best-effort)
+  const boom = (async () => { throw new Error('net down'); }) as unknown as typeof fetch;
+  const ok2 = await reportRingTelemetry('http://s', rec, boom);
+  check('telemetry swallows fetch error', ok2 === false);
+})();
+
 console.log(`\nALL ${passed} PASS`);
 }
 

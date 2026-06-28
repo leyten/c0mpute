@@ -18,6 +18,9 @@ export interface SchedulerPlan {
   coordinator: string;             // node_id (we use worker.id as node_id)
   ring_order: string[];            // node_ids, head-first
   stages: { stage: number; node_id: string; lo: number; hi: number; n_layers: number }[];
+  objective?: string;              // 'tok_s' when throughput-aware planning was used
+  est_tok_s?: number;              // predicted tokens/sec for the chosen ring
+  est_round_ms?: number;           // predicted per-round wall time (ms)
   error?: string;
 }
 
@@ -28,10 +31,20 @@ export interface PlanInput {
   kvGbPerLayer?: number;
   /** node_id -> (node_id -> rtt ms). Symmetric-ish mesh; missing edges default high. */
   rttMesh: Record<string, Record<string, number>>;
+  /**
+   * 'tok_s' asks the scheduler to choose the SUBSET + ORDER of workers that maximizes
+   * predicted throughput (compute + WAN + accept-rate), not just minimum latency. Uses the
+   * service's learned per-GPU ms/layer + accept_rate (fed back via reportRingTelemetry).
+   * Omit (or 'latency') to keep the original VRAM-fit + min-latency-loop behaviour.
+   */
+  objective?: 'tok_s' | 'latency';
+  K?: number;             // speculative draft depth (tok_s objective)
+  maxStages?: number;     // cap ring size (tok_s objective); more hops rarely help
 }
 
 export type PlanResult =
-  | { ok: true; ring: RingStageWorker[]; coordinator: string; model: string }
+  | { ok: true; ring: RingStageWorker[]; coordinator: string; model: string;
+      estTokS?: number; estRoundMs?: number }
   | { ok: false; reason: string };
 
 /**
@@ -75,6 +88,9 @@ export async function planRing(
         total_layers: input.totalLayers,
         gb_per_layer: input.gbPerLayer,
         kv_gb_per_layer: input.kvGbPerLayer ?? 0,
+        ...(input.objective ? { objective: input.objective } : {}),
+        ...(input.K ? { K: input.K } : {}),
+        ...(input.maxStages ? { max_stages: input.maxStages } : {}),
         nodes,
       }),
     });
@@ -104,5 +120,36 @@ export async function planRing(
     });
   }
   if (ring.length === 0) return { ok: false, reason: 'plan produced no stages' };
-  return { ok: true, ring, coordinator: plan.coordinator, model: plan.model };
+  return { ok: true, ring, coordinator: plan.coordinator, model: plan.model,
+           estTokS: plan.est_tok_s, estRoundMs: plan.est_round_ms };
+}
+
+/**
+ * Feed a completed ring job's measured performance back to scheduler_svc so future plans
+ * learn the real fleet (per-GPU ms/layer, edge RTT, accept rate). Fire-and-forget — a failed
+ * post must never break job completion, so this swallows errors. Mirrors the /telemetry shape
+ * in scheduler_svc.py.
+ */
+export async function reportRingTelemetry(
+  schedulerUrl: string,
+  record: {
+    model: string;
+    stages: { node_id: string; n_layers: number; compute_ms?: number }[];
+    edges?: { from: string; to: string; rtt_ms: number }[];
+    tokens?: number;
+    rounds?: number;
+    K?: number;
+  },
+  fetchImpl: typeof fetch = fetch,
+): Promise<boolean> {
+  try {
+    const res = await fetchImpl(`${schedulerUrl.replace(/\/$/, '')}/telemetry`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(record),
+    });
+    return res.ok;
+  } catch {
+    return false;   // learning is best-effort; never let it surface to the caller
+  }
 }
