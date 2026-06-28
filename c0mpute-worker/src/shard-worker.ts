@@ -10,7 +10,7 @@
  */
 import { io, Socket } from 'socket.io-client';
 import { spawn, execSync, type ChildProcess } from 'child_process';
-import { existsSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { DEFAULT_ORCHESTRATOR_URL } from './config.js';
 import {
   buildSidecarArgs, buildStageArgs, buildCoordinatorArgs, shardEngineEnv,
@@ -146,22 +146,22 @@ export async function startShardWorker(options: ShardWorkerOptions): Promise<voi
         // small delay so neighbour sidecars/stages are listening before the coordinator
         // dials them (mirrors launch_libp2p.py's tail-first ordering).
         setTimeout(() => {
-          const coordArgs = buildCoordinatorArgs(a, paths);
+          // The coordinator writes its output + verified receipts to FILES (--dump /
+          // --receipts-out), which is far more reliable than scraping stdout. We read
+          // them on exit. Tokens still stream from stdout for live UX.
+          const dumpPath = `${paths.workdir}/ring-${a.jobId}.json`;
+          const receiptsPath = `${paths.workdir}/ring-${a.jobId}.receipts.json`;
+          const coordArgs = [...buildCoordinatorArgs(a, paths),
+            '--dump', dumpPath, '--receipts-out', receiptsPath];
           const coord = spawn(paths.python, coordArgs, { cwd: paths.workdir, env, stdio: ['ignore', 'pipe', 'inherit'] });
           jobProcs.push(coord);
-          // stream coordinator stdout tokens back; on exit, harvest receipts + response.
-          let out = '';
           coord.stdout?.on('data', (b) => {
-            const s = b.toString();
-            out += s;
-            // coordinator prints tokens; forward them as they stream (best-effort line split)
-            socket.emit('job:token', { jobId: a.jobId, token: s });
+            // forward streamed tokens for live UX (best-effort)
+            socket.emit('job:token', { jobId: a.jobId, token: b.toString() });
           });
           coord.on('exit', (code) => {
-            // coordinator writes a JSON result line {response, receipts:[...]} on success
-            const receipts = extractReceipts(out);
-            const response = extractResponse(out);
             if (code === 0) {
+              const { response, receipts } = readResult(dumpPath, receiptsPath);
               socket.emit('job:complete', { jobId: a.jobId, response, tokensGenerated: 0, receipts });
             } else {
               socket.emit('job:ring_failed', { jobId: a.jobId, stage: a.stage, error: `coordinator exited ${code}` });
@@ -196,31 +196,20 @@ export async function startShardWorker(options: ShardWorkerOptions): Promise<voi
   process.on('SIGTERM', shutdown);
 }
 
-// The coordinator prints a final JSON line with the committed receipts; pull it out.
-// Tolerant: returns [] if not found (handleJobComplete treats a no-receipt ring job as
-// unverifiable and won't pay — fail closed).
-function extractReceipts(out: string): Record<string, unknown>[] {
-  for (const ln of out.split('\n').reverse()) {
-    const t = ln.trim();
-    if (t.startsWith('{') && t.includes('receipts')) {
-      try {
-        const j = JSON.parse(t);
-        if (Array.isArray(j.receipts)) return j.receipts;
-      } catch { /* keep scanning */ }
-    }
-  }
-  return [];
-}
-
-function extractResponse(out: string): string {
-  for (const ln of out.split('\n').reverse()) {
-    const t = ln.trim();
-    if (t.startsWith('{') && t.includes('response')) {
-      try {
-        const j = JSON.parse(t);
-        if (typeof j.response === 'string') return j.response;
-      } catch { /* keep scanning */ }
-    }
-  }
-  return out.trim();
+// Read the coordinator's result from the files it wrote: --dump {prompt,output_ids,
+// text/tok_s} and --receipts-out {ok, receipts:[...]}. Fail closed on receipts: if the
+// file is missing/garbled, return [] so handleJobComplete treats the ring as unverifiable
+// and pays nobody (better than paying on an unproven run).
+function readResult(dumpPath: string, receiptsPath: string): { response: string; receipts: Record<string, unknown>[] } {
+  let response = '';
+  let receipts: Record<string, unknown>[] = [];
+  try {
+    const d = JSON.parse(readFileSync(dumpPath, 'utf-8'));
+    response = typeof d.text === 'string' ? d.text : (typeof d.response === 'string' ? d.response : '');
+  } catch { /* no dump → empty response */ }
+  try {
+    const r = JSON.parse(readFileSync(receiptsPath, 'utf-8'));
+    if (r && r.ok && Array.isArray(r.receipts)) receipts = r.receipts;
+  } catch { /* no receipts → fail closed (unpaid) */ }
+  return { response, receipts };
 }
