@@ -56,6 +56,12 @@ export class Orchestrator {
   private rateLimits: Map<string, number[]> = new Map();
   private jobs: Map<string, Job> = new Map();
   private jobQueue: string[] = [];
+  // Shard ring jobs: jobId -> the EXPECTED signer binding (base64 pubkey -> [lo,hi]) for
+  // every stage the orchestrator assigned. handleJobComplete passes this to verifyCoverage
+  // so a coordinator can't sign ALL blocks with keys it controls and steal the whole
+  // payout — each block must be signed by the exact node assigned it. Populated when a ring
+  // is dispatched (processShardQueue / job:ring_assign), cleared on completion/teardown.
+  private ringSigners: Map<string, Map<string, [number, number]>> = new Map();
   // Image generation jobs (decentralized image gen). Separate, simple
   // request/response lane (no token streaming): submit -> dispatch to an idle
   // image worker -> single PNG result. Billing stays in the web API route.
@@ -111,7 +117,7 @@ export class Orchestrator {
   // Aggregate, anonymous worker counts for the public data dashboard.
   // No worker ids, models, or user ids — counts only.
   getPublicStats() {
-    const byType: Record<'native' | 'browser' | 'image', number> = { native: 0, browser: 0, image: 0 };
+    const byType: Record<'native' | 'browser' | 'image' | 'shard', number> = { native: 0, browser: 0, image: 0, shard: 0 };
     let busy = 0;
     let online = 0;
     for (const w of this.workers.values()) {
@@ -847,7 +853,7 @@ export class Orchestrator {
     return accounts.size;
   }
 
-  private registerWorker(socket: Socket, model: string, privyUserId?: string, tokPerSec: number = 0, type: 'browser' | 'native' | 'image' = 'browser', capabilities: WorkerCapabilities = {}, ip?: string, accountAgeOk: boolean = false): string | null {
+  private registerWorker(socket: Socket, model: string, privyUserId?: string, tokPerSec: number = 0, type: 'browser' | 'native' | 'image' | 'shard' = 'browser', capabilities: WorkerCapabilities = {}, ip?: string, accountAgeOk: boolean = false): string | null {
     try {
       const workerId = uuidv4();
       const worker: WorkerInfo = {
@@ -1310,8 +1316,18 @@ export class Orchestrator {
         // Layer count is model-specific; use the model config or a sane default.
         // The receipt set must tile [0:layerCount] with no gaps.
         const layerCount = this.getLayerCountForModel(worker?.model);
-        verifyCoverage(receipts, layerCount);
-        console.log(`[Orchestrator] Job ${jobId}: ${receipts.length} shard receipts verified (coverage [0:${layerCount}])`);
+        // Signer binding: the pubkey -> [lo,hi] map the orchestrator recorded when it
+        // ASSIGNED this ring. Passing it to verifyCoverage forces every block to be
+        // signed by the node actually assigned that block — without it, a coordinator
+        // could sign all N blocks with its own keys (all tiling [0:N], all valid sigs)
+        // and splitRingPayout would pay the whole job to the attacker. A multi-receipt
+        // job with NO recorded binding was never dispatched as a ring by us → reject.
+        const binding = this.ringSigners.get(jobId);
+        if (receipts.length > 1 && !binding) {
+          throw new Error('multi-stage receipts on a job with no recorded ring assignment');
+        }
+        verifyCoverage(receipts, layerCount, binding);
+        console.log(`[Orchestrator] Job ${jobId}: ${receipts.length} shard receipts verified (coverage [0:${layerCount}]${binding ? ', signer-bound' : ''})`);
       } catch (err) {
         receiptsValid = false;
         console.error(`[Orchestrator] Job ${jobId} receipt verification FAILED — no pay: ${(err as Error).message}`);
@@ -1451,6 +1467,9 @@ export class Orchestrator {
     if (userSocket) {
       userSocket.emit('job:complete', { jobId, response });
     }
+
+    // Ring job done: drop the signer binding so the map doesn't grow unbounded.
+    this.ringSigners.delete(jobId);
 
     // Tell the worker a real job landed so it can log/count it. Canaries return
     // early above and never reach here, so they stay invisible on the terminal.

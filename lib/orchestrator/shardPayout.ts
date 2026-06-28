@@ -48,6 +48,10 @@ export function splitRingPayout(
   if (!Number.isFinite(totalCredits) || totalCredits < 0) {
     throw new Error(`splitRingPayout: bad totalCredits ${totalCredits}`);
   }
+  // Largest-remainder rounding conserves exactly only over an INTEGER pool. Credits are
+  // integers in this system, but floor defensively so a stray fractional basis can never
+  // make the leftover loop over- or under-distribute (mint/drop a credit).
+  totalCredits = Math.floor(totalCredits);
 
   // One stage per unique signer. The ring assigns each node exactly one contiguous block,
   // so a pubkey appearing twice with different spans is a protocol violation — reject it

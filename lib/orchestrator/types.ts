@@ -13,7 +13,7 @@ export interface WorkerInfo {
   id: string;
   socketId: string;
   model: string;
-  type: 'browser' | 'native' | 'image';
+  type: 'browser' | 'native' | 'image' | 'shard';
   capabilities: WorkerCapabilities;
   status: 'idle' | 'busy';
   connectedAt: Date;
@@ -36,6 +36,18 @@ export interface WorkerInfo {
   jobsSinceCanary?: number;
   // Epoch ms of the last canary dispatched to this worker.
   lastCanaryAt?: number;
+  // ── Shard (pipeline-parallel) fields — set only for type 'shard' ──
+  // Total GPU VRAM the worker advertises, in GB. The scheduler fits one model
+  // across N of these into contiguous layer blocks (a 120B doesn't fit one card).
+  vramGb?: number;
+  // The worker's libp2p PeerId (from its sidecar `-prove`). Identity for the ring
+  // transport AND the payout bridge (PeerId -> bound account -> credits).
+  peerId?: string;
+  // The worker's dialable libp2p multiaddr (/ip4/.../tcp/PORT/p2p/PEERID). Its ring
+  // neighbours dial this; behind NAT it's a circuit-relay addr upgraded by DCUtR.
+  multiaddr?: string;
+  // When busy on a ring job, the job id it's a stage of (so a drop frees the ring).
+  ringJobId?: string;
 }
 
 // Tool calling types
@@ -55,6 +67,29 @@ export interface ToolDefinition {
     description: string;
     parameters: Record<string, unknown>;
   };
+}
+
+// ── Shard ring assembly ──
+// One stage's marching orders in a pipeline-parallel ring. The orchestrator computes
+// these from the scheduler plan (vram fit + min-latency topology) and sends one to each
+// shard worker. Mirrors what phase0/launch_libp2p.py wires by hand over SSH.
+export interface RingAssignment {
+  jobId: string;
+  model: string;            // model path/name the stage loads (e.g. GLM-5.2)
+  stage: number;            // 0-based position in the ring (0 = head/coordinator)
+  nstages: number;          // total stages in the ring
+  lo: number;               // first layer of this stage's block (inclusive)
+  hi: number;               // last layer of this stage's block (exclusive)
+  nextMultiaddr: string;    // successor stage's dialable libp2p addr ('' for the tail)
+  nextPeerId: string;       // successor's PeerId ('' for the tail)
+  isCoordinator: boolean;   // the head: also drives generation + streams tokens back
+  tailMultiaddr: string;    // coordinator only: the tail's addr for the direct-return channel
+  tailPeerId: string;       // coordinator only: the tail's PeerId
+  // generation params the coordinator drives with (ignored by non-head stages)
+  messages?: ChatMessage[];
+  maxNew?: number;
+  K?: number;
+  depth?: number;
 }
 
 // Job types
@@ -135,11 +170,19 @@ export interface ServerToClientEvents {
   // Orchestrator -> submitter (internal web): the result or failure.
   'image:done': (data: { jobId: string; image: string; seed?: number; width?: number; height?: number }) => void;
   'image:error': (data: { jobId: string; error: string; code?: string }) => void;
+  // ── Shard ring assembly (pipeline-parallel) ──
+  // Orchestrator -> each shard worker: your stage assignment in a ring. The worker
+  // launches its sidecar tunnel + a specpipe stage for layers [lo,hi). nextMultiaddr
+  // is the successor stage's dialable libp2p addr ('' for the tail). isCoordinator
+  // marks the head, which also drives generation and streams tokens back.
+  'job:ring_assign': (data: RingAssignment) => void;
+  // Orchestrator -> ring: tear down (job done, failed, or a stage dropped).
+  'job:ring_teardown': (data: { jobId: string }) => void;
 }
 
 export interface ClientToServerEvents {
   'job:submit': (data: { messages?: ChatMessage[]; model?: string; authToken?: string; think?: boolean; privyUserId?: string; tools?: ToolDefinition[]; freeOnly?: boolean }, callback: (response: { jobId: string; freeRemaining?: number } | { error: string; code?: string }) => void) => void;
-  'worker:register': (data: { model: string; authToken?: string; tokPerSec?: number; type?: 'browser' | 'native' | 'image'; capabilities?: WorkerCapabilities }, callback: (response: { workerId: string } | { error: string }) => void) => void;
+  'worker:register': (data: { model: string; authToken?: string; tokPerSec?: number; type?: 'browser' | 'native' | 'image' | 'shard'; capabilities?: WorkerCapabilities; vramGb?: number; peerId?: string; multiaddr?: string }, callback: (response: { workerId: string } | { error: string }) => void) => void;
   'worker:unregister': () => void;
   'job:token': (data: { jobId: string; token: string }) => void;
   'job:complete': (data: { jobId: string; response: string; tokensGenerated: number; receipts?: Record<string, unknown>[] }) => void;
@@ -150,6 +193,13 @@ export interface ClientToServerEvents {
   // Image worker -> orchestrator: result or failure.
   'image:result': (data: { jobId: string; image: string }) => void;
   'image:failed': (data: { jobId: string; error: string }) => void;
+  // ── Shard ring (pipeline-parallel) worker -> orchestrator ──
+  // A stage worker reports it warmed its specpipe stage + sidecar and is reachable.
+  // The orchestrator waits for all N before telling the coordinator to drive.
+  'job:ring_ready': (data: { jobId: string; stage: number }) => void;
+  // A stage failed to come up (engine/sidecar launch error) — the orchestrator
+  // tears the ring down and requeues the job.
+  'job:ring_failed': (data: { jobId: string; stage: number; error: string }) => void;
 }
 
 export interface NetworkStats {
@@ -223,7 +273,7 @@ export function selectionWeight(tokPerSec: number): number {
  * worker); pro/browser models match any browser worker running c0mpute/dolphin.
  */
 export function workerServesModel(
-  worker: { type: 'browser' | 'native' | 'image'; model: string },
+  worker: { type: 'browser' | 'native' | 'image' | 'shard'; model: string },
   requestedModelId?: string,
 ): boolean {
   if (getModelTier(requestedModelId) === 'max') {

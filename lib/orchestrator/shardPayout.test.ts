@@ -102,4 +102,11 @@ function rcpt(pubkey: string, lo: number, hi: number) {
   check('single stage takes all', shares.length === 1 && shares[0].payoutCredits === 1000);
 }
 
+// ── fractional total is floored, still conserves (defensive) ──
+{
+  const shares = splitRingPayout([rcpt('A', 0, 40), rcpt('B', 40, 78)], 100.7);
+  const sum = shares.reduce((a, s) => a + s.payoutCredits, 0);
+  check('fractional total floored + conserved', sum === 100, `sum=${sum}`);
+}
+
 console.log(`\nALL ${passed} PASS`);
