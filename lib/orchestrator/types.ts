@@ -1,4 +1,6 @@
 /** Capabilities a worker advertises during registration */
+import { getModelEntry } from './modelRegistry';
+
 export interface WorkerCapabilities {
   search?: boolean;
   uncensored?: boolean;
@@ -297,46 +299,34 @@ export const MAX_OUTPUT_TOKENS = 4096;
 
 
 // ── Shard (pipeline-parallel) model registry ──
-// Models too big for one GPU, served by a RING of shard workers. The user-facing model
-// id (job:submit `model`) maps to the fit params the scheduler needs: total layer count,
-// model bytes/layer at the served quant, KV bytes/layer, and the engine model path the
-// stages load. Add an entry to make a big model servable; pair it with shard workers
-// reporting matching `model`. layerCount MUST match shard/receipt.py coverage tiling and
-// the orchestrator's getLayerCountForModel.
+// M1: a sharded model is defined EXACTLY ONCE, in shard's signed registry (registry/models.json,
+// schema shard-models/1), read by BOTH repos. The fields below used to live in a hardcoded
+// SHARD_MODELS object here AND in shard/plan_ring.MODEL_LAYERS AND in getLayerCountForModel —
+// three copies that drifted (gpt-oss 120-vs-36). They are now derived from the verified registry
+// via lib/orchestrator/modelRegistry.ts. Configure the source with SHARD_MODELS_JSON (path) or
+// refreshRegistryFromUrl() (prod CDN), and pin the publisher with SHARD_MODELS_PUBKEY.
 export interface ShardModelSpec {
   workerModel: string;   // the `model` string shard workers register with
   enginePath: string;    // path the specpipe stages load (on the worker box)
   layerCount: number;    // transformer layers — receipts must tile [0:layerCount]
   gbPerLayer: number;    // model bytes/layer at the served quant (for the VRAM fit)
   kvGbPerLayer: number;  // KV bytes/layer at the target context
+  // M3/M4 fields carried straight from the registry row (optional so old call sites compile):
+  adapter?: string;      // StageRuntime impl: glm-nvfp4 | generic-vllm
+  quant?: string;        // nvfp4 | mxfp4 | fp8 | ...
+  hfArch?: string;       // config.architectures[0] — keys the generic adapter
+  tokenizerId?: string;
+  defaults?: { K?: number; depth?: number; draftCtx?: number };
 }
 
-export const SHARD_MODELS: Record<string, ShardModelSpec> = {
-  'shard-glm-5.2': {
-    workerModel: 'GLM-5.2',
-    enginePath: '/root/models/GLM-5.2',
-    layerCount: 78,
-    gbPerLayer: 1.05,
-    kvGbPerLayer: 0.04,
-  },
-  'shard-gpt-oss-120b': {
-    workerModel: 'gpt-oss-120b',
-    enginePath: '/root/models/gpt-oss-120b',
-    layerCount: 36,        // C5: was 120 (that is the param count, not layers). 36 is what
-    //                    the proofs ran: gateway.py "36 layers", ROADMAP "MXFP4, 36 layers",
-    //                    PROOF.md "3 stages, 12 layers each" = 36. With 120, receipts tile
-    //                    [0:36] but verifyCoverage expects [0:120] → honest node gets struck.
-    gbPerLayer: 0.95,
-    kvGbPerLayer: 0.03,
-  },
-};
-
-/** The shard model spec for a user-facing model id, or undefined if it's not a ring model. */
+/** The shard model spec for a user-facing model id, or undefined if it's not a ring model.
+ *  Backed by the signed registry (modelRegistry.getModelEntry). A ModelEntry is a structural
+ *  superset of ShardModelSpec, so it satisfies the interface directly. */
 export function getShardModelSpec(modelId?: string): ShardModelSpec | undefined {
-  return SHARD_MODELS[modelId ?? ''];
+  return getModelEntry(modelId);
 }
 
 /** Whether a job requests a sharded (ring) model rather than a single-worker model. */
 export function isShardModel(modelId?: string): boolean {
-  return !!SHARD_MODELS[modelId ?? ''];
+  return !!getModelEntry(modelId);
 }

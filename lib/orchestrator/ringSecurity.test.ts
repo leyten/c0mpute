@@ -17,7 +17,9 @@
 import { verifyCoverage, ReceiptError, type ShardReceipt } from '../receipt';
 import { splitRingPayout } from './shardPayout';
 import { buildRingAssignments, type RingStageWorker } from './ringAssembly';
-import { SHARD_MODELS, getShardModelSpec } from './types';
+import { getShardModelSpec } from './types';
+import { setRegistryCache, loadRegistryFromFile } from './modelRegistry';
+import * as path from 'node:path';
 
 let passed = 0;
 let failed = 0;
@@ -64,6 +66,10 @@ function shardWorker(id: string, vramGb: number, lo: number, hi: number): RingSt
 }
 
 async function main() {
+  // M1: getShardModelSpec now reads the signed registry cache. Prime it from the committed
+  // fixture (the exact signed bytes shard published) so the C5 layer-count checks resolve.
+  setRegistryCache(loadRegistryFromFile(path.join(__dirname, 'fixtures', 'models.json')));
+
   console.log('── C1: assignedWorker set on ring dispatch ──');
   // C1: the coordinator (ring[0]) must have its workerId set as job.assignedWorker.
   // We simulate what processShardQueue does: takes ring[0].workerId as coordinator.
