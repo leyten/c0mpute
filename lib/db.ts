@@ -389,6 +389,78 @@ export function recordEarning(data: {
   return earning;
 }
 
+// ── Sharded (ring) job earnings ──
+// A sharded job is served by a RING of N stage workers, each holding a contiguous
+// block of the model's layers (proven by a signed per-stage receipt). recordEarning
+// pays ONE worker and realizes the job's treasury margin + referral exactly once
+// (UNIQUE(job_id) guards it). For a ring we must pay N distinct accounts while STILL
+// realizing the job's margin/referral exactly once — otherwise the buyback pool and
+// referral ledger double-count by a factor of N.
+//
+// Design: each stage's earning row is keyed `<jobId>#<stageIdx>` so the per-stage
+// UNIQUE(job_id) guard still fires per stage (idempotent retries) without colliding.
+// The job-level margin + referral are booked ONCE, against the real `jobId`, off the
+// AGGREGATE worker pay — not per stage. Worker shares (payoutCredits) must already sum
+// to the job's worker-pay basis (splitRingPayout guarantees this).
+export function recordRingEarnings(data: {
+  jobId: string;
+  tier: 'free' | 'pro' | 'max' | 'image';
+  creditsCharged: number;         // whole-job revenue (0 for subsidized/free)
+  revenueShare?: number;          // applied uniformly to every stage
+  subsidized?: boolean;
+  subsidyKind?: 'free' | 'allowance';
+  payerPrivyId?: string;
+  stages: { privyId: string; payoutCredits: number; tokensGenerated: number }[];
+}): { totalEarnedUsd: number; paid: { privyId: string; earnedUsd: number }[] } {
+  ensureEarningsTables();
+  const db = getDb();
+  const share = data.revenueShare ?? WORKER_REVENUE_SHARE;
+  const now = new Date().toISOString();
+
+  // 1) Book each stage's worker earning under its own per-stage job key. No margin/
+  //    referral here — those are job-level and booked once below.
+  const paid: { privyId: string; earnedUsd: number }[] = [];
+  let totalEarnedUsd = 0;
+  data.stages.forEach((st, i) => {
+    const payoutBaseUsd = st.payoutCredits / CREDITS_PER_USD;
+    const earning = payoutBaseUsd * share;
+    if (earning <= 0) return;
+    const stageJobId = `${data.jobId}#${i}`;
+    try {
+      db.prepare(
+        'INSERT INTO worker_earnings (id, privy_id, job_id, tier, tokens, earning_usd, created_at, subsidized, subsidy_kind) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+      ).run(crypto.randomUUID(), st.privyId, stageJobId, data.tier, st.tokensGenerated,
+            earning, now, data.subsidized ? 1 : 0, data.subsidyKind ?? null);
+      totalEarnedUsd += earning;
+      paid.push({ privyId: st.privyId, earnedUsd: earning });
+    } catch {
+      // UNIQUE(job_id) on the per-stage key => idempotent: a retried completion
+      // won't double-pay a stage. Skip silently (already booked).
+    }
+  });
+
+  // 2) Job-level margin + referral, realized ONCE against the real jobId off the
+  //    AGGREGATE worker pay (mirrors recordEarning's single-worker accounting).
+  const revenueUsd = data.creditsCharged / CREDITS_PER_USD;
+  let referralUsd = 0;
+  const referralBasisUsd = revenueUsd > 0 ? revenueUsd
+    : (data.subsidyKind === 'allowance' ? totalEarnedUsd / share : 0);
+  if (data.payerPrivyId && referralBasisUsd > 0) {
+    try {
+      referralUsd = recordReferralEarning({
+        payerPrivyId: data.payerPrivyId,
+        jobId: data.jobId,
+        tier: data.tier,
+        revenueUsd: referralBasisUsd,
+      });
+    } catch {
+      // UNIQUE(job_id) in the referral table => once-per-job; ignore retries.
+    }
+  }
+  realizeMargin(revenueUsd - totalEarnedUsd - referralUsd, data.jobId);
+  return { totalEarnedUsd, paid };
+}
+
 // Total USD of FREE-PROMPT treasury-subsidized worker earnings booked since
 // 00:00 UTC today. Used to enforce the daily free-prompt subsidy cap. Excludes
 // staker-allowance subsidies — those have their own separate daily pool cap, so

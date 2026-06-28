@@ -15,7 +15,7 @@ import {
   selectionWeight,
 } from './types';
 import { verifyPrivyToken } from '../privy-server';
-import { incrementPromptsSent, verifyWorkerToken, recordCompletedJob, recordEarning, spendCredits, getCreditBalance, refundCredits, isWorkerBanned, recordWorkerStrike, recordCanaryResult, consumeFreePrompt, getTodayFreeSubsidyUsd, getThisHourFreeSubsidyUsd, anonGrantFreePrompt, profileHasLogin, getAccountAgeMs } from '../db';
+import { incrementPromptsSent, verifyWorkerToken, recordCompletedJob, recordEarning, recordRingEarnings, getPeerIdOwner, spendCredits, getCreditBalance, refundCredits, isWorkerBanned, recordWorkerStrike, recordCanaryResult, consumeFreePrompt, getTodayFreeSubsidyUsd, getThisHourFreeSubsidyUsd, anonGrantFreePrompt, profileHasLogin, getAccountAgeMs } from '../db';
 import { FREE_PROMPT_LIMIT, FREE_SUBSIDY_DAILY_CAP_USD, FREE_SUBSIDY_HOURLY_CAP_USD, STAKER_ALLOWANCE_ENABLED, ANON_FREE_PROMPT_LIMIT, ANON_IP_DAILY_CAP, WORKER_STAKED_REVENUE_SHARE } from '../tokenomics';
 import { verifyAnonToken } from '../anon-auth';
 import { CREDITS_PER_USD } from '../token-price';
@@ -23,7 +23,8 @@ import { getWorkerRevenueShare } from '../staking';
 import { consumeStakerAllowance, recordStakerRequest } from '../staker-allowance';
 import { scanOutput, BLOCKED_MESSAGE } from '../safety';
 import { AVAILABLE_TOOLS, executeToolCalls } from './tools';
-import { verifyCoverage } from '../receipt';
+import { verifyCoverage, pubkeyToPeerId, type ShardReceipt } from '../receipt';
+import { splitRingPayout } from './shardPayout';
 
 // Load search server module for Brave API key initialization
 try {
@@ -1336,7 +1337,61 @@ export class Orchestrator {
       }
     }
 
-    if (worker?.privyUserId && receiptsValid) {
+    // RING PAYOUT: a sharded job carries verified per-stage receipts. Pay EVERY stage
+    // worker by its layer coverage (splitRingPayout), not just the coordinator socket.
+    // Each receipt's pubkey -> PeerId -> bound account (getPeerIdOwner). Stages whose
+    // node never bound a PeerId to an account are unattributable and skipped (their
+    // share is simply not paid — the work was still verified, but there's no payee).
+    // Falls through to the single-worker path below only when this is NOT a ring job.
+    const isRingJob = receipts && receipts.length > 0 && receiptsValid;
+    if (isRingJob) {
+      try {
+        const revenueCredits = job.creditsCharged || 0;
+        const payBasis = revenueCredits > 0 ? revenueCredits : (job.subsidyCredits || 0);
+        // worker share: use the coordinator's effective share if we can attribute it,
+        // else the base. (Per-stage staked boosts are a later refinement.)
+        const coordShare = worker?.privyUserId ? getWorkerRevenueShare(worker.privyUserId) : undefined;
+        const shares = splitRingPayout(
+          receipts as unknown as ShardReceipt[], payBasis, 'proportional');
+        // resolve each signer -> account; drop unattributable stages
+        const stages: { privyId: string; payoutCredits: number; tokensGenerated: number; pub: string }[] = [];
+        for (const s of shares) {
+          let owner: string | null = null;
+          try { owner = getPeerIdOwner(pubkeyToPeerId(s.pubkey)); } catch { owner = null; }
+          if (owner) {
+            stages.push({ privyId: owner, payoutCredits: s.payoutCredits,
+                          tokensGenerated: 0, pub: s.pubkey });
+          } else {
+            console.warn(`[Orchestrator] Job ${jobId}: stage signer ${s.pubkey.slice(0, 12)}.. has no bound account — share of ${s.payoutCredits} cr unpaid`);
+          }
+        }
+        if (stages.length > 0) {
+          // token credit lands on the coordinator's row (it drove generation); stage
+          // pay is by layer work, token attribution is a separate axis.
+          stages[0].tokensGenerated = cappedTokens;
+          recordCompletedJob({
+            jobId, workerPrivyId: stages[0].privyId, userPrivyId: job.privyUserId,
+            model: worker?.model || job.requestedModel || 'shard',
+            tier: worker?.type === 'native' ? 'max' : 'pro',
+            tokensGenerated: cappedTokens, durationMs: duration > 0 ? duration : undefined,
+          });
+          const { totalEarnedUsd, paid } = recordRingEarnings({
+            jobId,
+            tier: worker?.type === 'native' ? 'max' : 'pro',
+            creditsCharged: revenueCredits,
+            revenueShare: coordShare,
+            subsidized: revenueCredits === 0 && (job.subsidyCredits || 0) > 0,
+            subsidyKind: job.subsidyKind,
+            payerPrivyId: job.privyUserId,
+            stages: stages.map(s => ({ privyId: s.privyId, payoutCredits: s.payoutCredits,
+                                       tokensGenerated: s.tokensGenerated })),
+          });
+          console.log(`[Orchestrator] Ring job ${jobId}: paid ${paid.length}/${shares.length} stages, total $${totalEarnedUsd.toFixed(4)}`);
+        }
+      } catch (err) {
+        console.error('[Orchestrator] Ring payout failed:', (err as Error).message);
+      }
+    } else if (worker?.privyUserId && receiptsValid) {
       try {
         recordCompletedJob({
           jobId,
