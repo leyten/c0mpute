@@ -26,7 +26,7 @@ export const REGISTRY_SCHEMA = 'shard-models/1';
 // Adapters the runtime can instantiate (M3). Mirror of shard/registry.py KNOWN_ADAPTERS —
 // the cross-repo CI test (registryCrossRepo.test.ts) asserts these two sets are identical so
 // they can't drift either.
-export const KNOWN_ADAPTERS = new Set(['glm-nvfp4', 'generic-vllm']);
+export const KNOWN_ADAPTERS = new Set(['glm-nvfp4', 'generic-vllm', 'generic-hf', 'hf']);
 
 export class RegistryError extends Error {
   constructor(message: string) {
