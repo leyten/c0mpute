@@ -1,0 +1,256 @@
+#!/usr/bin/env node
+// Generates public/roadmap-clone/index.html from roadmap-data.json.
+// The SVG keeps the structural contract of the Mina roadmap engine
+// (css/main.min.css + js/main.min.js), which the page reuses unchanged:
+//   #roadmap-rows > g            = one group per track row (hover dims others)
+//   row > g:last-child > g       = one group per item
+//   item > g:first-child         = the visible box
+//   item > g:last-child > g      = the hover tooltip (CSS-animated)
+//   any element with id^="http"  = clickable link
+import { readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const here = dirname(fileURLToPath(import.meta.url));
+const data = JSON.parse(readFileSync(join(here, 'roadmap-data.json'), 'utf8'));
+const OUT = join(here, '..', '..', 'public', 'roadmap-clone', 'index.html');
+
+// ── Geometry ────────────────────────────────────────────────────────────────
+const W = 3080;
+const LABEL_X = 60, LABEL_W = 520;
+const CHART_X = LABEL_X + LABEL_W + 40; // 620
+const CHART_W = W - 60 - CHART_X; // ends at x=3020
+const COL_W = CHART_W / data.phases.length;
+const HEAD_Y = 260, HEAD_H = 46;
+const ROWS_Y = HEAD_Y + HEAD_H + 4;
+const ITEM_W = 400, ITEM_H = 78, ITEM_GAP = 36;
+const ROW_PAD = 70;
+
+const FONT_MONO = `'Courier New', Monaco, Consolas, monospace`;
+const FONT_PIXEL = `'argent-pixel-cf', sans-serif`;
+
+const GREEN = '#22c55e';
+const BLUE = '#80a0c1';
+
+const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+function wrap(text, maxChars) {
+  const words = text.split(' ');
+  const lines = [];
+  let line = '';
+  for (const w of words) {
+    if (line && (line + ' ' + w).length > maxChars) { lines.push(line); line = w; }
+    else line = line ? line + ' ' + w : w;
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+
+function textBlock(x, y, lines, { size = 20, fill = '#fff', family = FONT_MONO, lh = 1.4, anchor = 'start', weight = 'normal', spacing = '0' } = {}) {
+  const tspans = lines.map((l, i) => `<tspan x="${x}" dy="${i === 0 ? 0 : size * lh}">${esc(l)}</tspan>`).join('');
+  return `<text x="${x}" y="${y}" font-family="${family}" font-size="${size}" fill="${fill}" text-anchor="${anchor}" font-weight="${weight}" letter-spacing="${spacing}">${tspans}</text>`;
+}
+
+// c0mpute wordmark: argent-pixel with the oversized Minecraft zero.
+function wordmark(x, y, size) {
+  const zero = size * 1.5;
+  return `<text x="${x}" y="${y}" font-family="${FONT_PIXEL}" font-size="${size}" fill="#fff">C<tspan font-family="'Minecraft', monospace" font-size="${zero}" dy="${size * 0.06}">0</tspan><tspan dy="${-size * 0.06}">MPUTE</tspan></text>`;
+}
+
+// Pixel-serif titles: "$" renders in mono (argent's $ glyph is off-brand) and
+// "0" renders in Minecraft (argent's zero reads as an "o"), same as the site.
+function pixelTitle(x, y, size, name, fill = '#fff') {
+  let body = '';
+  for (const ch of name) {
+    if (ch === '$') body += `<tspan font-family="${FONT_MONO}">$</tspan>`;
+    else if (ch === '0') body += `<tspan font-family="'Minecraft', monospace" font-size="${size * 0.92}">0</tspan>`;
+    else body += esc(ch);
+  }
+  return `<text x="${x}" y="${y}" font-family="${FONT_PIXEL}" font-size="${size}" fill="${fill}">${body}</text>`;
+}
+
+// ── Layout items ────────────────────────────────────────────────────────────
+const pos = {}; // id -> {x, y}
+const trackHeights = [];
+for (const track of data.tracks) {
+  const byPhase = Object.fromEntries(data.phases.map((p) => [p, track.items.filter((i) => i.phase === p)]));
+  const maxStack = Math.max(...Object.values(byPhase).map((a) => a.length));
+  trackHeights.push(Math.max(340, ROW_PAD * 2 + maxStack * ITEM_H + (maxStack - 1) * ITEM_GAP));
+}
+const H = ROWS_Y + trackHeights.reduce((a, b) => a + b, 0) + 80;
+
+// ── Build rows ──────────────────────────────────────────────────────────────
+let rowsSvg = '';
+let rowY = ROWS_Y;
+data.tracks.forEach((track, ti) => {
+  const rowH = trackHeights[ti];
+  const byPhase = Object.fromEntries(data.phases.map((p) => [p, track.items.filter((i) => i.phase === p)]));
+
+  // item positions: one stack per phase column, vertically centered
+  for (const [pi, phase] of data.phases.entries()) {
+    const stack = byPhase[phase];
+    const stackH = stack.length * ITEM_H + (stack.length - 1) * ITEM_GAP;
+    const startY = rowY + (rowH - stackH) / 2;
+    stack.forEach((item, si) => {
+      pos[item.id] = { x: CHART_X + pi * COL_W + (COL_W - ITEM_W) / 2, y: startY + si * (ITEM_H + ITEM_GAP) };
+    });
+  }
+
+  // static row furniture (label cell, separators) — first children of the row group
+  let furniture = `<rect x="${LABEL_X}" y="${rowY}" width="${LABEL_W}" height="${rowH}" fill="none" stroke="rgba(255,255,255,0.18)" stroke-width="1.5"/>`;
+  furniture += pixelTitle(LABEL_X + 40, rowY + 90, 44, track.name);
+  furniture += textBlock(LABEL_X + 40, rowY + 140, wrap(track.tagline, 40), { size: 19, fill: 'rgba(255,255,255,0.55)' });
+  furniture += `<line x1="${CHART_X}" y1="${rowY}" x2="${W - 60}" y2="${rowY}" stroke="rgba(255,255,255,0.18)" stroke-width="1.5"/>`;
+  if (ti === data.tracks.length - 1)
+    furniture += `<line x1="${CHART_X}" y1="${rowY + rowH}" x2="${W - 60}" y2="${rowY + rowH}" stroke="rgba(255,255,255,0.18)" stroke-width="1.5"/>`;
+  for (let pi = 1; pi < data.phases.length; pi++) {
+    const x = CHART_X + pi * COL_W;
+    furniture += `<line x1="${x}" y1="${rowY}" x2="${x}" y2="${rowY + rowH}" stroke="rgba(255,255,255,0.15)" stroke-width="1.5" stroke-dasharray="3 9"/>`;
+  }
+
+  // connectors
+  let linksSvg = '';
+  for (const [from, to] of track.links || []) {
+    const a = pos[from], b = pos[to];
+    if (!a || !b) continue;
+    const x1 = a.x + ITEM_W, y1 = a.y + ITEM_H / 2;
+    const x2 = b.x, y2 = b.y + ITEM_H / 2;
+    const dx = Math.max(60, (x2 - x1) / 2);
+    linksSvg += `<path d="M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2 - 12} ${y2}" fill="none" stroke="rgba(255,255,255,0.35)" stroke-width="2" marker-end="url(#arrow)"/>`;
+  }
+
+  // items (must be the LAST child group of the row group — tooltip CSS contract)
+  let itemsSvg = '';
+  for (const item of track.items) {
+    const { x, y } = pos[item.id];
+    let box = `<rect x="${x}" y="${y}" width="${ITEM_W}" height="${ITEM_H}" fill="#000" stroke="rgba(255,255,255,0.3)" stroke-width="1.5"/>`;
+    if (item.status === 'shipped')
+      box = `<rect x="${x}" y="${y}" width="${ITEM_W}" height="${ITEM_H}" fill="rgba(34,197,94,0.16)" stroke="rgba(34,197,94,0.8)" stroke-width="1.5"/>`;
+    if (item.status === 'progress')
+      box = `<rect x="${x}" y="${y}" width="${ITEM_W}" height="${ITEM_H}" fill="#000" stroke="rgba(255,255,255,0.4)" stroke-width="1.5"/>` +
+        `<rect x="${x}" y="${y}" width="${ITEM_W * 0.45}" height="${ITEM_H}" fill="rgba(34,197,94,0.25)"/>`;
+    if (item.status === 'milestone')
+      box = `<rect x="${x}" y="${y}" width="${ITEM_W}" height="${ITEM_H}" fill="rgba(128,160,193,0.08)" stroke="${BLUE}" stroke-width="3.5"/>`;
+
+    const titleLines = wrap(item.title, 30);
+    const tSize = 21;
+    const textY = y + ITEM_H / 2 + tSize * 0.35 - ((titleLines.length - 1) * tSize * 1.3) / 2;
+    box += textBlock(x + 20, textY, titleLines, { size: tSize, lh: 1.3 });
+
+    // tooltip above the box
+    const tipLines = wrap(item.blurb, 42);
+    const TIP_W = 480;
+    const tipH = 74 + tipLines.length * 26;
+    const tx = Math.min(x, W - 80 - TIP_W);
+    const ty = y - tipH - 14;
+    const tooltip =
+      `<g display="none"><g>` +
+      `<rect x="${tx}" y="${ty}" width="${TIP_W}" height="${tipH}" fill="#0a0a0a" stroke="rgba(255,255,255,0.35)" stroke-width="1.5"/>` +
+      `<rect x="${tx}" y="${ty}" width="6" height="${tipH}" fill="${item.status === 'milestone' ? BLUE : GREEN}" opacity="${item.status === 'planned' ? 0.25 : 0.8}"/>` +
+      textBlock(tx + 26, ty + 42, [item.title], { size: 21, weight: 'bold' }) +
+      textBlock(tx + 26, ty + 78, tipLines, { size: 19, fill: 'rgba(255,255,255,0.7)' }) +
+      `</g></g>`;
+
+    itemsSvg += `<g><g>${box}</g>${tooltip}</g>`;
+  }
+
+  rowsSvg += `<g>${furniture}${linksSvg}<g>${itemsSvg}</g></g>`;
+  rowY += rowH;
+});
+
+// ── Header band ─────────────────────────────────────────────────────────────
+let headSvg = '';
+data.phases.forEach((phase, pi) => {
+  const x = CHART_X + pi * COL_W;
+  const shipped = phase === 'shipped';
+  headSvg += `<rect x="${x}" y="${HEAD_Y}" width="${COL_W}" height="${HEAD_H}" fill="${shipped ? 'rgba(34,197,94,0.16)' : 'none'}" stroke="rgba(255,255,255,0.25)" stroke-width="1.5"/>`;
+  headSvg += `<text x="${x + COL_W / 2}" y="${HEAD_Y + HEAD_H / 2 + 7}" font-family="${FONT_MONO}" font-size="20" letter-spacing="3" text-anchor="middle" fill="${shipped ? GREEN : 'rgba(255,255,255,0.75)'}">${data.phaseLabels[phase]}</text>`;
+});
+
+// ── Top area ────────────────────────────────────────────────────────────────
+let topSvg = '';
+topSvg += wordmark(LABEL_X + 10, 100, 56);
+topSvg += textBlock(LABEL_X + 12, 138, wrap(data.disclaimer, 60), { size: 14, fill: 'rgba(255,255,255,0.5)', lh: 1.45 });
+// back-to-site button (id^=http → clickable via main.min.js Link handler)
+topSvg += `<g id="https://c0mpute.ai/">` +
+  `<rect x="${LABEL_X + 12}" y="212" width="300" height="42" fill="#fff"/>` +
+  `<text x="${LABEL_X + 12 + 150}" y="239" font-family="${FONT_MONO}" font-size="17" text-anchor="middle" fill="#000" letter-spacing="1">BACK TO C0MPUTE.AI →</text></g>`;
+// title block
+topSvg += pixelTitle(900, 110, 74, data.title);
+topSvg += textBlock(903, 152, [data.subtitle], { size: 24, fill: 'rgba(255,255,255,0.7)', spacing: '2' });
+// info panel: how-to + legend
+const PANEL_X = 2020, PANEL_W = W - 60 - PANEL_X;
+topSvg += `<rect x="${PANEL_X}" y="40" width="${PANEL_W}" height="200" fill="rgba(255,255,255,0.02)" stroke="rgba(255,255,255,0.18)" stroke-width="1.5"/>`;
+topSvg += pixelTitle(PANEL_X + 30, 85, 27, 'How to View This Roadmap');
+topSvg += textBlock(PANEL_X + 30, 118, wrap(data.howto, 42), { size: 16, fill: 'rgba(255,255,255,0.6)', lh: 1.5 });
+const LEG_X = PANEL_X + PANEL_W / 2 + 20;
+topSvg += `<line x1="${LEG_X - 30}" y1="60" x2="${LEG_X - 30}" y2="220" stroke="rgba(255,255,255,0.12)" stroke-width="1.5"/>`;
+topSvg += pixelTitle(LEG_X, 85, 27, 'Component States');
+const swatches = [
+  { label: 'SHIPPED', fill: 'rgba(34,197,94,0.16)', stroke: 'rgba(34,197,94,0.8)', sw: 1.5 },
+  { label: 'IN PROGRESS', fill: 'none', stroke: 'rgba(255,255,255,0.4)', sw: 1.5, half: true },
+  { label: 'CRITICAL MILESTONE', fill: 'rgba(128,160,193,0.08)', stroke: BLUE, sw: 3 },
+  { label: 'PLANNED', fill: 'none', stroke: 'rgba(255,255,255,0.3)', sw: 1.5 },
+];
+swatches.forEach((s, i) => {
+  const sx = LEG_X + (i % 2) * 235;
+  const sy = 108 + Math.floor(i / 2) * 48;
+  topSvg += `<rect x="${sx}" y="${sy}" width="52" height="26" fill="${s.fill}" stroke="${s.stroke}" stroke-width="${s.sw}"/>`;
+  if (s.half) topSvg += `<rect x="${sx}" y="${sy}" width="23" height="26" fill="rgba(34,197,94,0.25)"/>`;
+  topSvg += textBlock(sx + 66, sy + 18, [s.label], { size: 13, fill: 'rgba(255,255,255,0.6)', spacing: '1' });
+});
+// footnote
+topSvg += `<text x="${W - 60}" y="${H - 30}" font-family="${FONT_MONO}" font-size="16" text-anchor="end" fill="rgba(255,255,255,0.4)">${esc(data.footnote)}</text>`;
+
+// ── Assemble page ───────────────────────────────────────────────────────────
+const svg = `<svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 ${W} ${H}" style="enable-background:new 0 0 ${W} ${H};" xml:space="preserve">
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 1 L 9 5 L 0 9" fill="none" stroke="rgba(255,255,255,0.5)" stroke-width="1.6"/></marker></defs>
+<rect x="0" y="0" width="${W}" height="${H}" fill="#000"/>
+${topSvg}
+${headSvg}
+<g id="roadmap-rows">${rowsSvg}</g>
+</svg>`;
+
+const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="robots" content="noindex, nofollow">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Roadmap — c0mpute</title>
+    <link rel="stylesheet" href="https://use.typekit.net/kwe2dpm.css">
+    <link rel="stylesheet" href="/roadmap-clone/css/main.min.css">
+    <link rel="stylesheet" href="/roadmap-clone/css/c0mpute.css">
+</head>
+<body>
+    <div class="roadmap">
+        <div class="roadmap-canvas">
+            ${svg}
+        </div>
+
+        <div class="roadmap-tools">
+            <div class="roadmap-tools-group">
+                <button class="roadmap-tool roadmap-tool-zoomin" data-label="Zoom in">
+                    <svg viewBox="0 0 12 12"><line x1="6" y1="1" x2="6" y2="11"></line><line x1="1" y1="6" x2="11" y2="6"></line></svg>
+                </button>
+                <button class="roadmap-tool roadmap-tool-zoomout" data-label="Zoom out">
+                    <svg viewBox="0 0 12 12"><line x1="1" y1="6" x2="11" y2="6"></line></svg>
+                </button>
+            </div>
+
+            <div class="roadmap-tools-group">
+                <button class="roadmap-tool roadmap-tool-fullscreen" data-label="Fullscreen">
+                    <svg viewBox="0 0 14 14"><polyline points="1,5 1,1 5,1"></polyline><polyline points="9,1 13,1 13,5"></polyline><polyline points="13,9 13,13 9,13"></polyline><polyline points="5,13 1,13 1,9"></polyline></svg>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script type="text/javascript" src="/roadmap-clone/js/panzoom.min.js"></script>
+    <script type="text/javascript" src="/roadmap-clone/js/main.min.js"></script>
+</body>
+</html>
+`;
+
+writeFileSync(OUT, html);
+console.log(`wrote ${OUT} (${html.length} bytes, board ${W}x${H})`);
