@@ -51,6 +51,14 @@ const nextConfig: NextConfig = {
       { source: '/worker', destination: '/earn', permanent: true },
     ];
   },
+  // /roadmap is a self-contained static page (panzoom board) served from
+  // public/roadmap-clone/, kept outside the React app so it can be iterated
+  // on as plain HTML/CSS/JS.
+  async rewrites() {
+    return [
+      { source: '/roadmap', destination: '/roadmap-clone/index.html' },
+    ];
+  },
   // Polyfill Buffer for client-side @solana/web3.js (on-chain staking UI).
   // Only affects the webpack build; turbopack ignores this callback.
   webpack: (config, { webpack }) => {
