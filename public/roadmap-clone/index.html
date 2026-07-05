@@ -43,5 +43,14 @@
 
     <script type="text/javascript" src="/roadmap-clone/js/panzoom.min.js"></script>
     <script type="text/javascript" src="/roadmap-clone/js/main.min.js"></script>
+    <script>
+    // SVG paints in document order, so a hover tooltip can render underneath
+    // a later card. Raise the hovered item to the top of its layer.
+    document.querySelectorAll('#roadmap-rows > g > g:last-child > g').forEach(function (g) {
+      g.addEventListener('mouseenter', function () {
+        if (g !== g.parentNode.lastElementChild) g.parentNode.appendChild(g);
+      });
+    });
+    </script>
 </body>
 </html>
