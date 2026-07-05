@@ -133,7 +133,7 @@ data.tracks.forEach((track, ti) => {
     const x1 = a.x + ITEM_W, y1 = a.y + ITEM_H / 2;
     const x2 = b.x, y2 = b.y + ITEM_H / 2;
     const dx = Math.max(60, (x2 - x1) / 2);
-    linksSvg += `<path d="M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2 - 12} ${y2}" fill="none" stroke="rgba(255,255,255,0.35)" stroke-width="2" marker-end="url(#arrow)"/>`;
+    linksSvg += `<path d="M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2 - 12} ${y2}" fill="none" stroke="rgba(255,255,255,0.45)" stroke-width="2" stroke-dasharray="2 7" stroke-linecap="round" marker-end="url(#arrow)"/>`;
   }
 
   // items (must be the LAST child group of the row group — tooltip CSS contract)
@@ -148,6 +148,11 @@ data.tracks.forEach((track, ti) => {
         `<rect x="${x}" y="${y}" width="${ITEM_W * 0.45}" height="${ITEM_H}" fill="rgba(34,197,94,0.25)"/>`;
     if (item.status === 'milestone')
       box = `<rect x="${x}" y="${y}" width="${ITEM_W}" height="${ITEM_H}" fill="rgba(128,160,193,0.08)" stroke="${BLUE}" stroke-width="3.5"/>`;
+    // status accent bar on the left edge, same signature as the tooltips
+    const accent = item.status === 'milestone' ? `${BLUE}" opacity="0.9`
+      : item.status === 'planned' ? `#ffffff" opacity="0.22`
+      : `${GREEN}" opacity="0.85`;
+    box += `<rect x="${x}" y="${y}" width="6" height="${ITEM_H}" fill="${accent}"/>`;
 
     const titleLines = wrap(item.title, 28);
     const tSize = 21;
@@ -223,8 +228,10 @@ topSvg += `<text x="${W - 60}" y="${H - 30}" font-family="${FONT_MONO}" font-siz
 
 // ── Assemble page ───────────────────────────────────────────────────────────
 const svg = `<svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 ${W} ${H}" style="enable-background:new 0 0 ${W} ${H};" xml:space="preserve">
-<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 1 L 9 5 L 0 9" fill="none" stroke="rgba(255,255,255,0.5)" stroke-width="1.6"/></marker></defs>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 1 L 9 5 L 0 9" fill="none" stroke="rgba(255,255,255,0.6)" stroke-width="1.6"/></marker>
+<pattern id="pxgrid" width="46" height="46" patternUnits="userSpaceOnUse"><rect x="0" y="0" width="2" height="2" fill="rgba(255,255,255,0.05)"/></pattern></defs>
 <rect x="0" y="0" width="${W}" height="${H}" fill="#000"/>
+<rect x="0" y="0" width="${W}" height="${H}" fill="url(#pxgrid)"/>
 ${topSvg}
 ${headSvg}
 <g id="roadmap-rows">${rowsSvg}</g>

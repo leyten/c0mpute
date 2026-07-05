@@ -251,6 +251,20 @@
           "blurb": "Opt in and daily USDC rewards buy $ZERO and restake into your own vault automatically."
         },
         {
+          "id": "zero-referrals",
+          "phase": "shipped",
+          "status": "shipped",
+          "title": "Referrals",
+          "blurb": "A share of referred usage, paid out in USDC."
+        },
+        {
+          "id": "zero-treasury",
+          "phase": "shipped",
+          "status": "shipped",
+          "title": "Treasury dashboard",
+          "blurb": "Every buyback, burn and reward payout on a live dashboard, with the on-chain receipts to check them."
+        },
+        {
           "id": "zero-staking",
           "phase": "shipped",
           "status": "shipped",
@@ -263,13 +277,6 @@
           "status": "shipped",
           "title": "Daily staking allowance",
           "blurb": "Stakers draw a free daily inference allowance, pro-rata to their stake, on top of USDC rewards. Chat, API and images all draw from it."
-        },
-        {
-          "id": "zero-referrals",
-          "phase": "shipped",
-          "status": "shipped",
-          "title": "Referrals",
-          "blurb": "A share of referred usage, paid out in USDC."
         },
         {
           "id": "zero-rails",
@@ -299,6 +306,10 @@
           "zero-compound"
         ],
         [
+          "zero-referrals",
+          "zero-treasury"
+        ],
+        [
           "zero-staking",
           "zero-allowance"
         ],
@@ -307,11 +318,11 @@
           "zero-rails"
         ],
         [
-          "zero-allowance",
+          "zero-treasury",
           "zero-rails"
         ],
         [
-          "zero-referrals",
+          "zero-allowance",
           "zero-rails"
         ],
         [
