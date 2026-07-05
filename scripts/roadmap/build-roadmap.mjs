@@ -99,7 +99,7 @@ data.tracks.forEach((track, ti) => {
   // static row furniture (label cell, separators) — first children of the row group
   let furniture = `<rect x="${LABEL_X}" y="${rowY}" width="${LABEL_W}" height="${rowH}" fill="none" stroke="rgba(255,255,255,0.18)" stroke-width="1.5"/>`;
   furniture += pixelTitle(LABEL_X + 40, rowY + 90, 44, track.name);
-  furniture += textBlock(LABEL_X + 40, rowY + 140, wrap(track.tagline, 40), { size: 19, fill: 'rgba(255,255,255,0.55)' });
+  furniture += textBlock(LABEL_X + 40, rowY + 140, wrap(track.tagline, 38), { size: 19, fill: 'rgba(255,255,255,0.55)' });
   furniture += `<line x1="${CHART_X}" y1="${rowY}" x2="${W - 60}" y2="${rowY}" stroke="rgba(255,255,255,0.18)" stroke-width="1.5"/>`;
   if (ti === data.tracks.length - 1)
     furniture += `<line x1="${CHART_X}" y1="${rowY + rowH}" x2="${W - 60}" y2="${rowY + rowH}" stroke="rgba(255,255,255,0.18)" stroke-width="1.5"/>`;
@@ -132,15 +132,17 @@ data.tracks.forEach((track, ti) => {
     if (item.status === 'milestone')
       box = `<rect x="${x}" y="${y}" width="${ITEM_W}" height="${ITEM_H}" fill="rgba(128,160,193,0.08)" stroke="${BLUE}" stroke-width="3.5"/>`;
 
-    const titleLines = wrap(item.title, 30);
+    const titleLines = wrap(item.title, 28);
     const tSize = 21;
     const textY = y + ITEM_H / 2 + tSize * 0.35 - ((titleLines.length - 1) * tSize * 1.3) / 2;
     box += textBlock(x + 20, textY, titleLines, { size: tSize, lh: 1.3 });
 
-    // tooltip above the box
+    // tooltip above the box. Courier at 19px advances ~11.4px/char, so the
+    // card must be wider than the wrap width + both 26px paddings or the
+    // text clips past the right edge.
     const tipLines = wrap(item.blurb, 42);
-    const TIP_W = 480;
-    const tipH = 74 + tipLines.length * 26;
+    const TIP_W = 560;
+    const tipH = 78 + tipLines.length * 27;
     const tx = Math.min(x, W - 80 - TIP_W);
     const ty = y - tipH - 14;
     const tooltip =
