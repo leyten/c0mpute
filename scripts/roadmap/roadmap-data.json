@@ -23,13 +23,6 @@
       "tagline": "Permissionless GPU supply. Anyone with a GPU joins, earns, and scales the network.",
       "items": [
         {
-          "id": "net-browser",
-          "phase": "shipped",
-          "status": "shipped",
-          "title": "Browser workers",
-          "blurb": "A spare laptop earns too: WebGPU workers serve smaller models straight from a browser tab. No install."
-        },
-        {
           "id": "net-workers",
           "phase": "shipped",
           "status": "shipped",
@@ -42,6 +35,13 @@
           "status": "shipped",
           "title": "Worker payouts",
           "blurb": "USDC earnings with self-serve withdrawals for every worker on the network."
+        },
+        {
+          "id": "net-browser",
+          "phase": "shipped",
+          "status": "shipped",
+          "title": "Browser workers",
+          "blurb": "A spare laptop earns too: WebGPU workers serve smaller models straight from a browser tab. No install."
         },
         {
           "id": "net-anticheat",
@@ -82,6 +82,14 @@
       "links": [
         [
           "net-workers",
+          "net-payouts"
+        ],
+        [
+          "net-browser",
+          "net-anticheat"
+        ],
+        [
+          "net-payouts",
           "net-swarm-worker"
         ],
         [
@@ -234,18 +242,18 @@
           "blurb": "Daily on-chain buybacks funded by real network usage."
         },
         {
-          "id": "zero-staking",
-          "phase": "shipped",
-          "status": "shipped",
-          "title": "Self-custody staking",
-          "blurb": "Stake from your own wallet through an on-chain program. No server key can touch your tokens. Rewards paid in USDC."
-        },
-        {
           "id": "zero-compound",
           "phase": "shipped",
           "status": "shipped",
           "title": "Auto-compound",
           "blurb": "Opt in and daily USDC rewards buy $ZERO and restake into your own vault automatically."
+        },
+        {
+          "id": "zero-staking",
+          "phase": "shipped",
+          "status": "shipped",
+          "title": "Self-custody staking",
+          "blurb": "Stake from your own wallet through an on-chain program. No server key can touch your tokens. Rewards paid in USDC."
         },
         {
           "id": "zero-allowance",
@@ -285,7 +293,23 @@
       ],
       "links": [
         [
+          "zero-buyback",
+          "zero-compound"
+        ],
+        [
           "zero-staking",
+          "zero-allowance"
+        ],
+        [
+          "zero-compound",
+          "zero-rails"
+        ],
+        [
+          "zero-allowance",
+          "zero-rails"
+        ],
+        [
+          "zero-referrals",
           "zero-rails"
         ],
         [
@@ -304,13 +328,6 @@
       "tagline": "Uncensored, private inference. Chat, API, images, and beyond.",
       "items": [
         {
-          "id": "prod-images",
-          "phase": "shipped",
-          "status": "shipped",
-          "title": "Image generation",
-          "blurb": "Uncensored image generation in chat and via the API."
-        },
-        {
           "id": "prod-chat",
           "phase": "shipped",
           "status": "shipped",
@@ -318,11 +335,11 @@
           "blurb": "Uncensored chat with web search, image generation and deep thinking built in. No prompt storage, no account needed to start."
         },
         {
-          "id": "prod-data",
+          "id": "prod-images",
           "phase": "shipped",
           "status": "shipped",
-          "title": "Data dashboard",
-          "blurb": "Live network stats. Aggregates only, no user data."
+          "title": "Image generation",
+          "blurb": "Uncensored image generation in chat and via the API."
         },
         {
           "id": "prod-api",
@@ -337,6 +354,13 @@
           "status": "shipped",
           "title": "c0mpute code",
           "blurb": "An open coding agent in your terminal. Thinking runs on the network; edits and commands run locally, and secrets are stripped before anything is sent."
+        },
+        {
+          "id": "prod-data",
+          "phase": "shipped",
+          "status": "shipped",
+          "title": "Data dashboard",
+          "blurb": "Live network stats. Aggregates only, no user data."
         },
         {
           "id": "prod-maxmodel",
@@ -370,15 +394,23 @@
       "links": [
         [
           "prod-chat",
-          "prod-maxmodel"
+          "prod-images"
         ],
         [
           "prod-api",
-          "prod-metered"
+          "prod-code"
+        ],
+        [
+          "prod-images",
+          "prod-maxmodel"
         ],
         [
           "prod-code",
           "prod-frontier"
+        ],
+        [
+          "prod-data",
+          "prod-metered"
         ],
         [
           "prod-maxmodel",
