@@ -16,10 +16,10 @@ const data = JSON.parse(readFileSync(join(here, 'roadmap-data.json'), 'utf8'));
 const OUT = join(here, '..', '..', 'public', 'roadmap-clone', 'index.html');
 
 // ── Geometry ────────────────────────────────────────────────────────────────
-const W = 3080;
+const W = 3460;
 const LABEL_X = 60, LABEL_W = 520;
 const CHART_X = LABEL_X + LABEL_W + 40; // 620
-const CHART_W = W - 60 - CHART_X; // ends at x=3020
+const CHART_W = W - 60 - CHART_X;
 // The shipped column is double-width: shipped stacks got tall, so items lay
 // out in a 2-wide grid there while the future columns stay single stacks.
 const PHASE_UNITS = { shipped: 2 };
@@ -198,7 +198,7 @@ topSvg += `<g id="https://c0mpute.ai/">` +
 topSvg += pixelTitle(900, 110, 74, data.title);
 topSvg += textBlock(903, 152, [data.subtitle], { size: 24, fill: 'rgba(255,255,255,0.7)', spacing: '2' });
 // info panel: how-to + legend
-const PANEL_X = 2020, PANEL_W = W - 60 - PANEL_X;
+const PANEL_W = 1000, PANEL_X = W - 60 - PANEL_W;
 topSvg += `<rect x="${PANEL_X}" y="40" width="${PANEL_W}" height="200" fill="rgba(255,255,255,0.02)" stroke="rgba(255,255,255,0.18)" stroke-width="1.5"/>`;
 topSvg += pixelTitle(PANEL_X + 30, 85, 27, 'How to view this roadmap');
 topSvg += textBlock(PANEL_X + 30, 118, wrap(data.howto, 42), { size: 16, fill: 'rgba(255,255,255,0.6)', lh: 1.5 });

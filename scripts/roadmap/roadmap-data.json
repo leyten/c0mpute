@@ -8,13 +8,15 @@
     "shipped",
     "now",
     "next",
-    "later"
+    "later",
+    "endgame"
   ],
   "phaseLabels": {
     "shipped": "SHIPPED",
     "now": "NOW",
     "next": "NEXT",
-    "later": "LATER"
+    "later": "LATER",
+    "endgame": "ENDGAME"
   },
   "tracks": [
     {
@@ -77,6 +79,13 @@
           "status": "planned",
           "title": "Per-GPU identity and pay",
           "blurb": "Each GPU in a swarm joins with its own identity and earns its own balance for the tokens it helped produce."
+        },
+        {
+          "id": "net-endgame",
+          "phase": "endgame",
+          "status": "milestone",
+          "title": "The c0mpute network",
+          "blurb": "The endgame: every GPU on earth can join, serve and train any model, and earn for every token it helps produce. One permissionless network: the torrent for compute."
         }
       ],
       "links": [
@@ -111,6 +120,10 @@
         [
           "net-join",
           "net-pergpu"
+        ],
+        [
+          "net-pergpu",
+          "net-endgame"
         ]
       ]
     },
@@ -162,6 +175,13 @@
           "blurb": "A catalog of models, each sharded across a swarm sized to its needs. The network stops being bound by any single machine."
         },
         {
+          "id": "prot-training",
+          "phase": "later",
+          "status": "planned",
+          "title": "Distributed training",
+          "blurb": "The same rails carry training: identity, transport, verified work, payment. A new execution core on proven infrastructure."
+        },
+        {
           "id": "prot-verify",
           "phase": "later",
           "status": "planned",
@@ -174,20 +194,6 @@
           "status": "planned",
           "title": "Private inference",
           "blurb": "Sensitive layers pinned to staked nodes, and trusted-nodes-only routing for sensitive jobs. Privacy that is earned, not claimed."
-        },
-        {
-          "id": "prot-training",
-          "phase": "later",
-          "status": "planned",
-          "title": "Distributed training",
-          "blurb": "The same rails carry training: identity, transport, verified work, payment. A new execution core on proven infrastructure."
-        },
-        {
-          "id": "prot-fabric",
-          "phase": "later",
-          "status": "milestone",
-          "title": "The compute fabric",
-          "blurb": "The endgame: a permissionless worldwide fabric where any GPU on earth can serve and train any model, and earn for every token it helps produce."
         }
       ],
       "links": [
@@ -213,19 +219,15 @@
         ],
         [
           "prot-runtime",
-          "prot-verify"
-        ],
-        [
-          "prot-runtime",
-          "prot-privacy"
-        ],
-        [
-          "prot-bigger",
           "prot-training"
         ],
         [
           "prot-bigger",
-          "prot-fabric"
+          "prot-verify"
+        ],
+        [
+          "prot-bigger",
+          "prot-privacy"
         ]
       ]
     },
@@ -356,13 +358,6 @@
           "blurb": "An open coding agent in your terminal. Thinking runs on the network; edits and commands run locally, and secrets are stripped before anything is sent."
         },
         {
-          "id": "prod-data",
-          "phase": "shipped",
-          "status": "shipped",
-          "title": "Data dashboard",
-          "blurb": "Live network stats. Aggregates only, no user data."
-        },
-        {
           "id": "prod-maxmodel",
           "phase": "now",
           "status": "progress",
@@ -406,10 +401,10 @@
         ],
         [
           "prod-code",
-          "prod-frontier"
+          "prod-maxmodel"
         ],
         [
-          "prod-data",
+          "prod-maxmodel",
           "prod-metered"
         ],
         [

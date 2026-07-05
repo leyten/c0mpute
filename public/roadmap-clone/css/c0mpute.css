@@ -30,9 +30,9 @@ html {
 .roadmap-tool:active { background: rgba(34, 197, 94, 0.55); }
 
 /* board is wider than Mina's — fit-height breakpoint for wide screens */
-@media (min-aspect-ratio: 3058/2102) {
+@media (min-aspect-ratio: 3400/2100) {
   .roadmap-canvas svg { width: 100vw; height: auto; margin: 0; }
 }
-@media (min-aspect-ratio: 3080/2000) {
+@media (min-aspect-ratio: 3460/1962) {
   .roadmap-canvas svg { width: auto; height: 100vh; margin: auto; }
 }
