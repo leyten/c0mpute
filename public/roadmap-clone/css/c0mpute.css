@@ -1,12 +1,4 @@
 /* c0mpute skin over the Mina roadmap engine (main.min.css). Loaded after it. */
-@font-face {
-  font-family: 'Minecraft';
-  src: url('/fonts/Minecraft.ttf') format('truetype');
-  font-weight: normal;
-  font-style: normal;
-  font-display: swap;
-}
-
 :root {
   --c-prim: #ffffff;
   --c-sec: rgba(34, 197, 94, 0.3);

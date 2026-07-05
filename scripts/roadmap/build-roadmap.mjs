@@ -51,19 +51,19 @@ function textBlock(x, y, lines, { size = 20, fill = '#fff', family = FONT_MONO, 
   return `<text x="${x}" y="${y}" font-family="${family}" font-size="${size}" fill="${fill}" text-anchor="${anchor}" font-weight="${weight}" letter-spacing="${spacing}">${tspans}</text>`;
 }
 
-// c0mpute wordmark: argent-pixel with the oversized Minecraft zero.
+// c0mpute wordmark: exact copy of the site header treatment — the zero is the
+// same argent-pixel font at 1.8x on the shared baseline (app/page.tsx:139).
 function wordmark(x, y, size) {
-  const zero = size * 1.5;
-  return `<text x="${x}" y="${y}" font-family="${FONT_PIXEL}" font-size="${size}" fill="#fff">C<tspan font-family="'Minecraft', monospace" font-size="${zero}" dy="${size * 0.06}">0</tspan><tspan dy="${-size * 0.06}">MPUTE</tspan></text>`;
+  return `<text x="${x}" y="${y}" font-family="${FONT_PIXEL}" font-size="${size}" fill="#fff">C<tspan font-size="${size * 1.8}">0</tspan><tspan font-size="${size}">MPUTE</tspan></text>`;
 }
 
 // Pixel-serif titles: "$" renders in mono (argent's $ glyph is off-brand) and
-// "0" renders in Minecraft (argent's zero reads as an "o"), same as the site.
+// "0" renders oversized at 1.8x like the site header wordmark.
 function pixelTitle(x, y, size, name, fill = '#fff') {
   let body = '';
   for (const ch of name) {
     if (ch === '$') body += `<tspan font-family="${FONT_MONO}">$</tspan>`;
-    else if (ch === '0') body += `<tspan font-family="'Minecraft', monospace" font-size="${size * 0.92}">0</tspan>`;
+    else if (ch === '0') body += `<tspan font-size="${size * 1.8}">0</tspan>`;
     else body += esc(ch);
   }
   return `<text x="${x}" y="${y}" font-family="${FONT_PIXEL}" font-size="${size}" fill="${fill}">${body}</text>`;
@@ -181,11 +181,11 @@ topSvg += textBlock(903, 152, [data.subtitle], { size: 24, fill: 'rgba(255,255,2
 // info panel: how-to + legend
 const PANEL_X = 2020, PANEL_W = W - 60 - PANEL_X;
 topSvg += `<rect x="${PANEL_X}" y="40" width="${PANEL_W}" height="200" fill="rgba(255,255,255,0.02)" stroke="rgba(255,255,255,0.18)" stroke-width="1.5"/>`;
-topSvg += pixelTitle(PANEL_X + 30, 85, 27, 'How to View This Roadmap');
+topSvg += pixelTitle(PANEL_X + 30, 85, 27, 'How to view this roadmap');
 topSvg += textBlock(PANEL_X + 30, 118, wrap(data.howto, 42), { size: 16, fill: 'rgba(255,255,255,0.6)', lh: 1.5 });
 const LEG_X = PANEL_X + PANEL_W / 2 + 20;
 topSvg += `<line x1="${LEG_X - 30}" y1="60" x2="${LEG_X - 30}" y2="220" stroke="rgba(255,255,255,0.12)" stroke-width="1.5"/>`;
-topSvg += pixelTitle(LEG_X, 85, 27, 'Component States');
+topSvg += pixelTitle(LEG_X, 85, 27, 'Component states');
 const swatches = [
   { label: 'SHIPPED', fill: 'rgba(34,197,94,0.16)', stroke: 'rgba(34,197,94,0.8)', sw: 1.5 },
   { label: 'IN PROGRESS', fill: 'none', stroke: 'rgba(255,255,255,0.4)', sw: 1.5, half: true },
