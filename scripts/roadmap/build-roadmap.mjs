@@ -20,7 +20,18 @@ const W = 3080;
 const LABEL_X = 60, LABEL_W = 520;
 const CHART_X = LABEL_X + LABEL_W + 40; // 620
 const CHART_W = W - 60 - CHART_X; // ends at x=3020
-const COL_W = CHART_W / data.phases.length;
+// The shipped column is double-width: shipped stacks got tall, so items lay
+// out in a 2-wide grid there while the future columns stay single stacks.
+const PHASE_UNITS = { shipped: 2 };
+const totalUnits = data.phases.reduce((a, p) => a + (PHASE_UNITS[p] || 1), 0);
+const UNIT_W = CHART_W / totalUnits;
+const colX = {}, colW = {};
+{
+  let cx = CHART_X;
+  for (const p of data.phases) { colX[p] = cx; colW[p] = UNIT_W * (PHASE_UNITS[p] || 1); cx += colW[p]; }
+}
+// grid columns used inside a phase cell (2-wide only when the stack is tall)
+const gridCols = (phase, n) => ((PHASE_UNITS[phase] || 1) > 1 && n > 3 ? PHASE_UNITS[phase] : 1);
 const HEAD_Y = 260, HEAD_H = 46;
 const ROWS_Y = HEAD_Y + HEAD_H + 4;
 const ITEM_W = 400, ITEM_H = 78, ITEM_GAP = 36;
@@ -74,7 +85,7 @@ const pos = {}; // id -> {x, y}
 const trackHeights = [];
 for (const track of data.tracks) {
   const byPhase = Object.fromEntries(data.phases.map((p) => [p, track.items.filter((i) => i.phase === p)]));
-  const maxStack = Math.max(...Object.values(byPhase).map((a) => a.length));
+  const maxStack = Math.max(...data.phases.map((p) => Math.ceil(byPhase[p].length / gridCols(p, byPhase[p].length))));
   trackHeights.push(Math.max(340, ROW_PAD * 2 + maxStack * ITEM_H + (maxStack - 1) * ITEM_GAP));
 }
 const H = ROWS_Y + trackHeights.reduce((a, b) => a + b, 0) + 80;
@@ -86,13 +97,19 @@ data.tracks.forEach((track, ti) => {
   const rowH = trackHeights[ti];
   const byPhase = Object.fromEntries(data.phases.map((p) => [p, track.items.filter((i) => i.phase === p)]));
 
-  // item positions: one stack per phase column, vertically centered
-  for (const [pi, phase] of data.phases.entries()) {
+  // item positions: a stack (or 2-wide grid) per phase column, vertically
+  // centered. Items with outgoing links belong in the RIGHT grid cell in the
+  // data file, or their connector would cross the neighbouring box.
+  for (const phase of data.phases) {
     const stack = byPhase[phase];
-    const stackH = stack.length * ITEM_H + (stack.length - 1) * ITEM_GAP;
+    const cols = gridCols(phase, stack.length);
+    const rows = Math.ceil(stack.length / cols);
+    const cellW = colW[phase] / cols;
+    const stackH = rows * ITEM_H + (rows - 1) * ITEM_GAP;
     const startY = rowY + (rowH - stackH) / 2;
     stack.forEach((item, si) => {
-      pos[item.id] = { x: CHART_X + pi * COL_W + (COL_W - ITEM_W) / 2, y: startY + si * (ITEM_H + ITEM_GAP) };
+      const r = Math.floor(si / cols), c = si % cols;
+      pos[item.id] = { x: colX[phase] + c * cellW + (cellW - ITEM_W) / 2, y: startY + r * (ITEM_H + ITEM_GAP) };
     });
   }
 
@@ -104,7 +121,7 @@ data.tracks.forEach((track, ti) => {
   if (ti === data.tracks.length - 1)
     furniture += `<line x1="${CHART_X}" y1="${rowY + rowH}" x2="${W - 60}" y2="${rowY + rowH}" stroke="rgba(255,255,255,0.18)" stroke-width="1.5"/>`;
   for (let pi = 1; pi < data.phases.length; pi++) {
-    const x = CHART_X + pi * COL_W;
+    const x = colX[data.phases[pi]];
     furniture += `<line x1="${x}" y1="${rowY}" x2="${x}" y2="${rowY + rowH}" stroke="rgba(255,255,255,0.15)" stroke-width="1.5" stroke-dasharray="3 9"/>`;
   }
 
@@ -162,11 +179,11 @@ data.tracks.forEach((track, ti) => {
 
 // ── Header band ─────────────────────────────────────────────────────────────
 let headSvg = '';
-data.phases.forEach((phase, pi) => {
-  const x = CHART_X + pi * COL_W;
+data.phases.forEach((phase) => {
+  const x = colX[phase], w = colW[phase];
   const shipped = phase === 'shipped';
-  headSvg += `<rect x="${x}" y="${HEAD_Y}" width="${COL_W}" height="${HEAD_H}" fill="${shipped ? 'rgba(34,197,94,0.16)' : 'none'}" stroke="rgba(255,255,255,0.25)" stroke-width="1.5"/>`;
-  headSvg += `<text x="${x + COL_W / 2}" y="${HEAD_Y + HEAD_H / 2 + 7}" font-family="${FONT_MONO}" font-size="20" letter-spacing="3" text-anchor="middle" fill="${shipped ? GREEN : 'rgba(255,255,255,0.75)'}">${data.phaseLabels[phase]}</text>`;
+  headSvg += `<rect x="${x}" y="${HEAD_Y}" width="${w}" height="${HEAD_H}" fill="${shipped ? 'rgba(34,197,94,0.16)' : 'none'}" stroke="rgba(255,255,255,0.25)" stroke-width="1.5"/>`;
+  headSvg += `<text x="${x + w / 2}" y="${HEAD_Y + HEAD_H / 2 + 7}" font-family="${FONT_MONO}" font-size="20" letter-spacing="3" text-anchor="middle" fill="${shipped ? GREEN : 'rgba(255,255,255,0.75)'}">${data.phaseLabels[phase]}</text>`;
 });
 
 // ── Top area ────────────────────────────────────────────────────────────────
