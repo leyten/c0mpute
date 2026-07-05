@@ -241,6 +241,17 @@ function getAutocompoundOptins(): Set<string> {
   return new Set(rows.map((r) => r.owner));
 }
 
+/** Network-level counts for the public staking page: wallets with live stake,
+ *  and how many of THOSE have auto-compound on (opt-in rows outlive unstakes,
+ *  so the raw opt-in count would overstate it). */
+export function getStakerStats(): { stakers: number; autocompound: number } {
+  initOnchainStakeTable();
+  const owners = getDb().prepare(
+    'SELECT owner FROM onchain_stake_lots GROUP BY owner HAVING SUM(amount) > 0').all() as { owner: string }[];
+  const optins = getAutocompoundOptins();
+  return { stakers: owners.length, autocompound: owners.filter((o) => optins.has(o.owner)).length };
+}
+
 export function getAutocompoundHistory(owner: string, limit = 30): { usd: number; zeroUi: number; swapSig: string | null; createdAt: string }[] {
   initAutocompoundTables();
   const rows = getDb().prepare(
