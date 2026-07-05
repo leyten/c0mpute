@@ -36,7 +36,7 @@
           "phase": "shipped",
           "status": "shipped",
           "title": "Worker payouts",
-          "blurb": "USDC earnings with self-serve withdrawals for every worker on the network."
+          "blurb": "Workers earn USDC per job and withdraw whenever they want. Paying out since day one."
         },
         {
           "id": "net-browser",
@@ -57,14 +57,14 @@
           "phase": "now",
           "status": "progress",
           "title": "Swarm as a worker",
-          "blurb": "Many scattered GPUs serve one big model together and register as a single worker, earning on real jobs."
+          "blurb": "The M2.5 swarm registers on the live network as a single worker, streaming tokens into real user jobs and earning like any other worker."
         },
         {
           "id": "net-scheduler",
           "phase": "next",
           "status": "planned",
           "title": "Self-managing swarms",
-          "blurb": "Swarms fit themselves to whatever GPUs join, reorder around latency, and survive a node dying mid-job. Failover is already demonstrated."
+          "blurb": "Kill a node mid-generation and the job still completes: a spare splices in and the output stays identical. Already demonstrated; next, swarms that assemble themselves from whatever joins."
         },
         {
           "id": "net-join",
@@ -136,15 +136,15 @@
           "id": "prot-wan",
           "phase": "shipped",
           "status": "shipped",
-          "title": "WAN sharded inference",
-          "blurb": "Frontier-size models split across scattered GPUs over the public internet, proven from 120B on consumer cards up to 744B."
+          "title": "120B across consumer GPUs",
+          "blurb": "gpt-oss-120B served at ~40 tokens/sec across scattered consumer RTX 4090s over the public internet, on our own transport with speculative decoding."
         },
         {
-          "id": "prot-specdec",
+          "id": "prot-744b",
           "phase": "shipped",
           "status": "shipped",
-          "title": "Speculative decoding",
-          "blurb": "A draft-verify loop that multiplies tokens per network round trip. The trick that makes WAN inference usable."
+          "title": "744B across 7 GPUs",
+          "blurb": "GLM-5.2, a 744B parameter model, served at ~30 tokens/sec across 7 scattered GPUs over WAN. The proof the approach scales to frontier size."
         },
         {
           "id": "prot-receipts",
@@ -158,7 +158,7 @@
           "phase": "now",
           "status": "milestone",
           "title": "Betanet PoC",
-          "blurb": "A model too big for any one GPU, sharded across scattered consumer GPUs and serving real jobs end to end. The proof the whole approach is real."
+          "blurb": "MiniMax M2.5, 229B, sharded across scattered consumer 5090s: 10+ tok/s interactive, 150+ tok/s batched, every job receipt-verified. The proof the whole approach is real."
         },
         {
           "id": "prot-runtime",
@@ -186,7 +186,7 @@
           "phase": "later",
           "status": "planned",
           "title": "Trustless verification",
-          "blurb": "Catch a node that returns plausible garbage instead of doing its work, and slash its stake. The hard research problem."
+          "blurb": "Receipt checks already cost under 1% of compute. Catching a node that fakes its work without recomputing everything, and slashing its stake, is the research frontier."
         },
         {
           "id": "prot-privacy",
@@ -202,7 +202,7 @@
           "prot-betanet"
         ],
         [
-          "prot-specdec",
+          "prot-744b",
           "prot-betanet"
         ],
         [
@@ -255,7 +255,7 @@
           "phase": "shipped",
           "status": "shipped",
           "title": "Buyback & burn",
-          "blurb": "Daily on-chain buybacks funded by real network usage."
+          "blurb": "Funded by real usage, executed daily on-chain: 17M+ $ZERO burned so far. Every buyback has a receipt."
         },
         {
           "id": "zero-compound",
@@ -366,7 +366,7 @@
           "phase": "shipped",
           "status": "shipped",
           "title": "c0mpute code",
-          "blurb": "An open coding agent in your terminal. Thinking runs on the network; edits and commands run locally, and secrets are stripped before anything is sent."
+          "blurb": "An open coding agent in your terminal. Thinking runs on the network; edits and commands run locally, secrets stripped before anything is sent. On npm today."
         },
         {
           "id": "prod-maxmodel",
