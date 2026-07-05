@@ -200,11 +200,6 @@ let topSvg = '';
 topSvg += wordmark(LABEL_X + 10, 95, 44);
 topSvg += pixelTitle(LABEL_X + 6, 210, 96, 'Roadmap');
 topSvg += textBlock(LABEL_X + 12, 250, [data.subtitle], { size: 20, fill: 'rgba(255,255,255,0.6)', spacing: '2' });
-// back-to-site link (id^=http → clickable via main.min.js Link handler),
-// outlined like the site's buttons instead of Mina's white block
-topSvg += `<g id="https://c0mpute.ai/">` +
-  `<rect x="${W - 220 - 320}" y="52" width="320" height="44" fill="none" stroke="rgba(255,255,255,0.35)" stroke-width="1.5"/>` +
-  `<text x="${W - 220 - 160}" y="80" font-family="${FONT_MONO}" font-size="16" text-anchor="middle" fill="#fff" letter-spacing="1">BACK TO C0MPUTE.AI →</text></g>`;
 // legend: one unboxed right-aligned row of swatches
 const swatches = [
   { label: 'SHIPPED', fill: 'rgba(34,197,94,0.16)', stroke: 'rgba(34,197,94,0.8)', sw: 1.5 },
