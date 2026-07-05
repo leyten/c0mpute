@@ -240,7 +240,7 @@ const html = `<!DOCTYPE html>
     <meta charset="UTF-8">
     <meta name="robots" content="noindex, nofollow">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Roadmap — c0mpute</title>
+    <title>c0mpute / roadmap</title>
     <link rel="stylesheet" href="https://use.typekit.net/kwe2dpm.css">
     <link rel="stylesheet" href="/roadmap-clone/css/main.min.css">
     <link rel="stylesheet" href="/roadmap-clone/css/c0mpute.css">
