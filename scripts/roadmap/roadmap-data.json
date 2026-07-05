@@ -182,6 +182,13 @@
           "blurb": "The same rails carry training: identity, transport, verified work, payment. A new execution core on proven infrastructure."
         },
         {
+          "id": "prot-cips",
+          "phase": "later",
+          "status": "planned",
+          "title": "Improvement proposals",
+          "blurb": "CIPs: an open BIP-style process where anyone can propose, debate and build changes to the protocol. A network no one owns needs specs anyone can shape."
+        },
+        {
           "id": "prot-verify",
           "phase": "later",
           "status": "planned",
@@ -220,6 +227,10 @@
         [
           "prot-runtime",
           "prot-training"
+        ],
+        [
+          "prot-runtime",
+          "prot-cips"
         ],
         [
           "prot-bigger",
@@ -390,6 +401,13 @@
           "blurb": "Chat and API served by models sharded across the swarm, up to frontier size. The betanet, surfaced in the product."
         },
         {
+          "id": "prod-build",
+          "phase": "later",
+          "status": "planned",
+          "title": "Build on c0mpute",
+          "blurb": "An SDK and platform surface so anyone can ship apps, agents and services on the network, paying per job like any other user."
+        },
+        {
           "id": "prod-plan",
           "phase": "later",
           "status": "planned",
@@ -424,7 +442,7 @@
         ],
         [
           "prod-metered",
-          "prod-plan"
+          "prod-build"
         ],
         [
           "prod-frontier",
