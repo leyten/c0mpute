@@ -32,7 +32,7 @@ const colX = {}, colW = {};
 }
 // grid columns used inside a phase cell (2-wide only when the stack is tall)
 const gridCols = (phase, n) => ((PHASE_UNITS[phase] || 1) > 1 && n > 3 ? PHASE_UNITS[phase] : 1);
-const HEAD_Y = 260, HEAD_H = 46;
+const HEAD_Y = 300, HEAD_H = 46;
 const ROWS_Y = HEAD_Y + HEAD_H + 4;
 const ITEM_W = 400, ITEM_H = 78, ITEM_GAP = 36;
 const ROW_PAD = 70;
@@ -125,16 +125,9 @@ data.tracks.forEach((track, ti) => {
     furniture += `<line x1="${x}" y1="${rowY}" x2="${x}" y2="${rowY + rowH}" stroke="rgba(255,255,255,0.15)" stroke-width="1.5" stroke-dasharray="3 9"/>`;
   }
 
-  // connectors
-  let linksSvg = '';
-  for (const [from, to] of track.links || []) {
-    const a = pos[from], b = pos[to];
-    if (!a || !b) continue;
-    const x1 = a.x + ITEM_W, y1 = a.y + ITEM_H / 2;
-    const x2 = b.x, y2 = b.y + ITEM_H / 2;
-    const dx = Math.max(60, (x2 - x1) / 2);
-    linksSvg += `<path d="M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2 - 12} ${y2}" fill="none" stroke="rgba(255,255,255,0.45)" stroke-width="2" stroke-dasharray="2 7" stroke-linecap="round" marker-end="url(#arrow)"/>`;
-  }
+  // no connectors: the columns already read left-to-right (leyten's call —
+  // arrows added clutter, not information)
+  const linksSvg = '';
 
   // items (must be the LAST child group of the row group — tooltip CSS contract)
   let itemsSvg = '';
@@ -192,39 +185,39 @@ data.phases.forEach((phase) => {
 });
 
 // ── Top area ────────────────────────────────────────────────────────────────
+// Our own header, not Mina's: brand + huge pixel "Roadmap" stacked left, a
+// minimal unboxed legend right, and the pan hint as one quiet line.
 let topSvg = '';
-topSvg += wordmark(LABEL_X + 10, 100, 56);
-topSvg += textBlock(LABEL_X + 12, 138, wrap(data.disclaimer, 60), { size: 14, fill: 'rgba(255,255,255,0.5)', lh: 1.45 });
-// back-to-site button (id^=http → clickable via main.min.js Link handler)
+topSvg += wordmark(LABEL_X + 10, 95, 44);
+topSvg += pixelTitle(LABEL_X + 6, 210, 96, 'Roadmap');
+topSvg += textBlock(LABEL_X + 12, 250, [data.subtitle], { size: 20, fill: 'rgba(255,255,255,0.6)', spacing: '2' });
+// back-to-site link (id^=http → clickable via main.min.js Link handler),
+// outlined like the site's buttons instead of Mina's white block
 topSvg += `<g id="https://c0mpute.ai/">` +
-  `<rect x="${LABEL_X + 12}" y="212" width="300" height="42" fill="#fff"/>` +
-  `<text x="${LABEL_X + 12 + 150}" y="239" font-family="${FONT_MONO}" font-size="17" text-anchor="middle" fill="#000" letter-spacing="1">BACK TO C0MPUTE.AI →</text></g>`;
-// title block
-topSvg += pixelTitle(900, 110, 74, data.title);
-topSvg += textBlock(903, 152, [data.subtitle], { size: 24, fill: 'rgba(255,255,255,0.7)', spacing: '2' });
-// info panel: how-to + legend
-const PANEL_W = 1000, PANEL_X = W - 60 - PANEL_W;
-topSvg += `<rect x="${PANEL_X}" y="40" width="${PANEL_W}" height="200" fill="rgba(255,255,255,0.02)" stroke="rgba(255,255,255,0.18)" stroke-width="1.5"/>`;
-topSvg += pixelTitle(PANEL_X + 30, 85, 27, 'How to view this roadmap');
-topSvg += textBlock(PANEL_X + 30, 118, wrap(data.howto, 42), { size: 16, fill: 'rgba(255,255,255,0.6)', lh: 1.5 });
-const LEG_X = PANEL_X + PANEL_W / 2 + 20;
-topSvg += `<line x1="${LEG_X - 30}" y1="60" x2="${LEG_X - 30}" y2="220" stroke="rgba(255,255,255,0.12)" stroke-width="1.5"/>`;
-topSvg += pixelTitle(LEG_X, 85, 27, 'Component states');
+  `<rect x="${W - 220 - 320}" y="52" width="320" height="44" fill="none" stroke="rgba(255,255,255,0.35)" stroke-width="1.5"/>` +
+  `<text x="${W - 220 - 160}" y="80" font-family="${FONT_MONO}" font-size="16" text-anchor="middle" fill="#fff" letter-spacing="1">BACK TO C0MPUTE.AI →</text></g>`;
+// legend: one unboxed right-aligned row of swatches
 const swatches = [
   { label: 'SHIPPED', fill: 'rgba(34,197,94,0.16)', stroke: 'rgba(34,197,94,0.8)', sw: 1.5 },
   { label: 'IN PROGRESS', fill: 'none', stroke: 'rgba(255,255,255,0.4)', sw: 1.5, half: true },
-  { label: 'CRITICAL MILESTONE', fill: 'rgba(128,160,193,0.08)', stroke: BLUE, sw: 3 },
+  { label: 'MILESTONE', fill: 'rgba(128,160,193,0.08)', stroke: BLUE, sw: 3 },
   { label: 'PLANNED', fill: 'none', stroke: 'rgba(255,255,255,0.3)', sw: 1.5 },
 ];
-swatches.forEach((s, i) => {
-  const sx = LEG_X + (i % 2) * 235;
-  const sy = 108 + Math.floor(i / 2) * 48;
-  topSvg += `<rect x="${sx}" y="${sy}" width="52" height="26" fill="${s.fill}" stroke="${s.stroke}" stroke-width="${s.sw}"/>`;
-  if (s.half) topSvg += `<rect x="${sx}" y="${sy}" width="23" height="26" fill="rgba(34,197,94,0.25)"/>`;
-  topSvg += textBlock(sx + 66, sy + 18, [s.label], { size: 13, fill: 'rgba(255,255,255,0.6)', spacing: '1' });
-});
-// footnote
-topSvg += `<text x="${W - 60}" y="${H - 30}" font-family="${FONT_MONO}" font-size="16" text-anchor="end" fill="rgba(255,255,255,0.4)">${esc(data.footnote)}</text>`;
+{
+  const slotW = [230, 260, 235, 200];
+  let sx = W - 220 - slotW.reduce((a, b) => a + b, 0);
+  swatches.forEach((s, i) => {
+    topSvg += `<rect x="${sx}" y="${140}" width="44" height="24" fill="${s.fill}" stroke="${s.stroke}" stroke-width="${s.sw}"/>`;
+    if (s.half) topSvg += `<rect x="${sx}" y="${140}" width="20" height="24" fill="rgba(34,197,94,0.25)"/>`;
+    topSvg += textBlock(sx + 56, 157, [s.label], { size: 13, fill: 'rgba(255,255,255,0.6)', spacing: '1' });
+    sx += slotW[i];
+  });
+}
+// pan hint, one quiet line under the legend
+topSvg += `<text x="${W - 220}" y="205" font-family="${FONT_MONO}" font-size="15" text-anchor="end" fill="rgba(255,255,255,0.4)">drag to pan · scroll to zoom · hover any card for detail</text>`;
+// footer: disclaimer left, footnote right
+topSvg += `<text x="${LABEL_X}" y="${H - 30}" font-family="${FONT_MONO}" font-size="15" fill="rgba(255,255,255,0.4)">${esc(data.disclaimer)}</text>`;
+topSvg += `<text x="${W - 60}" y="${H - 30}" font-family="${FONT_MONO}" font-size="15" text-anchor="end" fill="rgba(255,255,255,0.4)">${esc(data.footnote)}</text>`;
 
 // ── Assemble page ───────────────────────────────────────────────────────────
 const svg = `<svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 ${W} ${H}" style="enable-background:new 0 0 ${W} ${H};" xml:space="preserve">
