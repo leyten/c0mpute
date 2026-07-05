@@ -125,9 +125,18 @@ data.tracks.forEach((track, ti) => {
     furniture += `<line x1="${x}" y1="${rowY}" x2="${x}" y2="${rowY + rowH}" stroke="rgba(255,255,255,0.15)" stroke-width="1.5" stroke-dasharray="3 9"/>`;
   }
 
-  // no connectors: the columns already read left-to-right (leyten's call —
-  // arrows added clutter, not information)
-  const linksSvg = '';
+  // connectors: dotted pixel-dust lines, no arrowheads (left-to-right needs
+  // no explaining — leyten). Sources that link out of a 2-wide grid must be
+  // RIGHT-cell items or the line crosses the neighbouring card.
+  let linksSvg = '';
+  for (const [from, to] of track.links || []) {
+    const a = pos[from], b = pos[to];
+    if (!a || !b) continue;
+    const x1 = a.x + ITEM_W, y1 = a.y + ITEM_H / 2;
+    const x2 = b.x, y2 = b.y + ITEM_H / 2;
+    const dx = Math.max(60, (x2 - x1) / 2);
+    linksSvg += `<path d="M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2 - 2} ${y2}" fill="none" stroke="rgba(255,255,255,0.4)" stroke-width="2" stroke-dasharray="2 7" stroke-linecap="round"/>`;
+  }
 
   // items (must be the LAST child group of the row group — tooltip CSS contract)
   let itemsSvg = '';

@@ -87,6 +87,44 @@
           "title": "The c0mpute network",
           "blurb": "The endgame: every GPU on earth can join, serve and train any model, and earn for every token it helps produce. One permissionless network: the torrent for compute."
         }
+      ],
+      "links": [
+        [
+          "net-workers",
+          "net-payouts"
+        ],
+        [
+          "net-browser",
+          "net-anticheat"
+        ],
+        [
+          "net-payouts",
+          "net-swarm-worker"
+        ],
+        [
+          "net-anticheat",
+          "net-swarm-worker"
+        ],
+        [
+          "net-swarm-worker",
+          "net-scheduler"
+        ],
+        [
+          "net-swarm-worker",
+          "net-join"
+        ],
+        [
+          "net-scheduler",
+          "net-pergpu"
+        ],
+        [
+          "net-join",
+          "net-pergpu"
+        ],
+        [
+          "net-pergpu",
+          "net-endgame"
+        ]
       ]
     },
     {
@@ -157,6 +195,40 @@
           "title": "Private inference",
           "blurb": "Sensitive layers pinned to staked nodes, and trusted-nodes-only routing for sensitive jobs. Privacy that is earned, not claimed."
         }
+      ],
+      "links": [
+        [
+          "prot-wan",
+          "prot-betanet"
+        ],
+        [
+          "prot-specdec",
+          "prot-betanet"
+        ],
+        [
+          "prot-receipts",
+          "prot-betanet"
+        ],
+        [
+          "prot-betanet",
+          "prot-runtime"
+        ],
+        [
+          "prot-betanet",
+          "prot-bigger"
+        ],
+        [
+          "prot-runtime",
+          "prot-training"
+        ],
+        [
+          "prot-bigger",
+          "prot-verify"
+        ],
+        [
+          "prot-bigger",
+          "prot-privacy"
+        ]
       ]
     },
     {
@@ -227,6 +299,40 @@
           "title": "Trustless payouts",
           "blurb": "Worker and staker payouts anchored to on-chain proof of the compute itself, so no one has to be trusted to say who earned what."
         }
+      ],
+      "links": [
+        [
+          "zero-staking",
+          "zero-allowance"
+        ],
+        [
+          "zero-buyback",
+          "zero-compound"
+        ],
+        [
+          "zero-treasury",
+          "zero-referrals"
+        ],
+        [
+          "zero-allowance",
+          "zero-rails"
+        ],
+        [
+          "zero-compound",
+          "zero-rails"
+        ],
+        [
+          "zero-referrals",
+          "zero-rails"
+        ],
+        [
+          "zero-rails",
+          "zero-vaults"
+        ],
+        [
+          "zero-vaults",
+          "zero-trustless"
+        ]
       ]
     },
     {
@@ -290,6 +396,40 @@
           "title": "Flat monthly plan",
           "blurb": "One subscription covering chat, API, images and code, built for heavy private use. Pay once, prompt freely."
         }
+      ],
+      "links": [
+        [
+          "prod-chat",
+          "prod-images"
+        ],
+        [
+          "prod-api",
+          "prod-code"
+        ],
+        [
+          "prod-images",
+          "prod-maxmodel"
+        ],
+        [
+          "prod-code",
+          "prod-maxmodel"
+        ],
+        [
+          "prod-maxmodel",
+          "prod-metered"
+        ],
+        [
+          "prod-maxmodel",
+          "prod-frontier"
+        ],
+        [
+          "prod-metered",
+          "prod-plan"
+        ],
+        [
+          "prod-frontier",
+          "prod-plan"
+        ]
       ]
     }
   ]
