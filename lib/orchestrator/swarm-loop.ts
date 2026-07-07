@@ -25,7 +25,7 @@ import { SubprocessSeam } from './swarm-seam';
 import type { NodeCapabilities, StageEarning } from './swarm-types';
 
 export interface SwarmLoopOptions {
-  recordStageEarning: (e: StageEarning & { swarmId: string; jobId: string; model: string; account: string }) => void;
+  recordStageEarning: (e: StageEarning & { swarmId: string; jobId: string; model: string }) => void;
   config?: SwarmConfig;
   log?: (msg: string) => void;
 }
@@ -36,18 +36,14 @@ interface CompletePayload { swarmId: string; jobId: string; nonce: string; token
 
 export function attachSwarmLoop(io: Server, opts: SwarmLoopOptions) {
   const log = opts.log ?? ((m: string) => console.log(m));
-  // account binding: nodeId (socket id) → c0mpute account, resolved at announce, used to attribute pay
-  const account = new Map<string, string>();
 
   const mgr = new SwarmManager(
     {
       seam: new SubprocessSeam(),
       emit: (nodeId, event, data) => io.to(nodeId).emit(event as never, data as never),
-      recordStageEarning: (e) => {
-        const acct = account.get(e.nodeId);
-        if (!acct) { log(`[swarm] no account bound for ${e.nodeId}; skipping credit`); return; }
-        opts.recordStageEarning({ ...e, account: acct });
-      },
+      // the earning already carries the account (frozen onto the stage at form time), so a node that
+      // served then disconnected is still credited — no live socket lookup that could miss.
+      recordStageEarning: (e) => opts.recordStageEarning(e),
       log,
     },
     opts.config ?? DEFAULT_SWARM_CONFIG,
@@ -58,8 +54,7 @@ export function attachSwarmLoop(io: Server, opts: SwarmLoopOptions) {
       cb?: (r: { ok: true } | { ok: false; reason: string } | { error: string }) => void) => {
       const acct = (socket as unknown as { privyUserId?: string }).privyUserId;   // set by auth middleware
       if (!acct) { cb?.({ error: 'authentication required' }); return; }
-      account.set(socket.id, acct);
-      cb?.(mgr.announce(socket.id, data.cap, data.model, data.manifestRef));
+      cb?.(mgr.announce(socket.id, data.cap, data.model, data.manifestRef, acct));
     });
 
     socket.on('swarm:ready', (data: ReadyPayload) => {
@@ -67,11 +62,11 @@ export function attachSwarmLoop(io: Server, opts: SwarmLoopOptions) {
     });
 
     socket.on('swarm:job_complete', async (data: CompletePayload) => {
-      await mgr.settleJob(data.swarmId, data.jobId, data.nonce, data.tokensGenerated, data.receipts);
+      // socket.id is the submitter — settleJob checks it is the swarm's coordinator (only it may settle)
+      await mgr.settleJob(data.swarmId, data.jobId, socket.id, data.nonce, data.tokensGenerated, data.receipts);
     });
 
     socket.on('disconnect', () => {
-      account.delete(socket.id);
       mgr.onNodeGone(socket.id);
     });
   });

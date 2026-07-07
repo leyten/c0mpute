@@ -192,7 +192,7 @@ export class Orchestrator {
   // (NETWORK_ARCHITECTURE §6, PERMISSIONLESS_LOOP.md) — leyten's call — so it is logged, not billed,
   // until that is decided. The verified per-shard split is already correct; only the $ mapping waits.
   private recordSwarmStageEarning(
-    e: StageEarning & { swarmId: string; jobId: string; model: string; account: string },
+    e: StageEarning & { swarmId: string; jobId: string; model: string },
   ) {
     console.log(`[swarm] credit ${e.account} for ${e.tokens} tokens on ${e.model} `
       + `layers[${e.layerStart}:${e.layerEnd}] (job ${e.jobId}) — pay-model fork pending`);

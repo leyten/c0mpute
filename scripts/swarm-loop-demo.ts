@@ -13,9 +13,9 @@
 import { spawnSync } from 'node:child_process';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { SwarmManager, type SwarmConfig, type ModelProfile, type StageEarning } from '../lib/orchestrator/swarm';
+import { SwarmManager, MAX_SWARM_JOB_TOKENS, type SwarmConfig, type ModelProfile } from '../lib/orchestrator/swarm';
 import { SubprocessSeam } from '../lib/orchestrator/swarm-seam';
-import type { NodeCapabilities } from '../lib/orchestrator/swarm-types';
+import type { NodeCapabilities, StageEarning } from '../lib/orchestrator/swarm-types';
 
 const SHARD_REPO = process.env.SHARD_REPO ?? path.resolve(process.cwd(), '..', 'shard');
 const SIM = path.resolve(process.cwd(), 'scripts', 'sim_nodes.py');
@@ -70,12 +70,12 @@ async function main() {
       pubkey: n.pubkey, gpu: n.gpu, freeVramMb: n.freeVramMb, subnet: n.subnet,
       cpuFactor: n.cpuFactor, upMbps: n.upMbps, geo: n.geo,
     };
-    mgr.announce(n.nodeId, cap, MODEL, MANIFEST);
+    mgr.announce(n.nodeId, cap, MODEL, MANIFEST, `acct-${n.nodeId}`);   // account bound from the socket
   }
   // show admission rejecting a too-small node (permissionless floor, not a velvet rope)
   const tiny = mgr.announce('node-tiny', {
     pubkey: 'AAAA', gpu: 'GTX 1650', freeVramMb: 4 * 1024, subnet: '2.2.0.0/24',
-  }, MODEL, MANIFEST);
+  }, MODEL, MANIFEST, 'acct-tiny');
   console.log(`   admission of a 4GB node: ${tiny.ok ? 'ADMITTED' : 'REFUSED — ' + (tiny as { reason: string }).reason}`);
 
   banner('2. PLACE + ASSIGN  (shard.plan picks the ring; assignments emitted per stage)');
@@ -103,28 +103,46 @@ async function main() {
   const nonce = 'job-nonce-42';
   const tokens = 480;
 
+  const coord = swarm.coordinatorNodeId;                     // only the coordinator may settle
+  const notCoord = swarm.stages.find((s) => s.nodeId !== coord)!.nodeId;
+
   const honest = sim(['receipts', '--keystore', KEYSTORE, '--stages', JSON.stringify(stagesForSig),
     '--nonce', nonce]) as unknown[];
-  const earnings = await mgr.settleJob(swarm.id, 'job-1', nonce, tokens, honest);
+  const earnings = await mgr.settleJob(swarm.id, 'job-1', coord, nonce, tokens, honest);
   console.log(`   HONEST job (${tokens} tokens): ${earnings ? 'PAID' : 'REJECTED'}`);
   if (earnings) {
     for (const e of earnings) {
       const geo = gen.nodes.find((n) => n.nodeId === e.nodeId)?.geo;
-      console.log(`     ${e.nodeId} (${geo})  layers[${e.layerStart}:${e.layerEnd}] → ${e.tokens} tokens`);
+      console.log(`     ${e.nodeId} (${geo}, ${e.account})  layers[${e.layerStart}:${e.layerEnd}] → ${e.tokens} tokens`);
     }
     console.log(`     Σ tokens paid = ${earnings.reduce((a, e) => a + e.tokens, 0)} (== job's ${tokens})`);
   }
 
-  banner('5. TRUST  (dishonest settlements pay NOBODY)');
+  banner('5. TRUST  (dishonest / abusive settlements pay NOBODY)');
   const replay = sim(['receipts', '--keystore', KEYSTORE, '--stages', JSON.stringify(stagesForSig),
     '--nonce', nonce, '--tamper-nonce']) as unknown[];
-  const r1 = await mgr.settleJob(swarm.id, 'job-2', nonce, tokens, replay);
+  const r1 = await mgr.settleJob(swarm.id, 'job-2', coord, nonce, tokens, replay);
   console.log(`   replayed (stale-nonce) receipts → ${r1 ? 'PAID (BUG!)' : 'REJECTED, nobody paid'}`);
 
   const gap = sim(['receipts', '--keystore', KEYSTORE, '--stages', JSON.stringify(stagesForSig),
     '--nonce', nonce, '--drop-middle']) as unknown[];
-  const r2 = await mgr.settleJob(swarm.id, 'job-3', nonce, tokens, gap);
+  const r2 = await mgr.settleJob(swarm.id, 'job-3', coord, nonce, tokens, gap);
   console.log(`   coverage-gap (a stage skipped) → ${r2 ? 'PAID (BUG!)' : 'REJECTED, nobody paid'}`);
+
+  // a non-coordinator node tries to settle a job it didn't coordinate
+  const r3 = await mgr.settleJob(swarm.id, 'job-4', notCoord, nonce, tokens, honest);
+  console.log(`   settle by a non-coordinator (${notCoord}) → ${r3 ? 'PAID (BUG!)' : 'REJECTED, not the coordinator'}`);
+
+  // the coordinator re-submits an already-settled job to be paid twice
+  const r4 = await mgr.settleJob(swarm.id, 'job-1', coord, nonce, tokens, honest);
+  console.log(`   re-settle job-1 (double-pay attempt) → ${r4 ? 'PAID AGAIN (BUG!)' : 'REJECTED, already settled'}`);
+
+  // the coordinator claims a billion tokens on an otherwise-honest receipt set
+  const huge = sim(['receipts', '--keystore', KEYSTORE, '--stages', JSON.stringify(stagesForSig),
+    '--nonce', 'job-nonce-5']) as unknown[];
+  const r5 = await mgr.settleJob(swarm.id, 'job-5', coord, 'job-nonce-5', 1_000_000_000, huge);
+  const paid5 = r5 ? r5.reduce((a, e) => a + e.tokens, 0) : 0;
+  console.log(`   claim 1e9 tokens → paid ${paid5} (capped at ${MAX_SWARM_JOB_TOKENS}, not a billion)`);
 
   banner('6. CHURN  (a stage vanishes → the swarm degrades, freeing a re-form)');
   const gone = swarm.stages[1].nodeId;

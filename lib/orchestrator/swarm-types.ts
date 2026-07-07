@@ -37,6 +37,7 @@ export interface Candidate {
   cap: NodeCapabilities;
   model: string;               // the model this node loaded/can serve a shard of
   manifestRef: string;         // content-addressed manifest id it will pull its range from
+  account: string;             // the c0mpute account to credit — bound at announce, frozen onto the stage
   announcedAt: number;
 }
 
@@ -55,6 +56,9 @@ export interface StageAssignment {
   role: 'coordinator' | 'stage';
   isHead: boolean;
   isTail: boolean;
+  /** the wire mode the ring must run — the node uses it, and settlement chain-checks iff true. Decided
+   *  by the swarm (from the model profile), NOT inferred, so the trust check matches the actual wire. */
+  losslessWire: boolean;
   /** the per-job freshness nonce lives on the job, not here; this is the static ring shape */
   peers: { nodeId: string; pubkey: string; stageIndex: number; layerStart: number; layerEnd: number }[];
   coordinatorNodeId: string;
@@ -80,6 +84,7 @@ export interface SwarmInfo {
 export interface SwarmStage {
   nodeId: string;
   pubkey: string;
+  account: string;             // frozen at form time so a node that served then dropped is still paid
   stageIndex: number;
   layerStart: number;
   layerEnd: number;
@@ -115,6 +120,7 @@ export interface SettleResult {
 export interface StageEarning {
   nodeId: string;
   pubkey: string;
+  account: string;             // the c0mpute account to credit (frozen at form time; survives disconnect)
   layerStart: number;
   layerEnd: number;
   layers: number;

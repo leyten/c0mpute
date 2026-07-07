@@ -86,6 +86,27 @@ A job's tokens divide across the shards that produced them.
 orchestrator runs `select_ring`; it holds no weights/keys, so it decentralizes later as a clean follow-up —
 the likely A→B path in §5). Not a blocker.
 
+## Settlement is defended as an untrusted path
+
+In the open case the coordinator is a volunteer node, so `settleJob` treats it as untrusted:
+- **only the coordinator may settle** a job (`submitterNodeId == coordinatorNodeId`); any other node's
+  `swarm:job_complete` is rejected;
+- **each `(swarm, job)` settles at most once** (a `settled` ledger) — re-submitting an honest set can't pay twice;
+- **the token count is bounded** at `MAX_SWARM_JOB_TOKENS` (= the whole-model `MAX_OUTPUT_TOKENS`), and
+  non-finite/negative counts are rejected;
+- **the verify seam fails closed** — a seam crash / non-JSON output rejects the job (pays nobody), never throws;
+- **one identity holds one ring slot** — announce dedups by pubkey (and socket), and form refuses a duplicate
+  pubkey, so a collision can't misattribute the split or brick settlement;
+- **the pay account is frozen onto the stage at form time**, so a node that served then disconnected is still paid.
+
+**Known gap (bounded, not closed):** the receipt set attests *which* layers each node ran, but not *how many
+tokens* — so the coordinator's token count is trusted up to the cap. Closing it needs a client- or server-side
+token count bound to the job (INTEGRATION.md §6 / the "coordinator-untrusted output attribution" item) before
+real payout. Curated admission (default) sidesteps it for the betanet; the cap bounds the open case meanwhile.
+
+`scripts/swarm-loop-demo.ts` exercises each of these: a non-coordinator settle, a double-settle, and a
+1e9-token claim are all shown paying nobody / capped.
+
 ## Remaining integration (after A/B)
 
 - **RTT collection + auto-form trigger.** `formSwarm` needs a measured RTT matrix over the candidate pool
@@ -95,5 +116,8 @@ the likely A→B path in §5). Not a blocker.
 - **Pay wiring.** `recordSwarmStageEarning` logs the verified per-shard split today; mapping it onto
   `recordEarning()` (tier / creditsCharged / payout basis) is decision **B**. The split is already correct —
   only the $ mapping waits.
-- **pubkey → account binding.** The demo/loop binds a node's socket to its authenticated account; the durable
-  binding is a node's ed25519 identity (its libp2p PeerId) ↔ its c0mpute account (INTEGRATION.md §2.3).
+- **Token-attested pay.** Close the known gap above — bind the paid token count to the job, not the
+  coordinator's word.
+- **pubkey → account binding + announce challenge.** The loop binds a node's socket to its authenticated
+  account; the durable binding is a node's ed25519 identity (its libp2p PeerId) ↔ its c0mpute account
+  (INTEGRATION.md §2.3), proven at announce with a challenge/response so a pubkey can't be spoofed to grief.
