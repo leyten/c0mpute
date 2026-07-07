@@ -23,6 +23,8 @@ import { getWorkerRevenueShare } from '../staking';
 import { consumeStakerAllowance, recordStakerRequest } from '../staker-allowance';
 import { scanOutput, BLOCKED_MESSAGE } from '../safety';
 import { AVAILABLE_TOOLS, executeToolCalls } from './tools';
+import { attachSwarmLoop } from './swarm-loop';
+import type { StageEarning } from './swarm-types';
 
 // Load search server module for Brave API key initialization
 try {
@@ -173,9 +175,27 @@ export class Orchestrator {
     });
 
     this.setupEventHandlers();
+    // Sharded-swarm control plane (the permissionless loop), alongside the whole-model worker path
+    // above — nothing here changes it. It registers its own connection handlers for node:announce /
+    // swarm:ready / swarm:job_complete and drives shard.plan (place) + shard.verify (settle).
+    attachSwarmLoop(this.io as unknown as import('socket.io').Server, {
+      recordStageEarning: (e) => this.recordSwarmStageEarning(e),
+      log: (m) => console.log(m),
+    });
     setInterval(() => this.broadcastStats(), 5000);
     setInterval(() => this.cleanupStaleJobs(), 10000);
     setInterval(() => this.canarySweep(), 120000);
+  }
+
+  // Per-shard credit for a settled swarm job. Turning a stage's token share into a recordEarning()
+  // call (tier / creditsCharged / payout basis, and a boundary-role premium) is the PAY-MODEL fork
+  // (NETWORK_ARCHITECTURE §6, PERMISSIONLESS_LOOP.md) — leyten's call — so it is logged, not billed,
+  // until that is decided. The verified per-shard split is already correct; only the $ mapping waits.
+  private recordSwarmStageEarning(
+    e: StageEarning & { swarmId: string; jobId: string; model: string },
+  ) {
+    console.log(`[swarm] credit ${e.account} for ${e.tokens} tokens on ${e.model} `
+      + `layers[${e.layerStart}:${e.layerEnd}] (job ${e.jobId}) — pay-model fork pending`);
   }
 
   private cleanupStaleJobs() {
