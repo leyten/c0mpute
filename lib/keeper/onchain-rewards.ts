@@ -8,7 +8,7 @@
 // the COMBINED mature stake so neither side is over/under-paid.
 import {
   Connection, Keypair, PublicKey, Transaction, TransactionInstruction,
-  sendAndConfirmTransaction,
+  ComputeBudgetProgram, sendAndConfirmTransaction,
 } from '@solana/web3.js';
 import {
   TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, getAssociatedTokenAddressSync,
@@ -184,14 +184,38 @@ export async function fundStakerRewardVault(
   });
   const ensureVault = createAssociatedTokenAccountIdempotentInstruction(
     keeper.publicKey, vault, rewardAuthority(owner), mint, TOKEN_PROGRAM_ID);
-  const tx = new Transaction().add(ensureVault, fundIx);
-  tx.feePayer = keeper.publicKey;
-  const sig = await sendAndConfirmTransaction(conn, tx, [keeper]);
+
+  // Priority fee + retry so a congested block can't silently skip a staker: the plain
+  // send used to expire under load ("block height exceeded"), dropping the reward for
+  // the whole cycle. Rebuild with a fresh blockhash each attempt; a guard skips the
+  // send if a prior attempt already landed (idempotent — never double-funds).
+  const want = before + amountRaw;
+  const cuLimit = ComputeBudgetProgram.setComputeUnitLimit({ units: 60_000 });
+  const cuPrice = ComputeBudgetProgram.setComputeUnitPrice({
+    microLamports: Number(process.env.KEEPER_PRIORITY_FEE_MICROLAMPORTS || 150_000),
+  });
+  let sig = '';
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    if (await safeBal(conn, vault) >= want) { sig = sig || 'already-funded'; break; }
+    try {
+      const tx = new Transaction().add(cuLimit, cuPrice, ensureVault, fundIx);
+      tx.feePayer = keeper.publicKey;
+      const { blockhash, lastValidBlockHeight } = await conn.getLatestBlockhash('confirmed');
+      tx.recentBlockhash = blockhash;
+      tx.lastValidBlockHeight = lastValidBlockHeight;
+      sig = await sendAndConfirmTransaction(conn, tx, [keeper], { commitment: 'confirmed' });
+      break;
+    } catch (e) {
+      lastErr = e;
+      if (attempt < 3) await new Promise((r) => setTimeout(r, 1500));
+    }
+  }
+  if (!sig) throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
 
   // Verify with retry: a getAccount right after sendAndConfirmTransaction can read a
   // stale (pre-tx) balance on a lagging RPC node. Poll until it reflects the deposit
   // before concluding failure — avoids false "mismatch" that prompts a double-fund.
-  const want = before + amountRaw;
   let after = BigInt(0);
   for (let i = 0; i < 8; i++) {
     after = await safeBal(conn, vault);
