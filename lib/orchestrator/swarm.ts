@@ -65,8 +65,16 @@ export interface SwarmConfig {
   minCandidates: number;
 }
 
+// DECIDED (2026-07-07, leyten): permissionless from the start (open supply is the endgame and curated
+// risks a supply bottleneck), pay split by layers (paid for the work done; simplest + ungameable — will
+// likely gain a boundary-role premium later, once the privacy stance is set).
+//
+// SAFETY GATE — the open network must NOT serve untrusted traffic until the placement rails are live:
+// boundary-layer pinning (keep the leaky embedding/final layers on staked/trusted nodes; strangers hold
+// only deep-middle), graded reputation, and the layer-block spot-check. `open` admits the node; PLACEMENT
+// is what keeps a stranger off a sensitive role. Those rails are the launch blocker (PERMISSIONLESS_LOOP.md).
 export const DEFAULT_SWARM_CONFIG: SwarmConfig = {
-  admission: { mode: 'curated', allowlist: new Set() },  // betanet-first; flip to 'open' on leyten's call
+  admission: { mode: 'open', minFreeVramMb: 8 * 1024 },   // proven floor; placement decides the role
   paySplit: 'layers',
   minCandidates: 2,
 };

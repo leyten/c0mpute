@@ -63,28 +63,32 @@ chains place→pull→serve for a rented ring; the loop is that flow driven by *
   formed from 6 announced nodes (the slow low-uplink box relegated), a job's tokens split per shard, and
   replayed / coverage-gap settlements paying nobody.
 
-## Open decisions (leyten's call — the code defaults are labelled, not baked)
+## Decisions (leyten, 2026-07-07 — LOCKED)
 
-These are isolated so a redirect is one line, not a refactor. Both surfaced in `NETWORK_ARCHITECTURE.md` §10.
+Both were live in `SwarmConfig` so the choice is config, not a refactor.
 
-**A. Admission — curated vs open** (`SwarmConfig.admission`, §10.3).
-The loop mechanism is identical either way; only *who may announce* differs.
-- `curated` — an allowlist of pubkeys we run / have vetted. The betanet-first path: prove the engine in the
-  wild on boxes we control, then open. Default in `DEFAULT_SWARM_CONFIG` (empty allowlist = closed).
-- `open` — any node past a coarse **proven** VRAM floor is admitted; placement then decides its role
-  (a weak node still earns as a verifier/standby, not turned away at the door). This is permissionless.
-- Recommendation: build both (done), run the first live rings **curated**, flip to `open` on your word.
+**A. Admission — OPEN** (`SwarmConfig.admission = { mode: 'open', minFreeVramMb }`, §10.3).
+Permissionless from the start: any node past a coarse **proven** VRAM floor is admitted; PLACEMENT decides
+its role (a weak node still earns as a verifier/standby, not turned away at the door). Chosen because open
+supply is the endgame anyway and a curated door risks a supply bottleneck.
+- **SAFETY GATE (non-negotiable):** open ADMISSION is not open TRAFFIC. The network must not serve untrusted
+  jobs until the placement rails are live: **boundary-layer pinning** (the leaky embedding + final layers,
+  from which 35–59% of a prompt is reconstructable, go only to staked/trusted nodes — strangers hold deep-
+  middle), **graded reputation**, and the **layer-block spot-check**. `open` lets a node in; *placement* is
+  what keeps a stranger off a sensitive role. **These rails are the launch blocker** (see Remaining
+  integration) — turning open admission into open service before they exist would leak prompts, which is the
+  opposite of the goal.
 
-**B. Pay split across stages** (`SwarmConfig.paySplit`, §6).
-A job's tokens divide across the shards that produced them.
-- `layers` (default) — proportional to layers held (paid for work done). Simple, defensible.
-- `equal` — even split regardless of block size.
-- A **boundary-role premium** (embedding/final layers carry privacy risk and are pinned to staked nodes —
-  §7) would slot in here as a weight. Recommendation: `layers` for the PoC; revisit with the privacy stance.
+**B. Pay split — BY LAYERS** (`SwarmConfig.paySplit = 'layers'`, §6).
+A job's tokens divide across the shards proportional to the layers each held (paid for the work done). Chosen
+for simplicity + ungameability (a node computes its own pay from public info; zero operator discretion — the
+most decentralized option). **Expected to change:** a **boundary-role premium** (pay the pinned sensitive
+roles more) is the likely v2, but it's deferred on purpose — it bakes a value judgment into the money (hard
+to change once earnings flow) and may be redundant once boundary-pinning restricts those roles structurally.
+Add it only if trusted operators demonstrably won't take boundary roles without it.
 
-**C. Coordinator trust / where the optimizer sits** (§10.1) — *decided for the PoC:* **central** (the
-orchestrator runs `select_ring`; it holds no weights/keys, so it decentralizes later as a clean follow-up —
-the likely A→B path in §5). Not a blocker.
+**C. Coordinator trust / where the optimizer sits** (§10.1) — **central** for the PoC (the orchestrator runs
+`select_ring`; it holds no weights/keys, so it decentralizes later as a clean follow-up). Not a blocker.
 
 ## Settlement is defended as an untrusted path
 
@@ -102,13 +106,20 @@ In the open case the coordinator is a volunteer node, so `settleJob` treats it a
 **Known gap (bounded, not closed):** the receipt set attests *which* layers each node ran, but not *how many
 tokens* — so the coordinator's token count is trusted up to the cap. Closing it needs a client- or server-side
 token count bound to the job (INTEGRATION.md §6 / the "coordinator-untrusted output attribution" item) before
-real payout. Curated admission (default) sidesteps it for the betanet; the cap bounds the open case meanwhile.
+real payout. With OPEN admission the coordinator is an untrusted volunteer, so this must close before real
+open payout (the cap bounds it meanwhile).
 
 `scripts/swarm-loop-demo.ts` exercises each of these: a non-coordinator settle, a double-settle, and a
 1e9-token claim are all shown paying nobody / capped.
 
-## Remaining integration (after A/B)
+## Remaining integration
 
+- **⛔ SAFETY RAILS — the OPEN-launch blocker (decision A).** Open admission means untrusted nodes hold model
+  shards, so before the network serves real traffic: (1) **boundary-layer pinning** — placement keeps the
+  leaky embedding/final layers on staked/trusted nodes, strangers only hold deep-middle; (2) **graded
+  reputation** — a per-node score gating which roles a node may hold (not today's binary ban); (3) **layer-
+  block spot-check** — seeded redundant recompute of a random block on a trusted node (`shard/challenge.py`
+  primitive exists). Until these are live, run rings only over trusted/own boxes even though admission is open.
 - **RTT collection + auto-form trigger.** `formSwarm` needs a measured RTT matrix over the candidate pool
   (a short probe round the nodes run and report) and a trigger (a model's pool reaching a coverable set, or
   demand for that model). The manager exposes `formSwarm(model, manifestRef, profile, rtt)`; the probe +
