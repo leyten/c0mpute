@@ -10,7 +10,7 @@
  */
 import { spawn } from 'node:child_process';
 import * as path from 'node:path';
-import type { RingPlan, SettleResult } from './swarm-types';
+import type { BlockSketch, RingPlan, SettleResult } from './swarm-types';
 import type { Seam } from './swarm';
 
 const DEFAULT_SHARD_REPO = process.env.SHARD_REPO ?? path.resolve(process.cwd(), '..', 'shard');
@@ -61,5 +61,17 @@ export class SubprocessSeam implements Seam {
 
   async verify(req: unknown): Promise<SettleResult> {
     return runModule<SettleResult>('shard.verify', req, this.o);
+  }
+
+  async challenge(req: { a: BlockSketch; b: BlockSketch; cos_thresh?: number }):
+    Promise<{ cosine: number; rel_norm: number; passed: boolean; error?: string }> {
+    // `python3 -m shard.challenge` is torch-free by design — judging sketches must not require a
+    // CUDA stack on the control-plane host (the GPU nodes are the ones producing them).
+    const r = await runModule<{ cosine: number; rel_norm: number; passed: boolean; error?: string }>(
+      'shard.challenge', req, this.o);
+    if (r && typeof r === 'object' && 'error' in r && r.error && r.passed === undefined) {
+      throw new Error(`shard.challenge: ${r.error}`);
+    }
+    return r;
   }
 }

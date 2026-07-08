@@ -48,6 +48,8 @@ async function main() {
     admission: { mode: 'open', minFreeVramMb: 8 * 1024 },  // FORK §10.3: 'curated' allowlist is the alt
     paySplit: 'layers',                                    // FORK §6: 'equal' is the alt
     minCandidates: 2,
+    privacy: null,                     // base-loop proof: pinning OFF here (see rails-demo.ts for it)
+    spotCheckTimeoutMs: 300_000,
   };
   const emitted: { nodeId: string; event: string; data: unknown }[] = [];
   const ledger: (StageEarning & { swarmId: string; jobId: string; model: string })[] = [];
