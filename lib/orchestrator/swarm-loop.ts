@@ -26,9 +26,12 @@ import type { BlockSketch, NodeCapabilities, StageEarning } from './swarm-types'
 
 export interface SwarmLoopOptions {
   recordStageEarning: (e: StageEarning & { swarmId: string; jobId: string; model: string }) => void;
-  /** GradedReputation (+ the stake gate) — REQUIRED for the default config: privacy pinning is on
-   *  by default and fails closed without a trust oracle (rails-before-traffic). */
+  /** GradedReputation (+ the stake gate) — powers cheat-detection reputation (kick repeat cheaters)
+   *  and, in the private tier, the boundary trust gate. */
   trust?: TrustOracle;
+  /** trusted spot-check auditors we run (kept out of swarm placement) — the recompute oracle the
+   *  spot-check compares strangers against in the open PoC. */
+  auditors?: () => { nodeId: string; pubkey: string }[];
   config?: SwarmConfig;
   log?: (msg: string) => void;
 }
@@ -49,6 +52,7 @@ export function attachSwarmLoop(io: Server, opts: SwarmLoopOptions) {
       // served then disconnected is still credited — no live socket lookup that could miss.
       recordStageEarning: (e) => opts.recordStageEarning(e),
       trust: opts.trust,
+      auditors: opts.auditors,
       log,
     },
     opts.config ?? DEFAULT_SWARM_CONFIG,

@@ -73,32 +73,37 @@ export interface SwarmConfig {
   /** minimum candidates before a swarm is formed (must be able to hold the model; k is decided by the
    *  planner, this is just "don't try with too few"). */
   minCandidates: number;
-  /** BOUNDARY-LAYER PINNING (the open-admission privacy rail): keep the first boundaryIn / last
-   *  boundaryOut layers + the head/tail roles on TRUSTED nodes; strangers hold only deep-middle.
-   *  null = off (every ring is then trusted-by-assumption — only safe over own/vetted boxes). */
+  /** BOUNDARY-LAYER PINNING — the opt-in privacy tier. Keeps the first boundaryIn / last boundaryOut
+   *  layers + the head/tail roles on TRUSTED (staked) nodes; strangers hold only deep-middle. This
+   *  buys prompt privacy at the cost of needing trusted nodes IN every ring (~2 of ~5 stages), which
+   *  taxes open supply — so it is NOT the PoC default (leyten, 2026-07-08: prompt privacy is deferred,
+   *  the PoC runs fully open). null = OFF: any machine may hold any slice. The mechanism is built +
+   *  adversarially proven and set per-request/per-swarm for a future private tier (PERMISSIONLESS_LOOP.md §7). */
   privacy: { boundaryIn: number; boundaryOut: number } | null;
   /** how long a challenged node has to return its spot-check sketch (the verifier may need to pull
    *  the suspect's layer range first); past the deadline the SUSPECT fails — refusal is not free. */
   spotCheckTimeoutMs: number;
 }
 
-// DECIDED (2026-07-07, leyten): permissionless from the start (open supply is the endgame and curated
-// risks a supply bottleneck), pay split by layers (paid for the work done; simplest + ungameable — will
-// likely gain a boundary-role premium later, once the privacy stance is set).
-//
-// SAFETY GATE — the open network must NOT serve untrusted traffic until the placement rails are live:
-// boundary-layer pinning (keep the leaky embedding/final layers on staked/trusted nodes; strangers hold
-// only deep-middle), graded reputation, and the layer-block spot-check. `open` admits the node; PLACEMENT
-// is what keeps a stranger off a sensitive role. Those rails are the launch blocker (PERMISSIONLESS_LOOP.md).
+// DECIDED (leyten):
+//   • Admission — OPEN from the start (2026-07-07): open supply is the endgame; curated risks a bottleneck.
+//   • Pay — by layers (paid for the work done; simplest + ungameable).
+//   • Privacy — DEFERRED for the PoC (2026-07-08): let ANY machine join ANY swarm. Mandatory boundary
+//     pinning would need trusted nodes in every ring (~40% of supply) and re-introduce the very
+//     bottleneck open admission avoids. Prompt privacy is a KNOWN, ACCEPTED limitation of the PoC — a
+//     node in the ring can observe the activations it processes. What we DO run on the open network is
+//     CHEAT detection, which needs no trusted stage in the ring:
+//        - receipts: signed per-stage, chained (out_root[i]==in_root[i+1]) — skip/fabricate/replay ⇒ pay
+//          nobody. Structural fraud caught for free on every job.
+//        - spot-check: a we-run staked AUDITOR (off to the side, occasional — NOT a per-swarm stage, so
+//          no supply tax) re-derives a seeded block and compares, catching lazy/fake compute.
+//        - graded reputation: pass/fail history gates roles + kicks repeat cheaters at admission.
+//     Boundary pinning stays built + tested as the OPT-IN private tier (set `privacy` per swarm) for later.
 export const DEFAULT_SWARM_CONFIG: SwarmConfig = {
   admission: { mode: 'open', minFreeVramMb: 8 * 1024 },   // proven floor; placement decides the role
   paySplit: 'layers',
   minCandidates: 2,
-  // 8/8 is the literature-grounded knee (arXiv 2602.16760, 2507.16372): naive exact-token inversion
-  // falls ~59%→35% by 8 layers in, and 8 layers out denies the free logit-lens output read. The
-  // output side leaks WORSE than the input side, so never shrink boundaryOut below boundaryIn.
-  // Hard floor 4/4; a regulated-data tier would run 12/12. ON by default: rails-before-traffic.
-  privacy: { boundaryIn: 8, boundaryOut: 8 },
+  privacy: null,                                          // PoC: fully open, any machine any slice (see above)
   spotCheckTimeoutMs: 300_000,
 };
 
@@ -117,6 +122,12 @@ export interface SwarmDeps {
    *  assignment is the control plane's, never self-reported — without an oracle nobody is trusted
    *  and pinned placement fails CLOSED rather than forming a leaky ring. */
   trust?: TrustOracle;
+  /** trusted spot-check AUDITORS we run — nodes that can recompute any block to check a suspect. They
+   *  are kept OUT of swarm placement (never a serving stage) and are not part of open supply, so they
+   *  add integrity without taxing it (the sharded analogue of the whole-model canary infra). A node id
+   *  in this set is the ground truth the spot-check compares a stranger against; empty => spot-checks
+   *  are skipped and cheat detection leans on receipts alone (still catches structural fraud). */
+  auditors?: () => { nodeId: string; pubkey: string }[];
   log?: (msg: string) => void;
   now?: () => number;
   newId?: (prefix: string) => string;
@@ -204,11 +215,14 @@ export class SwarmManager {
       return null;
     }
     const role = (pubkey: string): SwarmRole => this.d.trust?.roleFor(pubkey) ?? 'middle';
+    const auditorIds = new Set((this.d.auditors?.() ?? []).map((a) => a.nodeId));
     const full = this.candidates.get(model) ?? [];
     // keep un-placed candidates AND the original indices, so we slice `rtt` to exactly this sub-pool.
     // Reputation gate: 'relegated'/'rejected' nodes never enter the STAGE pool (they stay candidates
     // for off-ring roles — seeder / spot-check-verifier — which the planner never assigns a block).
+    // Auditors are also excluded — they exist to VERIFY stages, never to be one (keeps them available).
     const kept = full.map((c, i) => ({ c, i })).filter(({ c }) => !this.nodeToSwarm.has(c.nodeId)
+      && !auditorIds.has(c.nodeId)
       && role(c.cap.pubkey) !== 'relegated' && role(c.cap.pubkey) !== 'rejected');
     const pool = kept.map((k) => k.c);
     if (pool.length < this.cfg.minCandidates) {
@@ -463,15 +477,20 @@ export class SwarmManager {
       : swarm.stages.find((s) => probeable(s) && this.d.trust!.roleFor(s.pubkey) !== 'boundary')
         ?? swarm.stages.find(probeable);
     if (!suspect || active.has(suspect.nodeId)) return null;
-    // verifier: an off-ring trusted candidate for this model, else a trusted boundary stage
+    // verifier — a TRUSTED recompute oracle, in priority order:
+    //   1. a we-run auditor not busy in this ring (the open-PoC path — no trusted stage needed),
+    //   2. an off-ring staked/boundary candidate, then an in-ring boundary stage (the private-tier path).
     const inRing = new Set(swarm.stages.map((s) => s.nodeId));
-    const offRing = (this.candidates.get(swarm.model) ?? []).find((c) => !inRing.has(c.nodeId)
-      && this.d.trust!.roleFor(c.cap.pubkey) === 'boundary');
-    const onRing = swarm.stages.find((s) => s.boundary && s.nodeId !== suspect.nodeId);
-    const verifier = offRing
-      ? { nodeId: offRing.nodeId, pubkey: offRing.cap.pubkey }
+    const auditor = (this.d.auditors?.() ?? []).find((a) => !inRing.has(a.nodeId));
+    const offRing = auditor ? null : (this.candidates.get(swarm.model) ?? []).find((c) =>
+      !inRing.has(c.nodeId) && this.d.trust!.roleFor(c.cap.pubkey) === 'boundary');
+    const onRing = auditor || offRing ? null
+      : swarm.stages.find((s) => s.boundary && s.nodeId !== suspect.nodeId);
+    const verifier = auditor
+      ? { nodeId: auditor.nodeId, pubkey: auditor.pubkey }
+      : offRing ? { nodeId: offRing.nodeId, pubkey: offRing.cap.pubkey }
       : onRing ? { nodeId: onRing.nodeId, pubkey: onRing.pubkey } : null;
-    if (!verifier) { this.log(`spot-check ${swarmId}: no trusted verifier available`); return null; }
+    if (!verifier) { this.log(`spot-check ${swarmId}: no trusted verifier/auditor available`); return null; }
     const checkId = this.id('check');
     const check: SpotCheck = {
       checkId, swarmId, model: swarm.model, manifestRef: swarm.manifestRef,

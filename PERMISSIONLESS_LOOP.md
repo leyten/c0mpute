@@ -112,12 +112,37 @@ open payout (the cap bounds it meanwhile).
 `scripts/swarm-loop-demo.ts` exercises each of these: a non-coordinator settle, a double-settle, and a
 1e9-token claim are all shown paying nobody / capped.
 
-## Safety rails — BUILT (the OPEN-traffic gate)
+## PoC decision (leyten, 2026-07-08): fully open; cheat-detection on; prompt privacy DEFERRED
 
-Open admission is not open traffic: an untrusted stage can invert the activations it forwards back
-toward the prompt, and the engine's own wire makes the ends worse (the head embeds the raw prompt
-token ids; the tail turns logits into output token ids). The three rails that make open traffic safe
-are now built and gate ROLES, not membership:
+For the PoC, **any machine may join any swarm and hold any slice.** Prompt privacy is a **known,
+accepted limitation** — a node in the ring can observe the activations it processes and could try to
+reconstruct part of the prompt/answer. We are not solving that now, because the fix (mandatory
+boundary pinning) needs trusted nodes in ~40% of every ring and re-introduces the very supply
+bottleneck open admission exists to avoid.
+
+What we DO run on the fully-open network is **CHEAT detection**, which needs no trusted stage inside a
+ring:
+- **Receipts** — every stage signs a receipt for its slice, and they chain around the ring
+  (`out_root[i] == in_root[i+1]`). Skip layers, fabricate, or replay ⇒ the chain breaks ⇒ settlement
+  **pays nobody.** Structural fraud caught for free on every job.
+- **Spot-check** — a we-run staked **auditor** (a handful of boxes we operate, off to the side and
+  occasional — NOT a stage in any ring, so **zero supply tax**; the sharded analogue of the
+  whole-model canary infra) re-derives a seeded block and compares against the suspect's output,
+  catching lazy/fake compute that receipts can't (a node hashing plausible numbers without doing the
+  matmuls). Fail ⇒ reputation strike ⇒ dropped.
+- **Graded reputation** — pass/fail history gates roles and refuses repeat cheaters at admission.
+
+Cheat detection catches a node that does the work *wrong*; it cannot catch a node that does the work
+*correctly but also copies the prompt* (snooping is passive and leaves no trace). That residual is the
+deferred privacy gap. `DEFAULT_SWARM_CONFIG.privacy = null` (open); the rails below are the **opt-in
+private tier** for later, set `privacy` per swarm/request.
+
+## Privacy rails — BUILT + PROVEN (the opt-in private tier, OFF by default)
+
+An untrusted stage can invert the activations it forwards back toward the prompt, and the engine's own
+wire makes the ends worse (the head embeds the raw prompt token ids; the tail turns logits into output
+token ids). These rails buy prompt privacy at the cost of trusted nodes in the ring — so they are the
+paid private tier, not the PoC default. They are built, adversarially proven, and gate ROLES, not membership:
 
 - **Boundary-layer pinning** (`SwarmConfig.privacy`, default `{boundaryIn: 8, boundaryOut: 8}`).
   `formSwarm` sends `shard.plan` a per-node **trusted** flag — ASSIGNED here from stake + reputation,
@@ -160,32 +185,21 @@ off the stage pool. Headless unit coverage in `scripts/rails-test.ts` (18 assert
   account; the durable binding is a node's ed25519 identity (its libp2p PeerId) ↔ its c0mpute account
   (INTEGRATION.md §2.3), proven at announce with a challenge/response so a pubkey can't be spoofed to grief.
 
-## ⇒ FORK for leyten — the privacy STANCE + who is "trusted" (product decision, don't guess)
+## Privacy stance — DECIDED (leyten, 2026-07-08)
 
-Boundary-pinning is the CORE and it is built. Two decisions on top of it are leyten's:
+**Run the PoC fully open; defer prompt privacy.** The mandatory-pinning option was rejected because it
+taxes open supply (trusted nodes in ~40% of every ring — the bottleneck open admission avoids). Prompt
+privacy is a known, accepted limitation of the PoC. Cheat-detection (receipts + spot-check + reputation)
+runs on the open network and needs no trusted stage in a ring.
 
-1. **Privacy stance** — how far to go beyond boundary-pinning:
-   - **(a) Boundary-pin only (SHIPPING DEFAULT).** Strangers hold only deep-middle layers. Honest
-     framing: this removes the two easiest, highest-fidelity leaks (verbatim prompt from shallow
-     activations; the free logit-lens read of the output) and shrinks the attacker pool from "any lazy
-     node" to "a motivated party who trains an inversion model against its specific public layer range,"
-     which yields partial, mostly *semantic* (paraphrase-level) reconstruction of the deep-middle. It is
-     defense-in-depth and a real reduction in leak surface — **not** a privacy guarantee. Most
-     decentralized; every request runs on the open supply.
-   - **(b) Per-request trusted routing.** A request can demand a ring of only vetted/staked nodes
-     (or a higher boundary window, e.g. 12/12), trading decentralization for stronger privacy ON DEMAND.
-     Mechanism already fits: bump `privacy` + require higher-rep nodes per job. This is likely the
-     product answer (a free "open" tier + a private tier), but it needs leyten's economics call.
-   - **(c) Activation obfuscation (R&D).** Secret per-request orthogonal transforms with an equivariant
-     model (ConjFormer-style) get recovery <1.3% at ~0.4% perplexity — but that is NOT the stock public
-     weights and is not near-zero-cost. A research bet, not a launch item. (Note: fp8-on-the-wire and
-     hidden-dim permutation give ~ZERO privacy against a public-weights attacker — do not claim them.)
-2. **Who counts as a "trusted/staked" node** the boundary layers pin to. The rail is built to consume a
-   `trusted` flag ASSIGNED by the control plane (stake + graded reputation), never self-reported. What
-   remains is the ECONOMICS: what stake buys a `boundary` role, how it composes with `boundaryMin` score,
-   and whether early boundary operators are c0mpute-run/vetted until an open staked set exists. This ties
-   directly into the staking layer (`lib/onchain-staking.ts`) — a `GradedReputation` `isStaked(pubkey)`
-   is the injection point.
+The pinning rails stay BUILT + proven as the **opt-in private tier** for when we want it (a paid
+"private" mode: a request sets `privacy` and is placed only on staked nodes / a wider window). When that
+tier is turned on, one economics decision remains **leyten's**: **who counts as a "staked/trusted" node**
+— what stake buys a `boundary` role and whether early boundary operators are c0mpute-run/vetted until an
+open staked set exists. The seam is ready: `GradedReputation.isStaked(pubkey)` (ties into
+`lib/onchain-staking.ts`). Not on the PoC critical path.
 
-**Recommendation:** ship **(a)** as the default open tier now (rails proven), design **(b)** as the paid
-private tier next, park **(c)** as research. Boundary window default 8/8; expose per-request override for (b).
+Options considered (kept for the record): (a) boundary-pin-only [taxes supply → rejected for the PoC],
+(b) per-request trusted routing [the future private tier], (c) activation obfuscation [R&D — secret
+per-request orthogonal transforms, ConjFormer-style; fp8-wire and hidden-dim permutation give ~ZERO
+privacy against a public-weights attacker, do not claim them].

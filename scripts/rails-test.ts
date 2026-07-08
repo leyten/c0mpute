@@ -18,6 +18,8 @@ function ok(name: string) { console.log(`  ok  ${name}`); passed += 1; }
 function section(t: string) { console.log(`\n${t}`); }
 
 const M25: ModelProfile = { layerCount: 62 };
+// the OPT-IN private tier: pinning explicitly ON (the PoC default is now open — privacy: null).
+const PINNED: SwarmConfig = { ...DEFAULT_SWARM_CONFIG, privacy: { boundaryIn: 8, boundaryOut: 8 } };
 
 async function main() {
 
@@ -161,7 +163,7 @@ section('1. GradedReputation — scoring, role gates, stake, consec-fail reject'
 section('2. Boundary pinning fails CLOSED without a trust oracle');
 
 {
-  const cfg = { ...DEFAULT_SWARM_CONFIG };   // privacy on by default
+  const cfg = { ...PINNED };                 // private tier: pinning ON
   const { mgr } = harness(cfg);              // NO trust dep
   for (const p of ['A', 'B', 'C', 'D']) mgr.announce(`n-${p}`, cap(p), 'm', 'mf', `acct-${p}`);
   const swarm = await mgr.formSwarm('m', 'mf', M25, flatRtt(4));
@@ -176,7 +178,7 @@ section('3. Placement never puts an untrusted node on a boundary stage');
   const staked = new Set(['T1', 'T2']);
   const rep = new GradedReputation({ isStaked: (p) => staked.has(p) }, {});
   for (const p of ['T1', 'T2']) for (let i = 0; i < 20; i++) rep.record(p, 'spot_check_pass');
-  const { mgr, emitted, seam } = harness({ ...DEFAULT_SWARM_CONFIG }, { trust: rep });
+  const { mgr, emitted, seam } = harness({ ...PINNED }, { trust: rep });
   // 2 trusted (boundary-eligible) + 3 untrusted strangers
   const pubs = ['T1', 'T2', 'U1', 'U2', 'U3'];
   pubs.forEach((p, i) => mgr.announce(`n-${p}`, cap(p, { freeVramMb: 20 * 1024, subnet: `${i}.0.0/24` }), 'm', 'mf', `a-${p}`));
@@ -235,7 +237,7 @@ section('5. Spot-check flow: pass accrues, fail strikes + degrades the swarm');
   let clock = 1000;
   // a challenge seam that fails the suspect
   const seam = fakeSeam({ async challenge() { return { cosine: 0.02, rel_norm: 0.9, passed: false }; } });
-  const { mgr, emitted } = harness({ ...DEFAULT_SWARM_CONFIG }, { trust: rep, seam, now: () => clock });
+  const { mgr, emitted } = harness({ ...PINNED }, { trust: rep, seam, now: () => clock });
   ['T1', 'T2', 'U1', 'U2', 'U3'].forEach((p, i) =>
     mgr.announce(`n-${p}`, cap(p, { freeVramMb: 20 * 1024, subnet: `${i}.3.0.0/24` }), 'm', 'mf', `a-${p}`));
   const swarm = await mgr.formSwarm('m', 'mf', M25, flatRtt(5));
@@ -264,7 +266,7 @@ section('5. Spot-check flow: pass accrues, fail strikes + degrades the swarm');
   const rep = new GradedReputation({ isStaked: (p) => staked.has(p) }, {});
   for (const p of ['T1', 'T2']) for (let i = 0; i < 20; i++) rep.record(p, 'spot_check_pass');
   let clock = 1000;
-  const { mgr } = harness({ ...DEFAULT_SWARM_CONFIG }, { trust: rep, now: () => clock });
+  const { mgr } = harness({ ...PINNED }, { trust: rep, now: () => clock });
   ['T1', 'T2', 'U1', 'U2', 'U3'].forEach((p, i) =>
     mgr.announce(`n-${p}`, cap(p, { freeVramMb: 20 * 1024, subnet: `${i}.4.0.0/24` }), 'm', 'mf', `a-${p}`));
   const swarm = await mgr.formSwarm('m', 'mf', M25, flatRtt(5));
@@ -306,6 +308,46 @@ section('7. privacy=null keeps the legacy (unpinned) path intact');
   const assigns = emitted.filter((e) => e.event === 'swarm:assign').map((e) => e.data);
   assert.ok(assigns.every((a) => a.boundary === false), 'no stage flagged boundary when pinning off');
   ok('privacy=null: forms unpinned, no privacy block, no boundary flags');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+section('8. Open PoC (leyten 2026-07-08): any machine any slice; receipts+reputation+spot-check on');
+
+{
+  // DEFAULT config now has privacy: null -> fully open placement, no trusted node needed in a ring.
+  assert.equal(DEFAULT_SWARM_CONFIG.privacy, null, 'PoC default must be fully open (privacy null)');
+  const rep = new GradedReputation({}, {});                 // reputation on; no staking needed (open)
+  // a we-run auditor (kept out of swarms, used to verify) + 5 plain strangers
+  const AUDITOR = { nodeId: 'auditor-1', pubkey: 'AUD' };
+  const seam = fakeSeam({ async challenge() { return { cosine: 0.03, rel_norm: 0.9, passed: false }; } });
+  const { mgr, emitted } = harness({ ...DEFAULT_SWARM_CONFIG }, {
+    trust: rep, seam, auditors: () => [AUDITOR],
+  });
+  // strangers announce and are placed on ANY slice (no trust gating)
+  ['U1', 'U2', 'U3', 'U4', 'U5'].forEach((p, i) =>
+    mgr.announce(`n-${p}`, cap(p, { freeVramMb: 20 * 1024, subnet: `${i}.8.0.0/24` }), 'm', 'mf', `a-${p}`));
+  mgr.announce(AUDITOR.nodeId, cap(AUDITOR.pubkey, { subnet: '9.9.0.0/24' }), 'm', 'mf', 'a-aud');
+  const swarm = await mgr.formSwarm('m', 'mf', M25, flatRtt(6));
+  assert.ok(swarm, 'open swarm should form from strangers alone');
+  // the auditor is NOT placed as a serving stage (stays available to verify)
+  assert.ok(!swarm!.stages.some((s) => s.nodeId === AUDITOR.nodeId), 'auditor must not be a serving stage');
+  assert.ok(swarm!.stages.every((s) => !s.boundary), 'no stage is a boundary stage when privacy is off');
+  ok('fully open: strangers fill every slice; the auditor is held out of placement');
+  for (const s of swarm!.stages) mgr.markReady(swarm!.id, s.nodeId);
+  // spot-check runs using the auditor as the trusted verifier (no in-ring trusted node needed)
+  emitted.length = 0;
+  const check = mgr.startSpotCheck(swarm!.id);
+  assert.ok(check && check.verifierNodeId === AUDITOR.nodeId, 'spot-check must verify via the auditor');
+  const sk: BlockSketch = { n: 100, norm: 1, proj: [1, 2, 3] };
+  await mgr.submitSketch(check!.checkId, check!.suspectNodeId, sk);
+  const verdict = await mgr.submitSketch(check!.checkId, check!.verifierNodeId, sk);
+  assert.ok(verdict && !verdict.passed, 'a faked block still fails the spot-check in the open PoC');
+  ok('spot-check catches a cheating stranger via the we-run auditor (no supply tax)');
+  // and a repeat cheater is refused at re-admission (reputation kick)
+  rep.record('U-cheat', 'spot_check_fail'); rep.record('U-cheat', 'spot_check_fail');
+  const v = mgr.announce('n-cheat', cap('U-cheat'), 'm', 'mf', 'a-cheat');
+  assert.equal(v.ok, false, 'a repeat cheater must be refused at admission');
+  ok('reputation kicks a repeat cheater at admission (open supply, no trusted stage needed)');
 }
 
 console.log(`\nALL ${passed} rail assertions passed.`);
