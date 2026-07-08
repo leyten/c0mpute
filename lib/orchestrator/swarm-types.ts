@@ -56,6 +56,9 @@ export interface StageAssignment {
   role: 'coordinator' | 'stage';
   isHead: boolean;
   isTail: boolean;
+  /** this stage holds boundary (leaky) layers or an end role — only ever assigned to trusted nodes
+   *  when the swarm runs privacy pinning */
+  boundary?: boolean;
   /** the wire mode the ring must run — the node uses it, and settlement chain-checks iff true. Decided
    *  by the swarm (from the model profile), NOT inferred, so the trust check matches the actual wire. */
   losslessWire: boolean;
@@ -91,6 +94,7 @@ export interface SwarmStage {
   layers: number;
   isHead: boolean;
   isTail: boolean;
+  boundary: boolean;           // trust-critical stage (boundary layers / head / tail) under pinning
   ready: boolean;              // pulled its range, warmed, ring-connected
 }
 
@@ -98,7 +102,8 @@ export interface SwarmStage {
 export interface RingPlan {
   order: string[];
   head: string;
-  stages: { id: string; index: number; lo: number; hi: number; head: boolean; tail: boolean; layers: number }[];
+  stages: { id: string; index: number; lo: number; hi: number; head: boolean; tail: boolean; layers: number;
+            boundary?: boolean }[];
   dropped: string[];
   roles?: Record<string, string>;
   step_ms: number;
@@ -106,6 +111,47 @@ export interface RingPlan {
   k: number;
   request_ms?: number;
   prefill_ms?: number;
+  /** present iff the plan request carried `privacy` — the boundary-pinned placement summary */
+  privacy?: { boundary_in: number; boundary_out: number; boundary_stages: string[] };
+}
+
+/**
+ * One in-flight layer-block spot-check (shard/challenge.py over the socket): the SUSPECT and a
+ * TRUSTED VERIFIER both derive the same seeded activation, run the suspect's layer block, and
+ * return a sketch; `python3 -m shard.challenge` judges the pair. Refusal/timeout counts as a fail
+ * (a cheater must not be able to dodge by going quiet).
+ */
+export interface SpotCheck {
+  checkId: string;
+  swarmId: string;
+  model: string;
+  manifestRef: string;
+  suspectNodeId: string;
+  suspectPubkey: string;
+  verifierNodeId: string;
+  verifierPubkey: string;
+  layerStart: number;
+  layerEnd: number;
+  seed: string;                // both sides derive the identical challenge input from this
+  nTokens: number;
+  hiddenSize: number;
+  deadlineAt: number;
+  sketches: { suspect?: BlockSketch; verifier?: BlockSketch };
+}
+
+/** shard.challenge sketch — a compact fingerprint of a block output (fixed-seed 256-dim projection). */
+export interface BlockSketch { n: number; norm: number; proj: number[] }
+
+/** The `swarm:challenge` payload a node receives (both suspect and verifier get the same one). */
+export interface SpotCheckAssignment {
+  checkId: string;
+  model: string;
+  manifestRef: string;
+  layerStart: number;
+  layerEnd: number;
+  seed: string;
+  nTokens: number;
+  hiddenSize: number;
 }
 
 /** The shape `python3 -m shard.verify` returns. */

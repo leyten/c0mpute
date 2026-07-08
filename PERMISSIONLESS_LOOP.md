@@ -112,14 +112,66 @@ open payout (the cap bounds it meanwhile).
 `scripts/swarm-loop-demo.ts` exercises each of these: a non-coordinator settle, a double-settle, and a
 1e9-token claim are all shown paying nobody / capped.
 
+## PoC decision (leyten, 2026-07-08): fully open; cheat-detection on; prompt privacy DEFERRED
+
+For the PoC, **any machine may join any swarm and hold any slice.** Prompt privacy is a **known,
+accepted limitation** — a node in the ring can observe the activations it processes and could try to
+reconstruct part of the prompt/answer. We are not solving that now, because the fix (mandatory
+boundary pinning) needs trusted nodes in ~40% of every ring and re-introduces the very supply
+bottleneck open admission exists to avoid.
+
+What we DO run on the fully-open network is **CHEAT detection**, which needs no trusted stage inside a
+ring:
+- **Receipts** — every stage signs a receipt for its slice, and they chain around the ring
+  (`out_root[i] == in_root[i+1]`). Skip layers, fabricate, or replay ⇒ the chain breaks ⇒ settlement
+  **pays nobody.** Structural fraud caught for free on every job.
+- **Spot-check** — a we-run staked **auditor** (a handful of boxes we operate, off to the side and
+  occasional — NOT a stage in any ring, so **zero supply tax**; the sharded analogue of the
+  whole-model canary infra) re-derives a seeded block and compares against the suspect's output,
+  catching lazy/fake compute that receipts can't (a node hashing plausible numbers without doing the
+  matmuls). Fail ⇒ reputation strike ⇒ dropped.
+- **Graded reputation** — pass/fail history gates roles and refuses repeat cheaters at admission.
+
+Cheat detection catches a node that does the work *wrong*; it cannot catch a node that does the work
+*correctly but also copies the prompt* (snooping is passive and leaves no trace). That residual is the
+deferred privacy gap. `DEFAULT_SWARM_CONFIG.privacy = null` (open); the rails below are the **opt-in
+private tier** for later, set `privacy` per swarm/request.
+
+## Privacy rails — BUILT + PROVEN (the opt-in private tier, OFF by default)
+
+An untrusted stage can invert the activations it forwards back toward the prompt, and the engine's own
+wire makes the ends worse (the head embeds the raw prompt token ids; the tail turns logits into output
+token ids). These rails buy prompt privacy at the cost of trusted nodes in the ring — so they are the
+paid private tier, not the PoC default. They are built, adversarially proven, and gate ROLES, not membership:
+
+- **Boundary-layer pinning** (`SwarmConfig.privacy`, default `{boundaryIn: 8, boundaryOut: 8}`).
+  `formSwarm` sends `shard.plan` a per-node **trusted** flag — ASSIGNED here from stake + reputation,
+  never read from the announce payload — plus the boundary window. `select_ring` keeps the head/tail
+  roles and every stage holding a `[0, 8)` or `[54, 62)` layer on trusted nodes; strangers hold only
+  deep-middle. Grounded in the inversion literature (arXiv 2602.16760, 2507.16372): naive prompt-token
+  recovery falls ~59% → 35% by 8 layers in, and 8 output layers deny the free logit-lens read; the
+  output side leaks worse, so `boundaryOut ≥ boundaryIn` (hard floor 4/4, regulated-data tier 12/12).
+  **Fails CLOSED:** privacy on with no trust oracle refuses to form; a plan that placed a stranger on a
+  boundary stage is rejected before any assignment goes out.
+- **Graded reputation** (`reputation.ts`) — a per-node score gating `boundary` (stake-gated: score
+  alone never earns it) / `middle` (the open-admission default for a stranger in good standing) /
+  `relegated` (off-stage only) / `rejected` (refused at announce). Recent-behaviour scoring like the
+  whole-model canary ban; two consecutive spot-check fails reject outright. Fed by settlement verdicts,
+  spot-checks, and churn. Replaces the binary ban for shard nodes.
+- **Layer-block spot-check** (`startSpotCheck` → `shard.challenge`) — seeded redundant recompute of a
+  stranger's block on a trusted verifier; the torch-free `shard.challenge` seam judges the sketch pair
+  by cosine tolerance, and the verdict feeds reputation. A silent suspect fails on timeout (refusal is
+  not free); a failed check degrades the swarm.
+
+Proven end-to-end against the REAL shard seams (`scripts/rails-demo.ts`): with 3 staked + 4 stranger
+nodes and open admission, the real `shard.plan` keeps every stranger off the boundary layers, and the
+real `shard.challenge` catches a stranger faking its block (cosine ≈ 0), strikes it, and relegates it
+off the stage pool. Headless unit coverage in `scripts/rails-test.ts` (18 assertions).
+
+**⇒ FORK for leyten — the privacy STANCE (see below) and the trusted-node set are still leyten's calls.**
+
 ## Remaining integration
 
-- **⛔ SAFETY RAILS — the OPEN-launch blocker (decision A).** Open admission means untrusted nodes hold model
-  shards, so before the network serves real traffic: (1) **boundary-layer pinning** — placement keeps the
-  leaky embedding/final layers on staked/trusted nodes, strangers only hold deep-middle; (2) **graded
-  reputation** — a per-node score gating which roles a node may hold (not today's binary ban); (3) **layer-
-  block spot-check** — seeded redundant recompute of a random block on a trusted node (`shard/challenge.py`
-  primitive exists). Until these are live, run rings only over trusted/own boxes even though admission is open.
 - **RTT collection + auto-form trigger.** `formSwarm` needs a measured RTT matrix over the candidate pool
   (a short probe round the nodes run and report) and a trigger (a model's pool reaching a coverable set, or
   demand for that model). The manager exposes `formSwarm(model, manifestRef, profile, rtt)`; the probe +
@@ -132,3 +184,22 @@ open payout (the cap bounds it meanwhile).
 - **pubkey → account binding + announce challenge.** The loop binds a node's socket to its authenticated
   account; the durable binding is a node's ed25519 identity (its libp2p PeerId) ↔ its c0mpute account
   (INTEGRATION.md §2.3), proven at announce with a challenge/response so a pubkey can't be spoofed to grief.
+
+## Privacy stance — DECIDED (leyten, 2026-07-08)
+
+**Run the PoC fully open; defer prompt privacy.** The mandatory-pinning option was rejected because it
+taxes open supply (trusted nodes in ~40% of every ring — the bottleneck open admission avoids). Prompt
+privacy is a known, accepted limitation of the PoC. Cheat-detection (receipts + spot-check + reputation)
+runs on the open network and needs no trusted stage in a ring.
+
+The pinning rails stay BUILT + proven as the **opt-in private tier** for when we want it (a paid
+"private" mode: a request sets `privacy` and is placed only on staked nodes / a wider window). When that
+tier is turned on, one economics decision remains **leyten's**: **who counts as a "staked/trusted" node**
+— what stake buys a `boundary` role and whether early boundary operators are c0mpute-run/vetted until an
+open staked set exists. The seam is ready: `GradedReputation.isStaked(pubkey)` (ties into
+`lib/onchain-staking.ts`). Not on the PoC critical path.
+
+Options considered (kept for the record): (a) boundary-pin-only [taxes supply → rejected for the PoC],
+(b) per-request trusted routing [the future private tier], (c) activation obfuscation [R&D — secret
+per-request orthogonal transforms, ConjFormer-style; fp8-wire and hidden-dim permutation give ~ZERO
+privacy against a public-weights attacker, do not claim them].
