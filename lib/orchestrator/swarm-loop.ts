@@ -20,12 +20,18 @@
  * sets `socket.data-style` privyUserId on every socket, so a node's account is known without a re-auth.
  */
 import type { Server } from 'socket.io';
-import { SwarmManager, type SwarmConfig, DEFAULT_SWARM_CONFIG, type ModelProfile } from './swarm';
+import { SwarmManager, type SwarmConfig, type TrustOracle, DEFAULT_SWARM_CONFIG, type ModelProfile } from './swarm';
 import { SubprocessSeam } from './swarm-seam';
-import type { NodeCapabilities, StageEarning } from './swarm-types';
+import type { BlockSketch, NodeCapabilities, StageEarning } from './swarm-types';
 
 export interface SwarmLoopOptions {
   recordStageEarning: (e: StageEarning & { swarmId: string; jobId: string; model: string }) => void;
+  /** GradedReputation (+ the stake gate) — powers cheat-detection reputation (kick repeat cheaters)
+   *  and, in the private tier, the boundary trust gate. */
+  trust?: TrustOracle;
+  /** trusted spot-check auditors we run (kept out of swarm placement) — the recompute oracle the
+   *  spot-check compares strangers against in the open PoC. */
+  auditors?: () => { nodeId: string; pubkey: string }[];
   config?: SwarmConfig;
   log?: (msg: string) => void;
 }
@@ -33,6 +39,7 @@ export interface SwarmLoopOptions {
 interface AnnouncePayload { cap: NodeCapabilities; model: string; manifestRef: string }
 interface ReadyPayload { swarmId: string }
 interface CompletePayload { swarmId: string; jobId: string; nonce: string; tokensGenerated: number; receipts: unknown[] }
+interface ChallengeResultPayload { checkId: string; sketch: BlockSketch }
 
 export function attachSwarmLoop(io: Server, opts: SwarmLoopOptions) {
   const log = opts.log ?? ((m: string) => console.log(m));
@@ -44,6 +51,8 @@ export function attachSwarmLoop(io: Server, opts: SwarmLoopOptions) {
       // the earning already carries the account (frozen onto the stage at form time), so a node that
       // served then disconnected is still credited — no live socket lookup that could miss.
       recordStageEarning: (e) => opts.recordStageEarning(e),
+      trust: opts.trust,
+      auditors: opts.auditors,
       log,
     },
     opts.config ?? DEFAULT_SWARM_CONFIG,
@@ -66,14 +75,28 @@ export function attachSwarmLoop(io: Server, opts: SwarmLoopOptions) {
       await mgr.settleJob(data.swarmId, data.jobId, socket.id, data.nonce, data.tokensGenerated, data.receipts);
     });
 
+    socket.on('swarm:challenge_result', async (data: ChallengeResultPayload) => {
+      // socket.id must be the check's suspect or verifier — submitSketch ignores anyone else
+      await mgr.submitSketch(data.checkId, socket.id, data.sketch);
+    });
+
     socket.on('disconnect', () => {
       mgr.onNodeGone(socket.id);
     });
   });
 
+  // expire overdue spot-checks (a silent suspect fails; refusal is not free)
+  const sweep = setInterval(() => mgr.sweepSpotChecks(), 30_000);
+  sweep.unref?.();
+
   // NOTE: forming a swarm needs a measured RTT matrix over the candidate pool (a short probe round the
   // nodes run and report). That collection + the auto-form trigger is the next integration step; the
   // manager exposes formSwarm(model, manifestRef, profile, rtt) for it. See PERMISSIONLESS_LOOP.md.
-  return { manager: mgr, formSwarm: (model: string, manifestRef: string, profile: ModelProfile, rtt: number[][]) =>
-    mgr.formSwarm(model, manifestRef, profile, rtt) };
+  // Spot-check cadence is likewise the caller's: startSpotCheck(swarmId) probes one stranger stage.
+  return {
+    manager: mgr,
+    formSwarm: (model: string, manifestRef: string, profile: ModelProfile, rtt: number[][]) =>
+      mgr.formSwarm(model, manifestRef, profile, rtt),
+    startSpotCheck: (swarmId: string, suspectNodeId?: string) => mgr.startSpotCheck(swarmId, suspectNodeId),
+  };
 }
