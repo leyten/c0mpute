@@ -83,6 +83,7 @@ ZERO_LAUNCH_CHECKLIST.md
 todo_c0mpute.md
 webgpu-perf-research.md
 COMPUTE_CODE_SPEC.md
+pitch-script.*
 
 # internal one-off ops / incident-response scripts — local only, never publish
 /privy-purge.ts
