@@ -692,6 +692,47 @@ export function getPeerIdOwner(peerId: string): string | null {
   return row ? row.privy_id : null;
 }
 
+// ── Node capability role (shard ADMISSION_SPEC.md) ──
+// The admission verdict for a bound node: role tag + the physics that produced it, decided
+// by shard's probe function (lib/shard-admission.ts), never self-reported. Separate table
+// from worker_identity because roles RE-PROBE over time (hardware/network change; the spec's
+// thresholds are living) while the identity binding is stable. The full verdict + raw cap
+// are kept — placement reads layers/n_single, the market prices per role, and the binding
+// field is the telemetry that revises the spec's v0 numbers.
+
+function ensureNodeRoleTable() {
+  const db = getDb();
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS node_role (
+      peer_id TEXT PRIMARY KEY,
+      role TEXT NOT NULL,
+      verdict_json TEXT NOT NULL,
+      cap_json TEXT NOT NULL,
+      decided_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_node_role_role ON node_role(role);
+  `);
+}
+
+export function setNodeRole(peerId: string, verdict: object & { role: string }, cap: object): void {
+  ensureNodeRoleTable();
+  const db = getDb();
+  db.prepare(
+    `INSERT INTO node_role (peer_id, role, verdict_json, cap_json, decided_at) VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(peer_id) DO UPDATE SET role = excluded.role, verdict_json = excluded.verdict_json,
+       cap_json = excluded.cap_json, decided_at = excluded.decided_at`
+  ).run(peerId, verdict.role, JSON.stringify(verdict), JSON.stringify(cap), new Date().toISOString());
+}
+
+export function getNodeRole(peerId: string): { role: string; verdict: object; cap: object; decidedAt: string } | null {
+  ensureNodeRoleTable();
+  const db = getDb();
+  const row = db.prepare('SELECT role, verdict_json, cap_json, decided_at FROM node_role WHERE peer_id = ?')
+    .get(peerId) as { role: string; verdict_json: string; cap_json: string; decided_at: string } | undefined;
+  if (!row) return null;
+  return { role: row.role, verdict: JSON.parse(row.verdict_json), cap: JSON.parse(row.cap_json), decidedAt: row.decided_at };
+}
+
 // ── API Keys (public inference API) ──
 // Mirrors worker_tokens: store only the sha256 hash, show the raw key once.
 

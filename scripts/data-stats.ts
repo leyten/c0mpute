@@ -137,6 +137,47 @@ async function main() {
   const treasury = await fetchJson(`${SITE_URL}/api/treasury`);
   const stakedLots = all(`SELECT date(since) AS day, SUM(amount) AS amount FROM onchain_stake_lots GROUP BY day ORDER BY day`);
 
+  // --- auto-compound (adoption + compounded ZERO) ---
+  // Scoped to wallets with live stake so the curve's endpoint matches the
+  // staking page's "N with auto-compound on". Adoption history is reconstructed:
+  // optin rows only keep the LAST toggle time, so an enabled owner counts from
+  // min(last enable, first compound event) until now, and a now-disabled owner
+  // from their first compound event until the disable. Events themselves are exact.
+  let autocompound: Row | null = null;
+  try {
+    const liveStakers = `SELECT owner FROM onchain_stake_lots GROUP BY owner HAVING SUM(amount) > 0`;
+    const stakers = one(`SELECT COUNT(*) AS n FROM (${liveStakers})`).n;
+    const acOn = one(`SELECT COUNT(*) AS n FROM autocompound_optin WHERE enabled=1 AND owner IN (${liveStakers})`).n;
+    const compoundedDaily = all(`
+      SELECT date(created_at) AS day, ROUND(SUM(zero_ui)) AS zero, ROUND(SUM(usd), 2) AS usd
+      FROM autocompound_events GROUP BY day ORDER BY day`);
+    const totalZeroCompounded = one(`SELECT COALESCE(ROUND(SUM(zero_ui)), 0) AS z FROM autocompound_events`).z;
+    const toggles = all(`
+      SELECT o.enabled, date(o.updated_at) AS toggled,
+             (SELECT date(MIN(e.created_at)) FROM autocompound_events e WHERE e.owner = o.owner) AS firstEvent
+      FROM autocompound_optin o WHERE o.owner IN (${liveStakers})`);
+    const intervals: { from: string; to: string | null }[] = [];
+    for (const t of toggles) {
+      if (t.enabled) intervals.push({ from: t.firstEvent && t.firstEvent < t.toggled ? t.firstEvent : t.toggled, to: null });
+      else if (t.firstEvent && t.firstEvent < t.toggled) intervals.push({ from: t.firstEvent, to: t.toggled });
+    }
+    // Snapshot today's true count so history is exact from now on; reconstruction
+    // only fills days older than the first snapshot.
+    db.exec(`CREATE TABLE IF NOT EXISTS autocompound_snapshots (
+      day TEXT PRIMARY KEY, on_count INTEGER NOT NULL, stakers INTEGER NOT NULL)`);
+    db.prepare('INSERT OR REPLACE INTO autocompound_snapshots (day, on_count, stakers) VALUES (?,?,?)')
+      .run(new Date().toISOString().slice(0, 10), acOn, stakers);
+    const snaps = new Map(all(`SELECT day, on_count FROM autocompound_snapshots`).map((s) => [s.day, s.on_count]));
+    const firstDay = intervals.reduce<string | null>((m, i) => (m === null || i.from < m ? i.from : m), null);
+    const optinDaily: Row[] = [];
+    for (let d = firstDay ? new Date(firstDay + 'T00:00:00Z') : new Date(); d <= new Date(); d.setUTCDate(d.getUTCDate() + 1)) {
+      const day = d.toISOString().slice(0, 10);
+      const reconstructed = intervals.filter((i) => i.from <= day && (i.to === null || i.to > day)).length;
+      optinDaily.push({ day, on: snaps.get(day) ?? reconstructed });
+    }
+    autocompound = { stakers, on: acOn, totalZeroCompounded, optinDaily, compoundedDaily };
+  } catch {}
+
   // --- $ZERO market (solanatracker, same source as state-sync) ---
   let market: Row | null = null;
   const mint = process.env.ZERO_TOKEN_MINT;
@@ -185,6 +226,7 @@ async function main() {
       burnEvents,
       stakerPayoutEvents,
       stakedLots,
+      autocompound,
     },
   };
 

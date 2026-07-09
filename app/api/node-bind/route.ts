@@ -1,12 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'node:crypto';
-import { verifyWorkerToken, bindPeerId } from '@/lib/db';
+import { verifyWorkerToken, bindPeerId, setNodeRole } from '@/lib/db';
 import { verifyBindingProof } from '@/lib/identity';
+import { decideRole } from '@/lib/shard-admission';
 
 // Node identity binding (shard step 2.3): a swarm node binds its libp2p PeerId to its
 // c0mpute account. Auth is the node's cwt_ worker token (-> account); the node proves it
 // controls the PeerId by signing a server-issued nonce with its node key (sidecar -prove).
 // shard signs, c0mpute verifies + records — the boundary law.
+//
+// Capability admission rides the same event: the node MAY submit its measured cap vector
+// (python3 -m shard.probe --measure/--net-only on the node) and c0mpute — not the node —
+// decides the ROLE via shard's admission function, records it, and returns it. Binding is
+// identity, role is capability: a probe hiccup never bricks the binding, and a node can
+// re-POST with a fresh cap to re-probe (roles are living, like the spec's numbers).
 
 const NONCE_TTL_MS = 5 * 60 * 1000;
 const SECRET = process.env.NODE_BIND_SECRET || 'shard-node-bind-dev-secret'; // set in prod
@@ -40,18 +47,31 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ nonce: issueNonce(privyId) });
 }
 
-// POST {peerId, nonce, sig} — verify the proof and record PeerId <-> account.
+// POST {peerId, nonce, sig, cap?, model?} — verify the proof, record PeerId <-> account,
+// and (when a measured cap vector is submitted) decide + record the node's capability role.
 export async function POST(req: NextRequest) {
   const privyId = account(req);
   if (!privyId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  let body: { peerId?: string; nonce?: string; sig?: string };
+  let body: { peerId?: string; nonce?: string; sig?: string;
+              cap?: Record<string, unknown>; model?: Record<string, unknown> };
   try { body = await req.json(); } catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }); }
-  const { peerId, nonce, sig } = body;
+  const { peerId, nonce, sig, cap, model } = body;
   if (!peerId || !nonce || !sig) return NextResponse.json({ error: 'peerId, nonce, sig required' }, { status: 400 });
   if (!checkNonce(nonce, privyId)) return NextResponse.json({ error: 'bad or expired nonce' }, { status: 400 });
   if (!verifyBindingProof(peerId, nonce, sig)) return NextResponse.json({ error: 'invalid binding proof' }, { status: 400 });
 
   bindPeerId(peerId, privyId);
+
+  if (cap && typeof cap === 'object') {
+    try {
+      const verdict = await decideRole(cap, { model });
+      setNodeRole(peerId, verdict, cap);
+      return NextResponse.json({ bound: true, peerId, account: privyId, admission: verdict });
+    } catch (e) {
+      return NextResponse.json({ bound: true, peerId, account: privyId,
+        admission: { error: e instanceof Error ? e.message : 'role decision failed' } });
+    }
+  }
   return NextResponse.json({ bound: true, peerId, account: privyId });
 }
