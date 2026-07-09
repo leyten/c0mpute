@@ -1,0 +1,38 @@
+/* c0mpute skin over the Mina roadmap engine (main.min.css). Loaded after it. */
+:root {
+  --c-prim: #ffffff;
+  --c-sec: rgba(34, 197, 94, 0.3);
+}
+
+html {
+  font-family: 'Courier New', Monaco, Consolas, monospace;
+  color: #fff;
+}
+
+.roadmap { background: #000; }
+
+.roadmap-canvas {
+  background: #000;
+  box-shadow: none;
+}
+
+/* crisp pixel rendering, same as the main site */
+.roadmap-canvas svg text {
+  -webkit-font-smoothing: none;
+}
+
+.roadmap-tool {
+  background: #000;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  color: #fff;
+}
+.roadmap-tool:hover { background: rgba(34, 197, 94, 0.3); }
+.roadmap-tool:active { background: rgba(34, 197, 94, 0.55); }
+
+/* board is wider than Mina's — fit-height breakpoint for wide screens */
+@media (min-aspect-ratio: 3400/2100) {
+  .roadmap-canvas svg { width: 100vw; height: auto; margin: 0; }
+}
+@media (min-aspect-ratio: 3460/1962) {
+  .roadmap-canvas svg { width: auto; height: 100vh; margin: auto; }
+}

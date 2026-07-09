@@ -13,6 +13,7 @@ import {
   buildStakeTx, buildUnstakeTx, buildClaimTx,
   mintsConfigured, SOLANA_CHAIN, RPC_URL, type StakeChunks,
   readStakeChunks, readClaimable, readWalletZero, stakeVault, ZERO_MINT,
+  preflight, readSol,
 } from '@/lib/onchain-staking';
 
 const num = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 6 });
@@ -64,6 +65,7 @@ export default function StakingPage() {
   const [acHistory, setAcHistory] = useState<{ usd: number; zeroUi: number; createdAt: string }[]>([]);
   const [acBusy, setAcBusy] = useState(false);
   const [walletZero, setWalletZero] = useState<number | null>(null);
+  const [walletSol, setWalletSol] = useState<number | null>(null);
   const [vaultAddr, setVaultAddr] = useState<string | null>(null);
   const [copiedVault, setCopiedVault] = useState(false);
   const [syncedAddr, setSyncedAddr] = useState<string | null>(null);
@@ -71,6 +73,15 @@ export default function StakingPage() {
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
+  const [netStats, setNetStats] = useState<{ stakers: number; autocompound: number } | null>(null);
+
+  // Public network-wide counts — no auth, shown to everyone above the fold.
+  useEffect(() => {
+    fetch('/api/staking/stats')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d && typeof d.stakers === 'number') setNetStats(d); })
+      .catch(() => {});
+  }, []);
 
   // Works with just the Privy session (no wallet needed), so legacy holders see their
   // custodial position + the migrate prompt before they've connected a wallet.
@@ -100,8 +111,9 @@ export default function StakingPage() {
         const ownerPk = new PublicKey(w.address);
         setVaultAddr(stakeVault(ownerPk, new PublicKey(ZERO_MINT)).toBase58());
         try {
-          const [ch, wz, cl] = await Promise.all([readStakeChunks(ownerPk), readWalletZero(ownerPk), readClaimable(ownerPk)]);
+          const [ch, wz, cl, sol] = await Promise.all([readStakeChunks(ownerPk), readWalletZero(ownerPk), readClaimable(ownerPk), readSol(ownerPk)]);
           setWalletZero(wz);
+          setWalletSol(sol);
           // Trust the live read for the position when the server doesn't have it
           // (un-synced wallet). When it does, keep the server's maturity dates.
           if (serverStaked <= 0) { setChunks(ch); setClaimable(cl); }
@@ -195,6 +207,11 @@ export default function StakingPage() {
     setBusy(label); setMsg(null); setErr(null);
     try {
       const tx = await build(owner);
+      // Simulate first — if the tx can't land (no SOL for the fee, wrong/empty wallet,
+      // amount too high), tell the user plainly instead of handing Phantom a tx it
+      // flags as "may fail / malicious". Fails open on RPC hiccups (returns null).
+      const reason = await preflight(owner, tx, label as 'Stake' | 'Unstake' | 'Claim');
+      if (reason) { setErr(reason); setBusy(null); return; }
       const { signature } = await signAndSendTransaction({ transaction: tx, wallet, chain: SOLANA_CHAIN as `solana:${string}` });
       const sig = Buffer.from(signature).toString('base64');
       setMsg(`${label} sent (${sig.slice(0, 12)}…)`);
@@ -225,7 +242,10 @@ export default function StakingPage() {
       <main className="pt-32 pb-16 px-4 md:px-6">
         <div className="max-w-2xl mx-auto">
           <h1 className="pixel-serif text-white text-3xl md:text-4xl mb-2">Stake <span className="dollar">$</span>ZERO <span className="text-white/40 text-lg">· self-custody</span></h1>
-          <p className="pixel-sans text-white/70 text-sm mb-8">Your <span className="dollar">$</span>ZERO stays in your own on-chain vault. Only you can unstake or claim. No server holds your funds.</p>
+          <p className="pixel-sans text-white/70 text-sm mb-2">Your <span className="dollar">$</span>ZERO stays in your own on-chain vault. Only you can unstake or claim. No server holds your funds.</p>
+          <p className="pixel-sans text-white/40 text-xs mb-8 min-h-4">
+            {netStats ? <>{intnum(netStats.stakers)} stakers · {intnum(netStats.autocompound)} with auto-compound on</> : ' '}
+          </p>
 
           {!ready ? (
             <p className="pixel-sans text-white/60 text-sm">Loading…</p>
@@ -252,6 +272,14 @@ export default function StakingPage() {
           ) : (
             <div className="space-y-6">
               <div className="pixel-sans text-white/50 text-xs">wallet: <span className="font-mono text-[#80a0c1]">{wallet.address.slice(0, 6)}…{wallet.address.slice(-6)}</span></div>
+
+              {walletSol !== null && walletSol < 0.01 && (
+                <div className="border border-amber-500/30 bg-amber-500/[0.06] px-4 py-3 rounded-xl">
+                  <p className="pixel-sans text-amber-300/90 text-xs">
+                    This wallet has {num(walletSol)} SOL. Staking and unstaking need a small amount of SOL for the network fee (and ~0.002 SOL one-time to open your vault). Add ~0.01 SOL or your wallet will warn the transaction may fail.
+                  </p>
+                </div>
+              )}
 
               {hasLegacy && (
                 <section className="border border-[#80a0c1]/40 bg-[#80a0c1]/[0.08] p-6 rounded-2xl">

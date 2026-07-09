@@ -295,12 +295,18 @@ function render() {
   // ---- $ZERO ----
   const z = d.zero;
   const t = z.treasury || {};
+  const ac = z.autocompound;
   document.getElementById('zero-cards').innerHTML = [
     card(fmt(t.totalZeroBurned), 'ZERO burned'),
     card(usd(t.totalBuybackUsd || 0), 'buyback spent'),
     card(usd(t.totalStakerRewardsUsd || 0), 'staker rewards paid'),
     card(fmt(t.totalZeroStaked), 'ZERO staked'),
     card(usd((t.pendingBuyback || 0) + (t.pendingStakerRewards || 0)), 'pending next cycle'),
+    ...(ac ? [
+      card(comma(ac.stakers), 'stakers'),
+      card(comma(ac.on) + '<small>/' + comma(ac.stakers) + '</small>', 'auto-compound on'),
+      card(fmt(ac.totalZeroCompounded), 'ZERO auto-compounded'),
+    ] : []),
   ].join('');
   const burnDays = dayRange(z.burnEvents[0]?.day || daysAgo(29), today());
   const bz = seriesByDay(z.burnEvents, burnDays, null, 'zero');
@@ -310,6 +316,13 @@ function render() {
   const srDays = dayRange(z.stakerPayoutEvents[0]?.day || daysAgo(29), today());
   const sr = seriesByDay(z.stakerPayoutEvents, srDays, null, 'usd');
   stepLine(charts.rewards, srDays, cumulative(srDays, sr(null)), { fmtV: usd });
+  if (ac && ac.compoundedDaily.length) {
+    const cdDays = dayRange(ac.compoundedDaily[0].day, today());
+    const cz = seriesByDay(ac.compoundedDaily, cdDays, null, 'zero');
+    pixelBars(charts.accompounded, cdDays, [{ key: 'max', values: cz(null) }]);
+    stepLine(charts.accumzero, cdDays, cumulative(cdDays, cz(null)), { fmtV: (v) => comma(v) + ' ZERO' });
+    stepLine(charts.acadoption, ac.optinDaily.map((r) => r.day), ac.optinDaily.map((r) => r.on), { dither: false, fmtV: (v) => v + ' stakers' });
+  }
 
   // burn log
   document.getElementById('burn-list').innerHTML = z.burnEvents

@@ -1,0 +1,454 @@
+{
+  "title": "The c0mpute roadmap",
+  "subtitle": "Building the torrent for compute",
+  "disclaimer": "This roadmap reflects current direction, not a promise of dates. Items move as the network and its priorities evolve.",
+  "footnote": "*Shipped = live today, verifiable on-chain, in the app, or in published receipts. Everything else is direction, not dates.",
+  "howto": "This is an interactive visual; zoom in and pan around with your mouse to explore. Hover over a component for more detail.",
+  "phases": [
+    "shipped",
+    "now",
+    "next",
+    "later",
+    "endgame"
+  ],
+  "phaseLabels": {
+    "shipped": "SHIPPED",
+    "now": "NOW",
+    "next": "NEXT",
+    "later": "LATER",
+    "endgame": "ENDGAME"
+  },
+  "tracks": [
+    {
+      "id": "network",
+      "name": "Network",
+      "tagline": "Permissionless GPU supply. Anyone with a GPU joins, earns, and scales the network.",
+      "items": [
+        {
+          "id": "net-workers",
+          "phase": "shipped",
+          "status": "shipped",
+          "title": "Permissionless workers",
+          "blurb": "Anyone can connect a GPU and start earning per job. No allowlist, no approval step."
+        },
+        {
+          "id": "net-payouts",
+          "phase": "shipped",
+          "status": "shipped",
+          "title": "Worker payouts",
+          "blurb": "Workers earn USDC per job and withdraw whenever they want. Paying out since day one."
+        },
+        {
+          "id": "net-browser",
+          "phase": "shipped",
+          "status": "shipped",
+          "title": "Browser workers",
+          "blurb": "A spare laptop earns too: WebGPU workers serve smaller models straight from a browser tab. No install."
+        },
+        {
+          "id": "net-anticheat",
+          "phase": "shipped",
+          "status": "shipped",
+          "title": "Anti-cheat canaries",
+          "blurb": "Probe jobs continuously verify that workers return honest output."
+        },
+        {
+          "id": "net-swarm-worker",
+          "phase": "now",
+          "status": "progress",
+          "title": "Swarm as a worker",
+          "blurb": "The M2.5 swarm registers on the live network as a single worker, streaming tokens into real user jobs and earning like any other worker."
+        },
+        {
+          "id": "net-scheduler",
+          "phase": "next",
+          "status": "planned",
+          "title": "Self-managing swarms",
+          "blurb": "Kill a node mid-generation and the job still completes: a spare splices in and the output stays identical. Already demonstrated; next, swarms that assemble themselves from whatever joins."
+        },
+        {
+          "id": "net-join",
+          "phase": "next",
+          "status": "planned",
+          "title": "One-command swarm join",
+          "blurb": "A GPU behind a home router joins a swarm with one command. No port forwarding, no manual setup, only its assigned block of the model."
+        },
+        {
+          "id": "net-pergpu",
+          "phase": "later",
+          "status": "planned",
+          "title": "Per-GPU identity and pay",
+          "blurb": "Each GPU in a swarm joins with its own identity and earns its own balance for the tokens it helped produce."
+        },
+        {
+          "id": "net-endgame",
+          "phase": "endgame",
+          "status": "milestone",
+          "title": "The c0mpute network",
+          "blurb": "The endgame: every GPU on earth can join, serve and train any model, and earn for every token it helps produce. One permissionless network: the torrent for compute."
+        }
+      ],
+      "links": [
+        [
+          "net-workers",
+          "net-payouts"
+        ],
+        [
+          "net-browser",
+          "net-anticheat"
+        ],
+        [
+          "net-payouts",
+          "net-swarm-worker"
+        ],
+        [
+          "net-anticheat",
+          "net-swarm-worker"
+        ],
+        [
+          "net-swarm-worker",
+          "net-scheduler"
+        ],
+        [
+          "net-swarm-worker",
+          "net-join"
+        ],
+        [
+          "net-scheduler",
+          "net-pergpu"
+        ],
+        [
+          "net-join",
+          "net-pergpu"
+        ],
+        [
+          "net-pergpu",
+          "net-endgame"
+        ]
+      ]
+    },
+    {
+      "id": "protocol",
+      "name": "Protocol",
+      "tagline": "shard: verifiable distributed compute, torrent-style.",
+      "items": [
+        {
+          "id": "prot-wan",
+          "phase": "shipped",
+          "status": "shipped",
+          "title": "120B across consumer GPUs",
+          "blurb": "gpt-oss-120B served at ~40 tokens/sec across scattered consumer RTX 4090s over the public internet, on our own transport with speculative decoding."
+        },
+        {
+          "id": "prot-744b",
+          "phase": "shipped",
+          "status": "shipped",
+          "title": "744B across 7 GPUs",
+          "blurb": "GLM-5.2, a 744B parameter model, served at ~30 tokens/sec across 7 scattered GPUs over WAN. The proof the approach scales to frontier size."
+        },
+        {
+          "id": "prot-receipts",
+          "phase": "shipped",
+          "status": "shipped",
+          "title": "Signed receipts",
+          "blurb": "Every job emits a verifiable, signed receipt anyone can check."
+        },
+        {
+          "id": "prot-betanet",
+          "phase": "now",
+          "status": "milestone",
+          "title": "Betanet PoC",
+          "blurb": "MiniMax M2.5, 229B, sharded across scattered consumer 5090s: 10+ tok/s interactive, 150+ tok/s batched, every job receipt-verified. The proof the whole approach is real."
+        },
+        {
+          "id": "prot-runtime",
+          "phase": "next",
+          "status": "planned",
+          "title": "Any-model runtime",
+          "blurb": "One runtime interface so the network serves any model, not a hand-ported architecture. A new model onboards with no engine changes."
+        },
+        {
+          "id": "prot-bigger",
+          "phase": "next",
+          "status": "planned",
+          "title": "Ever-bigger models",
+          "blurb": "A catalog of models, each sharded across a swarm sized to its needs. The network stops being bound by any single machine."
+        },
+        {
+          "id": "prot-training",
+          "phase": "later",
+          "status": "planned",
+          "title": "Distributed training",
+          "blurb": "The same rails carry training: identity, transport, verified work, payment. A new execution core on proven infrastructure."
+        },
+        {
+          "id": "prot-cips",
+          "phase": "later",
+          "status": "planned",
+          "title": "Improvement proposals",
+          "blurb": "CIPs: an open BIP-style process where anyone can propose, debate and build changes to the protocol. A network no one owns needs specs anyone can shape."
+        },
+        {
+          "id": "prot-verify",
+          "phase": "later",
+          "status": "planned",
+          "title": "Trustless verification",
+          "blurb": "Receipt checks already cost under 1% of compute. Catching a node that fakes its work without recomputing everything, and slashing its stake, is the research frontier."
+        },
+        {
+          "id": "prot-privacy",
+          "phase": "later",
+          "status": "planned",
+          "title": "Private inference",
+          "blurb": "Sensitive layers pinned to staked nodes, and trusted-nodes-only routing for sensitive jobs. Privacy that is earned, not claimed."
+        }
+      ],
+      "links": [
+        [
+          "prot-wan",
+          "prot-betanet"
+        ],
+        [
+          "prot-744b",
+          "prot-betanet"
+        ],
+        [
+          "prot-receipts",
+          "prot-betanet"
+        ],
+        [
+          "prot-betanet",
+          "prot-runtime"
+        ],
+        [
+          "prot-betanet",
+          "prot-bigger"
+        ],
+        [
+          "prot-runtime",
+          "prot-training"
+        ],
+        [
+          "prot-runtime",
+          "prot-cips"
+        ],
+        [
+          "prot-bigger",
+          "prot-verify"
+        ],
+        [
+          "prot-bigger",
+          "prot-privacy"
+        ]
+      ]
+    },
+    {
+      "id": "zero",
+      "name": "$ZERO",
+      "tagline": "The token economy. Network usage funds on-chain buybacks and staking rewards.",
+      "items": [
+        {
+          "id": "zero-staking",
+          "phase": "shipped",
+          "status": "shipped",
+          "title": "Self-custody staking",
+          "blurb": "Stake from your own wallet through an on-chain program. No server key can touch your tokens. Rewards paid in USDC."
+        },
+        {
+          "id": "zero-allowance",
+          "phase": "shipped",
+          "status": "shipped",
+          "title": "Daily staking allowance",
+          "blurb": "Stakers draw a free daily inference allowance, pro-rata to their stake, on top of USDC rewards. Chat, API and images all draw from it."
+        },
+        {
+          "id": "zero-buyback",
+          "phase": "shipped",
+          "status": "shipped",
+          "title": "Buyback & burn",
+          "blurb": "Funded by real usage, executed daily on-chain: 17M+ $ZERO burned so far. Every buyback has a receipt."
+        },
+        {
+          "id": "zero-compound",
+          "phase": "shipped",
+          "status": "shipped",
+          "title": "Auto-compound",
+          "blurb": "Opt in and daily USDC rewards buy $ZERO and restake into your own vault automatically."
+        },
+        {
+          "id": "zero-treasury",
+          "phase": "shipped",
+          "status": "shipped",
+          "title": "Treasury dashboard",
+          "blurb": "Every buyback, burn and reward payout on a live dashboard, with the on-chain receipts to check them."
+        },
+        {
+          "id": "zero-referrals",
+          "phase": "shipped",
+          "status": "shipped",
+          "title": "Referrals",
+          "blurb": "A share of referred usage, paid out in USDC."
+        },
+        {
+          "id": "zero-rails",
+          "phase": "now",
+          "status": "progress",
+          "title": "Non-custodial payments",
+          "blurb": "Wallet-signed top-ups and pull-claim payouts replace the last server-held rails. Staking already made the move."
+        },
+        {
+          "id": "zero-vaults",
+          "phase": "next",
+          "status": "planned",
+          "title": "Keyless vaults",
+          "blurb": "User-paying funds live in program vaults with no private key, and upgrade keys get burned. No one can freeze funds or stop a claim."
+        },
+        {
+          "id": "zero-trustless",
+          "phase": "later",
+          "status": "planned",
+          "title": "Trustless payouts",
+          "blurb": "Worker and staker payouts anchored to on-chain proof of the compute itself, so no one has to be trusted to say who earned what."
+        }
+      ],
+      "links": [
+        [
+          "zero-staking",
+          "zero-allowance"
+        ],
+        [
+          "zero-buyback",
+          "zero-compound"
+        ],
+        [
+          "zero-treasury",
+          "zero-referrals"
+        ],
+        [
+          "zero-allowance",
+          "zero-rails"
+        ],
+        [
+          "zero-compound",
+          "zero-rails"
+        ],
+        [
+          "zero-referrals",
+          "zero-rails"
+        ],
+        [
+          "zero-rails",
+          "zero-vaults"
+        ],
+        [
+          "zero-vaults",
+          "zero-trustless"
+        ]
+      ]
+    },
+    {
+      "id": "product",
+      "name": "Product",
+      "tagline": "Uncensored, private inference. Chat, API, images, and beyond.",
+      "items": [
+        {
+          "id": "prod-chat",
+          "phase": "shipped",
+          "status": "shipped",
+          "title": "Uncensored chat",
+          "blurb": "Uncensored chat with web search, image generation and deep thinking built in. No prompt storage, no account needed to start."
+        },
+        {
+          "id": "prod-images",
+          "phase": "shipped",
+          "status": "shipped",
+          "title": "Image generation",
+          "blurb": "Uncensored image generation in chat and via the API."
+        },
+        {
+          "id": "prod-api",
+          "phase": "shipped",
+          "status": "shipped",
+          "title": "Public API",
+          "blurb": "OpenAI-compatible inference API with flat pricing."
+        },
+        {
+          "id": "prod-code",
+          "phase": "shipped",
+          "status": "shipped",
+          "title": "c0mpute code",
+          "blurb": "An open coding agent in your terminal. Thinking runs on the network; edits and commands run locally, secrets stripped before anything is sent. On npm today."
+        },
+        {
+          "id": "prod-maxmodel",
+          "phase": "now",
+          "status": "progress",
+          "title": "Bigger uncensored models",
+          "blurb": "A larger uncensored model for the max tier, already validated on consumer GPUs, being wired into the network now."
+        },
+        {
+          "id": "prod-metered",
+          "phase": "next",
+          "status": "planned",
+          "title": "Metered API pricing",
+          "blurb": "Usage-based API pricing so frontier-size swarm models price honestly alongside fast single-GPU tiers."
+        },
+        {
+          "id": "prod-frontier",
+          "phase": "next",
+          "status": "planned",
+          "title": "Frontier models in chat",
+          "blurb": "Chat and API served by models sharded across the swarm, up to frontier size. The betanet, surfaced in the product."
+        },
+        {
+          "id": "prod-build",
+          "phase": "later",
+          "status": "planned",
+          "title": "Build on c0mpute",
+          "blurb": "An SDK and platform surface so anyone can ship apps, agents and services on the network, paying per job like any other user."
+        },
+        {
+          "id": "prod-plan",
+          "phase": "later",
+          "status": "planned",
+          "title": "Flat monthly plan",
+          "blurb": "One subscription covering chat, API, images and code, built for heavy private use. Pay once, prompt freely."
+        }
+      ],
+      "links": [
+        [
+          "prod-chat",
+          "prod-images"
+        ],
+        [
+          "prod-api",
+          "prod-code"
+        ],
+        [
+          "prod-images",
+          "prod-maxmodel"
+        ],
+        [
+          "prod-code",
+          "prod-maxmodel"
+        ],
+        [
+          "prod-maxmodel",
+          "prod-metered"
+        ],
+        [
+          "prod-maxmodel",
+          "prod-frontier"
+        ],
+        [
+          "prod-metered",
+          "prod-build"
+        ],
+        [
+          "prod-frontier",
+          "prod-plan"
+        ]
+      ]
+    }
+  ]
+}
