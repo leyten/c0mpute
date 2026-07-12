@@ -113,17 +113,30 @@ Every item verified missing in code, with build-shape:
 
 ## 3. leyten's decisions (DECIDED 2026-07-12)
 
-1. **Earnings — INHERIT c0mpute's money-flow, realized per-shard (pay-by-layers, #16).**
-   Not a new points economy: shard settlement writes into the EXISTING worker-earnings ledger,
-   paid per layer in USDC, same 70/30 split (worker 70% / 30% margin → buyback pool → half
-   buys+burns $ZERO, half pays stakers). c0mpute already got the wash-safety right: the only
-   subsidies are DEMAND-side and hard-capped (free-prompt + Venice staker-allowance pools,
-   FREE_SUBSIDY_DAILY_CAP_USD etc.), there is NO supply-side subsidy anywhere. That property —
-   workers only ever earn a cut of money a user actually spent — is what makes self-dealing
-   structurally unprofitable (pay real USDC in, get 70% back, lose the rake). The rake IS the
-   sybil tax. HARD GATE before USDC flows on shard jobs: bind pay to a client/server-verified
-   token count, not the coordinator's word (the INTEGRATION §6 gap — the only way an untrusted
-   coordinator can STEAL rather than merely SEE).
+1. **Earnings — BUILD THE BILLED GATEWAY IN c0mpute so it inherits the split; shard only
+   supplies verified work-facts (leyten 2026-07-12).** The split is NOT flat 70/30 (that was an
+   error): **70/25/5 base, 80/15/5 boosted** (worker / treasury / referrer) —
+   `WORKER_REVENUE_SHARE 0.7`, `WORKER_STAKED_REVENUE_SHARE 0.8` for a worker staking ≥500k ZERO
+   held 24h, `REFERRAL_REVENUE_SHARE 0.05`; the boost eats the TREASURY margin, not other
+   workers. Treasury margin → buyback pool → 50/50 buy+burn $ZERO / pay stakers USDC
+   (`POOL_BURN_SPLIT 0.5`). **The architecture IS the safety mechanism:** shard must NEVER compute
+   a split — it would reference ZERO stake / referral, a network concern the engine can't know
+   (boundary law). shard emits verified work-facts ("these pubkeys served these layer ranges,
+   receipts prove it"); c0mpute owns the money math via the EXISTING
+   `getWorkerRevenueShare(privyUserId)` (→0.7/0.8 by stake) + `recordEarning(...)` that
+   whole-model jobs already use (orchestrator.ts:604/719/1353), and the shard hook is ALREADY
+   stubbed at orchestrator.ts:190 ("Per-shard credit for a settled swarm job. Turning a stage's
+   token share into a recordEarning()"). Pay-by-layers (#16) = per stage `layer_fraction ×
+   job_credits`, then `recordEarning(..., revenueShare: getWorkerRevenueShare(stage.account))` per
+   stage — a staked 80% stage next to base 70% stages resolves per-worker automatically, and the
+   split can never go stale because it is never re-implemented. This also DEMOTES shard's
+   m25_gateway from public front door to an internal coordinator endpoint (closes the
+   naked-unauthed-gateway hole, adversary #1) and closes the console.log `recordSwarmStageEarning`
+   stub. Wash-safety inherited: only DEMAND-side subsidies, hard-capped (FREE_SUBSIDY_DAILY_CAP_USD,
+   Venice staker-allowance), NO supply-side subsidy — workers only earn a cut of money a user
+   actually spent, so self-dealing loses the treasury margin every cycle (the rake IS the sybil
+   tax). HARD GATE before USDC flows: bind pay to a client/server-verified token count, not the
+   coordinator's word (INTEGRATION §6 — the only way an untrusted coordinator STEALS not just SEES).
 
 2. **Launch shape — FULLY PERMISSIONLESS from day one** (leyten: "fully permissionless,
    self-sustaining, decentralized, torrent-like"). NOT a gated phase-1. This is consistent with
