@@ -38,7 +38,7 @@ const M25: ModelProfile = {
 function banner(t: string) { console.log(`\n${'─'.repeat(78)}\n${t}\n${'─'.repeat(78)}`); }
 
 async function main() {
-  const gen = sim(['gen', '--n', '6', '--keystore', KEYSTORE]) as {
+  const gen = sim(['gen', '--n', '7', '--keystore', KEYSTORE]) as {
     nodes: (NodeCapabilities & { nodeId: string })[];
     rtt: number[][];
   };
@@ -64,13 +64,16 @@ async function main() {
     cfg,
   );
 
-  banner('1. ANNOUNCE + ADMIT  (6 volunteer nodes advertise a shard of MiniMax-M2.5)');
+  banner('1. ANNOUNCE + ADMIT  (7 volunteer nodes — five 5090s, a 4090, a 96 GB RTX PRO 6000 — advertise a shard of MiniMax-M2.5)');
   const MODEL = 'minimax-m2.5';
   const MANIFEST = 'mf:m25-nvfp4-v1';
   for (const n of gen.nodes) {
     const cap: NodeCapabilities = {
       pubkey: n.pubkey, gpu: n.gpu, freeVramMb: n.freeVramMb, subnet: n.subnet,
       cpuFactor: n.cpuFactor, upMbps: n.upMbps, geo: n.geo,
+      // the probe-measured vector, when the node was measured (the fat card announces its own
+      // footprint/density so placement fits it at ITS physics, not the profile default)
+      layerVramMb: n.layerVramMb, totalVramMb: n.totalVramMb, loadPeakExtraMb: n.loadPeakExtraMb,
     };
     mgr.announce(n.nodeId, cap, MODEL, MANIFEST, `acct-${n.nodeId}`);   // account bound from the socket
   }
