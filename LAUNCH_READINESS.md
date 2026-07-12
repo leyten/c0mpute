@@ -88,11 +88,15 @@ Every item verified missing in code, with build-shape:
 
 ## 2. Research lessons that shaped the ranking (comparables)
 
-- **Join friction is a security parameter.** io.net (one-command, no stake, rewards on
-  claimed capacity) → ~1.8M spoofed GPUs, credibility collapse. Akash (K8s + stake) → zero
-  sybils, near-zero scale. The winning middle (Nosana, Chutes): one command + a MANDATORY
-  MEASURED BENCHMARK at admission — which is exactly our probe. Never rank/pay on
-  self-reported metadata. If points exist at launch, hardware-truth challenges ship FIRST.
+- **The security parameter is WHAT YOU PAY FOR, not whether entry is open.** io.net's disaster
+  was paying an airdrop for *claimed idle capacity* (reward decoupled from verified work) — not
+  that joining was permissionless. Open entry is fine; paying for anything other than
+  measured/verified work is the hole. Our design is already on the right side twice over:
+  admission is a MEASURED capability function (never self-reported metadata — same insight as
+  Nosana/Chutes' mandatory benchmark), and pay is a cut of REAL demand for VERIFIED served
+  tokens (no supply subsidy). So we keep fully-permissionless entry AND avoid the io.net failure
+  — the two are not in tension. What replaces the admission gate as the sybil brake is per-job
+  verification (spot-check) + the rake; both must be live at launch (§3.2).
 - **Recognition-only supply has a ~12-month half-life** (Petals → one hobbyist per swarm;
   Gensyn → 12k airdrop farmers, then sunset). Even a minimal real settle→credit loop at
   launch beats a big one promised later.
@@ -107,20 +111,49 @@ Every item verified missing in code, with build-shape:
   Copy their churn mechanics (greedy block assignment, >20%-improvement rebalance damping,
   client-side replay failover), ship the verification they didn't.
 
-## 3. leyten's decision points (surfaced, not decided)
+## 3. leyten's decisions (DECIDED 2026-07-12)
 
-1. **The PoC earnings answer** (blocks leg 8.3's schema): points ledger vs credits vs
-   nothing-but-leaderboard. Hard constraint from the adversary + §10.4: NO supply-side
-   subsidy (self-dealing with valid receipts = solvency hole); demand-anchored/points only.
-2. **Launch shape:** gated phase-1 (Nosana-style: capped nodes, benchmark-admitted via the
-   probe, points pool) vs open-from-day-one. Panel lean: gated cap first — it absorbed
-   every comparable's sybil wave.
-3. **Free playground:** budget + time-box + rate limits (the demand magnet, planned as a
-   marketing burn with an exit).
-4. **Standing network cost:** who funds the seed boxes + the auditor node ($3-4/h-class for
-   one ring 24/7 ≈ $2.5-3k/mo on vast-style supply) vs demo-window operation until real
-   supply arrives.
-5. Auto-update key custody/staging; seeding-default consent (carried from NODE_DAEMON §7).
+1. **Earnings — INHERIT c0mpute's money-flow, realized per-shard (pay-by-layers, #16).**
+   Not a new points economy: shard settlement writes into the EXISTING worker-earnings ledger,
+   paid per layer in USDC, same 70/30 split (worker 70% / 30% margin → buyback pool → half
+   buys+burns $ZERO, half pays stakers). c0mpute already got the wash-safety right: the only
+   subsidies are DEMAND-side and hard-capped (free-prompt + Venice staker-allowance pools,
+   FREE_SUBSIDY_DAILY_CAP_USD etc.), there is NO supply-side subsidy anywhere. That property —
+   workers only ever earn a cut of money a user actually spent — is what makes self-dealing
+   structurally unprofitable (pay real USDC in, get 70% back, lose the rake). The rake IS the
+   sybil tax. HARD GATE before USDC flows on shard jobs: bind pay to a client/server-verified
+   token count, not the coordinator's word (the INTEGRATION §6 gap — the only way an untrusted
+   coordinator can STEAL rather than merely SEE).
+
+2. **Launch shape — FULLY PERMISSIONLESS from day one** (leyten: "fully permissionless,
+   self-sustaining, decentralized, torrent-like"). NOT a gated phase-1. This is consistent with
+   what we already built: **admission is a capability function, never an identity/permission
+   gate** — `derive_role` measures physics (fast-kernel, layers, RTT, uplink) and assigns a
+   role or `reject`-only-if-physically-useless; a fresh key with a real GPU serves immediately,
+   no reputation, no stake, no allowlist. The sybil defense is therefore NOT admission-gating —
+   it is per-JOB economics (rake makes self-deal unprofitable) + per-JOB verification
+   (spot-check makes garbage unpaid). Consequence of removing the gate: leg 8.7 (spot-check
+   scheduler + ≥1 auditor) moves to day-one critical path — it is the load-bearing defense now,
+   not admission. Note this makes the key-rotation "multiplier" (adversary #10) largely
+   dissolve: because defense is per-interaction not per-identity, rotating keys buys the
+   attacker nothing (each fresh key still does real unpaid work / still loses the rake).
+   REPUTATION is a non-load-bearing optimization only: it tunes spot-check FREQUENCY + high-
+   value-seat preference against MEASURED misbehavior; unproven starts checked-often, earns a
+   lighter touch with a track record; a rotator just permanently pays the newcomer check-rate.
+   STAKE gates nothing at launch — the only trust-required tier (boundary/coordinator privacy
+   pinning) is decided-OFF (prompt privacy = accepted PoC limitation). "Fully decentralized" =
+   the placement M1→M4 road; LAUNCH = M1 (server initiates, every decision signed +
+   recomputable by anyone), not M4 — promising no-decider-at-all on day one would be a lie.
+
+3. **Free playground** (still to size): budget + time-box + rate limits — the demand magnet
+   (Chutes/Hyperbolic pattern), planned as a marketing burn with an exit. Reuse c0mpute's
+   existing capped free-prompt lane.
+4. **Standing network cost** (still to decide): who funds seed boxes + the auditor node
+   (~$2.5-3k/mo on vast-class supply for one ring 24/7) vs demo-window operation until real
+   permissionless supply arrives. Self-sustaining is the goal (the 30% rake funds
+   auditor+bootstrap), but bootstrap supply precedes rake.
+5. Auto-update key custody/staging; seeding-default consent (NODE_DAEMON §7). DEFAULT posture:
+   auto-update off/manual, publisher keys pinned in the shipped daemon, weights key ≠ runtime key.
 
 ## 4. Sizing (honest)
 
