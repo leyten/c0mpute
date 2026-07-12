@@ -246,6 +246,13 @@ export class SwarmManager {
         up_mbps: upAll ? c.cap.upMbps : null,
         // trust is ASSIGNED here (stake + reputation), never read from the announce payload
         trusted: privacy ? role(c.cap.pubkey) === 'boundary' : false,
+        // the probe-measured per-node capability (undefined keys drop out of the JSON, so a
+        // pool without them plans byte-identically at the profile numbers)
+        layer_vram_mb: c.cap.layerVramMb,
+        cap_layers: c.cap.capLayers,
+        total_vram_mb: c.cap.totalVramMb,
+        load_peak_extra_mb: c.cap.loadPeakExtraMb,
+        layer_ms: c.cap.layerMs,
       })),
       rtt: subRtt,
       privacy: privacy ? { boundary_in: privacy.boundaryIn, boundary_out: privacy.boundaryOut } : undefined,
