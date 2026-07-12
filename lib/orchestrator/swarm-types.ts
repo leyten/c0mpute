@@ -29,6 +29,15 @@ export interface NodeCapabilities {
   cpuFactor?: number;
   upMbps?: number;             // measured uplink; when EVERY candidate reports it, placement is upload-aware
   geo?: string;                // region hint (display / coarse clustering)
+  /** The probe-MEASURED capability vector (shard.probe --measure, server-driven at node-bind — the
+   *  node_role row, never a trusted self-report). Absent fields fall back to the model profile in
+   *  shard.plan, so a homogeneous pool plans exactly as before. These are what let a hetero pool
+   *  (96 GB cutlass card next to a marlin card next to a 5090) be placed at each card's OWN physics. */
+  layerVramMb?: number;        // measured per-layer footprint for THIS arch/backend (cutlass ~2330, marlin ~4060)
+  capLayers?: number;          // probe-verdict layer ceiling for this card (wins over the density rule)
+  totalVramMb?: number;        // device total; the planner density-scales the proven cap to the card size
+  loadPeakExtraMb?: number;    // measured load/run transient above resident (the admit-then-OOM gate)
+  layerMs?: number;            // measured decode ms/layer (graph-replayed); overrides the modeled base
 }
 
 /** A node in the admitted candidate pool, waiting to be placed into a swarm for `model`. */
