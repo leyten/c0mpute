@@ -24,6 +24,7 @@ import { consumeStakerAllowance, recordStakerRequest } from '../staker-allowance
 import { scanOutput, BLOCKED_MESSAGE } from '../safety';
 import { AVAILABLE_TOOLS, executeToolCalls } from './tools';
 import { attachSwarmLoop } from './swarm-loop';
+import { specForModel } from './model-profiles';
 import type { StageEarning } from './swarm-types';
 
 // Load search server module for Brave API key initialization
@@ -52,6 +53,7 @@ interface ImageJob {
 
 export class Orchestrator {
   private io: Server<ClientToServerEvents, ServerToClientEvents>;
+  private swarmLoop!: ReturnType<typeof attachSwarmLoop>;   // the sharded-swarm control plane handle
   private workers: Map<string, WorkerInfo> = new Map();
   private rateLimits: Map<string, number[]> = new Map();
   private jobs: Map<string, Job> = new Map();
@@ -178,8 +180,12 @@ export class Orchestrator {
     // Sharded-swarm control plane (the permissionless loop), alongside the whole-model worker path
     // above — nothing here changes it. It registers its own connection handlers for node:announce /
     // swarm:ready / swarm:job_complete and drives shard.plan (place) + shard.verify (settle).
-    attachSwarmLoop(this.io as unknown as import('socket.io').Server, {
+    // resolveModel = AUTO-FORM: as nodes announce a shardable model, the loop forms rings on its own
+    // (the trigger the live server was missing). The handle is CAPTURED (was discarded) so the
+    // request path can route a sharded-model job to a ready swarm's coordinator (Leg 8 dispatch).
+    this.swarmLoop = attachSwarmLoop(this.io as unknown as import('socket.io').Server, {
       recordStageEarning: (e) => this.recordSwarmStageEarning(e),
+      resolveModel: specForModel,
       log: (m) => console.log(m),
     });
     setInterval(() => this.broadcastStats(), 5000);

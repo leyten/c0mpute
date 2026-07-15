@@ -117,17 +117,23 @@ io.use((socket, next) => {
   next();
 });
 
-const M25_PROFILE = { layerCount: 62, prefill_bytes: 1.0e8, decode_bytes: 1.6e4, decode_steps: 64 };
-const announced = new Map<string, number>();                 // model -> pool size (mirrors mgr order)
-let formTimer: ReturnType<typeof setTimeout> | null = null;
+// The sim now drives formation through the SERVER's own auto-form (opts.resolveModel) instead of
+// calling formSwarm by hand — so this harness tests the real live-server path. minStages = --nodes
+// so the ring forms once the expected pool has announced.
+const SIM_SPEC = {
+  model: 'minimax-m2.5', manifestRef: 'mf:m25-nvfp4-v1', minStages: NODES,
+  profile: { layerCount: 62, prefill_bytes: 1.0e8, decode_bytes: 1.6e4, decode_steps: 64 },
+};
 
-const handle = attachSwarmLoop(io, {
+attachSwarmLoop(io, {
   recordStageEarning: (e) => log(`EARNING recorded: ${JSON.stringify(e)}`),
   config: {
     admission: { mode: 'open', minFreeVramMb: 0 },           // sim: a 0-VRAM box may exercise the protocol
-    paySplit: 'layers', minCandidates: 1, privacy: null, spotCheckTimeoutMs: 300_000,
+    paySplit: 'layers', minCandidates: NODES, privacy: null, spotCheckTimeoutMs: 300_000,
   },
   seam: new SimSeam(),
+  resolveModel: (m) => (m === 'minimax-m2.5' ? SIM_SPEC : undefined),   // auto-form this model
+  autoFormDebounceMs: 900,
   log: (m) => {
     log(`loop: ${m}`);
     if (/ READY — all /.test(m)) {
@@ -139,29 +145,6 @@ const handle = attachSwarmLoop(io, {
 
 io.on('connection', (socket) => {
   log(`node connected: ${socket.id}`);
-  socket.onAny((event, ...args) => {
-    if (event === 'node:announce') {
-      const { model } = args[0] ?? {};
-      // read the REAL pool size one tick later — onAny fires before the swarm loop's own
-      // announce handler admits the node, so a synchronous read is always one behind
-      setImmediate(() => {
-        const n: number = ((handle.manager as unknown as { candidates: Map<string, unknown[]> })
-          .candidates.get(model) ?? []).length;
-        announced.set(model, n);
-        if (n < NODES) { log(`pool ${n}/${NODES} for ${model} — waiting for more nodes`); return; }
-        // debounce so a burst of daemons lands in ONE ring, then auto-form (the trigger the
-        // running server doesn't have yet — swarm-loop.ts's named integration gap)
-        if (formTimer) clearTimeout(formTimer);
-        formTimer = setTimeout(async () => {
-          const rtt = Array.from({ length: n }, () => Array.from({ length: n }, () => 0));
-          log(`auto-forming swarm for ${model} over ${n} node(s)...`);
-          const swarm = await handle.formSwarm(model, 'mf:m25-nvfp4-v1', M25_PROFILE, rtt);
-          if (!swarm) log('formSwarm returned null — see loop log above');
-        }, 3000);
-      });
-    }
-    if (event === 'swarm:ready') log(`swarm:ready from ${socket.id}`);
-  });
   socket.on('disconnect', (why) => log(`node disconnected: ${socket.id} (${why})`));
 });
 
