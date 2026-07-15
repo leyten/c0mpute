@@ -20,7 +20,7 @@
  * sets `socket.data-style` privyUserId on every socket, so a node's account is known without a re-auth.
  */
 import type { Server } from 'socket.io';
-import { SwarmManager, type SwarmConfig, type TrustOracle, DEFAULT_SWARM_CONFIG, type ModelProfile } from './swarm';
+import { SwarmManager, type Seam, type SwarmConfig, type TrustOracle, DEFAULT_SWARM_CONFIG, type ModelProfile } from './swarm';
 import { SubprocessSeam } from './swarm-seam';
 import type { BlockSketch, NodeCapabilities, StageEarning } from './swarm-types';
 
@@ -34,6 +34,9 @@ export interface SwarmLoopOptions {
   auditors?: () => { nodeId: string; pubkey: string }[];
   config?: SwarmConfig;
   log?: (msg: string) => void;
+  /** placement/settlement seam override — harnesses (scripts/shard-daemon-sim.ts) stub `plan`
+   *  so the REAL event wiring is testable on boxes the real planner would rightly refuse. */
+  seam?: Seam;
 }
 
 interface AnnouncePayload { cap: NodeCapabilities; model: string; manifestRef: string }
@@ -46,7 +49,7 @@ export function attachSwarmLoop(io: Server, opts: SwarmLoopOptions) {
 
   const mgr = new SwarmManager(
     {
-      seam: new SubprocessSeam(),
+      seam: opts.seam ?? new SubprocessSeam(),
       emit: (nodeId, event, data) => io.to(nodeId).emit(event as never, data as never),
       // the earning already carries the account (frozen onto the stage at form time), so a node that
       // served then disconnected is still credited — no live socket lookup that could miss.
