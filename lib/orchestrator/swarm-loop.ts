@@ -19,6 +19,7 @@
  * Identity reuses the socket's authenticated account: the orchestrator's connection middleware already
  * sets `socket.data-style` privyUserId on every socket, so a node's account is known without a re-auth.
  */
+import { randomUUID, randomBytes } from 'crypto';
 import type { Server } from 'socket.io';
 import { SwarmManager, type Seam, type SwarmConfig, type TrustOracle, DEFAULT_SWARM_CONFIG, type ModelProfile } from './swarm';
 import { SubprocessSeam } from './swarm-seam';
@@ -49,8 +50,23 @@ export interface SwarmLoopOptions {
 
 interface AnnouncePayload { cap: NodeCapabilities; model: string; manifestRef: string }
 interface ReadyPayload { swarmId: string }
-interface CompletePayload { swarmId: string; jobId: string; nonce: string; tokensGenerated: number; receipts: unknown[] }
+// job_complete carries BOTH the settlement inputs (nonce/tokens/receipts) and the client-facing
+// `response` — one event settles the job AND finishes the client stream.
+interface CompletePayload { swarmId: string; jobId: string; nonce: string; tokensGenerated: number; receipts: unknown[]; response?: string }
+interface JobTokenPayload { jobId: string; delta: string }
 interface ChallengeResultPayload { checkId: string; sketch: BlockSketch }
+
+/** A client inference request the orchestrator hands to a ready swarm. onToken streams committed
+ *  deltas; onDone ends the stream; onError aborts. Callbacks bridge to the waiting HTTP/SSE client. */
+export interface SwarmServeArgs {
+  model: string;
+  messages: unknown[];
+  params?: { maxNew?: number; reasoning?: boolean; tools?: unknown[] };
+  onToken: (delta: string) => void;
+  onDone: (response: string, tokens: number) => void;
+  onError: (message: string) => void;
+  timeoutMs?: number;
+}
 
 export function attachSwarmLoop(io: Server, opts: SwarmLoopOptions) {
   const log = opts.log ?? ((m: string) => console.log(m));
@@ -100,6 +116,37 @@ export function attachSwarmLoop(io: Server, opts: SwarmLoopOptions) {
     }
   }
 
+  // ── SERVE: route a client request to a ready swarm's coordinator, relay tokens back ──
+  interface Pending {
+    coordinatorNodeId: string; swarmId: string; nonce: string;
+    onToken: (d: string) => void; onDone: (r: string, t: number) => void; onError: (m: string) => void;
+    timer: ReturnType<typeof setTimeout>;
+  }
+  const pending = new Map<string, Pending>();
+  function finishJob(jobId: string): Pending | undefined {
+    const p = pending.get(jobId);
+    if (p) { clearTimeout(p.timer); pending.delete(jobId); }
+    return p;
+  }
+  function serveRequest(a: SwarmServeArgs): { jobId: string } | null {
+    const swarm = mgr.swarmForModel(a.model);   // a ready swarm for this model, or undefined
+    if (!swarm) { a.onError(`no ready swarm serving ${a.model}`); return null; }
+    const jobId = randomUUID();
+    const nonce = randomBytes(16).toString('hex');   // per-job settlement freshness
+    const timer = setTimeout(() => {
+      if (finishJob(jobId)) a.onError('swarm job timed out');
+    }, a.timeoutMs ?? 300_000);
+    (timer as { unref?: () => void }).unref?.();
+    pending.set(jobId, { coordinatorNodeId: swarm.coordinatorNodeId, swarmId: swarm.id, nonce,
+      onToken: a.onToken, onDone: a.onDone, onError: a.onError, timer });
+    io.to(swarm.coordinatorNodeId).emit('swarm:job' as never, {
+      swarmId: swarm.id, jobId, messages: a.messages, nonce,
+      maxNew: a.params?.maxNew ?? 512, reasoning: a.params?.reasoning ?? true, tools: a.params?.tools,
+    } as never);
+    log(`swarm job ${jobId} -> ${swarm.id} coordinator ${swarm.coordinatorNodeId} (${a.model})`);
+    return { jobId };
+  }
+
   io.on('connection', (socket) => {
     socket.on('node:announce', (data: AnnouncePayload,
       cb?: (r: { ok: true } | { ok: false; reason: string } | { error: string }) => void) => {
@@ -114,8 +161,17 @@ export function attachSwarmLoop(io: Server, opts: SwarmLoopOptions) {
       mgr.markReady(data.swarmId, socket.id);
     });
 
+    // a committed-token delta from the coordinator mid-generation → relay to the waiting client
+    socket.on('swarm:job_token', (data: JobTokenPayload) => {
+      const p = pending.get(data.jobId);
+      if (p && p.coordinatorNodeId === socket.id) p.onToken(data.delta);
+    });
+
     socket.on('swarm:job_complete', async (data: CompletePayload) => {
-      // socket.id is the submitter — settleJob checks it is the swarm's coordinator (only it may settle)
+      // ONE event does two jobs: finish the client stream AND settle. Relay the response first
+      // (only the job's coordinator may), then settle (settleJob independently re-checks coordinator).
+      const p = finishJob(data.jobId);
+      if (p && p.coordinatorNodeId === socket.id) p.onDone(data.response ?? '', data.tokensGenerated);
       await mgr.settleJob(data.swarmId, data.jobId, socket.id, data.nonce, data.tokensGenerated, data.receipts);
     });
 
@@ -125,6 +181,11 @@ export function attachSwarmLoop(io: Server, opts: SwarmLoopOptions) {
     });
 
     socket.on('disconnect', () => {
+      // a coordinator that dropped mid-job can't finish it — fail its pending jobs so the client
+      // isn't left hanging (the swarm itself is torn down by onNodeGone).
+      for (const [jobId, p] of pending) {
+        if (p.coordinatorNodeId === socket.id) { finishJob(jobId); p.onError('coordinator disconnected mid-job'); }
+      }
       mgr.onNodeGone(socket.id);
     });
   });
@@ -138,6 +199,8 @@ export function attachSwarmLoop(io: Server, opts: SwarmLoopOptions) {
   // Spot-check cadence is still the caller's: startSpotCheck(swarmId) probes one stranger stage.
   return {
     manager: mgr,
+    /** route a client inference request to a ready swarm's coordinator (Leg 8 dispatch). */
+    serveRequest,
     formSwarm: (model: string, manifestRef: string, profile: ModelProfile, rtt: number[][]) =>
       mgr.formSwarm(model, manifestRef, profile, rtt),
     startSpotCheck: (swarmId: string, suspectNodeId?: string) => mgr.startSpotCheck(swarmId, suspectNodeId),
