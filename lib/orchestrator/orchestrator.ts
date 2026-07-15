@@ -518,7 +518,8 @@ export class Orchestrator {
         if (job) {
           callback({ jobId: job.id });
           console.log(`[Orchestrator] Job submitted: ${job.id} (model: ${data.model || 'any'}${deepThinking ? ', deep-thinking' : ''}) user=${privyUserId}`);
-          this.processQueue();
+          // a sharded model routes to its serving swarm; everything else to the whole-model workers
+          if (!this.tryDispatchSwarm(job)) this.processQueue();
         } else {
           if (creditCost > 0) {
             refundCredits(privyUserId, creditCost, 'Job submission failed');
@@ -1070,6 +1071,27 @@ export class Orchestrator {
       console.error('[Orchestrator] Error submitting job:', error);
       return null;
     }
+  }
+
+  // Route a sharded-model request to its serving swarm's coordinator (Leg 8). Returns true if the
+  // job is a sharded model (handled here — streamed or errored), false to fall through to the
+  // whole-model worker queue. Only models with a placement spec route here, so the ollama/image
+  // paths are untouched.
+  private tryDispatchSwarm(job: Job): boolean {
+    const model = job.requestedModel;
+    if (!model || !specForModel(model)) return false;
+    const userSocket = () => this.io.sockets.sockets.get(job.userSocketId);
+    const fin = () => { this.jobs.delete(job.id); this.jobQueue = this.jobQueue.filter((id) => id !== job.id); };
+    this.swarmLoop.serveRequest({
+      model,
+      messages: job.messages ?? [],
+      params: { maxNew: 512, reasoning: !!job.think, tools: job.toolPassthrough ? job.clientTools : undefined },
+      onToken: (delta) => userSocket()?.emit('job:token', { jobId: job.id, token: delta }),
+      onDone: (response) => { userSocket()?.emit('job:complete', { jobId: job.id, response }); fin(); },
+      onError: (message) => { userSocket()?.emit('job:error', { jobId: job.id, error: message }); fin(); },
+    });
+    job.status = 'processing';
+    return true;   // a sharded model is served (or errored) here — never queued to a whole-model worker
   }
 
   private processQueue() {
