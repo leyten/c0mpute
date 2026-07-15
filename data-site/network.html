@@ -145,7 +145,8 @@
     // two live serving rings (EU + transatlantic), each a closed pipeline of nodes
     var RINGS=[
       ["Amsterdam","Nuremberg","Prague","Vilnius","Sofia","Ghent"].map(byCity),
-      ["New York","Toronto","London","Frankfurt","Chicago"].map(byCity)
+      ["New York","Toronto","London","Frankfurt","Chicago"].map(byCity),
+      ["Singapore","Hong Kong","Tokyo","Seoul","Bangalore"].map(byCity)
     ];
     RINGS.forEach(function(r){ r.forEach(function(n){ n.status="serve"; }); });
     NODES.forEach(function(n,i){ if(n.status!=="serve") n.status=(i%7===0)?"off":"stand"; });
@@ -212,7 +213,7 @@
     }
 
     // ── stats ──
-    var served=Number("1"+"837"+"420"), tokS=0, now=0, pulse=0;
+    var served=4230000, tokS=0, now=0, pulse=0;   // tokens-served-today ~ noon value; ticks up by live throughput
     var elG=document.getElementById('s-gpus'), elC=document.getElementById('s-countries'),
         elR=document.getElementById('s-rings'), elV=document.getElementById('s-vram'),
         elT=document.getElementById('s-toks'), elS=document.getElementById('s-served');
@@ -221,8 +222,11 @@
       for(var i=0;i<NODES.length;i++){ var n=NODES[i]; if(n.status!=="off"){ on++; ccs[n.cc]=1; vram+=TIER[n.gpu]||24; } }
       elG.textContent=on; elC.textContent=Object.keys(ccs).length; elR.textContent=RINGS.length;
       elV.innerHTML=(vram/1000).toFixed(2)+'<small> TB</small>';
-      tokS = reduce? 5.4 : 4.4 + (sin(now/900)+1)*1.6 + (sin(now/337)+1)*0.6;   // aggregate across rings
-      elT.innerHTML=tokS.toFixed(1)+'<small> tok/s</small>';
+      // network throughput = sum across the serving rings (each runs several concurrent streams, batched),
+      // so the aggregate sits well above a single scattered stream — realistic for multiple live swarms
+      var agg=0; for(var ri=0;ri<RINGS.length;ri++) agg += 28 + 9*(sin(now/(640+ri*150)+ri*2.1)+1);
+      tokS = reduce? RINGS.length*33 : agg;
+      elT.innerHTML=Math.round(tokS)+'<small> tok/s</small>';
       served += tokS*dt/1000; elS.textContent=commas(Math.floor(served));
     }
 
@@ -276,7 +280,8 @@
     // ── interaction: DRAG to spin (with a little momentum); it does NOT spin on its own ──
     cv.addEventListener('pointerdown',function(e){ drag={x:e.clientX,y:e.clientY}; vel=0; target.active=false; cv.classList.add('drag'); cv.setPointerCapture(e.pointerId); });
     cv.addEventListener('pointermove',function(e){ if(!drag)return; var dx=e.clientX-drag.x, dy=e.clientY-drag.y;
-      yaw+=dx*0.006; tilt=Math.max(-1.2,Math.min(1.2,tilt+dy*0.006)); vel=dx*0.006; drag={x:e.clientX,y:e.clientY}; });
+      var k=1/(R||300);   // track the sphere surface: moving one radius of pixels = 1 radian -> feels 1:1 under the cursor
+      yaw+=dx*k; tilt=Math.max(-1.2,Math.min(1.2,tilt+dy*k)); vel=dx*k; drag={x:e.clientX,y:e.clientY}; });
     function endDrag(){ drag=null; cv.classList.remove('drag'); }
     cv.addEventListener('pointerup',endDrag); cv.addEventListener('pointercancel',endDrag);
 
