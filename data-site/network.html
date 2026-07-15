@@ -46,6 +46,25 @@
     .cmd-hud button:hover { background: rgba(34,197,94,0.18); border-color: rgba(34,197,94,0.5); }
     .cmd-hud button:focus-visible { outline: 1px solid #22c55e; outline-offset: 1px; }
 
+    /* node explorer detail panel */
+    .node-panel { right: 30px; top: 72px; width: 308px; max-width: calc(100vw - 60px); border: 1px solid rgba(255,255,255,0.16); background: #000; padding: 15px 18px 18px; display: none; }
+    .node-panel .np-top { display: flex; align-items: baseline; gap: 8px; }
+    .node-panel .np-city { font-size: 21px; color: #fff; }
+    .node-panel .np-cc { font-size: 12px; color: rgba(255,255,255,0.5); }
+    .node-panel .np-x { margin-left: auto; background: none; border: 1px solid rgba(255,255,255,0.16); color: #fff; width: 24px; height: 24px; font-size: 15px; line-height: 1; cursor: pointer; -webkit-text-stroke: 0; }
+    .node-panel .np-x:hover { background: rgba(255,255,255,0.1); }
+    .node-panel .np-status { margin-top: 9px; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; -webkit-text-stroke: 0; }
+    .node-panel .np-status.serve { color: #22c55e; } .node-panel .np-status.stand { color: rgba(255,255,255,0.82); } .node-panel .np-status.off { color: rgba(255,255,255,0.55); }
+    .node-panel .np-id { margin-top: 3px; font-size: 10.5px; color: rgba(255,255,255,0.38); word-break: break-all; -webkit-text-stroke: 0; }
+    .node-panel .np-rows { margin-top: 15px; display: flex; flex-direction: column; gap: 9px; }
+    .node-panel .np-row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; font-size: 12.5px; }
+    .node-panel .np-row .kk { color: rgba(255,255,255,0.5); letter-spacing: 0.02em; }
+    .node-panel .np-row .vv { color: #fff; text-align: right; }
+    .node-panel .np-row .vv .of { color: rgba(255,255,255,0.4); }
+    .node-panel .np-bar { margin-top: -2px; height: 8px; background: rgba(255,255,255,0.07); position: relative; }
+    .node-panel .np-bar .fl { position: absolute; top: 0; bottom: 0; background: #22c55e; }
+    @media (max-width: 820px) { .node-panel { right: 20px; left: 20px; top: auto; bottom: 90px; width: auto; } }
+
     @media (max-width: 820px) {
       .stats { top: auto; transform: none; flex-direction: row; gap: 18px; }
       .stats-left { left: 20px; bottom: 92px; }
@@ -91,6 +110,8 @@
       <code id="cmd">npx @c0mpute/worker --mode shard --token &lt;your-token&gt;</code>
       <button id="copy" type="button">copy</button>
     </div>
+
+    <div class="hud node-panel" id="npanel"></div>
   </div>
 
   <script>
@@ -148,8 +169,18 @@
       ["New York","Toronto","London","Frankfurt","Chicago"].map(byCity),
       ["Singapore","Hong Kong","Tokyo","Seoul","Bangalore"].map(byCity)
     ];
-    RINGS.forEach(function(r){ r.forEach(function(n){ n.status="serve"; }); });
+    var SWNAME=["eu-ring-01","us-ring-01","ap-ring-01"];
+    RINGS.forEach(function(r,ri){ var k=r.length; r.forEach(function(n,i){ n.status="serve"; n.swarm=SWNAME[ri]||("ring-0"+(ri+1));
+      n.stageIdx=i; n.stageN=k; n.lo=Math.round(i*62/k); n.hi=Math.round((i+1)*62/k); }); });
     NODES.forEach(function(n,i){ if(n.status!=="serve") n.status=(i%7===0)?"off":"stand"; });
+    // deterministic per-node facts (stable across frames), derived from the node id
+    function hash(s){ var h=2166136261>>>0; for(var i=0;i<s.length;i++){ h^=s.charCodeAt(i); h=Math.imul(h,16777619); } return h>>>0; }
+    NODES.forEach(function(n){ var h=hash(n.id); function r(mod){ h=(Math.imul(h,1103515245)+12345)>>>0; return h%mod; }
+      var dc=(n.gpu==="H100 NVL"||n.gpu==="RTX PRO 6000");
+      n.down=dc?1000+r(3600):160+r(780); n.up=dc?400+r(1500):24+r(96);   // Mbps (datacenter vs residential)
+      n.rtt=8+r(64); n.uphrs=5+r(300); n.tok=40000+r(880000); n.rcpt=700+r(52000);
+      if(n.status!=="serve"){ var lo=r(48); n.lo=lo; n.hi=Math.min(62,lo+8+r(8)); n.swarm="—"; }
+    });
 
     // ── great-circle arc samples (with lift) for each ring edge, precomputed ──
     function slerp(a,b,t){ var d=a[0]*b[0]+a[1]*b[1]+a[2]*b[2]; d=Math.max(-1,Math.min(1,d));
@@ -165,7 +196,9 @@
     var cv=document.getElementById('globe'), ctx=cv.getContext('2d');
     var W=0,H=0,CX=0,CY=0,R=0,dpr=1;
     var yaw=-0.5, tilt=0.28, drag=null, vel=0;
-    var target={yaw:-0.5, tilt:0.28, active:false};   // the globe eases here when a node joins; NO auto-spin
+    var target={yaw:-0.5, tilt:0.28, active:false};   // eases here ONCE on load to the visitor's continent; else static
+    var hovered=null, selected=null;
+    var panel=document.getElementById('npanel'), sr=document.querySelector('.stats-right');
     function layout(){ dpr=Math.min(window.devicePixelRatio||1,2);
       W=cv.clientWidth; H=cv.clientHeight; cv.width=Math.round(W*dpr); cv.height=Math.round(H*dpr);
       ctx.setTransform(dpr,0,0,dpr,0,0); ctx.imageSmoothingEnabled=false;
@@ -203,13 +236,19 @@
         var pt=pulse%1, idx=Math.floor(pt*(m2-1));
         _t[0]=pts[idx*3]; _t[1]=pts[idx*3+1]; _t[2]=pts[idx*3+2]; rot(_t,_t);
         if(_t[2]>0){ ctx.fillStyle='#fff'; ctx.fillRect((CX+_t[0]*R|0)-1,(CY-_t[1]*R|0)-1,3,3); } }
-      // nodes on the surface
+      // nodes on the surface — store screen pos for hit-testing; hovered/selected get a ring + label
       for(i=0;i<NODES.length;i++){ var nd=NODES[i]; _t[0]=nd.v[0]; _t[1]=nd.v[1]; _t[2]=nd.v[2]; rot(_t,_t);
-        if(_t[2]<=0.02) continue; var nx=CX+_t[0]*R|0, ny=CY-_t[1]*R|0, edge=Math.min(1,(_t[2]-0.02)*4);
-        if(nd.status==="serve"){ ctx.fillStyle='rgba(34,197,94,'+(0.28*edge).toFixed(2)+')'; ctx.fillRect(nx-3,ny-3,6,6);
-          ctx.fillStyle='rgba(34,197,94,'+edge.toFixed(2)+')'; ctx.fillRect(nx-2,ny-2,4,4); }
-        else{ var al=(nd.status==="stand"?0.82:0.34)*edge; if(nd.status==="off"&&Math.floor(now/300)%2)al*=0.4;
-          ctx.fillStyle='rgba(255,255,255,'+al.toFixed(2)+')'; ctx.fillRect(nx-1,ny-1,3,3); } }
+        if(_t[2]<=0.02){ nd.front=false; continue; }
+        var nx=CX+_t[0]*R, ny=CY-_t[1]*R, edge=Math.min(1,(_t[2]-0.02)*4), ix=nx|0, iy=ny|0;
+        nd.sx=nx; nd.sy=ny; nd.front=true; var sel=(nd===selected), hov=(nd===hovered);
+        if(nd.status==="serve"){ ctx.fillStyle='rgba(34,197,94,'+(0.20*edge).toFixed(2)+')'; ctx.fillRect(ix-4,iy-4,8,8);
+          ctx.fillStyle='rgba(34,197,94,'+edge.toFixed(2)+')'; ctx.fillRect(ix-2,iy-2,4,4); }
+        else{ var al=(nd.status==="stand"?0.8:0.34)*edge; if(nd.status==="off"&&Math.floor(now/300)%2)al*=0.45;
+          ctx.fillStyle='rgba(255,255,255,'+al.toFixed(2)+')'; ctx.fillRect(ix-2,iy-2,4,4); }
+        if(sel||hov){ ctx.strokeStyle=sel?'rgba(34,197,94,0.95)':'rgba(255,255,255,0.7)'; ctx.lineWidth=1; ctx.strokeRect(ix-6.5,iy-6.5,13,13);
+          ctx.font='11px "Courier New",monospace'; ctx.textBaseline='middle';
+          var lbl=nd.city.toLowerCase(), tx=ix+11; if(tx+ctx.measureText(lbl).width>W-4) tx=ix-11-ctx.measureText(lbl).width;
+          ctx.fillStyle=sel?'rgba(34,197,94,0.95)':'rgba(255,255,255,0.85)'; ctx.fillText(lbl,tx,iy); } }
     }
 
     // ── stats ──
@@ -277,13 +316,50 @@
       }catch(e){ return [8,48]; }
     }
 
-    // ── interaction: DRAG to spin (with a little momentum); it does NOT spin on its own ──
-    cv.addEventListener('pointerdown',function(e){ drag={x:e.clientX,y:e.clientY}; vel=0; target.active=false; cv.classList.add('drag'); cv.setPointerCapture(e.pointerId); });
-    cv.addEventListener('pointermove',function(e){ if(!drag)return; var dx=e.clientX-drag.x, dy=e.clientY-drag.y;
-      var k=1/(R||300);   // track the sphere surface: moving one radius of pixels = 1 radian -> feels 1:1 under the cursor
-      yaw+=dx*k; tilt=Math.max(-1.2,Math.min(1.2,tilt+dy*k)); vel=dx*k; drag={x:e.clientX,y:e.clientY}; });
-    function endDrag(){ drag=null; cv.classList.remove('drag'); }
-    cv.addEventListener('pointerup',endDrag); cv.addEventListener('pointercancel',endDrag);
+    // ── node explorer: hover to highlight, click to inspect (layers, speeds, role, receipts) ──
+    function canvasXY(e){ var r=cv.getBoundingClientRect(); return [e.clientX-r.left, e.clientY-r.top]; }
+    function nodeAt(mx,my){ var best=null, bd=14; for(var i=0;i<NODES.length;i++){ var n=NODES[i]; if(!n.front) continue;
+      var d=Math.abs(n.sx-mx)+Math.abs(n.sy-my); if(d<bd){ bd=d; best=n; } } return best; }
+    function upfmt(h){ var d=Math.floor(h/24), hh=h%24; return d? d+'d '+hh+'h' : hh+'h'; }
+    function esc(s){ return String(s).replace(/</g,'&lt;'); }
+    function openNode(n){ selected=n; hovered=null;
+      var stTxt=n.status==="serve"?"serving":(n.status==="stand"?"standby":"joining"),
+          stCls=n.status==="serve"?"serve":(n.status==="stand"?"stand":"off"), role;
+      if(n.status==="serve") role = n.stageIdx===0 ? "coordinator · head"
+        : (n.stageIdx===n.stageN-1 ? "stage "+(n.stageIdx+1)+"/"+n.stageN+" · tail" : "stage "+(n.stageIdx+1)+"/"+n.stageN);
+      else role = n.status==="stand" ? "standby · warm" : "joining · pulling range";
+      function row(k,v){ return '<div class="np-row"><span class="kk">'+k+'</span><span class="vv">'+v+'</span></div>'; }
+      var lbar='<div class="np-bar"><div class="fl" style="left:'+(n.lo/62*100).toFixed(1)+'%;width:'+((n.hi-n.lo)/62*100).toFixed(1)+'%"></div></div>';
+      panel.innerHTML='<div class="np-top"><span class="np-city">'+esc(n.city)+'</span><span class="np-cc">'+esc(CC[n.cc]||n.cc)+'</span>'
+        +'<button class="np-x" id="npx" type="button" aria-label="close">&times;</button></div>'
+        +'<div class="np-status '+stCls+'">'+stTxt+'</div>'
+        +'<div class="np-id">'+esc(n.id)+'</div>'
+        +'<div class="np-rows">'
+        +row("gpu", esc(n.gpu.toLowerCase())+' · '+(TIER[n.gpu]||24)+' GB')
+        +row("role", role)+row("swarm", n.status==="serve"?n.swarm:"—")
+        +'<div class="np-row"><span class="kk">layers held</span><span class="vv">'+n.lo+'–'+n.hi+' <span class="of">of 62</span></span></div>'+lbar
+        +row("download", n.down+' Mbps')+row("upload", n.up+' Mbps')
+        +row("rtt to ring", n.rtt+' ms')+row("uptime", upfmt(n.uphrs))
+        +row("tokens served", commas(n.tok))+row("receipts", commas(n.rcpt)+' signed')
+        +'</div>';
+      panel.style.display='block'; if(sr) sr.style.display='none';
+      var x=document.getElementById('npx'); if(x) x.onclick=closeNode;
+    }
+    function closeNode(){ selected=null; panel.style.display='none'; if(sr) sr.style.display=''; }
+
+    // ── interaction: DRAG to spin (radius-scaled, 1:1); click empties = close; click a node = inspect ──
+    var downAt=null, movedFar=false;
+    cv.addEventListener('pointerdown',function(e){ drag={x:e.clientX,y:e.clientY}; downAt={x:e.clientX,y:e.clientY}; movedFar=false; vel=0; target.active=false; cv.classList.add('drag'); cv.setPointerCapture(e.pointerId); });
+    cv.addEventListener('pointermove',function(e){
+      if(drag){ var dx=e.clientX-drag.x, dy=e.clientY-drag.y, k=1/(R||300);
+        yaw+=dx*k; tilt=Math.max(-1.2,Math.min(1.2,tilt+dy*k)); vel=dx*k; drag={x:e.clientX,y:e.clientY};
+        if(downAt && Math.abs(e.clientX-downAt.x)+Math.abs(e.clientY-downAt.y)>5) movedFar=true;
+      } else { var c=canvasXY(e), h=nodeAt(c[0],c[1]); if(h!==hovered){ hovered=h; cv.style.cursor=h?'pointer':''; } }
+    });
+    function endDrag(e){ drag=null; cv.classList.remove('drag');
+      if(!movedFar){ var c=canvasXY(e), n=nodeAt(c[0],c[1]); if(n) openNode(n); else closeNode(); } }
+    cv.addEventListener('pointerup',endDrag);
+    cv.addEventListener('pointercancel',function(){ drag=null; cv.classList.remove('drag'); });
 
     function angLerp(a,b,t){ var d=((b-a+PI)%(2*PI)+2*PI)%(2*PI)-PI; return a+d*t; }
     var last=0;
