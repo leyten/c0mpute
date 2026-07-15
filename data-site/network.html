@@ -4,111 +4,109 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>c0mpute / network</title>
-  <meta name="description" content="live map of the c0mpute network: every dot is a stranger's gpu holding a slice of one model, served together over the shard protocol.">
+  <meta name="description" content="the c0mpute network, live: a globe of scattered consumer GPUs serving frontier models together over the shard protocol.">
   <meta property="og:title" content="c0mpute / network">
-  <meta property="og:description" content="a live map of scattered consumer gpus serving one frontier model together.">
+  <meta property="og:description" content="a live globe of scattered consumer gpus serving one model together.">
   <link rel="icon" href="https://c0mpute.ai/favicon.ico">
-  <!-- the SAME kit + stylesheet data.c0mpute.ai uses: argent-pixel-cf numerals, Courier body -->
   <link rel="stylesheet" href="https://use.typekit.net/kwe2dpm.css">
   <link rel="stylesheet" href="style.css">
   <style>
-    /* map-specific only — everything else (fonts, cards, panels, colors) comes from style.css */
-    .stage { margin-top: 12px; display: grid; grid-template-columns: minmax(0,2.2fr) minmax(0,1fr); gap: 10px; }
-    /* the stage panels manage their own inner padding (full-bleed canvas), so drop style.css's panel padding here */
-    .stage .panel { display: flex; flex-direction: column; padding: 0; }
-    .stage .panel-title { padding: 12px 16px 10px; margin-bottom: 0; }
-    .legend { margin-left: auto; }
-    .map-wrap { position: relative; background: #000; }
-    canvas#map { display: block; width: 100%; height: 520px; image-rendering: pixelated; cursor: grab; }
-    canvas#map.drag { cursor: grabbing; }
-    .map-wrap:fullscreen canvas#map { height: 100vh; }
-    .ctrls { position: absolute; top: 10px; right: 10px; display: flex; gap: 5px; }
-    .ctrls button { width: 30px; height: 30px; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.65); color: #fff; font-family: 'Courier New',monospace; font-size: 15px; line-height: 1; cursor: pointer; -webkit-text-stroke: 0; }
-    .ctrls button:hover { background: rgba(255,255,255,0.12); }
-    .ctrls button:focus-visible { outline: 1px solid #22c55e; outline-offset: 1px; }
-    .maphint { position: absolute; left: 12px; bottom: 10px; font-size: 11px; color: rgba(255,255,255,0.4); pointer-events: none; }
-    .route { padding: 10px 16px 12px; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; font-size: 11.5px; color: rgba(255,255,255,0.45); border-top: 1px solid rgba(255,255,255,0.07); }
-    .route .lab { color: rgba(255,255,255,0.4); }
-    .route .hop { color: #fff; } .route .hop.tail { color: #22c55e; }
-    .route .arr { color: rgba(255,255,255,0.3); }
-    .stream-log { padding: 4px 16px 12px; flex: 1; overflow: hidden; }
-    .msg { padding: 8px 0; border-top: 1px solid rgba(255,255,255,0.07); } .msg:first-child { border-top: 0; }
-    .msg .who { font-size: 11px; letter-spacing: 0.06em; color: rgba(255,255,255,0.45); text-transform: uppercase; }
-    .msg.you .who::before { content: "\25B8 "; } .msg.swarm .who::before { content: "\25B8 "; color: #22c55e; }
-    .msg .body { margin-top: 4px; color: #fff; font-size: 13px; white-space: pre-wrap; word-break: break-word; }
-    .msg.you .body { color: rgba(255,255,255,0.72); }
-    .cursor { display: inline-block; width: 7px; height: 14px; background: #22c55e; vertical-align: -2px; animation: blink 1s steps(2,start) infinite; }
-    .attrib { padding: 9px 16px; border-top: 1px solid rgba(255,255,255,0.1); color: rgba(255,255,255,0.5); font-size: 12px; min-height: 20px; }
-    .attrib b { color: #fff; }
-    .cta { margin-top: 26px; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.02); padding: 18px 20px; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
-    .cta .t { font-size: 15px; color: #fff; min-width: 240px; }
+    body { overflow-x: hidden; }
+    .net-head { max-width: 1320px; margin: 0 auto; padding: 22px 20px 10px; display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+    .net-head .brand { display: flex; align-items: baseline; gap: 10px; }
+    .net-head .live-pill { font-size: 12px; color: rgba(255,255,255,0.6); letter-spacing: 0.04em; -webkit-text-stroke: 0; }
+    .net-head .live-pill .dot { display: inline-block; width: 7px; height: 7px; margin-right: 7px; background: #22c55e; animation: blink 1.6s steps(2,start) infinite; }
+
+    .net { max-width: 1320px; margin: 0 auto; padding: 6px 20px 30px; display: grid; grid-template-columns: 250px minmax(0,1fr) 250px; gap: 14px; align-items: stretch; }
+    .side { display: flex; flex-direction: column; gap: 10px; }
+    .tile { border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.02); padding: 14px 16px; }
+    .tile .v { font-size: 30px; color: #fff; line-height: 1; }
+    .tile .v small { font-size: 14px; color: rgba(255,255,255,0.55); -webkit-text-stroke: 0; }
+    .tile .k { margin-top: 6px; font-size: 11.5px; color: rgba(255,255,255,0.5); letter-spacing: 0.04em; }
+    .tile .k .dot { display: inline-block; width: 6px; height: 6px; margin-right: 6px; background: #22c55e; animation: blink 1.6s steps(2,start) infinite; }
+    .tile.tall { flex: 1; }
+    .tile .title { font-size: 11px; color: rgba(255,255,255,0.6); letter-spacing: 0.05em; margin-bottom: 12px; }
+
+    /* gpu tier bars */
+    .tier { display: grid; grid-template-columns: auto 1fr auto; gap: 8px; align-items: center; margin: 7px 0; font-size: 12px; }
+    .tier .name { color: rgba(255,255,255,0.75); white-space: nowrap; }
+    .tier .track { height: 8px; background: rgba(255,255,255,0.06); position: relative; }
+    .tier .fill { position: absolute; left: 0; top: 0; bottom: 0; background: rgba(255,255,255,0.75); }
+    .tier .n { color: #fff; min-width: 22px; text-align: right; }
+
+    .globe-col { border: 1px solid rgba(255,255,255,0.1); background: radial-gradient(120% 90% at 50% 42%, rgba(255,255,255,0.03), rgba(255,255,255,0) 60%); position: relative; display: flex; flex-direction: column; min-height: 560px; }
+    .globe-col .cap { padding: 12px 16px 0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .globe-col .cap .t { font-size: 12px; color: rgba(255,255,255,0.7); letter-spacing: 0.05em; }
+    .globe-col .cap .legend { margin-left: auto; color: rgba(255,255,255,0.5); font-size: 11.5px; display: flex; align-items: center; }
+    .globe-col .cap .legend .sw { display: inline-block; width: 8px; height: 8px; margin: 0 4px 0 12px; }
+    #globe { flex: 1; display: block; width: 100%; cursor: grab; touch-action: none; }
+    #globe.drag { cursor: grabbing; }
+    .globe-hint { position: absolute; left: 16px; bottom: 12px; font-size: 11px; color: rgba(255,255,255,0.38); pointer-events: none; -webkit-text-stroke: 0; }
+
+    .cta { max-width: 1320px; margin: 16px auto 0; padding: 0 20px; }
+    .cta .box { border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.02); padding: 16px 20px; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+    .cta .t { font-size: 14.5px; color: #fff; min-width: 240px; }
     .cta .t small { display: block; color: rgba(255,255,255,0.6); font-size: 12.5px; margin-top: 5px; -webkit-text-stroke: 0; }
-    .cta code { font-family: 'Courier New',monospace; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); padding: 10px 13px; color: #fff; font-size: 13px; -webkit-text-stroke: 0; overflow-x: auto; min-width: 0; max-width: 100%; white-space: nowrap; }
-    @media (max-width: 860px) { .stage { grid-template-columns: 1fr; } canvas#map { height: 380px; } }
+    .cta code { font-family: 'Courier New',monospace; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); padding: 10px 13px; color: #fff; font-size: 13px; -webkit-text-stroke: 0; overflow-x: auto; max-width: 100%; white-space: nowrap; }
+    footer.net-foot { max-width: 1320px; margin: 22px auto 0; padding: 16px 20px 6px; border-top: 1px solid rgba(255,255,255,0.1); color: rgba(255,255,255,0.4); font-size: 12px; }
+    footer.net-foot .sep { margin: 0 10px; color: rgba(255,255,255,0.2); }
+
+    @media (max-width: 900px) {
+      .net { grid-template-columns: 1fr; }
+      .side { flex-direction: row; flex-wrap: wrap; }
+      .side .tile { flex: 1 1 150px; }
+      .tile.tall { flex: 1 1 100%; }
+      .globe-col { order: -1; min-height: 62vh; }
+    }
   </style>
 </head>
 <body>
-  <header>
-    <div class="header-inner">
-      <div class="brand">
-        <a href="https://c0mpute.ai" class="brand-name pixel-serif">c<span class="logo-o">0</span>mpute</a>
-        <span class="brand-sub">/ network</span>
+  <div class="net-head">
+    <div class="brand">
+      <a href="https://c0mpute.ai" class="brand-name pixel-serif">c<span class="logo-o">0</span>mpute</a>
+      <span class="brand-sub">/ network</span>
+    </div>
+    <div class="live-pill"><span class="dot"></span><span id="pill">live · the whole network</span></div>
+  </div>
+
+  <div class="net">
+    <div class="side">
+      <div class="tile"><div class="v pxnum" id="s-gpus">0</div><div class="k"><span class="dot"></span>gpus online</div></div>
+      <div class="tile"><div class="v pxnum" id="s-countries">0</div><div class="k"><span class="dot"></span>countries</div></div>
+      <div class="tile"><div class="v pxnum" id="s-rings">0</div><div class="k"><span class="dot"></span>rings serving</div></div>
+      <div class="tile"><div class="v pxnum" id="s-vram">0<small> TB</small></div><div class="k"><span class="dot"></span>gpu memory pooled</div></div>
+    </div>
+
+    <div class="globe-col">
+      <div class="cap">
+        <span class="t">the c0mpute network</span>
+        <span class="legend"><i class="sw" style="background:#22c55e"></i>serving<i class="sw" style="background:rgba(255,255,255,0.8)"></i>standby<i class="sw" style="background:rgba(255,255,255,0.3)"></i>joining</span>
       </div>
-      <div class="hero-stat">
-        <div class="hero-num pxnum" id="hero-gpus">0</div>
-        <div class="hero-label">consumer GPUs online worldwide, serving one frontier model together</div>
+      <canvas id="globe"></canvas>
+      <div class="globe-hint">drag to spin</div>
+    </div>
+
+    <div class="side">
+      <div class="tile"><div class="v pxnum" id="s-toks">0<small> tok/s</small></div><div class="k"><span class="dot"></span>network throughput</div></div>
+      <div class="tile"><div class="v pxnum" id="s-served">0</div><div class="k"><span class="dot"></span>tokens served today</div></div>
+      <div class="tile tall">
+        <div class="title">gpus by tier</div>
+        <div id="tiers"></div>
       </div>
     </div>
-  </header>
+  </div>
 
-  <main>
-    <section>
-      <div class="section-title pixel-serif">live</div>
-      <div class="cards">
-        <div class="card"><div class="v pxnum" id="c-gpus">0</div><div class="k"><span class="dot"></span>gpus online</div></div>
-        <div class="card"><div class="v pxnum" id="c-layers">62<small>/62</small></div><div class="k"><span class="dot"></span>model layers covered</div></div>
-        <div class="card"><div class="v pxnum" id="c-toks">0<small> tok/s</small></div><div class="k"><span class="dot"></span>ring throughput</div></div>
-        <div class="card"><div class="v pxnum" id="c-countries">0</div><div class="k"><span class="dot"></span>countries</div></div>
+  <div class="cta">
+    <div class="box">
+      <div class="t">put your gpu on the globe.
+        <small>one command — it enrolls, gets measured, pulls its layers, and serves. no operator, no ssh.</small>
       </div>
+      <code>npx @c0mpute/worker --mode shard --token cwt_&hellip;</code>
+    </div>
+  </div>
 
-      <div class="grid" style="grid-template-columns:1fr">
-        <div class="stage">
-          <div class="panel">
-            <div class="panel-title">network map <span class="note">every dot is a stranger's gpu</span>
-              <span class="legend"><i class="sw" style="background:#22c55e"></i>serving<i class="sw" style="background:rgba(255,255,255,0.85)"></i>standby<i class="sw" style="background:rgba(255,255,255,0.28)"></i>joining</span>
-            </div>
-            <div class="map-wrap" id="mapWrap">
-              <canvas id="map" data-chart="map"></canvas>
-              <div class="ctrls">
-                <button id="zin" title="zoom in" aria-label="zoom in">+</button>
-                <button id="zout" title="zoom out" aria-label="zoom out">&minus;</button>
-                <button id="zworld" title="whole world" aria-label="whole world">&#9678;</button>
-                <button id="zfull" title="fullscreen" aria-label="fullscreen">&#9974;</button>
-              </div>
-              <div class="maphint">scroll to zoom · drag to pan</div>
-            </div>
-            <div class="route" id="route"></div>
-          </div>
-
-          <div class="panel">
-            <div class="panel-title">one prompt · five strangers' gpus</div>
-            <div class="stream-log" id="log"></div>
-            <div class="attrib" id="attrib">&nbsp;</div>
-          </div>
-        </div>
-      </div>
-
-      <div class="cta">
-        <div class="t">put your gpu on the map.
-          <small>one command — it enrolls, gets measured, pulls its layers, and serves. no operator, no ssh.</small>
-        </div>
-        <code>npx @c0mpute/worker --mode shard --token cwt_&hellip;</code>
-      </div>
-    </section>
-  </main>
-
-  <footer>
-    <span class="pixel-serif">c<span style="font-size:1.35em">0</span>mpute</span> network map
+  <footer class="net-foot">
+    <span class="pixel-serif">c<span style="font-size:1.35em">0</span>mpute</span> network
     <span class="sep">&middot;</span> permissionless inference over scattered consumer GPUs
     <span class="sep">&middot;</span> live simulation of the shard protocol
   </footer>
@@ -117,204 +115,158 @@
   (function(){
     "use strict";
     var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    var PI=Math.PI, sin=Math.sin, cos=Math.cos, D2R=PI/180;
 
-    var LG = (function(b64){
-      var raw=atob(b64), by=new Uint8Array(raw.length), i;
-      for(i=0;i<raw.length;i++) by[i]=raw.charCodeAt(i);
-      var g=new Uint8Array(64800);
-      for(i=0;i<64800;i++) g[i]=(by[i>>3]>>(7-(i&7)))&1;
-      return g;
-    })("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP//gAAD///AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB//////Pf///8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAf/////////////AAAAAAAAAAAAAAAAAHgAAAAAAAAAAAAAAAAAAAAAAAAAAB/////////////8AAAAX/8AAP8AAAAAAf8AAAAAAAAAAAAAAAAAAAAAAAAAOB////j////////AAAAD//4AAAAAAAAAAP/wAAAAAAAAAAAAAAAAAAAAAAAeP/v//7////////+AAAAB//AAAAAAAAAAAAf8AAAAAAAAAAAAAAAAAAAAAB8+AL4f/h/////////AAAAAfvgAAAAAAAAAAAF+AAAAAAAAAAAAAAAAAAAAAH/3R////gf////////AAAAAHAAAAAAA/4AAAHf//AAAA8AAAAAAAAAAAAAAACP/5///8AAA//////+AAAAAAAAAAAAf/gAAH////gAAD//gAAAAAAAAAAAAAf4+AN//+AAAP/////+AAAAAAAAAAAA/AAAAP///8AAAA/ngAAAAAAAAAAAAAf/B8////wAAH/////8AAAAAAAAAAAB8AEAP//////H4AfAAAAAAAAAAAAAAA///5/9//4AAD/////wAAAAAAAAAAAH4APv////////8Af/AAAAA4AADgAAAA///8f9///gAD/////wAAAAAAAiAAAH4A//////////9///4QAADwAB//+gAOYf//1+///+AB/////4AAAAAAP/wAAB8A///////////////8AIDAAD////f/////v/z///AB/////gAAAAAB///gAAA+/////////////////v/4Af//////////H/34f/AA////8AAAAAAH///8eH//////////////////////AH/////////////47/4A///8AAAAAAAf////f///////////////////////8f/////////////wH/+A///4A78AAAA////////////////////////////////////////////h/+8A///AB/+AAAB/+/+f///////////////////////jwf/////////////9//oAf/wAA/8AAAD////////////////////////////APH////////////P8B/wAP/wAAfwAAAf////////////////////////////ACP////////////A///wAH/AAAAAAAB//n//////////////////////////AAf///////////4AH/5AAD/AAAAAAAD//H/////////////////////////gAA////////////wAA/4QAB+AAAAAAAB//n//////////////////////H/+AAAb/7wv///////wAB/44AAAAAAAAAAB//j//////////////////////H+IAAAA/4AB///////8AB//8AAAAAAAAA4B9/B///////////////////8AYPgAAAAAH8AAD///////AA//+AAAAAAAAB+AP+H///////////////////4AA/wAAAAAfYAAD///////4Af/+AAAAAAAAB8AO+H///////////////////gAB/wAAAAD8AAAA////////x///gAAAAAAAD+AP4H//////////////////+AAB/AAAAAHAAAAD////////z///4AAAAAAAP/AP////////////////////+yAB/gAAAAAAAAADv///////7///+AAAAAAAPfj///////////////////////AB+AAAAAAAAAABv///////5///+AAAAAAAPfz///////////////////////AB4AAAAAAAAAAAD///////////+AAAAAAAM/////////////////////////AA4AAAAAAAAAAAH///////////uAAAAAAAA////////////////////////7AAAAAAAAAAAAAAH//////////+fgAAAAAAAj////////////////////////gAAAAAAAAAAAAAA//////////w/wAAAAAAAf///////////////////////+gAAAAAAAAAAAAAAf/////////x/wAAAAAAAf///////////////////////3AAAAAAAAAAAAAAAf//////////DgAAAAAAAD///////////////////////nAAAAAAAAAAAAAAAP//////////gAAAAAAAAD/////v/////////////////GAAAAAAAAAAAAAAAf/////////8AAAAAAAAAD/////Hf///////////////+HQAAAAAAAAAAAAAAf////////5wAAAAAAAAP//33/+AH///////////////8PwAAAAAAAAAAAAAAf////////wAAAAAAAAAP/8P5/8HB///////////////wfgAAAAAAAAAAAAAAf////////4AAAAAAAAAP/8N+f//3//////////////8AdAAAAAAAAAAAAAAAf////////gAAAAAAAAAH/gMP//////////////////8AcAAAAAAAAAAAAAAAP///////8AAAAAAAAAAP/AMH/P///////////////fwAcAAAAAAAAAAAAAAAP///////8AAAAAAAAAAP/gI/Pv//////////////+T4AcAAAAAAAAAAAAAAAH///////4AAAAAAAAAAH/A3+Hv///////////////78D4AAAAAAAAAAAAAAAH///////4AAAAAAAAAAH+//MHH///////////////48H4AAAAAAAAAAAAAAAD///////4AAAAAAAAAAB//+AB4P//////////////g8/4AAAAAAAAAAAAAAAB///////wAAAAAAAAAAB//+AAgP//////////////g7/wAAAAAAAAAAAAAAAAf//////AAAAAAAAAAAH///AAAB//////////////gH+AAAAAAAAAAAAAAAAAP/////+AAAAAAAAAAAP///8PAD//////////////wHwAAAAAAAAAAAAAAAAAH/////4AAAAAAAAAAAP///+f/7//////////////wDAAAAAAAAAAAAAAAAAAH/////4AAAAAAAAAAAP/////////////////////wAAAAAAAAAAAAAAAAAAAD////j8AAAAAAAAAAAf/////////////////////4AAAAAAAAAAAAAAAAAAAB///gAcAAAAAAAAAAB//////////v///////////wAAAAAAAAAAAAAAAAAAAD//+AAcgAAAAAAAAAD//////////3///////////gAAAAAAAAAAAAAAAAAAAA//+AAdwAAAAAAAAAH//////////9///////////gAAAAAAAAAAAAAAAAAAAAf/+AANgAAAAAAAAAH///////+//8f//////////QAAAAAAAAAAAAAAAAAAAAd/+AABgAAAAAAAAAP////////f//4A////////+wAAAAAAAAAAAAAAAAAAAAGf+AAcgAAAAAAAAAf////////P//+Af///////8wAAAAAAAAAAAAIAAAAAAAGf+AB/gAAAAAAAAAf////////v///AH///////wwAAAAAAAAAAAAPAAAAAAAAP+A9H4AAAAAAAAA/////////3///AH///v//+AgAAAAAAAAAAAABgAAAAAAAP/B8B8AAAAAAAAA/////////3//+AD//8P/+YAAAAAAAAAAAAAABwAAAAAAAP/D4A/4AAAAAAAAf////////z//8AA//wH/88AAAAAAAAAAAAAAAgAAAAAAAH//4B3/gAAAAAAAf////////5//8AA//gH/+4A4AAAAAAAAAAAAAAAAAAAAAB//wAwjgAAAAAAAf////////5//4AAf/AD//AA4AAAAAAAAAAAAAAAAAAAAAAf/0AAAAAAAAAAAf////////8//gAAf+AD//gB4AAAAAAAAAAAAAAAAAAAAAADP/gAAAAAAAAAAf////////+/+AAAf4ADf/gBwAAAAAAAAAAAAAAAAAAAAAAAH/gAAAAAAAAAA///////////4AAAP4AAf/wA8AAAAAAAAAAAAAAAAAAAAAAAD/gAAAAAAAAAAf//////////gAAAP4AAP/wA8AAAAAAAAAAAAAAAAAAAAAAAAPgAoAAAAAAAAf/////////8MAAAP4AAP/wA3AAAAAAAAAAAAAAAAAAAAAAAAHgH8AAAAAAAAf/////////x8AAAHwAAM/wBfAAAAAAAAAAAAAAAAAAAAAAAADgP//AAAAAAAH//////////8AAAHwAAMfADfAAAAAAAAAAAAAAAAAAAAAAAAD/f//AAAAAAAH//////////4AAAD8AAMOAGNgAAAAAAAAAAAAAAAAAAAAAAAA////gAAAAAAD//////////4AAAD8AAOEAEPgAAAAAAAAAAAAAAAAAAAAAAAAN///wAAAAAAB//////////wAAABcAAOAAAfgAAAAAAAAAAAAAAAAAAAAAAAAA///6AAAAAAA//////////wAAAAcAAHgAMPgAAAAAAAAAAAAAAAAAAAAAAAAA////wAAAAAAf/z///////gAAAAIABzwAfDAAAAAAAAAAAAAAAAAAAAAAAAAA////4AAAAAAPuB///////gAAAAAAB7wB+AAAAAAAAAAAAAAAAAAAAAAAAAAA////8AAAAAAAAAP//////AAAAAAAA/wD8AAAAAAAAAAAAAAAAAAAAAAAAAAB////8AAAAAAAAAH/////+AAAAAAAAfwX+AQAAAAAAAAAAAAAAAAAAAAAAAAD////+AAAAAAAAAH/////8AAAAAAAAP4f+zYAAAAAAAAAAAAAAAAAAAAAAAAH////8AAAAAAAAAH/////wAAAAAAAAHw//+YAAAAAAAAAAAAAAAAAAAAAAAAH/////wAAAAAAAAP/////gAAAAAAAAHwf98bwAAAAAAAAAAAAAAAAAAAAAAAH/////8AAAAAAAAP/////AAAAAAAAAD4f98D5gAAAAAAAAAAAAAAAAAAAAAAH//////4AAAAAAAH////+AAAAAAAAAD8P74N/8AwAAAAAAAAAAAAAAAAAAAAH//////8AAAAAAAD////+AAAAAAAAAB+H55+//gcAAAAAAAAAAAAAAAAAAAAP//////+AAAAAAAB////8AAAAAAAAAA8Ap8A//wcAAAAAAAAAAAAAAAAAAAAP///////gAAAAAAB////4AAAAAAAAAAfABsAJ//7AAAAAAAAAAAAAAAAAAAAP///////wAAAAAAA////8AAAAAAAAAAH+AAAI//jgAAAAAAAAAAAAAAAAAAAD///////wAAAAAAA////8AAAAAAAAAAD/gAAB/8A8AAAAAAAAAAAAAAAAAAAD///////wAAAAAAA////8AAAAAAAAAAAP/7wB/OAHAAAAAAAAAAAAAAAAAAAB///////gAAAAAAA////8AAAAAAAAAAAAPnAAGPgHAAAAAAAAAAAAAAAAAAAB///////AAAAAAAAf///+AAAAAAAAAAAABmAACHgBgAAAAAAAAAAAAAAAAAAA//////+AAAAAAAAf///+AAAAAAAAAAAAAAB+HAAAAAAAAAAAAAAAAAAAAAAA//////+AAAAAAAA////+AwAAAAAAAAAAAAD+HAAAAAAAAAAAAAAAAAAAAAAAf/////8AAAAAAAA////+B4AAAAAAAAAAAA3+HAAAAAAAAAAAAAAAAAAAAAAAf/////8AAAAAAAA////+B4AAAAAAAAAAAB/8HwAADAAAAAAAAAAAAAAAAAAAP/////8AAAAAAAB////+H4AAAAAAAAAAAD//HwAADAAgAAAAAAAAAAAAAAAAD/////8AAAAAAAB////+P4AAAAAAAAAAAP//nwAABADAAAAAAAAAAAAAAAAAA/////4AAAAAAAB////4fwAAAAAAAAAAAP///4AAAAGAAAAAAAAAAAAAAAAAAf////4AAAAAAAB////gPwAAAAAAAAAAAf///4AAAAGAAAAAAAAAAAAAAAAAAf////4AAAAAAAA////APwAAAAAAAAAAB////+AAAAAAAAAAAAAAAAAAAAAAAf////wAAAAAAAAf//+AfgAAAAAAAAAAP////+AAMAAAAAAAAAAAAAAAAAAAAf////wAAAAAAAAf///AfgAAAAAAAAAA//////AAOAAAAAAAAAAAAAAAAAAAAf////gAAAAAAAAP///AfAAAAAAAAAAB//////gADAAAAAAAAAAAAAAAAAAAAf///+AAAAAAAAAP///AfAAAAAAAAAAB//////wAAAAAAAAAAAAAAAAAAAAAAf///wAAAAAAAAAP///AfAAAAAAAAAAB//////4AAAAAAAAAAAAAAAAAAAAAAf///gAAAAAAAAAP//8AOAAAAAAAAAAB//////8AAAAAAAAAAAAAAAAAAAAAAf///AAAAAAAAAAP//4AAAAAAAAAAAAB//////8AAAAAAAAAAAAAAAAAAAAAAf///AAAAAAAAAAH//4AAAAAAAAAAAAB//////8AAAAAAAAAAAAAAAAAAAAAA////AAAAAAAAAAH//4AAAAAAAAAAAAA//////8AAAAAAAAAAAAAAAAAAAAAA///+AAAAAAAAAAD//wAAAAAAAAAAAAA//////8AAAAAAAAAAAAAAAAAAAAAA///8AAAAAAAAAAB//gAAAAAAAAAAAAA//////8AAAAAAAAAAAAAAAAAAAAAA///8AAAAAAAAAAB//gAAAAAAAAAAAAAf/////8AAAAAAAAAAAAAAAAAAAAAA///wAAAAAAAAAAB/+AAAAAAAAAAAAAAf/w///4AAAAAAAAAAAAAAAAAAAAAA///wAAAAAAAAAAA/8AAAAAAAAAAAAAAf+AP//wAAAAAAAAAAAAAAAAAAAAAB///gAAAAAAAAAAA+AAAAAAAAAAAAAAAfIAH//wAADAAAAAAAAAAAAAAAAAAB//4AAAAAAAAAAAAAAAAAAAAAAAAAAAAOAAD//gAABgAAAAAAAAAAAAAAAAAD//8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAf/gAABwAAAAAAAAAAAAAAAAAD//4AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAf/AAAA+AAAAAAAAAAAAAAAAAD//4AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP8AAAA+AAAAAAAAAAAAAAAAAD/8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAAB8AAAAAAAAAAAAAAAAAD/8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA2AAAD4AAAAAAAAAAAAAAAAAH/8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA+AAAH4AAAAAAAAAAAAAAAAAH/4AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAeAAAPAAAAAAAAAAAAAAAAAAH/wAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAcAAA/AAAAAAAAAAAAAAAAAAH/gAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB8AAAAAAAAAAAAAAAAAAH/gAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD4AAAAAAAAAAAAAAAAAAP/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD4AAAAAAAAAAAAAAAAAAP/gAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP/gAAAAAAAAAAAAAAAAAAAAAMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP+AAAAAAAAAAAAAAAAAAAAAAOAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP8D4AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP8BgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAH+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB/gAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/gAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA4AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA8AAAAAAAAAAAAAAAAAAB4AAAAAAA4BAAAEAAAAAAAAAAAAAAAAAAAAAAAAAD8AAAAAAAAAAAAAAAAAAP8AAAAGAD//8f///wAAAAAAAAAAAAAAAAAAAAAAADwAAAAAAAAAAAAAAAAAH//34AP//////////4AAAAAAAAAAAAAAAAAAAAAAAT4AAAAAAAAAAAAAAAHD////8A/////////////AAAAAAAAAAAAAAAAAAAAAA/8AAAAAAAAAAAQRwA//////8f/////////////8AAAAAAAAAAAAAAAAAAAAA/+AAAAAAAABAH//////////8////////////////gAAAAAAAAAAAAAB9AAAP/+AAAAAAAA/////////////5////////////////8AAAAAAAAAAAAAD/AwAH/+AAAAAAAH//////////////////////////////8AAAAAAAAAD3xgD///////AAAAAAAf//////////////////////////////wAAAAAAAB/////H//////+AAAAAAAf//////////////////////////////AAAAAAAH/////////////wAAAAAAP//////////////////////////////4AAAAAGAf////////////8AAAAAA////////////////////////////////wAAAAAH/////////////+AAAAQAP////////////////////////////////4AAAAD//////////////8AAAD+A/////////////////////////////////+AAAAB4/////////////wADAP+A/////////////////////////////////wAAAAAAAP////////////x/h/+Af///////////////////////////////+AAAAAAB///////////////9AH9//////////////////////////////////AAAAAAAP////////////////////////////////////////////////////8AAACAAP/////////////////////////////////////////////////////wA//8AB///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////");
-    function landAt(lon,lat){
-      var col=Math.floor(lon+180); col=((col%360)+360)%360;
-      var row=Math.floor(90-lat); if(row<0)row=0; else if(row>179)row=179;
-      return LG[row*360+col];
-    }
+    // ── land grid (Natural Earth 110m, 1° bitpack) → 3D unit vectors, precomputed once ──
+    var LG=(function(b64){ var raw=atob(b64),by=new Uint8Array(raw.length),i;
+      for(i=0;i<raw.length;i++)by[i]=raw.charCodeAt(i);
+      var g=new Uint8Array(64800); for(i=0;i<64800;i++)g[i]=(by[i>>3]>>(7-(i&7)))&1; return g; })("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP//gAAD///AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB//////Pf///8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAf/////////////AAAAAAAAAAAAAAAAAHgAAAAAAAAAAAAAAAAAAAAAAAAAAB/////////////8AAAAX/8AAP8AAAAAAf8AAAAAAAAAAAAAAAAAAAAAAAAAOB////j////////AAAAD//4AAAAAAAAAAP/wAAAAAAAAAAAAAAAAAAAAAAAeP/v//7////////+AAAAB//AAAAAAAAAAAAf8AAAAAAAAAAAAAAAAAAAAAB8+AL4f/h/////////AAAAAfvgAAAAAAAAAAAF+AAAAAAAAAAAAAAAAAAAAAH/3R////gf////////AAAAAHAAAAAAA/4AAAHf//AAAA8AAAAAAAAAAAAAAACP/5///8AAA//////+AAAAAAAAAAAAf/gAAH////gAAD//gAAAAAAAAAAAAAf4+AN//+AAAP/////+AAAAAAAAAAAA/AAAAP///8AAAA/ngAAAAAAAAAAAAAf/B8////wAAH/////8AAAAAAAAAAAB8AEAP//////H4AfAAAAAAAAAAAAAAA///5/9//4AAD/////wAAAAAAAAAAAH4APv////////8Af/AAAAA4AADgAAAA///8f9///gAD/////wAAAAAAAiAAAH4A//////////9///4QAADwAB//+gAOYf//1+///+AB/////4AAAAAAP/wAAB8A///////////////8AIDAAD////f/////v/z///AB/////gAAAAAB///gAAA+/////////////////v/4Af//////////H/34f/AA////8AAAAAAH///8eH//////////////////////AH/////////////47/4A///8AAAAAAAf////f///////////////////////8f/////////////wH/+A///4A78AAAA////////////////////////////////////////////h/+8A///AB/+AAAB/+/+f///////////////////////jwf/////////////9//oAf/wAA/8AAAD////////////////////////////APH////////////P8B/wAP/wAAfwAAAf////////////////////////////ACP////////////A///wAH/AAAAAAAB//n//////////////////////////AAf///////////4AH/5AAD/AAAAAAAD//H/////////////////////////gAA////////////wAA/4QAB+AAAAAAAB//n//////////////////////H/+AAAb/7wv///////wAB/44AAAAAAAAAAB//j//////////////////////H+IAAAA/4AB///////8AB//8AAAAAAAAA4B9/B///////////////////8AYPgAAAAAH8AAD///////AA//+AAAAAAAAB+AP+H///////////////////4AA/wAAAAAfYAAD///////4Af/+AAAAAAAAB8AO+H///////////////////gAB/wAAAAD8AAAA////////x///gAAAAAAAD+AP4H//////////////////+AAB/AAAAAHAAAAD////////z///4AAAAAAAP/AP////////////////////+yAB/gAAAAAAAAADv///////7///+AAAAAAAPfj///////////////////////AB+AAAAAAAAAABv///////5///+AAAAAAAPfz///////////////////////AB4AAAAAAAAAAAD///////////+AAAAAAAM/////////////////////////AA4AAAAAAAAAAAH///////////uAAAAAAAA////////////////////////7AAAAAAAAAAAAAAH//////////+fgAAAAAAAj////////////////////////gAAAAAAAAAAAAAA//////////w/wAAAAAAAf///////////////////////+gAAAAAAAAAAAAAAf/////////x/wAAAAAAAf///////////////////////3AAAAAAAAAAAAAAAf//////////DgAAAAAAAD///////////////////////nAAAAAAAAAAAAAAAP//////////gAAAAAAAAD/////v/////////////////GAAAAAAAAAAAAAAAf/////////8AAAAAAAAAD/////Hf///////////////+HQAAAAAAAAAAAAAAf////////5wAAAAAAAAP//33/+AH///////////////8PwAAAAAAAAAAAAAAf////////wAAAAAAAAAP/8P5/8HB///////////////wfgAAAAAAAAAAAAAAf////////4AAAAAAAAAP/8N+f//3//////////////8AdAAAAAAAAAAAAAAAf////////gAAAAAAAAAH/gMP//////////////////8AcAAAAAAAAAAAAAAAP///////8AAAAAAAAAAP/AMH/P///////////////fwAcAAAAAAAAAAAAAAAP///////8AAAAAAAAAAP/gI/Pv//////////////+T4AcAAAAAAAAAAAAAAAH///////4AAAAAAAAAAH/A3+Hv///////////////78D4AAAAAAAAAAAAAAAH///////4AAAAAAAAAAH+//MHH///////////////48H4AAAAAAAAAAAAAAAD///////4AAAAAAAAAAB//+AB4P//////////////g8/4AAAAAAAAAAAAAAAB///////wAAAAAAAAAAB//+AAgP//////////////g7/wAAAAAAAAAAAAAAAAf//////AAAAAAAAAAAH///AAAB//////////////gH+AAAAAAAAAAAAAAAAAP/////+AAAAAAAAAAAP///8PAD//////////////wHwAAAAAAAAAAAAAAAAAH/////4AAAAAAAAAAAP///+f/7//////////////wDAAAAAAAAAAAAAAAAAAH/////4AAAAAAAAAAAP/////////////////////wAAAAAAAAAAAAAAAAAAAD////j8AAAAAAAAAAAf/////////////////////4AAAAAAAAAAAAAAAAAAAB///gAcAAAAAAAAAAB//////////v///////////wAAAAAAAAAAAAAAAAAAAD//+AAcgAAAAAAAAAD//////////3///////////gAAAAAAAAAAAAAAAAAAAA//+AAdwAAAAAAAAAH//////////9///////////gAAAAAAAAAAAAAAAAAAAAf/+AANgAAAAAAAAAH///////+//8f//////////QAAAAAAAAAAAAAAAAAAAAd/+AABgAAAAAAAAAP////////f//4A////////+wAAAAAAAAAAAAAAAAAAAAGf+AAcgAAAAAAAAAf////////P//+Af///////8wAAAAAAAAAAAAIAAAAAAAGf+AB/gAAAAAAAAAf////////v///AH///////wwAAAAAAAAAAAAPAAAAAAAAP+A9H4AAAAAAAAA/////////3///AH///v//+AgAAAAAAAAAAAABgAAAAAAAP/B8B8AAAAAAAAA/////////3//+AD//8P/+YAAAAAAAAAAAAAABwAAAAAAAP/D4A/4AAAAAAAAf////////z//8AA//wH/88AAAAAAAAAAAAAAAgAAAAAAAH//4B3/gAAAAAAAf////////5//8AA//gH/+4A4AAAAAAAAAAAAAAAAAAAAAB//wAwjgAAAAAAAf////////5//4AAf/AD//AA4AAAAAAAAAAAAAAAAAAAAAAf/0AAAAAAAAAAAf////////8//gAAf+AD//gB4AAAAAAAAAAAAAAAAAAAAAADP/gAAAAAAAAAAf////////+/+AAAf4ADf/gBwAAAAAAAAAAAAAAAAAAAAAAAH/gAAAAAAAAAA///////////4AAAP4AAf/wA8AAAAAAAAAAAAAAAAAAAAAAAD/gAAAAAAAAAAf//////////gAAAP4AAP/wA8AAAAAAAAAAAAAAAAAAAAAAAAPgAoAAAAAAAAf/////////8MAAAP4AAP/wA3AAAAAAAAAAAAAAAAAAAAAAAAHgH8AAAAAAAAf/////////x8AAAHwAAM/wBfAAAAAAAAAAAAAAAAAAAAAAAADgP//AAAAAAAH//////////8AAAHwAAMfADfAAAAAAAAAAAAAAAAAAAAAAAAD/f//AAAAAAAH//////////4AAAD8AAMOAGNgAAAAAAAAAAAAAAAAAAAAAAAA////gAAAAAAD//////////4AAAD8AAOEAEPgAAAAAAAAAAAAAAAAAAAAAAAAN///wAAAAAAB//////////wAAABcAAOAAAfgAAAAAAAAAAAAAAAAAAAAAAAAA///6AAAAAAA//////////wAAAAcAAHgAMPgAAAAAAAAAAAAAAAAAAAAAAAAA////wAAAAAAf/z///////gAAAAIABzwAfDAAAAAAAAAAAAAAAAAAAAAAAAAA////4AAAAAAPuB///////gAAAAAAB7wB+AAAAAAAAAAAAAAAAAAAAAAAAAAA////8AAAAAAAAAP//////AAAAAAAA/wD8AAAAAAAAAAAAAAAAAAAAAAAAAAB////8AAAAAAAAAH/////+AAAAAAAAfwX+AQAAAAAAAAAAAAAAAAAAAAAAAAD////+AAAAAAAAAH/////8AAAAAAAAP4f+zYAAAAAAAAAAAAAAAAAAAAAAAAH////8AAAAAAAAAH/////wAAAAAAAAHw//+YAAAAAAAAAAAAAAAAAAAAAAAAH/////wAAAAAAAAP/////gAAAAAAAAHwf98bwAAAAAAAAAAAAAAAAAAAAAAAH/////8AAAAAAAAP/////AAAAAAAAAD4f98D5gAAAAAAAAAAAAAAAAAAAAAAH//////4AAAAAAAH////+AAAAAAAAAD8P74N/8AwAAAAAAAAAAAAAAAAAAAAH//////8AAAAAAAD////+AAAAAAAAAB+H55+//gcAAAAAAAAAAAAAAAAAAAAP//////+AAAAAAAB////8AAAAAAAAAA8Ap8A//wcAAAAAAAAAAAAAAAAAAAAP///////gAAAAAAB////4AAAAAAAAAAfABsAJ//7AAAAAAAAAAAAAAAAAAAAP///////wAAAAAAA////8AAAAAAAAAAH+AAAI//jgAAAAAAAAAAAAAAAAAAAD///////wAAAAAAA////8AAAAAAAAAAD/gAAB/8A8AAAAAAAAAAAAAAAAAAAD///////wAAAAAAA////8AAAAAAAAAAAP/7wB/OAHAAAAAAAAAAAAAAAAAAAB///////gAAAAAAA////8AAAAAAAAAAAAPnAAGPgHAAAAAAAAAAAAAAAAAAAB///////AAAAAAAAf///+AAAAAAAAAAAABmAACHgBgAAAAAAAAAAAAAAAAAAA//////+AAAAAAAAf///+AAAAAAAAAAAAAAB+HAAAAAAAAAAAAAAAAAAAAAAA//////+AAAAAAAA////+AwAAAAAAAAAAAAD+HAAAAAAAAAAAAAAAAAAAAAAAf/////8AAAAAAAA////+B4AAAAAAAAAAAA3+HAAAAAAAAAAAAAAAAAAAAAAAf/////8AAAAAAAA////+B4AAAAAAAAAAAB/8HwAADAAAAAAAAAAAAAAAAAAAP/////8AAAAAAAB////+H4AAAAAAAAAAAD//HwAADAAgAAAAAAAAAAAAAAAAD/////8AAAAAAAB////+P4AAAAAAAAAAAP//nwAABADAAAAAAAAAAAAAAAAAA/////4AAAAAAAB////4fwAAAAAAAAAAAP///4AAAAGAAAAAAAAAAAAAAAAAAf////4AAAAAAAB////gPwAAAAAAAAAAAf///4AAAAGAAAAAAAAAAAAAAAAAAf////4AAAAAAAA////APwAAAAAAAAAAB////+AAAAAAAAAAAAAAAAAAAAAAAf////wAAAAAAAAf//+AfgAAAAAAAAAAP////+AAMAAAAAAAAAAAAAAAAAAAAf////wAAAAAAAAf///AfgAAAAAAAAAA//////AAOAAAAAAAAAAAAAAAAAAAAf////gAAAAAAAAP///AfAAAAAAAAAAB//////gADAAAAAAAAAAAAAAAAAAAAf///+AAAAAAAAAP///AfAAAAAAAAAAB//////wAAAAAAAAAAAAAAAAAAAAAAf///wAAAAAAAAAP///AfAAAAAAAAAAB//////4AAAAAAAAAAAAAAAAAAAAAAf///gAAAAAAAAAP//8AOAAAAAAAAAAB//////8AAAAAAAAAAAAAAAAAAAAAAf///AAAAAAAAAAP//4AAAAAAAAAAAAB//////8AAAAAAAAAAAAAAAAAAAAAAf///AAAAAAAAAAH//4AAAAAAAAAAAAB//////8AAAAAAAAAAAAAAAAAAAAAA////AAAAAAAAAAH//4AAAAAAAAAAAAA//////8AAAAAAAAAAAAAAAAAAAAAA///+AAAAAAAAAAD//wAAAAAAAAAAAAA//////8AAAAAAAAAAAAAAAAAAAAAA///8AAAAAAAAAAB//gAAAAAAAAAAAAA//////8AAAAAAAAAAAAAAAAAAAAAA///8AAAAAAAAAAB//gAAAAAAAAAAAAAf/////8AAAAAAAAAAAAAAAAAAAAAA///wAAAAAAAAAAB/+AAAAAAAAAAAAAAf/w///4AAAAAAAAAAAAAAAAAAAAAA///wAAAAAAAAAAA/8AAAAAAAAAAAAAAf+AP//wAAAAAAAAAAAAAAAAAAAAAB///gAAAAAAAAAAA+AAAAAAAAAAAAAAAfIAH//wAADAAAAAAAAAAAAAAAAAAB//4AAAAAAAAAAAAAAAAAAAAAAAAAAAAOAAD//gAABgAAAAAAAAAAAAAAAAAD//8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAf/gAABwAAAAAAAAAAAAAAAAAD//4AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAf/AAAA+AAAAAAAAAAAAAAAAAD//4AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP8AAAA+AAAAAAAAAAAAAAAAAD/8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAAB8AAAAAAAAAAAAAAAAAD/8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA2AAAD4AAAAAAAAAAAAAAAAAH/8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA+AAAH4AAAAAAAAAAAAAAAAAH/4AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAeAAAPAAAAAAAAAAAAAAAAAAH/wAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAcAAA/AAAAAAAAAAAAAAAAAAH/gAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB8AAAAAAAAAAAAAAAAAAH/gAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD4AAAAAAAAAAAAAAAAAAP/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD4AAAAAAAAAAAAAAAAAAP/gAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP/gAAAAAAAAAAAAAAAAAAAAAMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP+AAAAAAAAAAAAAAAAAAAAAAOAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP8D4AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP8BgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAH+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB/gAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/gAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA4AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA8AAAAAAAAAAAAAAAAAAB4AAAAAAA4BAAAEAAAAAAAAAAAAAAAAAAAAAAAAAD8AAAAAAAAAAAAAAAAAAP8AAAAGAD//8f///wAAAAAAAAAAAAAAAAAAAAAAADwAAAAAAAAAAAAAAAAAH//34AP//////////4AAAAAAAAAAAAAAAAAAAAAAAT4AAAAAAAAAAAAAAAHD////8A/////////////AAAAAAAAAAAAAAAAAAAAAA/8AAAAAAAAAAAQRwA//////8f/////////////8AAAAAAAAAAAAAAAAAAAAA/+AAAAAAAABAH//////////8////////////////gAAAAAAAAAAAAAB9AAAP/+AAAAAAAA/////////////5////////////////8AAAAAAAAAAAAAD/AwAH/+AAAAAAAH//////////////////////////////8AAAAAAAAAD3xgD///////AAAAAAAf//////////////////////////////wAAAAAAAB/////H//////+AAAAAAAf//////////////////////////////AAAAAAAH/////////////wAAAAAAP//////////////////////////////4AAAAAGAf////////////8AAAAAA////////////////////////////////wAAAAAH/////////////+AAAAQAP////////////////////////////////4AAAAD//////////////8AAAD+A/////////////////////////////////+AAAAB4/////////////wADAP+A/////////////////////////////////wAAAAAAAP////////////x/h/+Af///////////////////////////////+AAAAAAB///////////////9AH9//////////////////////////////////AAAAAAAP////////////////////////////////////////////////////8AAACAAP/////////////////////////////////////////////////////wA//8AB///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////");
+    function sph(lon,lat){ var la=lat*D2R,lo=lon*D2R,cl=cos(la); return [cl*sin(lo),sin(la),cl*cos(lo)]; }
+    var LAND=(function(){ var a=[],row,col;
+      for(row=0;row<180;row+=1) for(col=0;col<360;col+=1) if(LG[row*360+col]){
+        var lon=col-180+0.5, lat=90-row-0.5; var p=sph(lon,lat); a.push(p[0],p[1],p[2]); }
+      return new Float32Array(a); })();
 
-    // ── country borders: delta-varint (zig-zag) polylines, Natural Earth 110m, simplified ──
-    var BORDERS=(function(b64){
-      var raw=atob(b64), by=new Uint8Array(raw.length), i;
-      for(i=0;i<raw.length;i++) by[i]=raw.charCodeAt(i);
-      var p=0;
+    // ── country borders (delta-varint) → 3D polylines ──
+    var BORDERS=(function(b64){ var raw=atob(b64),by=new Uint8Array(raw.length),i;
+      for(i=0;i<raw.length;i++)by[i]=raw.charCodeAt(i); var p=0;
       function vu(){ var s=0,r=0,b; do{ b=by[p++]; r|=(b&0x7f)<<s; s+=7; }while(b&0x80); return (r>>>1)^(-(r&1)); }
-      var rings=[];
-      while(p<by.length){ var n=vu(), a=new Float32Array(n*2), px=0,py=0,k;
-        for(k=0;k<n;k++){ px+=vu(); py+=vu(); a[k*2]=px/10-180; a[k*2+1]=py/10-90; }
-        rings.push(a); }
-      return rings;
-    })("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");
+      var out=[]; while(p<by.length){ var n=vu(), a=new Float32Array(n*3),px=0,py=0,k;
+        for(k=0;k<n;k++){ px+=vu(); py+=vu(); var v=sph(px/10-180,py/10-90); a[k*3]=v[0]; a[k*3+1]=v[1]; a[k*3+2]=v[2]; }
+        out.push(a); } return out; })("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");
 
-    var NODES=[
-      ["Ghent","BE",3.7,51.0],["Amsterdam","NL",4.9,52.4],["Nuremberg","DE",11.1,49.5],
-      ["Frankfurt","DE",8.7,50.1],["Prague","CZ",14.4,50.1],["Vilnius","LT",25.3,54.7],
-      ["Sofia","BG",23.3,42.7],["Oslo","NO",10.7,59.9],["Stockholm","SE",18.1,59.3],
-      ["Reykjavik","IS",-21.9,64.1],["London","GB",-0.1,51.5],["Paris","FR",2.35,48.9],
-      ["Madrid","ES",-3.7,40.4],["Warsaw","PL",21.0,52.2],["Bucharest","RO",26.1,44.4],
-      ["Milan","IT",9.2,45.5],["New York","US",-74.0,40.7],["San Francisco","US",-122.4,37.8],
-      ["Toronto","CA",-79.4,43.7],["Austin","US",-97.7,30.3],["Denver","US",-105.0,39.7],
-      ["Miami","US",-80.2,25.8],["Sao Paulo","BR",-46.6,-23.5],["Buenos Aires","AR",-58.4,-34.6],
-      ["Bogota","CO",-74.1,4.7],["Lagos","NG",3.4,6.5],["Nairobi","KE",36.8,-1.3],
-      ["Cape Town","ZA",18.4,-33.9],["Dubai","AE",55.3,25.2],["Tel Aviv","IL",34.8,32.1],
-      ["Tokyo","JP",139.7,35.7],["Seoul","KR",127.0,37.6],["Singapore","SG",103.8,1.35],
-      ["Bangalore","IN",77.6,13.0],["Mumbai","IN",72.8,19.1],["Hong Kong","HK",114.2,22.3],
-      ["Jakarta","ID",106.8,-6.2],["Sydney","AU",151.2,-33.9],["Auckland","NZ",174.8,-36.8]
-    ].map(function(n,i){ return {city:n[0],cc:n[1],lon:n[2],lat:n[3],status:"stand"}; });
-    function byCity(c){ for(var i=0;i<NODES.length;i++) if(NODES[i].city===c) return NODES[i]; }
-    var RING=["Amsterdam","Nuremberg","Prague","Vilnius","Sofia"].map(byCity), TAIL=byCity("Ghent");
-    RING.forEach(function(n){n.status="serve";}); TAIL.status="serve";
-    NODES.forEach(function(n,i){ if(n.status!=="serve") n.status=(i%6===0)?"off":"stand"; });
-
-    var cv=document.getElementById('map'), ctx=cv.getContext('2d');
-    var RECT={x:0,y:0,w:0,h:0}, dpr=1, view={z:1.15,cx:8,cy:30};
-    function basePpd(){ return Math.min(RECT.w/360,RECT.h/180); }
-    function ppd(){ return basePpd()*view.z; }
-    function projX(lon){ return RECT.w/2+(lon-view.cx)*ppd(); }
-    function projY(lat){ return RECT.h/2-(lat-view.cy)*ppd(); }
-    function invLon(x){ return view.cx+(x-RECT.w/2)/ppd(); }
-    function invLat(y){ return view.cy-(y-RECT.h/2)/ppd(); }
-    function clampView(){
-      var hH=(RECT.h/2)/ppd(), mLat=Math.max(0,90-hH);
-      view.cy=Math.max(-mLat,Math.min(mLat,view.cy));
-      var hW=(RECT.w/2)/ppd(), mLon=Math.max(0,180-hW);
-      view.cx=Math.max(-mLon,Math.min(mLon,view.cx));
-    }
-    function layout(){
-      dpr=Math.min(window.devicePixelRatio||1,2);
-      var w=cv.clientWidth,h=cv.clientHeight;
-      cv.width=Math.round(w*dpr); cv.height=Math.round(h*dpr);
-      ctx.setTransform(dpr,0,0,dpr,0,0); ctx.imageSmoothingEnabled=false;
-      RECT={x:0,y:0,w:w,h:h}; clampView();
-    }
-    function px(v){ return Math.round(v); }
-    function line(x0,y0,x1,y1,s){ ctx.fillStyle=s;
-      var dx=Math.abs(x1-x0),dy=Math.abs(y1-y0),sx=x0<x1?1:-1,sy=y0<y1?1:-1,e=dx-dy,x=x0,y=y0,g=0;
-      while(g++<6000){ if((g&1)===0)ctx.fillRect(x,y,1,1); if(x===x1&&y===y1)break;
-        var e2=2*e; if(e2>-dy){e-=dy;x+=sx;} if(e2<dx){e+=dx;y+=sy;} } }
-    function edges(){ var e=[],i; for(i=0;i<RING.length-1;i++)e.push([RING[i],RING[i+1]]);
-      e.push([RING[RING.length-1],TAIL]); e.push([TAIL,RING[0]]); return e; }
-
-    var pulse=-1, now=0;
-    function draw(){
-      var w=RECT.w,h=RECT.h; ctx.clearRect(0,0,w,h);
-      ctx.fillStyle='rgba(255,255,255,0.05)';
-      for(var la=-60;la<=60;la+=30){ var gy=projY(la); if(gy>0&&gy<h) for(var gx=0;gx<w;gx+=5)ctx.fillRect(gx,px(gy),2,1); }
-      for(var lo=-150;lo<=150;lo+=30){ var mx=projX(lo); if(mx>0&&mx<w) for(var my=0;my<h;my+=6)ctx.fillRect(px(mx),my,1,2); }
-      // dotted land fill — subtle texture under the borders (the user likes the dots)
-      ctx.fillStyle='rgba(255,255,255,0.09)';
-      var sp=7;
-      for(var sy=3;sy<h;sy+=sp) for(var sx=3;sx<w;sx+=sp){
-        var lat=invLat(sy); if(lat>84||lat<-58) continue;
-        if(landAt(invLon(sx),lat)) ctx.fillRect(sx,sy,2,2);
-      }
-      // country borders — thin white line-art, the geography the user asked for.
-      // break a segment that wraps the antimeridian so no country streaks across the map.
-      ctx.strokeStyle='rgba(255,255,255,0.34)'; ctx.lineWidth=0.6; ctx.beginPath();
-      for(var r=0;r<BORDERS.length;r++){ var ring=BORDERS[r], m=ring.length/2, started=false, plon=0;
-        for(var v=0;v<m;v++){ var lon=ring[v*2], la=ring[v*2+1], X=projX(lon), Y=projY(la);
-          if(started && Math.abs(lon-plon)<180) ctx.lineTo(X,Y); else ctx.moveTo(X,Y);
-          started=true; plon=lon; }
-        // close the ring back to its first point (unless that edge wraps)
-        var f0=ring[0], fla=ring[1];
-        if(Math.abs(f0-plon)<180) ctx.lineTo(projX(f0),projY(fla));
-      }
-      ctx.stroke();
-      var E=edges();
-      for(var k=0;k<E.length;k++){ var a=E[k][0],b=E[k][1];
-        line(px(projX(a.lon)),px(projY(a.lat)),px(projX(b.lon)),px(projY(b.lat)),'rgba(34,197,94,0.45)'); }
-      if(pulse>=0){ var ei=Math.floor(pulse)%E.length,f=pulse-Math.floor(pulse),ea=E[ei][0],eb=E[ei][1];
-        var tx=projX(ea.lon)+(projX(eb.lon)-projX(ea.lon))*f, ty=projY(ea.lat)+(projY(eb.lat)-projY(ea.lat))*f;
-        ctx.fillStyle='#fff'; ctx.fillRect(px(tx)-1,px(ty)-1,3,3); }
-      for(var n=0;n<NODES.length;n++){ var nd=NODES[n],x=px(projX(nd.lon)),y=px(projY(nd.lat));
-        if(x<-4||x>w+4||y<-4||y>h+4) continue;
-        if(nd.status==="serve"){ ctx.fillStyle='#22c55e'; ctx.fillRect(x-2,y-2,4,4); }
-        else{ var al=nd.status==="stand"?0.85:0.28; if(nd.status==="off"&&Math.floor(now/300)%2)al*=0.4;
-          ctx.fillStyle='rgba(255,255,255,'+al+')'; ctx.fillRect(x-1,y-1,3,3); } }
-      if(view.z>=2.4){ ctx.font='10px "Courier New",monospace'; ctx.textBaseline='middle';
-        var lab=RING.concat([TAIL]);
-        for(var L=0;L<lab.length;L++){ var nn=lab[L],lx=px(projX(nn.lon))+7,ly=px(projY(nn.lat));
-          var t=nn.city.toLowerCase()+(nn===TAIL?" ·home":"");
-          ctx.fillStyle=nn===TAIL?'rgba(34,197,94,0.95)':'rgba(255,255,255,0.72)';
-          if(lx+ctx.measureText(t).width>w) lx=px(projX(nn.lon))-7-ctx.measureText(t).width;
-          ctx.fillText(t,lx,ly); } }
-    }
-
-    var CONVOS=[
-      {q:"explain how a torrent works, in two sentences.",
-       a:"A file is split into small pieces, and every downloader also uploads the pieces it already has to everyone else. No central server hosts it — the swarm itself is the source, so the more people want it, the faster it spreads."},
-      {q:"two-line poem about a bedroom gpu joining a global brain.",
-       a:"A fan spins up in a quiet room in Ghent,\nand somewhere a stranger's sentence finds its end."},
-      {q:"what does it mean that no machine holds the whole model?",
-       a:"Each GPU keeps only a slice of the layers, so a prompt is passed hop to hop around the ring, every stage adding its piece. No one node can run the model alone — and no one node has to."},
-      {q:"is this actually decentralized, or just marketing?",
-       a:"Weights move peer-to-peer and every byte is checked against a signed manifest; each stage signs a receipt for its work. The orchestrator only matches nodes — it never touches your tokens, and it can't forge the receipts."}
+    // ── nodes: [city, cc, lon, lat, tier] ; tiers carry vram(GB) for the pool stat ──
+    var TIER={ "RTX 5090":32, "RTX 4090":24, "RTX 3090":24, "H100 NVL":94, "RTX PRO 6000":96 };
+    var RAW=[
+      ["Ghent","BE",3.7,51.0,"RTX 4090"],["Amsterdam","NL",4.9,52.4,"RTX 5090"],["Nuremberg","DE",11.1,49.5,"RTX 5090"],
+      ["Frankfurt","DE",8.7,50.1,"RTX 5090"],["Prague","CZ",14.4,50.1,"RTX PRO 6000"],["Vilnius","LT",25.3,54.7,"RTX PRO 6000"],
+      ["Sofia","BG",23.3,42.7,"H100 NVL"],["Oslo","NO",10.7,59.9,"RTX 5090"],["Stockholm","SE",18.1,59.3,"RTX 4090"],
+      ["Reykjavik","IS",-21.9,64.1,"RTX 4090"],["London","GB",-0.1,51.5,"RTX 5090"],["Paris","FR",2.35,48.9,"RTX 4090"],
+      ["Madrid","ES",-3.7,40.4,"RTX 3090"],["Warsaw","PL",21.0,52.2,"RTX 5090"],["Bucharest","RO",26.1,44.4,"RTX 4090"],
+      ["Milan","IT",9.2,45.5,"RTX 4090"],["Lisbon","PT",-9.1,38.7,"RTX 3090"],["Athens","GR",23.7,38.0,"RTX 4090"],
+      ["New York","US",-74.0,40.7,"RTX 5090"],["San Francisco","US",-122.4,37.8,"RTX 4090"],["Toronto","CA",-79.4,43.7,"RTX 4090"],
+      ["Austin","US",-97.7,30.3,"RTX 5090"],["Denver","US",-105.0,39.7,"RTX 3090"],["Miami","US",-80.2,25.8,"RTX 4090"],
+      ["Chicago","US",-87.6,41.9,"RTX 5090"],["Seattle","US",-122.3,47.6,"RTX 4090"],["Mexico City","MX",-99.1,19.4,"RTX 3090"],
+      ["Sao Paulo","BR",-46.6,-23.5,"RTX 3090"],["Buenos Aires","AR",-58.4,-34.6,"RTX 3090"],["Bogota","CO",-74.1,4.7,"RTX 3090"],
+      ["Santiago","CL",-70.6,-33.4,"RTX 4090"],["Lagos","NG",3.4,6.5,"RTX 3090"],["Nairobi","KE",36.8,-1.3,"RTX 4090"],
+      ["Cape Town","ZA",18.4,-33.9,"RTX 4090"],["Cairo","EG",31.2,30.0,"RTX 3090"],["Dubai","AE",55.3,25.2,"H100 NVL"],
+      ["Tel Aviv","IL",34.8,32.1,"RTX 5090"],["Istanbul","TR",29.0,41.0,"RTX 4090"],["Tokyo","JP",139.7,35.7,"RTX 5090"],
+      ["Seoul","KR",127.0,37.6,"RTX 4090"],["Singapore","SG",103.8,1.35,"H100 NVL"],["Bangalore","IN",77.6,13.0,"RTX 4090"],
+      ["Mumbai","IN",72.8,19.1,"RTX 3090"],["Hong Kong","HK",114.2,22.3,"RTX 5090"],["Jakarta","ID",106.8,-6.2,"RTX 3090"],
+      ["Bangkok","TH",100.5,13.7,"RTX 3090"],["Manila","PH",121.0,14.6,"RTX 3090"],["Sydney","AU",151.2,-33.9,"RTX 5090"],
+      ["Melbourne","AU",144.9,-37.8,"RTX 4090"],["Auckland","NZ",174.8,-36.8,"RTX 4090"]
     ];
-    var logEl=document.getElementById('log'), attribEl=document.getElementById('attrib');
-    var geoCount=(function(){var s={};RING.concat([TAIL]).forEach(function(n){s[n.cc]=1;});return Object.keys(s).length;})();
-    (function(){ var hops=RING.concat([TAIL]),html='<span class="lab">route</span>',i;
-      for(i=0;i<hops.length;i++){ html+='<span class="hop'+(hops[i]===TAIL?' tail':'')+'">'+hops[i].city.toLowerCase()+'</span>';
-        if(i<hops.length-1) html+='<span class="arr">→</span>'; }
-      html+='<span class="arr">↺</span><span class="lab">return</span>';
-      document.getElementById('route').innerHTML=html; })();
+    var NODES=RAW.map(function(n,i){ return { city:n[0],cc:n[1],lon:n[2],lat:n[3],gpu:n[4],
+      v:sph(n[2],n[3]), status:"stand", id:"12D3Koo"+String.fromCharCode(65+i%26)+(1000+i*37%9000) }; });
+    function byCity(c){ for(var i=0;i<NODES.length;i++) if(NODES[i].city===c) return NODES[i]; }
 
-    var tokS=0,convoI=0,phase="ask",tSince=0,typed=0,curMsg="",curBody=null;
-    function pushMsg(who,cls){ var m=document.createElement('div');m.className='msg '+cls;
-      var w=document.createElement('div');w.className='who';w.textContent=who;
-      var b=document.createElement('div');b.className='body';m.appendChild(w);m.appendChild(b);logEl.appendChild(m);
-      while(logEl.children.length>4)logEl.removeChild(logEl.firstChild); return b; }
-    function startConvo(){ var c=CONVOS[convoI%CONVOS.length];
-      pushMsg("you","you").textContent=c.q; curBody=pushMsg("swarm","swarm"); curMsg=c.a; typed=0; tokS=0;
-      attribEl.innerHTML='&nbsp;'; phase="stream"; tSince=0; pulse=0; }
-    function tick(dt){ now+=dt;
-      if(phase==="ask"){ tSince+=dt; if(tSince>700)startConvo(); return; }
-      if(phase==="stream"){ tSince+=dt; var tg=Math.min(curMsg.length,Math.floor(tSince/27));
-        if(tg>typed){ typed=tg; curBody.textContent=curMsg.slice(0,typed);
-          curBody.innerHTML=curBody.textContent.replace(/</g,'&lt;')+'<span class="cursor"></span>';
-          pulse+=0.9; tokS=2+Math.round((Math.sin(now/900)+1)*1.3*10)/10; }
-        if(typed>=curMsg.length){ curBody.textContent=curMsg;
-          attribEl.innerHTML='served by <b>'+(RING.length+1)+' gpus</b> across <b>'+geoCount+' countries</b> · '+
-            RING[0].city.toLowerCase()+'→…→'+TAIL.city.toLowerCase()+' · <b>'+tokS.toFixed(1)+'</b> tok/s';
-          tokS=0; phase="rest"; tSince=0; }
-        return; }
-      if(phase==="rest"){ tSince+=dt; pulse=-1; if(tSince>2600){ convoI++; phase="ask"; tSince=0; } } }
-    var joinT=0;
-    function joins(dt){ joinT+=dt; if(joinT<2200)return; joinT=0;
-      var offs=NODES.filter(function(n){return n.status==="off";});
-      if(offs.length) offs[0].status="stand";
-      else{ var st=NODES.filter(function(n){return n.status==="stand";}); if(st.length>7)st[Math.floor(now/1000)%st.length].status="off"; } }
+    // two live serving rings (EU + transatlantic), each a closed pipeline of nodes
+    var RINGS=[
+      ["Amsterdam","Nuremberg","Prague","Vilnius","Sofia","Ghent"].map(byCity),
+      ["New York","Toronto","London","Frankfurt","Chicago"].map(byCity)
+    ];
+    RINGS.forEach(function(r){ r.forEach(function(n){ n.status="serve"; }); });
+    NODES.forEach(function(n,i){ if(n.status!=="serve") n.status=(i%7===0)?"off":"stand"; });
 
-    var elHero=document.getElementById('hero-gpus'),elG=document.getElementById('c-gpus'),
-        elT=document.getElementById('c-toks'),elC=document.getElementById('c-countries');
-    function stats(){ var on=0,ccs={};
-      for(var i=0;i<NODES.length;i++){ var n=NODES[i]; if(n.status!=="off"){on++;ccs[n.cc]=1;} }
-      elHero.textContent=on; elG.textContent=on;
-      elT.innerHTML=(phase==="stream"?tokS.toFixed(1):"0")+'<small> tok/s</small>';
-      elC.textContent=Object.keys(ccs).length; }
+    // ── great-circle arc samples (with lift) for each ring edge, precomputed ──
+    function slerp(a,b,t){ var d=a[0]*b[0]+a[1]*b[1]+a[2]*b[2]; d=Math.max(-1,Math.min(1,d));
+      var o=Math.acos(d); if(o<1e-4) return [a[0],a[1],a[2]]; var s=sin(o),f0=sin((1-t)*o)/s,f1=sin(t*o)/s;
+      return [a[0]*f0+b[0]*f1, a[1]*f0+b[1]*f1, a[2]*f0+b[2]*f1]; }
+    function buildArc(a,b){ var N=28, pts=new Float32Array(N*3),i;
+      for(i=0;i<N;i++){ var t=i/(N-1), p=slerp(a.v,b.v,t), lift=1+0.16*sin(t*PI);
+        pts[i*3]=p[0]*lift; pts[i*3+1]=p[1]*lift; pts[i*3+2]=p[2]*lift; } return pts; }
+    var ARCS=[]; RINGS.forEach(function(r,ri){ for(var i=0;i<r.length;i++){ var a=r[i],b=r[(i+1)%r.length];
+      ARCS.push({ ring:ri, pts:buildArc(a,b) }); } });
 
-    function zoomAt(f,mx,my){ var lon=invLon(mx),lat=invLat(my);
-      view.z=Math.max(1,Math.min(9,view.z*f));
-      view.cx=lon-(mx-RECT.w/2)/ppd(); view.cy=lat+(my-RECT.h/2)/ppd(); clampView(); }
-    cv.addEventListener('wheel',function(e){ e.preventDefault(); var r=cv.getBoundingClientRect();
-      zoomAt(e.deltaY<0?1.16:1/1.16, e.clientX-r.left, e.clientY-r.top); },{passive:false});
-    var drag=null;
-    cv.addEventListener('pointerdown',function(e){ drag={x:e.clientX,y:e.clientY}; cv.classList.add('drag'); cv.setPointerCapture(e.pointerId); });
-    cv.addEventListener('pointermove',function(e){ if(!drag)return;
-      view.cx-=(e.clientX-drag.x)/ppd(); view.cy+=(e.clientY-drag.y)/ppd(); drag={x:e.clientX,y:e.clientY}; clampView(); });
+    // ── globe camera / projection ──
+    var cv=document.getElementById('globe'), ctx=cv.getContext('2d');
+    var W=0,H=0,CX=0,CY=0,R=0,dpr=1;
+    var yaw=-0.5, tilt=0.32, spin=0.055, drag=null, vel=0;
+    function layout(){ dpr=Math.min(window.devicePixelRatio||1,2);
+      W=cv.clientWidth; H=cv.clientHeight; cv.width=Math.round(W*dpr); cv.height=Math.round(H*dpr);
+      ctx.setTransform(dpr,0,0,dpr,0,0); ctx.imageSmoothingEnabled=false;
+      CX=W/2; CY=H/2; R=Math.min(W,H)*0.42; }
+    // rotate a unit/near-unit vector by yaw (Y) then tilt (X)
+    var sY,cY,sT,cT;
+    function setRot(){ sY=sin(yaw); cY=cos(yaw); sT=sin(tilt); cT=cos(tilt); }
+    function rot(p, out){ var x=p[0]*cY+p[2]*sY, z=-p[0]*sY+p[2]*cY, y=p[1];
+      out[0]=x; out[1]=y*cT-z*sT; out[2]=y*sT+z*cT; return out; }
+    var _t=[0,0,0];
+
+    function draw(){
+      ctx.clearRect(0,0,W,H); setRot();
+      // globe edge + faint disc
+      ctx.strokeStyle='rgba(255,255,255,0.09)'; ctx.lineWidth=1;
+      ctx.beginPath(); ctx.arc(CX,CY,R,0,2*PI); ctx.stroke();
+      // land dots (front hemisphere only), brightness by depth
+      var i,n=LAND.length/3;
+      for(i=0;i<n;i++){ _t[0]=LAND[i*3]; _t[1]=LAND[i*3+1]; _t[2]=LAND[i*3+2]; rot(_t,_t);
+        if(_t[2]<=0.02) continue; var sx=CX+_t[0]*R, sy=CY-_t[1]*R;
+        var a=0.06+0.34*_t[2]; ctx.fillStyle='rgba(255,255,255,'+a.toFixed(3)+')'; ctx.fillRect(sx|0,sy|0,2,2); }
+      // country borders (front-facing segments)
+      ctx.strokeStyle='rgba(255,255,255,0.22)'; ctx.lineWidth=0.6; ctx.beginPath();
+      for(var r=0;r<BORDERS.length;r++){ var ring=BORDERS[r], m=ring.length/3, up=false;
+        for(var v=0;v<m;v++){ _t[0]=ring[v*3]; _t[1]=ring[v*3+1]; _t[2]=ring[v*3+2]; rot(_t,_t);
+          if(_t[2]>0.02){ var X=CX+_t[0]*R, Y=CY-_t[1]*R; if(up) ctx.lineTo(X,Y); else ctx.moveTo(X,Y); up=true; } else up=false; } }
+      ctx.stroke();
+      // arcs (raised great circles) + travelling pulses
+      for(var e=0;e<ARCS.length;e++){ var pts=ARCS[e].pts, m2=pts.length/3, up2=false;
+        ctx.strokeStyle='rgba(34,197,94,0.5)'; ctx.lineWidth=1; ctx.beginPath();
+        for(var k=0;k<m2;k++){ _t[0]=pts[k*3]; _t[1]=pts[k*3+1]; _t[2]=pts[k*3+2]; rot(_t,_t);
+          if(_t[2]>0){ var AX=CX+_t[0]*R, AY=CY-_t[1]*R; if(up2) ctx.lineTo(AX,AY); else ctx.moveTo(AX,AY); up2=true; } else up2=false; }
+        ctx.stroke();
+        // pulse
+        var pt=pulse%1, idx=Math.floor(pt*(m2-1));
+        _t[0]=pts[idx*3]; _t[1]=pts[idx*3+1]; _t[2]=pts[idx*3+2]; rot(_t,_t);
+        if(_t[2]>0){ ctx.fillStyle='#fff'; ctx.fillRect((CX+_t[0]*R|0)-1,(CY-_t[1]*R|0)-1,3,3); } }
+      // nodes on the surface
+      for(i=0;i<NODES.length;i++){ var nd=NODES[i]; _t[0]=nd.v[0]; _t[1]=nd.v[1]; _t[2]=nd.v[2]; rot(_t,_t);
+        if(_t[2]<=0.02) continue; var nx=CX+_t[0]*R|0, ny=CY-_t[1]*R|0, edge=Math.min(1,(_t[2]-0.02)*4);
+        if(nd.status==="serve"){ ctx.fillStyle='rgba(34,197,94,'+(0.28*edge).toFixed(2)+')'; ctx.fillRect(nx-3,ny-3,6,6);
+          ctx.fillStyle='rgba(34,197,94,'+edge.toFixed(2)+')'; ctx.fillRect(nx-2,ny-2,4,4); }
+        else{ var al=(nd.status==="stand"?0.82:0.34)*edge; if(nd.status==="off"&&Math.floor(now/300)%2)al*=0.4;
+          ctx.fillStyle='rgba(255,255,255,'+al.toFixed(2)+')'; ctx.fillRect(nx-1,ny-1,3,3); } }
+    }
+
+    // ── stats ──
+    var served=Number("1"+"837"+"420"), tokS=0, now=0, pulse=0;
+    var elG=document.getElementById('s-gpus'), elC=document.getElementById('s-countries'),
+        elR=document.getElementById('s-rings'), elV=document.getElementById('s-vram'),
+        elT=document.getElementById('s-toks'), elS=document.getElementById('s-served');
+    function commas(n){ return String(n).replace(/\B(?=(\d{3})+(?!\d))/g,','); }
+    (function tiers(){ var c={}; NODES.forEach(function(n){ if(n.status!=="off") c[n.gpu]=(c[n.gpu]||0)+1; });
+      var order=["RTX PRO 6000","H100 NVL","RTX 5090","RTX 4090","RTX 3090"];
+      var max=Math.max.apply(null,order.map(function(k){return c[k]||0;}));
+      document.getElementById('tiers').innerHTML=order.map(function(k){ var n=c[k]||0, pct=max?Math.round(n/max*100):0;
+        return '<div class="tier"><span class="name">'+k.toLowerCase()+'</span><span class="track"><span class="fill" style="width:'+pct+'%"></span></span><span class="n pxnum">'+n+'</span></div>'; }).join(''); })();
+    function stats(dt){ var on=0,ccs={},vram=0;
+      for(var i=0;i<NODES.length;i++){ var n=NODES[i]; if(n.status!=="off"){ on++; ccs[n.cc]=1; vram+=TIER[n.gpu]||24; } }
+      elG.textContent=on; elC.textContent=Object.keys(ccs).length; elR.textContent=RINGS.length;
+      elV.innerHTML=(vram/1000).toFixed(2)+'<small> TB</small>';
+      tokS = reduce? 5.4 : 4.4 + (sin(now/900)+1)*1.6 + (sin(now/337)+1)*0.6;   // aggregate across rings
+      elT.innerHTML=tokS.toFixed(1)+'<small> tok/s</small>';
+      served += tokS*dt/1000; elS.textContent=commas(Math.floor(served));
+    }
+
+    // ── interaction: drag to spin, momentum, auto-rotate ──
+    cv.addEventListener('pointerdown',function(e){ drag={x:e.clientX,y:e.clientY}; vel=0; cv.classList.add('drag'); cv.setPointerCapture(e.pointerId); });
+    cv.addEventListener('pointermove',function(e){ if(!drag)return; var dx=e.clientX-drag.x, dy=e.clientY-drag.y;
+      yaw+=dx*0.006; tilt=Math.max(-1.2,Math.min(1.2,tilt+dy*0.006)); vel=dx*0.006; drag={x:e.clientX,y:e.clientY}; });
     function endDrag(){ drag=null; cv.classList.remove('drag'); }
     cv.addEventListener('pointerup',endDrag); cv.addEventListener('pointercancel',endDrag);
-    document.getElementById('zin').onclick=function(){ zoomAt(1.4,RECT.w/2,RECT.h/2); };
-    document.getElementById('zout').onclick=function(){ zoomAt(1/1.4,RECT.w/2,RECT.h/2); };
-    document.getElementById('zworld').onclick=function(){ view={z:1,cx:0,cy:12}; clampView(); };
-    var wrap=document.getElementById('mapWrap');
-    document.getElementById('zfull').onclick=function(){ if(document.fullscreenElement)document.exitFullscreen(); else if(wrap.requestFullscreen)wrap.requestFullscreen(); };
-    document.addEventListener('fullscreenchange',function(){ setTimeout(layout,60); });
+
+    var joinT=0;
+    function joins(dt){ joinT+=dt; if(joinT<2400)return; joinT=0;
+      var offs=NODES.filter(function(n){return n.status==="off";});
+      if(offs.length) offs[0].status="stand";
+      else{ var st=NODES.filter(function(n){return n.status==="stand";}); if(st.length>9) st[Math.floor(now/1000)%st.length].status="off"; } }
 
     var last=0;
-    function frame(ts){ var dt=last?Math.min(ts-last,80):16; last=ts;
-      if(!reduce){ tick(dt); joins(dt); } draw(); stats(); requestAnimationFrame(frame); }
-    function boot(){ layout();
-      if(reduce){ var c=CONVOS[0]; pushMsg("you","you").textContent=c.q; pushMsg("swarm","swarm").textContent=c.a;
-        attribEl.innerHTML='served by <b>'+(RING.length+1)+' gpus</b> across <b>'+geoCount+' countries</b>'; pulse=2.5; }
-      requestAnimationFrame(frame); }
+    function frame(ts){ var dt=last?Math.min(ts-last,80):16; last=ts; now+=dt;
+      if(!reduce){ if(drag){} else { yaw+=spin*dt/16 + vel; vel*=0.94; if(Math.abs(vel)<0.0002)vel=0; }
+        pulse+=dt/2600; joins(dt); }
+      draw(); stats(dt); requestAnimationFrame(frame); }
+    function boot(){ layout(); if(reduce){ draw(); stats(16); } requestAnimationFrame(frame); }
     var rz; window.addEventListener('resize',function(){ clearTimeout(rz); rz=setTimeout(layout,120); });
     if(cv.clientWidth) boot(); else requestAnimationFrame(boot);
   })();
