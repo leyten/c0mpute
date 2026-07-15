@@ -15,8 +15,10 @@ const pkg = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf-
 const CONFIG_DIR = join(homedir(), '.config', 'c0mpute-worker');
 const CONFIG_FILE = join(CONFIG_DIR, 'config.json');
 
+type WorkerMode = 'max' | 'image' | 'shard';
+
 interface SavedConfig {
-  mode?: 'max' | 'image';
+  mode?: WorkerMode;
   model?: WorkerModelKey;
 }
 
@@ -50,14 +52,15 @@ function ask(question: string): Promise<string> {
 // Prompt for the worker mode. `current` (the last saved choice) becomes the
 // default — pressing Enter keeps it, so re-prompting every startup costs one
 // keystroke for unchanged setups.
-function promptMode(current?: 'max' | 'image'): Promise<'max' | 'image'> {
+function promptMode(current?: WorkerMode): Promise<WorkerMode> {
   console.log('\nWhat should this worker run?');
   console.log(`  1) Max worker      — text/chat inference (Ollama, ~17GB model)${current === 'max' ? '  <- current' : ''}`);
   console.log(`  2) Image generation — text-to-image (ComfyUI + Chroma, ~14GB model)${current === 'image' ? '  <- current' : ''}`);
-  const def = current === 'image' ? 2 : current === 'max' ? 1 : null;
-  return ask(`\nEnter 1 or 2${def ? ` [${def}]` : ''}: `).then((a) => {
+  console.log(`  3) Shard node       — serve a slice of a frontier model with the swarm${current === 'shard' ? '  <- current' : ''}`);
+  const def = current === 'image' ? 2 : current === 'shard' ? 3 : current === 'max' ? 1 : null;
+  return ask(`\nEnter 1-3${def ? ` [${def}]` : ''}: `).then((a) => {
     if (a === '' && current) return current; // Enter keeps the saved choice
-    return a === '2' ? 'image' : 'max';
+    return a === '2' ? 'image' : a === '3' ? 'shard' : 'max';
   });
 }
 
@@ -66,13 +69,13 @@ function promptMode(current?: 'max' | 'image'): Promise<'max' | 'image'> {
 // max and image never requires the --mode flag or a reset. Headless runs (no
 // TTY, e.g. pm2/systemd) reuse the saved choice silently. Don't download two
 // models — only the chosen stack is set up downstream.
-async function resolveMode(flag?: string): Promise<'max' | 'image'> {
-  if (flag === 'max' || flag === 'image') { saveConfig({ mode: flag }); return flag; }
-  if (flag) throw new Error(`Invalid --mode "${flag}" (use "max" or "image").`);
+async function resolveMode(flag?: string): Promise<WorkerMode> {
+  if (flag === 'max' || flag === 'image' || flag === 'shard') { saveConfig({ mode: flag }); return flag; }
+  if (flag) throw new Error(`Invalid --mode "${flag}" (use "max", "image" or "shard").`);
   const saved = readConfig().mode;
   if (!process.stdin.isTTY) {
     if (saved) { console.log(`Using saved mode "${saved}" (no interactive terminal). Pass --mode to change.`); return saved; }
-    throw new Error('No mode chosen. Re-run with --mode max  or  --mode image (no interactive terminal available).');
+    throw new Error('No mode chosen. Re-run with --mode max, --mode image or --mode shard (no interactive terminal available).');
   }
   const chosen = await promptMode(saved);
   saveConfig({ mode: chosen });
@@ -158,7 +161,7 @@ program
   .version(pkg.version)
   .option('--token <token>', 'Authentication token from c0mpute.ai')
   .option('--url <url>', 'Orchestrator URL', 'https://c0mpute.ai')
-  .option('--mode <mode>', 'Worker mode: "max" (text) or "image" (image gen). Prompts on first run if omitted.')
+  .option('--mode <mode>', 'Worker mode: "max" (text), "image" (image gen) or "shard" (serve a model slice). Prompts on first run if omitted.')
   .option('--model <model>', `Max model to run: ${Object.keys(WORKER_MODELS).join(' | ')}. Prompts on first run if omitted.`)
   .option('--benchmark', 'Run benchmark only, then exit')
   .action(async (opts) => {
@@ -171,7 +174,17 @@ program
 
     try {
       const mode = await resolveMode(opts.mode);
-      console.log(`Mode: ${mode === 'image' ? 'image generation' : 'max (text)'}`);
+      console.log(`Mode: ${mode === 'image' ? 'image generation' : mode === 'shard' ? 'shard node' : 'max (text)'}`);
+
+      // Shard mode is a long-lived node daemon (enroll -> standby -> serve), not a
+      // request/response worker — it has its own lifecycle module and never touches
+      // the ollama stack, so it dispatches before any model resolution.
+      if (mode === 'shard') {
+        if (opts.benchmark) console.log('Note: --benchmark is a max/image flag; shard mode self-measures at enroll (ignored).');
+        const { startShardWorker } = await import('./shard-worker.js');
+        await startShardWorker({ token: opts.token, orchestratorUrl: opts.url });
+        return;
+      }
 
       // Max workers pick a model; wire it into the env the config module reads.
       // This MUST happen before worker.js (-> config.js) is imported, so the
