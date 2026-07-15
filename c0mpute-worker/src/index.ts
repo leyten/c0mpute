@@ -8,7 +8,6 @@ import { homedir } from 'os';
 import { createInterface } from 'readline';
 import { io } from 'socket.io-client';
 import { WORKER_MODELS, DEFAULT_WORKER_MODEL, isWorkerModelKey, recommendModel, WorkerModelKey } from './models.js';
-import { maybeSelfUpdate } from './update.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf-8'));
@@ -164,11 +163,6 @@ program
   .option('--benchmark', 'Run benchmark only, then exit')
   .action(async (opts) => {
     console.log(`c0mpute worker v${pkg.version}`);
-
-    // Self-heal: pull and re-exec into a newer published version if one exists,
-    // so workers pick up fixes (e.g. a corrected model source) without operator
-    // action. No-ops on the latest version; skip with C0MPUTE_NO_UPDATE=1.
-    await maybeSelfUpdate(pkg.version);
 
     if (!opts.token) {
       console.error('Error: --token is required. Get yours at https://c0mpute.ai (Worker tab).\nTo change a remembered mode/model, run "c0mpute-worker reset".');
