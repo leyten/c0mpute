@@ -11,105 +11,79 @@
   <link rel="stylesheet" href="https://use.typekit.net/kwe2dpm.css">
   <link rel="stylesheet" href="style.css">
   <style>
-    body { overflow-x: hidden; }
-    .net-head { max-width: 1320px; margin: 0 auto; padding: 22px 20px 10px; display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
-    .net-head .brand { display: flex; align-items: baseline; gap: 10px; }
-    .net-head .live-pill { font-size: 12px; color: rgba(255,255,255,0.6); letter-spacing: 0.04em; -webkit-text-stroke: 0; }
-    .net-head .live-pill .dot { display: inline-block; width: 7px; height: 7px; margin-right: 7px; background: #22c55e; animation: blink 1.6s steps(2,start) infinite; }
-
-    .net { max-width: 1320px; margin: 0 auto; padding: 6px 20px 30px; display: grid; grid-template-columns: 250px minmax(0,1fr) 250px; gap: 14px; align-items: stretch; }
-    .side { display: flex; flex-direction: column; gap: 10px; }
-    .tile { border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.02); padding: 14px 16px; }
-    .tile .v { font-size: 30px; color: #fff; line-height: 1; }
-    .tile .v small { font-size: 14px; color: rgba(255,255,255,0.55); -webkit-text-stroke: 0; }
-    .tile .k { margin-top: 6px; font-size: 11.5px; color: rgba(255,255,255,0.5); letter-spacing: 0.04em; }
-    .tile .k .dot { display: inline-block; width: 6px; height: 6px; margin-right: 6px; background: #22c55e; animation: blink 1.6s steps(2,start) infinite; }
-    .tile.tall { flex: 1; }
-    .tile .title { font-size: 11px; color: rgba(255,255,255,0.6); letter-spacing: 0.05em; margin-bottom: 12px; }
-
-    /* gpu tier bars */
-    .tier { display: grid; grid-template-columns: auto 1fr auto; gap: 8px; align-items: center; margin: 7px 0; font-size: 12px; }
-    .tier .name { color: rgba(255,255,255,0.75); white-space: nowrap; }
-    .tier .track { height: 8px; background: rgba(255,255,255,0.06); position: relative; }
-    .tier .fill { position: absolute; left: 0; top: 0; bottom: 0; background: rgba(255,255,255,0.75); }
-    .tier .n { color: #fff; min-width: 22px; text-align: right; }
-
-    .globe-col { border: 1px solid rgba(255,255,255,0.1); background: radial-gradient(120% 90% at 50% 42%, rgba(255,255,255,0.03), rgba(255,255,255,0) 60%); position: relative; display: flex; flex-direction: column; min-height: 560px; }
-    .globe-col .cap { padding: 12px 16px 0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-    .globe-col .cap .t { font-size: 12px; color: rgba(255,255,255,0.7); letter-spacing: 0.05em; }
-    .globe-col .cap .legend { margin-left: auto; color: rgba(255,255,255,0.5); font-size: 11.5px; display: flex; align-items: center; }
-    .globe-col .cap .legend .sw { display: inline-block; width: 8px; height: 8px; margin: 0 4px 0 12px; }
-    #globe { flex: 1; display: block; width: 100%; cursor: grab; touch-action: none; }
+    html, body { height: 100%; overflow: hidden; }
+    .stage { position: fixed; inset: 0; background: #000; }
+    #globe { position: absolute; inset: 0; width: 100%; height: 100%; cursor: grab; touch-action: none; }
     #globe.drag { cursor: grabbing; }
-    .globe-hint { position: absolute; left: 16px; bottom: 12px; font-size: 11px; color: rgba(255,255,255,0.38); pointer-events: none; -webkit-text-stroke: 0; }
+    .hud { position: absolute; z-index: 2; }
 
-    .cta { max-width: 1320px; margin: 16px auto 0; padding: 0 20px; }
-    .cta .box { border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.02); padding: 16px 20px; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
-    .cta .t { font-size: 14.5px; color: #fff; min-width: 240px; }
-    .cta .t small { display: block; color: rgba(255,255,255,0.6); font-size: 12.5px; margin-top: 5px; -webkit-text-stroke: 0; }
-    .cta code { font-family: 'Courier New',monospace; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); padding: 10px 13px; color: #fff; font-size: 13px; -webkit-text-stroke: 0; overflow-x: auto; max-width: 100%; white-space: nowrap; }
-    footer.net-foot { max-width: 1320px; margin: 22px auto 0; padding: 16px 20px 6px; border-top: 1px solid rgba(255,255,255,0.1); color: rgba(255,255,255,0.4); font-size: 12px; }
-    footer.net-foot .sep { margin: 0 10px; color: rgba(255,255,255,0.2); }
+    .brand-hud { top: 24px; left: 30px; display: flex; align-items: baseline; gap: 10px; }
+    .brand-hud .brand-name { font-size: 26px; }
+    .pill-hud { top: 30px; right: 30px; font-size: 12px; color: rgba(255,255,255,0.6); letter-spacing: 0.04em; -webkit-text-stroke: 0; }
+    .pill-hud .dot { display: inline-block; width: 7px; height: 7px; margin-right: 7px; background: #22c55e; animation: blink 1.6s steps(2,start) infinite; }
 
-    @media (max-width: 900px) {
-      .net { grid-template-columns: 1fr; }
-      .side { flex-direction: row; flex-wrap: wrap; }
-      .side .tile { flex: 1 1 150px; }
-      .tile.tall { flex: 1 1 100%; }
-      .globe-col { order: -1; min-height: 62vh; }
+    .stats { top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; gap: 26px; }
+    .stats-left { left: 34px; text-align: left; }
+    .stats-right { right: 34px; text-align: right; }
+    .stat .v { font-size: 40px; line-height: 0.92; color: #fff; }
+    .stat .v small { font-size: 15px; color: rgba(255,255,255,0.55); -webkit-text-stroke: 0; }
+    .stat .k { margin-top: 4px; font-size: 11px; color: rgba(255,255,255,0.5); letter-spacing: 0.07em; text-transform: uppercase; -webkit-text-stroke: 0; }
+    .stats-left .stat { border-left: 1px solid rgba(34,197,94,0.55); padding-left: 13px; }
+    .stats-right .stat { border-right: 1px solid rgba(34,197,94,0.55); padding-right: 13px; }
+
+    .ticker { left: 34px; bottom: 30px; font-size: 12.5px; max-width: 340px; }
+    .ticker .lbl { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: rgba(255,255,255,0.4); margin-bottom: 8px; -webkit-text-stroke: 0; }
+    .ticker .row { padding: 3px 0; color: rgba(255,255,255,0.55); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: opacity .4s; }
+    .ticker .row b { color: #fff; -webkit-text-stroke: 0; }
+    .ticker .row .g { color: #22c55e; }
+    .ticker .row .loc { color: rgba(255,255,255,0.8); }
+
+    .cta-hud { right: 30px; bottom: 28px; text-align: right; max-width: 46vw; }
+    .cta-hud .t { font-size: 12.5px; color: rgba(255,255,255,0.55); margin-bottom: 8px; -webkit-text-stroke: 0; }
+    .cta-hud code { font-family: 'Courier New',monospace; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.14); padding: 9px 12px; color: #fff; font-size: 12.5px; -webkit-text-stroke: 0; display: inline-block; max-width: 100%; overflow-x: auto; white-space: nowrap; }
+
+    @media (max-width: 820px) {
+      .stats { top: auto; transform: none; flex-direction: row; gap: 18px; }
+      .stats-left { left: 20px; bottom: 96px; }
+      .stats-right { right: 20px; bottom: 96px; }
+      .stat .v { font-size: 26px; }
+      .ticker { display: none; }
+      .cta-hud { left: 20px; right: 20px; bottom: 20px; text-align: center; max-width: none; }
     }
   </style>
 </head>
 <body>
-  <div class="net-head">
-    <div class="brand">
-      <a href="https://c0mpute.ai" class="brand-name pixel-serif">c<span class="logo-o">0</span>mpute</a>
+  <div class="stage">
+    <canvas id="globe"></canvas>
+
+    <a href="https://c0mpute.ai" class="hud brand-hud">
+      <span class="brand-name pixel-serif">c<span class="logo-o">0</span>mpute</span>
       <span class="brand-sub">/ network</span>
-    </div>
-    <div class="live-pill"><span class="dot"></span><span id="pill">live · the whole network</span></div>
-  </div>
+    </a>
+    <div class="hud pill-hud"><span class="dot"></span>live · the whole network</div>
 
-  <div class="net">
-    <div class="side">
-      <div class="tile"><div class="v pxnum" id="s-gpus">0</div><div class="k"><span class="dot"></span>gpus online</div></div>
-      <div class="tile"><div class="v pxnum" id="s-countries">0</div><div class="k"><span class="dot"></span>countries</div></div>
-      <div class="tile"><div class="v pxnum" id="s-rings">0</div><div class="k"><span class="dot"></span>rings serving</div></div>
-      <div class="tile"><div class="v pxnum" id="s-vram">0<small> TB</small></div><div class="k"><span class="dot"></span>gpu memory pooled</div></div>
+    <div class="hud stats stats-left">
+      <div class="stat"><div class="v pxnum" id="s-gpus">0</div><div class="k">gpus online</div></div>
+      <div class="stat"><div class="v pxnum" id="s-countries">0</div><div class="k">countries</div></div>
+      <div class="stat"><div class="v pxnum" id="s-rings">0</div><div class="k">rings serving</div></div>
     </div>
 
-    <div class="globe-col">
-      <div class="cap">
-        <span class="t">the c0mpute network</span>
-        <span class="legend"><i class="sw" style="background:#22c55e"></i>serving<i class="sw" style="background:rgba(255,255,255,0.8)"></i>standby<i class="sw" style="background:rgba(255,255,255,0.3)"></i>joining</span>
-      </div>
-      <canvas id="globe"></canvas>
-      <div class="globe-hint">drag to spin</div>
+    <div class="hud stats stats-right">
+      <div class="stat"><div class="v pxnum" id="s-toks">0<small> tok/s</small></div><div class="k">network throughput</div></div>
+      <div class="stat"><div class="v pxnum" id="s-served">0</div><div class="k">tokens served today</div></div>
+      <div class="stat"><div class="v pxnum" id="s-vram">0<small> TB</small></div><div class="k">gpu memory pooled</div></div>
     </div>
 
-    <div class="side">
-      <div class="tile"><div class="v pxnum" id="s-toks">0<small> tok/s</small></div><div class="k"><span class="dot"></span>network throughput</div></div>
-      <div class="tile"><div class="v pxnum" id="s-served">0</div><div class="k"><span class="dot"></span>tokens served today</div></div>
-      <div class="tile tall">
-        <div class="title">gpus by tier</div>
-        <div id="tiers"></div>
-      </div>
+    <div class="hud ticker">
+      <div class="lbl">joining now</div>
+      <div id="ticker-rows"></div>
     </div>
-  </div>
 
-  <div class="cta">
-    <div class="box">
-      <div class="t">put your gpu on the globe.
-        <small>one command — it enrolls, gets measured, pulls its layers, and serves. no operator, no ssh.</small>
-      </div>
+    <div class="hud cta-hud">
+      <div class="t">put your gpu on the globe — one command, no operator.</div>
       <code>npx @c0mpute/worker --mode shard --token cwt_&hellip;</code>
     </div>
   </div>
-
-  <footer class="net-foot">
-    <span class="pixel-serif">c<span style="font-size:1.35em">0</span>mpute</span> network
-    <span class="sep">&middot;</span> permissionless inference over scattered consumer GPUs
-    <span class="sep">&middot;</span> live simulation of the shard protocol
-  </footer>
 
   <script>
   (function(){
@@ -181,11 +155,12 @@
     // ── globe camera / projection ──
     var cv=document.getElementById('globe'), ctx=cv.getContext('2d');
     var W=0,H=0,CX=0,CY=0,R=0,dpr=1;
-    var yaw=-0.5, tilt=0.32, spin=0.055, drag=null, vel=0;
+    var yaw=-0.5, tilt=0.28, drag=null, vel=0;
+    var target={yaw:-0.5, tilt:0.28, active:false};   // the globe eases here when a node joins; NO auto-spin
     function layout(){ dpr=Math.min(window.devicePixelRatio||1,2);
       W=cv.clientWidth; H=cv.clientHeight; cv.width=Math.round(W*dpr); cv.height=Math.round(H*dpr);
       ctx.setTransform(dpr,0,0,dpr,0,0); ctx.imageSmoothingEnabled=false;
-      CX=W/2; CY=H/2; R=Math.min(W,H)*0.42; }
+      CX=W/2; CY=H/2; R=Math.min(W,H)*0.44; }
     // rotate a unit/near-unit vector by yaw (Y) then tilt (X)
     var sY,cY,sT,cT;
     function setRot(){ sY=sin(yaw); cY=cos(yaw); sT=sin(tilt); cT=cos(tilt); }
@@ -234,11 +209,6 @@
         elR=document.getElementById('s-rings'), elV=document.getElementById('s-vram'),
         elT=document.getElementById('s-toks'), elS=document.getElementById('s-served');
     function commas(n){ return String(n).replace(/\B(?=(\d{3})+(?!\d))/g,','); }
-    (function tiers(){ var c={}; NODES.forEach(function(n){ if(n.status!=="off") c[n.gpu]=(c[n.gpu]||0)+1; });
-      var order=["RTX PRO 6000","H100 NVL","RTX 5090","RTX 4090","RTX 3090"];
-      var max=Math.max.apply(null,order.map(function(k){return c[k]||0;}));
-      document.getElementById('tiers').innerHTML=order.map(function(k){ var n=c[k]||0, pct=max?Math.round(n/max*100):0;
-        return '<div class="tier"><span class="name">'+k.toLowerCase()+'</span><span class="track"><span class="fill" style="width:'+pct+'%"></span></span><span class="n pxnum">'+n+'</span></div>'; }).join(''); })();
     function stats(dt){ var on=0,ccs={},vram=0;
       for(var i=0;i<NODES.length;i++){ var n=NODES[i]; if(n.status!=="off"){ on++; ccs[n.cc]=1; vram+=TIER[n.gpu]||24; } }
       elG.textContent=on; elC.textContent=Object.keys(ccs).length; elR.textContent=RINGS.length;
@@ -248,23 +218,47 @@
       served += tokS*dt/1000; elS.textContent=commas(Math.floor(served));
     }
 
-    // ── interaction: drag to spin, momentum, auto-rotate ──
-    cv.addEventListener('pointerdown',function(e){ drag={x:e.clientX,y:e.clientY}; vel=0; cv.classList.add('drag'); cv.setPointerCapture(e.pointerId); });
+    // ── the join log: a node lights up somewhere, the globe EASES to face it (no auto-spin) ──
+    var CC={BE:"Belgium",NL:"Netherlands",DE:"Germany",CZ:"Czechia",LT:"Lithuania",BG:"Bulgaria",NO:"Norway",
+      SE:"Sweden",IS:"Iceland",GB:"UK",FR:"France",ES:"Spain",PL:"Poland",RO:"Romania",IT:"Italy",PT:"Portugal",
+      GR:"Greece",US:"USA",CA:"Canada",MX:"Mexico",BR:"Brazil",AR:"Argentina",CO:"Colombia",CL:"Chile",NG:"Nigeria",
+      KE:"Kenya",ZA:"South Africa",EG:"Egypt",AE:"UAE",IL:"Israel",TR:"Turkey",JP:"Japan",KR:"Korea",SG:"Singapore",
+      IN:"India",HK:"Hong Kong",ID:"Indonesia",TH:"Thailand",PH:"Philippines",AU:"Australia",NZ:"New Zealand"};
+    var tickRows=document.getElementById('ticker-rows'), tickLog=[];
+    function focusNode(n){ target.yaw=-n.lon*D2R; target.tilt=Math.max(-1.0,Math.min(1.0,n.lat*D2R*0.9)); target.active=true; }
+    function pushTick(n){
+      tickLog.unshift('<span class="g">&#9656;</span> <b>'+n.gpu.toLowerCase()+'</b> joined · <span class="loc">'+n.city+', '+(CC[n.cc]||n.cc)+'</span>');
+      if(tickLog.length>3) tickLog.pop();
+      tickRows.innerHTML=tickLog.map(function(r,i){ return '<div class="row" style="opacity:'+(1-i*0.28)+'">'+r+'</div>'; }).join('');
+    }
+    var joinT=1200;
+    function joins(dt){ joinT+=dt; if(joinT<4200) return; joinT=0;
+      // pick a non-serving node to "join": light it up, log it, turn the globe to it
+      var cand=NODES.filter(function(n){return n.status!=="serve";});
+      var n=cand[(Math.floor(now/97))%cand.length]; if(!n) return;
+      n.status="stand"; n.joinedAt=now; pushTick(n); focusNode(n);
+      // occasionally retire a distant standby so the pool breathes (keeps "joining" nodes available)
+      var stand=NODES.filter(function(x){return x.status==="stand" && now-(x.joinedAt||0)>26000;});
+      if(stand.length>6) stand[0].status="off";
+    }
+
+    // ── interaction: DRAG to spin (with a little momentum); it does NOT spin on its own ──
+    cv.addEventListener('pointerdown',function(e){ drag={x:e.clientX,y:e.clientY}; vel=0; target.active=false; cv.classList.add('drag'); cv.setPointerCapture(e.pointerId); });
     cv.addEventListener('pointermove',function(e){ if(!drag)return; var dx=e.clientX-drag.x, dy=e.clientY-drag.y;
       yaw+=dx*0.006; tilt=Math.max(-1.2,Math.min(1.2,tilt+dy*0.006)); vel=dx*0.006; drag={x:e.clientX,y:e.clientY}; });
     function endDrag(){ drag=null; cv.classList.remove('drag'); }
     cv.addEventListener('pointerup',endDrag); cv.addEventListener('pointercancel',endDrag);
 
-    var joinT=0;
-    function joins(dt){ joinT+=dt; if(joinT<2400)return; joinT=0;
-      var offs=NODES.filter(function(n){return n.status==="off";});
-      if(offs.length) offs[0].status="stand";
-      else{ var st=NODES.filter(function(n){return n.status==="stand";}); if(st.length>9) st[Math.floor(now/1000)%st.length].status="off"; } }
-
+    function angLerp(a,b,t){ var d=((b-a+PI)%(2*PI)+2*PI)%(2*PI)-PI; return a+d*t; }
     var last=0;
     function frame(ts){ var dt=last?Math.min(ts-last,80):16; last=ts; now+=dt;
-      if(!reduce){ if(drag){} else { yaw+=spin*dt/16 + vel; vel*=0.94; if(Math.abs(vel)<0.0002)vel=0; }
-        pulse+=dt/2600; joins(dt); }
+      if(!reduce){
+        if(drag){ /* user in control */ }
+        else if(Math.abs(vel)>0.0003){ yaw+=vel; vel*=0.93; }           // momentum from a flick, then settle
+        else if(target.active){ yaw=angLerp(yaw,target.yaw,0.045); tilt+=(target.tilt-tilt)*0.045;  // ease to the joiner
+          if(Math.abs(angLerp(yaw,target.yaw,1))<0.01 && Math.abs(target.tilt-tilt)<0.01) target.active=false; }
+        pulse+=dt/2600; joins(dt);
+      }
       draw(); stats(dt); requestAnimationFrame(frame); }
     function boot(){ layout(); if(reduce){ draw(); stats(16); } requestAnimationFrame(frame); }
     var rz; window.addEventListener('resize',function(){ clearTimeout(rz); rz=setTimeout(layout,120); });
