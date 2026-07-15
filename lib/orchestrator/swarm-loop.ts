@@ -22,6 +22,7 @@
 import type { Server } from 'socket.io';
 import { SwarmManager, type Seam, type SwarmConfig, type TrustOracle, DEFAULT_SWARM_CONFIG, type ModelProfile } from './swarm';
 import { SubprocessSeam } from './swarm-seam';
+import type { ModelSpec } from './model-profiles';
 import type { BlockSketch, NodeCapabilities, StageEarning } from './swarm-types';
 
 export interface SwarmLoopOptions {
@@ -37,6 +38,13 @@ export interface SwarmLoopOptions {
   /** placement/settlement seam override — harnesses (scripts/shard-daemon-sim.ts) stub `plan`
    *  so the REAL event wiring is testable on boxes the real planner would rightly refuse. */
   seam?: Seam;
+  /** AUTO-FORM: given a model, return its placement spec (profile + manifest + min stages), or
+   *  undefined for a model the network can't shard. When provided, the loop forms rings on its own
+   *  as candidates announce — closing the "formSwarm is never called by the running server" gap.
+   *  Absent => the loop only admits + serves manually-formed swarms (the old behavior). */
+  resolveModel?: (model: string) => ModelSpec | undefined;
+  /** how long to wait after an announce before trying to form (batch a burst of joins into one ring). */
+  autoFormDebounceMs?: number;
 }
 
 interface AnnouncePayload { cap: NodeCapabilities; model: string; manifestRef: string }
@@ -61,12 +69,45 @@ export function attachSwarmLoop(io: Server, opts: SwarmLoopOptions) {
     opts.config ?? DEFAULT_SWARM_CONFIG,
   );
 
+  // ── AUTO-FORM: the trigger the running server was missing. On announce, debounce per model, then
+  //    ask the manager to form a ring from the free candidates. Forms repeatedly as supply grows
+  //    (each call consumes free candidates; the fleet-multiswarm behavior), stops when it can't. ──
+  const formTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  const DEBOUNCE = opts.autoFormDebounceMs ?? 3000;
+  function scheduleAutoForm(model: string) {
+    if (!opts.resolveModel || !opts.resolveModel(model)) return;   // model the network can't shard
+    const prev = formTimers.get(model);
+    if (prev) clearTimeout(prev);
+    const t = setTimeout(() => { formTimers.delete(model); void autoForm(model); }, DEBOUNCE);
+    t.unref?.();
+    formTimers.set(model, t);
+  }
+  async function autoForm(model: string) {
+    const spec = opts.resolveModel?.(model);
+    if (!spec) return;
+    const n = mgr.candidateCount(model);
+    if (n < spec.minStages) return;
+    // Uniform placeholder RTT until the probe round lands (PLACEMENT_AS_PROTOCOL: re-measure at
+    // formation). Built RIGHT before formSwarm — the manager slices it against the same candidate
+    // list synchronously (no await between), so the sizes can't drift. A real N×N latency matrix
+    // (nodes probe assigned peers + report) is the next refinement; uniform still forms a working ring.
+    const rtt = Array.from({ length: n }, (_, i) => Array.from({ length: n }, (_, j) => (i === j ? 0 : 30)));
+    try {
+      const swarm = await mgr.formSwarm(model, spec.manifestRef, spec.profile, rtt);
+      if (swarm) { log(`auto-formed ${swarm.id} for ${model} (${swarm.stages.length} stages)`); scheduleAutoForm(model); }
+    } catch (e) {
+      log(`auto-form ${model}: ${(e as Error).message}`);
+    }
+  }
+
   io.on('connection', (socket) => {
     socket.on('node:announce', (data: AnnouncePayload,
       cb?: (r: { ok: true } | { ok: false; reason: string } | { error: string }) => void) => {
       const acct = (socket as unknown as { privyUserId?: string }).privyUserId;   // set by auth middleware
       if (!acct) { cb?.({ error: 'authentication required' }); return; }
-      cb?.(mgr.announce(socket.id, data.cap, data.model, data.manifestRef, acct));
+      const res = mgr.announce(socket.id, data.cap, data.model, data.manifestRef, acct);
+      cb?.(res);
+      if (res.ok) scheduleAutoForm(data.model);
     });
 
     socket.on('swarm:ready', (data: ReadyPayload) => {
@@ -92,10 +133,9 @@ export function attachSwarmLoop(io: Server, opts: SwarmLoopOptions) {
   const sweep = setInterval(() => mgr.sweepSpotChecks(), 30_000);
   sweep.unref?.();
 
-  // NOTE: forming a swarm needs a measured RTT matrix over the candidate pool (a short probe round the
-  // nodes run and report). That collection + the auto-form trigger is the next integration step; the
-  // manager exposes formSwarm(model, manifestRef, profile, rtt) for it. See PERMISSIONLESS_LOOP.md.
-  // Spot-check cadence is likewise the caller's: startSpotCheck(swarmId) probes one stranger stage.
+  // Auto-form is wired above (opts.resolveModel). REMAINING refinement: a MEASURED rtt matrix — a short
+  // probe round the nodes run and report — replaces the uniform placeholder so placement is latency-aware.
+  // Spot-check cadence is still the caller's: startSpotCheck(swarmId) probes one stranger stage.
   return {
     manager: mgr,
     formSwarm: (model: string, manifestRef: string, profile: ModelProfile, rtt: number[][]) =>
