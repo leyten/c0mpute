@@ -10,7 +10,9 @@ import { spawn, spawnSync } from 'child_process';
 import { createHash } from 'crypto';
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'fs';
 import { join } from 'path';
-import { MODEL_DIR, SHARD_HOME, SHARD_REPO, SIDECAR_BIN, pythonBin } from './shard-runner.js';
+import {
+  MANIFEST_FILE, MODEL_DIR, MODEL_REPO, SHARD_HOME, SHARD_REPO, SIDECAR_BIN, pythonBin,
+} from './shard-runner.js';
 
 const ENGINE_GIT_URL = process.env.C0MPUTE_SHARD_GIT || 'https://github.com/leyten/shard';
 const VENV_DIR = join(SHARD_HOME, 'venv');
@@ -152,6 +154,25 @@ async function ensureProbeSlice(): Promise<void> {
   log('model: probe slice ready');
 }
 
+/** The signed, content-addressed weight manifest — built from HF metadata in seconds (LFS oids
+ *  ARE sha256, no weight download). It's what makes `python -m shard.fetch` a VERIFIED pull:
+ *  every shard re-hashed against it. Locally-published for now (integrity, not publisher trust —
+ *  TODO(leg7): resolve the network's signed manifest + pinned publisher pubkey from `manifestRef`
+ *  once the catalog seam exists). Best-effort: a failure just leaves pullRange on the raw path. */
+async function ensureManifest(): Promise<void> {
+  if (existsSync(MANIFEST_FILE)) { log(`manifest: ${MANIFEST_FILE}`); return; }
+  const key = join(SHARD_HOME, 'publisher.key');
+  try {
+    log(`manifest: building from ${MODEL_REPO} metadata (no weight download)`);
+    await run(pythonBin(), [join('phase0', 'publish_manifest.py'), '--hf', MODEL_REPO,
+      '--key', key, '--out', MANIFEST_FILE],
+    { cwd: SHARD_REPO, label: 'publish_manifest', streamTag: 'manifest' });
+    log('manifest: ready (verified fetch enabled)');
+  } catch (e: any) {
+    log(`manifest: build failed (${e.message}) — pullRange stays on the raw snapshot path`);
+  }
+}
+
 /** ENROLL step 0 — provision the box. Idempotent; a warm box runs through in seconds. */
 export async function ensureShardSetup(): Promise<void> {
   mkdirSync(join(SHARD_HOME, 'models'), { recursive: true });
@@ -159,5 +180,6 @@ export async function ensureShardSetup(): Promise<void> {
   await ensureVenv();
   await ensureSidecar();
   await ensureProbeSlice();
-  log('provisioned: engine + venv + sidecar + probe slice');
+  await ensureManifest();
+  log('provisioned: engine + venv + sidecar + probe slice + manifest');
 }

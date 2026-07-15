@@ -29,6 +29,9 @@ export const SIDECAR_BIN = process.env.C0MPUTE_SIDECAR_BIN || join(SHARD_HOME, '
 // A shard checkout (or the flat runtime-artifact layout) to run `python -m shard.*` from.
 export const SHARD_REPO = process.env.C0MPUTE_SHARD_REPO || join(SHARD_HOME, 'shard');
 export const MODEL_DIR = process.env.C0MPUTE_SHARD_MODEL_DIR || join(SHARD_HOME, 'models', 'minimax-m2.5');
+export const MANIFEST_FILE = join(SHARD_HOME, 'manifest.json');   // signed content-addressed weight manifest
+// The HF repo the probe slice + weights come from, and the model NAME the network places by.
+export const MODEL_REPO = process.env.C0MPUTE_SHARD_REPO_HF || 'nvidia/MiniMax-M2.5-NVFP4';
 
 /** Resolved LAZILY — the self-provision step (shard-setup.ts) creates the venv after this
  *  module loads, so a const would freeze the pre-provision answer. */
@@ -121,16 +124,7 @@ export function probeMeasure(): Record<string, unknown> | null {
   }
 }
 
-/** Pull layer range [lo, hi) into MODEL_DIR.
- *  TODO(leg7): peers-first verified fetch (shard.fetch.fetch_block_range + ChainProvider — the
- *  live-proven torrent path) once it grows a CLI; until then the HF mirror pull, which is the
- *  same bytes minus the peer sourcing. */
-export function pullRange(lo: number, hi: number, head: boolean, tail: boolean,
-  signal?: AbortSignal): Promise<void> {
-  const args = [join('phase0', 'm25_pull_range.py'), '--lo', String(lo), '--hi', String(hi),
-    '--dir', MODEL_DIR];
-  if (head) args.push('--head');
-  if (tail) args.push('--tail');
+function spawnPull(args: string[], signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     // the abort signal kills the pull when the assignment dissolves mid-download —
     // a 30 GB fetch must never outlive the swarm that asked for it
@@ -140,6 +134,28 @@ export function pullRange(lo: number, hi: number, head: boolean, tail: boolean,
     p.on('error', reject);
     p.on('exit', (code) => (code === 0 ? resolve() : reject(new Error(`pull exited ${code}`))));
   });
+}
+
+/** Pull layer range [lo, hi) into MODEL_DIR. VERIFIED path first: `python -m shard.fetch` against
+ *  the signed manifest, PEERS-FIRST (bootstrap = the ringmates' sidecar multiaddrs — the torrent
+ *  path lights up the moment they seed) then the HF mirror, re-hashing every byte. Falls back to
+ *  the raw snapshot pull only if the manifest is absent (offline manifest-gen at setup). */
+export function pullRange(lo: number, hi: number, head: boolean, tail: boolean,
+  opts: { bootstrap?: string[]; role?: 'stage' | 'coordinator' } = {}, signal?: AbortSignal): Promise<void> {
+  if (existsSync(MANIFEST_FILE)) {
+    const args = ['-m', 'shard.fetch', '--manifest', MANIFEST_FILE, '--dir', MODEL_DIR,
+      '--lo', String(lo), '--hi', String(hi), '--role', opts.role ?? 'stage',
+      '--sidecar', SIDECAR_BIN, '--key', NODE_KEY_FILE];
+    if (head) args.push('--head');
+    if (tail) args.push('--tail');
+    if (opts.bootstrap?.length) args.push('--bootstrap', opts.bootstrap.join(','));
+    return spawnPull(args, signal);
+  }
+  const legacy = [join('phase0', 'm25_pull_range.py'), '--lo', String(lo), '--hi', String(hi),
+    '--dir', MODEL_DIR];
+  if (head) legacy.push('--head');
+  if (tail) legacy.push('--tail');
+  return spawnPull(legacy, signal);
 }
 
 export interface SidecarHandle {
