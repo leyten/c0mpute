@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>c0mpute / network</title>
+  <meta name="description" content="live map of the c0mpute network: every dot is a stranger's gpu holding a slice of one model, served together over the shard protocol.">
+  <meta property="og:title" content="c0mpute / network">
+  <meta property="og:description" content="a live map of scattered consumer gpus serving one frontier model together.">
+  <link rel="icon" href="https://c0mpute.ai/favicon.ico">
+  <!-- the SAME kit + stylesheet data.c0mpute.ai uses: argent-pixel-cf numerals, Courier body -->
+  <link rel="stylesheet" href="https://use.typekit.net/kwe2dpm.css">
+  <link rel="stylesheet" href="style.css">
+  <style>
+    /* map-specific only — everything else (fonts, cards, panels, colors) comes from style.css */
+    .stage { margin-top: 12px; display: grid; grid-template-columns: minmax(0,2.2fr) minmax(0,1fr); gap: 10px; }
+    /* the stage panels manage their own inner padding (full-bleed canvas), so drop style.css's panel padding here */
+    .stage .panel { display: flex; flex-direction: column; padding: 0; }
+    .stage .panel-title { padding: 12px 16px 10px; margin-bottom: 0; }
+    .legend { margin-left: auto; }
+    .map-wrap { position: relative; background: #000; }
+    canvas#map { display: block; width: 100%; height: 520px; image-rendering: pixelated; cursor: grab; }
+    canvas#map.drag { cursor: grabbing; }
+    .map-wrap:fullscreen canvas#map { height: 100vh; }
+    .ctrls { position: absolute; top: 10px; right: 10px; display: flex; gap: 5px; }
+    .ctrls button { width: 30px; height: 30px; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.65); color: #fff; font-family: 'Courier New',monospace; font-size: 15px; line-height: 1; cursor: pointer; -webkit-text-stroke: 0; }
+    .ctrls button:hover { background: rgba(255,255,255,0.12); }
+    .ctrls button:focus-visible { outline: 1px solid #22c55e; outline-offset: 1px; }
+    .maphint { position: absolute; left: 12px; bottom: 10px; font-size: 11px; color: rgba(255,255,255,0.4); pointer-events: none; }
+    .route { padding: 10px 16px 12px; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; font-size: 11.5px; color: rgba(255,255,255,0.45); border-top: 1px solid rgba(255,255,255,0.07); }
+    .route .lab { color: rgba(255,255,255,0.4); }
+    .route .hop { color: #fff; } .route .hop.tail { color: #22c55e; }
+    .route .arr { color: rgba(255,255,255,0.3); }
+    .stream-log { padding: 4px 16px 12px; flex: 1; overflow: hidden; }
+    .msg { padding: 8px 0; border-top: 1px solid rgba(255,255,255,0.07); } .msg:first-child { border-top: 0; }
+    .msg .who { font-size: 11px; letter-spacing: 0.06em; color: rgba(255,255,255,0.45); text-transform: uppercase; }
+    .msg.you .who::before { content: "\25B8 "; } .msg.swarm .who::before { content: "\25B8 "; color: #22c55e; }
+    .msg .body { margin-top: 4px; color: #fff; font-size: 13px; white-space: pre-wrap; word-break: break-word; }
+    .msg.you .body { color: rgba(255,255,255,0.72); }
+    .cursor { display: inline-block; width: 7px; height: 14px; background: #22c55e; vertical-align: -2px; animation: blink 1s steps(2,start) infinite; }
+    .attrib { padding: 9px 16px; border-top: 1px solid rgba(255,255,255,0.1); color: rgba(255,255,255,0.5); font-size: 12px; min-height: 20px; }
+    .attrib b { color: #fff; }
+    .cta { margin-top: 26px; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.02); padding: 18px 20px; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+    .cta .t { font-size: 15px; color: #fff; min-width: 240px; }
+    .cta .t small { display: block; color: rgba(255,255,255,0.6); font-size: 12.5px; margin-top: 5px; -webkit-text-stroke: 0; }
+    .cta code { font-family: 'Courier New',monospace; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); padding: 10px 13px; color: #fff; font-size: 13px; -webkit-text-stroke: 0; overflow-x: auto; min-width: 0; max-width: 100%; white-space: nowrap; }
+    @media (max-width: 860px) { .stage { grid-template-columns: 1fr; } canvas#map { height: 380px; } }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="header-inner">
+      <div class="brand">
+        <a href="https://c0mpute.ai" class="brand-name pixel-serif">c<span class="logo-o">0</span>mpute</a>
+        <span class="brand-sub">/ network</span>
+      </div>
+      <div class="hero-stat">
+        <div class="hero-num pxnum" id="hero-gpus">0</div>
+        <div class="hero-label">consumer GPUs online worldwide, serving one frontier model together</div>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section>
+      <div class="section-title pixel-serif">live</div>
+      <div class="cards">
+        <div class="card"><div class="v pxnum" id="c-gpus">0</div><div class="k"><span class="dot"></span>gpus online</div></div>
+        <div class="card"><div class="v pxnum" id="c-layers">62<small>/62</small></div><div class="k"><span class="dot"></span>model layers covered</div></div>
+        <div class="card"><div class="v pxnum" id="c-toks">0<small> tok/s</small></div><div class="k"><span class="dot"></span>ring throughput</div></div>
+        <div class="card"><div class="v pxnum" id="c-countries">0</div><div class="k"><span class="dot"></span>countries</div></div>
+      </div>
+
+      <div class="grid" style="grid-template-columns:1fr">
+        <div class="stage">
+          <div class="panel">
+            <div class="panel-title">network map <span class="note">every dot is a stranger's gpu</span>
+              <span class="legend"><i class="sw" style="background:#22c55e"></i>serving<i class="sw" style="background:rgba(255,255,255,0.85)"></i>standby<i class="sw" style="background:rgba(255,255,255,0.28)"></i>joining</span>
+            </div>
+            <div class="map-wrap" id="mapWrap">
+              <canvas id="map" data-chart="map"></canvas>
+              <div class="ctrls">
+                <button id="zin" title="zoom in" aria-label="zoom in">+</button>
+                <button id="zout" title="zoom out" aria-label="zoom out">&minus;</button>
+                <button id="zworld" title="whole world" aria-label="whole world">&#9678;</button>
+                <button id="zfull" title="fullscreen" aria-label="fullscreen">&#9974;</button>
+              </div>
+              <div class="maphint">scroll to zoom · drag to pan</div>
+            </div>
+            <div class="route" id="route"></div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-title">one prompt · five strangers' gpus</div>
+            <div class="stream-log" id="log"></div>
+            <div class="attrib" id="attrib">&nbsp;</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="cta">
+        <div class="t">put your gpu on the map.
+          <small>one command — it enrolls, gets measured, pulls its layers, and serves. no operator, no ssh.</small>
+        </div>
+        <code>npx @c0mpute/worker --mode shard --token cwt_&hellip;</code>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <span class="pixel-serif">c<span style="font-size:1.35em">0</span>mpute</span> network map
+    <span class="sep">&middot;</span> permissionless inference over scattered consumer GPUs
+    <span class="sep">&middot;</span> live simulation of the shard protocol
+  </footer>
+
+  <script>
+  (function(){
+    "use strict";
+    var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    var LG = (function(b64){
+      var raw=atob(b64), by=new Uint8Array(raw.length), i;
+      for(i=0;i<raw.length;i++) by[i]=raw.charCodeAt(i);
+      var g=new Uint8Array(64800);
+      for(i=0;i<64800;i++) g[i]=(by[i>>3]>>(7-(i&7)))&1;
+      return g;
+    })("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP//gAAD///AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB//////Pf///8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAf/////////////AAAAAAAAAAAAAAAAAHgAAAAAAAAAAAAAAAAAAAAAAAAAAB/////////////8AAAAX/8AAP8AAAAAAf8AAAAAAAAAAAAAAAAAAAAAAAAAOB////j////////AAAAD//4AAAAAAAAAAP/wAAAAAAAAAAAAAAAAAAAAAAAeP/v//7////////+AAAAB//AAAAAAAAAAAAf8AAAAAAAAAAAAAAAAAAAAAB8+AL4f/h/////////AAAAAfvgAAAAAAAAAAAF+AAAAAAAAAAAAAAAAAAAAAH/3R////gf////////AAAAAHAAAAAAA/4AAAHf//AAAA8AAAAAAAAAAAAAAACP/5///8AAA//////+AAAAAAAAAAAAf/gAAH////gAAD//gAAAAAAAAAAAAAf4+AN//+AAAP/////+AAAAAAAAAAAA/AAAAP///8AAAA/ngAAAAAAAAAAAAAf/B8////wAAH/////8AAAAAAAAAAAB8AEAP//////H4AfAAAAAAAAAAAAAAA///5/9//4AAD/////wAAAAAAAAAAAH4APv////////8Af/AAAAA4AADgAAAA///8f9///gAD/////wAAAAAAAiAAAH4A//////////9///4QAADwAB//+gAOYf//1+///+AB/////4AAAAAAP/wAAB8A///////////////8AIDAAD////f/////v/z///AB/////gAAAAAB///gAAA+/////////////////v/4Af//////////H/34f/AA////8AAAAAAH///8eH//////////////////////AH/////////////47/4A///8AAAAAAAf////f///////////////////////8f/////////////wH/+A///4A78AAAA////////////////////////////////////////////h/+8A///AB/+AAAB/+/+f///////////////////////jwf/////////////9//oAf/wAA/8AAAD////////////////////////////APH////////////P8B/wAP/wAAfwAAAf////////////////////////////ACP////////////A///wAH/AAAAAAAB//n//////////////////////////AAf///////////4AH/5AAD/AAAAAAAD//H/////////////////////////gAA////////////wAA/4QAB+AAAAAAAB//n//////////////////////H/+AAAb/7wv///////wAB/44AAAAAAAAAAB//j//////////////////////H+IAAAA/4AB///////8AB//8AAAAAAAAA4B9/B///////////////////8AYPgAAAAAH8AAD///////AA//+AAAAAAAAB+AP+H///////////////////4AA/wAAAAAfYAAD///////4Af/+AAAAAAAAB8AO+H///////////////////gAB/wAAAAD8AAAA////////x///gAAAAAAAD+AP4H//////////////////+AAB/AAAAAHAAAAD////////z///4AAAAAAAP/AP////////////////////+yAB/gAAAAAAAAADv///////7///+AAAAAAAPfj///////////////////////AB+AAAAAAAAAABv///////5///+AAAAAAAPfz///////////////////////AB4AAAAAAAAAAAD///////////+AAAAAAAM/////////////////////////AA4AAAAAAAAAAAH///////////uAAAAAAAA////////////////////////7AAAAAAAAAAAAAAH//////////+fgAAAAAAAj////////////////////////gAAAAAAAAAAAAAA//////////w/wAAAAAAAf///////////////////////+gAAAAAAAAAAAAAAf/////////x/wAAAAAAAf///////////////////////3AAAAAAAAAAAAAAAf//////////DgAAAAAAAD///////////////////////nAAAAAAAAAAAAAAAP//////////gAAAAAAAAD/////v/////////////////GAAAAAAAAAAAAAAAf/////////8AAAAAAAAAD/////Hf///////////////+HQAAAAAAAAAAAAAAf////////5wAAAAAAAAP//33/+AH///////////////8PwAAAAAAAAAAAAAAf////////wAAAAAAAAAP/8P5/8HB///////////////wfgAAAAAAAAAAAAAAf////////4AAAAAAAAAP/8N+f//3//////////////8AdAAAAAAAAAAAAAAAf////////gAAAAAAAAAH/gMP//////////////////8AcAAAAAAAAAAAAAAAP///////8AAAAAAAAAAP/AMH/P///////////////fwAcAAAAAAAAAAAAAAAP///////8AAAAAAAAAAP/gI/Pv//////////////+T4AcAAAAAAAAAAAAAAAH///////4AAAAAAAAAAH/A3+Hv///////////////78D4AAAAAAAAAAAAAAAH///////4AAAAAAAAAAH+//MHH///////////////48H4AAAAAAAAAAAAAAAD///////4AAAAAAAAAAB//+AB4P//////////////g8/4AAAAAAAAAAAAAAAB///////wAAAAAAAAAAB//+AAgP//////////////g7/wAAAAAAAAAAAAAAAAf//////AAAAAAAAAAAH///AAAB//////////////gH+AAAAAAAAAAAAAAAAAP/////+AAAAAAAAAAAP///8PAD//////////////wHwAAAAAAAAAAAAAAAAAH/////4AAAAAAAAAAAP///+f/7//////////////wDAAAAAAAAAAAAAAAAAAH/////4AAAAAAAAAAAP/////////////////////wAAAAAAAAAAAAAAAAAAAD////j8AAAAAAAAAAAf/////////////////////4AAAAAAAAAAAAAAAAAAAB///gAcAAAAAAAAAAB//////////v///////////wAAAAAAAAAAAAAAAAAAAD//+AAcgAAAAAAAAAD//////////3///////////gAAAAAAAAAAAAAAAAAAAA//+AAdwAAAAAAAAAH//////////9///////////gAAAAAAAAAAAAAAAAAAAAf/+AANgAAAAAAAAAH///////+//8f//////////QAAAAAAAAAAAAAAAAAAAAd/+AABgAAAAAAAAAP////////f//4A////////+wAAAAAAAAAAAAAAAAAAAAGf+AAcgAAAAAAAAAf////////P//+Af///////8wAAAAAAAAAAAAIAAAAAAAGf+AB/gAAAAAAAAAf////////v///AH///////wwAAAAAAAAAAAAPAAAAAAAAP+A9H4AAAAAAAAA/////////3///AH///v//+AgAAAAAAAAAAAABgAAAAAAAP/B8B8AAAAAAAAA/////////3//+AD//8P/+YAAAAAAAAAAAAAABwAAAAAAAP/D4A/4AAAAAAAAf////////z//8AA//wH/88AAAAAAAAAAAAAAAgAAAAAAAH//4B3/gAAAAAAAf////////5//8AA//gH/+4A4AAAAAAAAAAAAAAAAAAAAAB//wAwjgAAAAAAAf////////5//4AAf/AD//AA4AAAAAAAAAAAAAAAAAAAAAAf/0AAAAAAAAAAAf////////8//gAAf+AD//gB4AAAAAAAAAAAAAAAAAAAAAADP/gAAAAAAAAAAf////////+/+AAAf4ADf/gBwAAAAAAAAAAAAAAAAAAAAAAAH/gAAAAAAAAAA///////////4AAAP4AAf/wA8AAAAAAAAAAAAAAAAAAAAAAAD/gAAAAAAAAAAf//////////gAAAP4AAP/wA8AAAAAAAAAAAAAAAAAAAAAAAAPgAoAAAAAAAAf/////////8MAAAP4AAP/wA3AAAAAAAAAAAAAAAAAAAAAAAAHgH8AAAAAAAAf/////////x8AAAHwAAM/wBfAAAAAAAAAAAAAAAAAAAAAAAADgP//AAAAAAAH//////////8AAAHwAAMfADfAAAAAAAAAAAAAAAAAAAAAAAAD/f//AAAAAAAH//////////4AAAD8AAMOAGNgAAAAAAAAAAAAAAAAAAAAAAAA////gAAAAAAD//////////4AAAD8AAOEAEPgAAAAAAAAAAAAAAAAAAAAAAAAN///wAAAAAAB//////////wAAABcAAOAAAfgAAAAAAAAAAAAAAAAAAAAAAAAA///6AAAAAAA//////////wAAAAcAAHgAMPgAAAAAAAAAAAAAAAAAAAAAAAAA////wAAAAAAf/z///////gAAAAIABzwAfDAAAAAAAAAAAAAAAAAAAAAAAAAA////4AAAAAAPuB///////gAAAAAAB7wB+AAAAAAAAAAAAAAAAAAAAAAAAAAA////8AAAAAAAAAP//////AAAAAAAA/wD8AAAAAAAAAAAAAAAAAAAAAAAAAAB////8AAAAAAAAAH/////+AAAAAAAAfwX+AQAAAAAAAAAAAAAAAAAAAAAAAAD////+AAAAAAAAAH/////8AAAAAAAAP4f+zYAAAAAAAAAAAAAAAAAAAAAAAAH////8AAAAAAAAAH/////wAAAAAAAAHw//+YAAAAAAAAAAAAAAAAAAAAAAAAH/////wAAAAAAAAP/////gAAAAAAAAHwf98bwAAAAAAAAAAAAAAAAAAAAAAAH/////8AAAAAAAAP/////AAAAAAAAAD4f98D5gAAAAAAAAAAAAAAAAAAAAAAH//////4AAAAAAAH////+AAAAAAAAAD8P74N/8AwAAAAAAAAAAAAAAAAAAAAH//////8AAAAAAAD////+AAAAAAAAAB+H55+//gcAAAAAAAAAAAAAAAAAAAAP//////+AAAAAAAB////8AAAAAAAAAA8Ap8A//wcAAAAAAAAAAAAAAAAAAAAP///////gAAAAAAB////4AAAAAAAAAAfABsAJ//7AAAAAAAAAAAAAAAAAAAAP///////wAAAAAAA////8AAAAAAAAAAH+AAAI//jgAAAAAAAAAAAAAAAAAAAD///////wAAAAAAA////8AAAAAAAAAAD/gAAB/8A8AAAAAAAAAAAAAAAAAAAD///////wAAAAAAA////8AAAAAAAAAAAP/7wB/OAHAAAAAAAAAAAAAAAAAAAB///////gAAAAAAA////8AAAAAAAAAAAAPnAAGPgHAAAAAAAAAAAAAAAAAAAB///////AAAAAAAAf///+AAAAAAAAAAAABmAACHgBgAAAAAAAAAAAAAAAAAAA//////+AAAAAAAAf///+AAAAAAAAAAAAAAB+HAAAAAAAAAAAAAAAAAAAAAAA//////+AAAAAAAA////+AwAAAAAAAAAAAAD+HAAAAAAAAAAAAAAAAAAAAAAAf/////8AAAAAAAA////+B4AAAAAAAAAAAA3+HAAAAAAAAAAAAAAAAAAAAAAAf/////8AAAAAAAA////+B4AAAAAAAAAAAB/8HwAADAAAAAAAAAAAAAAAAAAAP/////8AAAAAAAB////+H4AAAAAAAAAAAD//HwAADAAgAAAAAAAAAAAAAAAAD/////8AAAAAAAB////+P4AAAAAAAAAAAP//nwAABADAAAAAAAAAAAAAAAAAA/////4AAAAAAAB////4fwAAAAAAAAAAAP///4AAAAGAAAAAAAAAAAAAAAAAAf////4AAAAAAAB////gPwAAAAAAAAAAAf///4AAAAGAAAAAAAAAAAAAAAAAAf////4AAAAAAAA////APwAAAAAAAAAAB////+AAAAAAAAAAAAAAAAAAAAAAAf////wAAAAAAAAf//+AfgAAAAAAAAAAP////+AAMAAAAAAAAAAAAAAAAAAAAf////wAAAAAAAAf///AfgAAAAAAAAAA//////AAOAAAAAAAAAAAAAAAAAAAAf////gAAAAAAAAP///AfAAAAAAAAAAB//////gADAAAAAAAAAAAAAAAAAAAAf///+AAAAAAAAAP///AfAAAAAAAAAAB//////wAAAAAAAAAAAAAAAAAAAAAAf///wAAAAAAAAAP///AfAAAAAAAAAAB//////4AAAAAAAAAAAAAAAAAAAAAAf///gAAAAAAAAAP//8AOAAAAAAAAAAB//////8AAAAAAAAAAAAAAAAAAAAAAf///AAAAAAAAAAP//4AAAAAAAAAAAAB//////8AAAAAAAAAAAAAAAAAAAAAAf///AAAAAAAAAAH//4AAAAAAAAAAAAB//////8AAAAAAAAAAAAAAAAAAAAAA////AAAAAAAAAAH//4AAAAAAAAAAAAA//////8AAAAAAAAAAAAAAAAAAAAAA///+AAAAAAAAAAD//wAAAAAAAAAAAAA//////8AAAAAAAAAAAAAAAAAAAAAA///8AAAAAAAAAAB//gAAAAAAAAAAAAA//////8AAAAAAAAAAAAAAAAAAAAAA///8AAAAAAAAAAB//gAAAAAAAAAAAAAf/////8AAAAAAAAAAAAAAAAAAAAAA///wAAAAAAAAAAB/+AAAAAAAAAAAAAAf/w///4AAAAAAAAAAAAAAAAAAAAAA///wAAAAAAAAAAA/8AAAAAAAAAAAAAAf+AP//wAAAAAAAAAAAAAAAAAAAAAB///gAAAAAAAAAAA+AAAAAAAAAAAAAAAfIAH//wAADAAAAAAAAAAAAAAAAAAB//4AAAAAAAAAAAAAAAAAAAAAAAAAAAAOAAD//gAABgAAAAAAAAAAAAAAAAAD//8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAf/gAABwAAAAAAAAAAAAAAAAAD//4AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAf/AAAA+AAAAAAAAAAAAAAAAAD//4AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP8AAAA+AAAAAAAAAAAAAAAAAD/8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAAB8AAAAAAAAAAAAAAAAAD/8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA2AAAD4AAAAAAAAAAAAAAAAAH/8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA+AAAH4AAAAAAAAAAAAAAAAAH/4AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAeAAAPAAAAAAAAAAAAAAAAAAH/wAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAcAAA/AAAAAAAAAAAAAAAAAAH/gAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB8AAAAAAAAAAAAAAAAAAH/gAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD4AAAAAAAAAAAAAAAAAAP/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD4AAAAAAAAAAAAAAAAAAP/gAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP/gAAAAAAAAAAAAAAAAAAAAAMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP+AAAAAAAAAAAAAAAAAAAAAAOAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP8D4AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP8BgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAH+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB/gAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/gAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA4AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA8AAAAAAAAAAAAAAAAAAB4AAAAAAA4BAAAEAAAAAAAAAAAAAAAAAAAAAAAAAD8AAAAAAAAAAAAAAAAAAP8AAAAGAD//8f///wAAAAAAAAAAAAAAAAAAAAAAADwAAAAAAAAAAAAAAAAAH//34AP//////////4AAAAAAAAAAAAAAAAAAAAAAAT4AAAAAAAAAAAAAAAHD////8A/////////////AAAAAAAAAAAAAAAAAAAAAA/8AAAAAAAAAAAQRwA//////8f/////////////8AAAAAAAAAAAAAAAAAAAAA/+AAAAAAAABAH//////////8////////////////gAAAAAAAAAAAAAB9AAAP/+AAAAAAAA/////////////5////////////////8AAAAAAAAAAAAAD/AwAH/+AAAAAAAH//////////////////////////////8AAAAAAAAAD3xgD///////AAAAAAAf//////////////////////////////wAAAAAAAB/////H//////+AAAAAAAf//////////////////////////////AAAAAAAH/////////////wAAAAAAP//////////////////////////////4AAAAAGAf////////////8AAAAAA////////////////////////////////wAAAAAH/////////////+AAAAQAP////////////////////////////////4AAAAD//////////////8AAAD+A/////////////////////////////////+AAAAB4/////////////wADAP+A/////////////////////////////////wAAAAAAAP////////////x/h/+Af///////////////////////////////+AAAAAAB///////////////9AH9//////////////////////////////////AAAAAAAP////////////////////////////////////////////////////8AAACAAP/////////////////////////////////////////////////////wA//8AB///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////");
+    function landAt(lon,lat){
+      var col=Math.floor(lon+180); col=((col%360)+360)%360;
+      var row=Math.floor(90-lat); if(row<0)row=0; else if(row>179)row=179;
+      return LG[row*360+col];
+    }
+
+    var NODES=[
+      ["Ghent","BE",3.7,51.0],["Amsterdam","NL",4.9,52.4],["Nuremberg","DE",11.1,49.5],
+      ["Frankfurt","DE",8.7,50.1],["Prague","CZ",14.4,50.1],["Vilnius","LT",25.3,54.7],
+      ["Sofia","BG",23.3,42.7],["Oslo","NO",10.7,59.9],["Stockholm","SE",18.1,59.3],
+      ["Reykjavik","IS",-21.9,64.1],["London","GB",-0.1,51.5],["Paris","FR",2.35,48.9],
+      ["Madrid","ES",-3.7,40.4],["Warsaw","PL",21.0,52.2],["Bucharest","RO",26.1,44.4],
+      ["Milan","IT",9.2,45.5],["New York","US",-74.0,40.7],["San Francisco","US",-122.4,37.8],
+      ["Toronto","CA",-79.4,43.7],["Austin","US",-97.7,30.3],["Denver","US",-105.0,39.7],
+      ["Miami","US",-80.2,25.8],["Sao Paulo","BR",-46.6,-23.5],["Buenos Aires","AR",-58.4,-34.6],
+      ["Bogota","CO",-74.1,4.7],["Lagos","NG",3.4,6.5],["Nairobi","KE",36.8,-1.3],
+      ["Cape Town","ZA",18.4,-33.9],["Dubai","AE",55.3,25.2],["Tel Aviv","IL",34.8,32.1],
+      ["Tokyo","JP",139.7,35.7],["Seoul","KR",127.0,37.6],["Singapore","SG",103.8,1.35],
+      ["Bangalore","IN",77.6,13.0],["Mumbai","IN",72.8,19.1],["Hong Kong","HK",114.2,22.3],
+      ["Jakarta","ID",106.8,-6.2],["Sydney","AU",151.2,-33.9],["Auckland","NZ",174.8,-36.8]
+    ].map(function(n,i){ return {city:n[0],cc:n[1],lon:n[2],lat:n[3],status:"stand"}; });
+    function byCity(c){ for(var i=0;i<NODES.length;i++) if(NODES[i].city===c) return NODES[i]; }
+    var RING=["Amsterdam","Nuremberg","Prague","Vilnius","Sofia"].map(byCity), TAIL=byCity("Ghent");
+    RING.forEach(function(n){n.status="serve";}); TAIL.status="serve";
+    NODES.forEach(function(n,i){ if(n.status!=="serve") n.status=(i%6===0)?"off":"stand"; });
+
+    var cv=document.getElementById('map'), ctx=cv.getContext('2d');
+    var RECT={x:0,y:0,w:0,h:0}, dpr=1, view={z:1.15,cx:8,cy:30};
+    function basePpd(){ return Math.min(RECT.w/360,RECT.h/180); }
+    function ppd(){ return basePpd()*view.z; }
+    function projX(lon){ return RECT.w/2+(lon-view.cx)*ppd(); }
+    function projY(lat){ return RECT.h/2-(lat-view.cy)*ppd(); }
+    function invLon(x){ return view.cx+(x-RECT.w/2)/ppd(); }
+    function invLat(y){ return view.cy-(y-RECT.h/2)/ppd(); }
+    function clampView(){
+      var hH=(RECT.h/2)/ppd(), mLat=Math.max(0,90-hH);
+      view.cy=Math.max(-mLat,Math.min(mLat,view.cy));
+      var hW=(RECT.w/2)/ppd(), mLon=Math.max(0,180-hW);
+      view.cx=Math.max(-mLon,Math.min(mLon,view.cx));
+    }
+    function layout(){
+      dpr=Math.min(window.devicePixelRatio||1,2);
+      var w=cv.clientWidth,h=cv.clientHeight;
+      cv.width=Math.round(w*dpr); cv.height=Math.round(h*dpr);
+      ctx.setTransform(dpr,0,0,dpr,0,0); ctx.imageSmoothingEnabled=false;
+      RECT={x:0,y:0,w:w,h:h}; clampView();
+    }
+    function px(v){ return Math.round(v); }
+    function line(x0,y0,x1,y1,s){ ctx.fillStyle=s;
+      var dx=Math.abs(x1-x0),dy=Math.abs(y1-y0),sx=x0<x1?1:-1,sy=y0<y1?1:-1,e=dx-dy,x=x0,y=y0,g=0;
+      while(g++<6000){ if((g&1)===0)ctx.fillRect(x,y,1,1); if(x===x1&&y===y1)break;
+        var e2=2*e; if(e2>-dy){e-=dy;x+=sx;} if(e2<dx){e+=dx;y+=sy;} } }
+    function edges(){ var e=[],i; for(i=0;i<RING.length-1;i++)e.push([RING[i],RING[i+1]]);
+      e.push([RING[RING.length-1],TAIL]); e.push([TAIL,RING[0]]); return e; }
+
+    var pulse=-1, now=0;
+    function draw(){
+      var w=RECT.w,h=RECT.h; ctx.clearRect(0,0,w,h);
+      ctx.fillStyle='rgba(255,255,255,0.05)';
+      for(var la=-60;la<=60;la+=30){ var gy=projY(la); if(gy>0&&gy<h) for(var gx=0;gx<w;gx+=5)ctx.fillRect(gx,px(gy),2,1); }
+      for(var lo=-150;lo<=150;lo+=30){ var mx=projX(lo); if(mx>0&&mx<w) for(var my=0;my<h;my+=6)ctx.fillRect(px(mx),my,1,2); }
+      ctx.fillStyle='rgba(255,255,255,0.15)';
+      var sp=7;
+      for(var sy=3;sy<h;sy+=sp) for(var sx=3;sx<w;sx+=sp){
+        var lat=invLat(sy); if(lat>84||lat<-58) continue;
+        if(landAt(invLon(sx),lat)) ctx.fillRect(sx,sy,2,2);
+      }
+      var E=edges();
+      for(var k=0;k<E.length;k++){ var a=E[k][0],b=E[k][1];
+        line(px(projX(a.lon)),px(projY(a.lat)),px(projX(b.lon)),px(projY(b.lat)),'rgba(34,197,94,0.45)'); }
+      if(pulse>=0){ var ei=Math.floor(pulse)%E.length,f=pulse-Math.floor(pulse),ea=E[ei][0],eb=E[ei][1];
+        var tx=projX(ea.lon)+(projX(eb.lon)-projX(ea.lon))*f, ty=projY(ea.lat)+(projY(eb.lat)-projY(ea.lat))*f;
+        ctx.fillStyle='#fff'; ctx.fillRect(px(tx)-1,px(ty)-1,3,3); }
+      for(var n=0;n<NODES.length;n++){ var nd=NODES[n],x=px(projX(nd.lon)),y=px(projY(nd.lat));
+        if(x<-4||x>w+4||y<-4||y>h+4) continue;
+        if(nd.status==="serve"){ ctx.fillStyle='#22c55e'; ctx.fillRect(x-2,y-2,4,4); }
+        else{ var al=nd.status==="stand"?0.85:0.28; if(nd.status==="off"&&Math.floor(now/300)%2)al*=0.4;
+          ctx.fillStyle='rgba(255,255,255,'+al+')'; ctx.fillRect(x-1,y-1,3,3); } }
+      if(view.z>=2.4){ ctx.font='10px "Courier New",monospace'; ctx.textBaseline='middle';
+        var lab=RING.concat([TAIL]);
+        for(var L=0;L<lab.length;L++){ var nn=lab[L],lx=px(projX(nn.lon))+7,ly=px(projY(nn.lat));
+          var t=nn.city.toLowerCase()+(nn===TAIL?" ·home":"");
+          ctx.fillStyle=nn===TAIL?'rgba(34,197,94,0.95)':'rgba(255,255,255,0.72)';
+          if(lx+ctx.measureText(t).width>w) lx=px(projX(nn.lon))-7-ctx.measureText(t).width;
+          ctx.fillText(t,lx,ly); } }
+    }
+
+    var CONVOS=[
+      {q:"explain how a torrent works, in two sentences.",
+       a:"A file is split into small pieces, and every downloader also uploads the pieces it already has to everyone else. No central server hosts it — the swarm itself is the source, so the more people want it, the faster it spreads."},
+      {q:"two-line poem about a bedroom gpu joining a global brain.",
+       a:"A fan spins up in a quiet room in Ghent,\nand somewhere a stranger's sentence finds its end."},
+      {q:"what does it mean that no machine holds the whole model?",
+       a:"Each GPU keeps only a slice of the layers, so a prompt is passed hop to hop around the ring, every stage adding its piece. No one node can run the model alone — and no one node has to."},
+      {q:"is this actually decentralized, or just marketing?",
+       a:"Weights move peer-to-peer and every byte is checked against a signed manifest; each stage signs a receipt for its work. The orchestrator only matches nodes — it never touches your tokens, and it can't forge the receipts."}
+    ];
+    var logEl=document.getElementById('log'), attribEl=document.getElementById('attrib');
+    var geoCount=(function(){var s={};RING.concat([TAIL]).forEach(function(n){s[n.cc]=1;});return Object.keys(s).length;})();
+    (function(){ var hops=RING.concat([TAIL]),html='<span class="lab">route</span>',i;
+      for(i=0;i<hops.length;i++){ html+='<span class="hop'+(hops[i]===TAIL?' tail':'')+'">'+hops[i].city.toLowerCase()+'</span>';
+        if(i<hops.length-1) html+='<span class="arr">→</span>'; }
+      html+='<span class="arr">↺</span><span class="lab">return</span>';
+      document.getElementById('route').innerHTML=html; })();
+
+    var tokS=0,convoI=0,phase="ask",tSince=0,typed=0,curMsg="",curBody=null;
+    function pushMsg(who,cls){ var m=document.createElement('div');m.className='msg '+cls;
+      var w=document.createElement('div');w.className='who';w.textContent=who;
+      var b=document.createElement('div');b.className='body';m.appendChild(w);m.appendChild(b);logEl.appendChild(m);
+      while(logEl.children.length>4)logEl.removeChild(logEl.firstChild); return b; }
+    function startConvo(){ var c=CONVOS[convoI%CONVOS.length];
+      pushMsg("you","you").textContent=c.q; curBody=pushMsg("swarm","swarm"); curMsg=c.a; typed=0; tokS=0;
+      attribEl.innerHTML='&nbsp;'; phase="stream"; tSince=0; pulse=0; }
+    function tick(dt){ now+=dt;
+      if(phase==="ask"){ tSince+=dt; if(tSince>700)startConvo(); return; }
+      if(phase==="stream"){ tSince+=dt; var tg=Math.min(curMsg.length,Math.floor(tSince/27));
+        if(tg>typed){ typed=tg; curBody.textContent=curMsg.slice(0,typed);
+          curBody.innerHTML=curBody.textContent.replace(/</g,'&lt;')+'<span class="cursor"></span>';
+          pulse+=0.9; tokS=2+Math.round((Math.sin(now/900)+1)*1.3*10)/10; }
+        if(typed>=curMsg.length){ curBody.textContent=curMsg;
+          attribEl.innerHTML='served by <b>'+(RING.length+1)+' gpus</b> across <b>'+geoCount+' countries</b> · '+
+            RING[0].city.toLowerCase()+'→…→'+TAIL.city.toLowerCase()+' · <b>'+tokS.toFixed(1)+'</b> tok/s';
+          tokS=0; phase="rest"; tSince=0; }
+        return; }
+      if(phase==="rest"){ tSince+=dt; pulse=-1; if(tSince>2600){ convoI++; phase="ask"; tSince=0; } } }
+    var joinT=0;
+    function joins(dt){ joinT+=dt; if(joinT<2200)return; joinT=0;
+      var offs=NODES.filter(function(n){return n.status==="off";});
+      if(offs.length) offs[0].status="stand";
+      else{ var st=NODES.filter(function(n){return n.status==="stand";}); if(st.length>7)st[Math.floor(now/1000)%st.length].status="off"; } }
+
+    var elHero=document.getElementById('hero-gpus'),elG=document.getElementById('c-gpus'),
+        elT=document.getElementById('c-toks'),elC=document.getElementById('c-countries');
+    function stats(){ var on=0,ccs={};
+      for(var i=0;i<NODES.length;i++){ var n=NODES[i]; if(n.status!=="off"){on++;ccs[n.cc]=1;} }
+      elHero.textContent=on; elG.textContent=on;
+      elT.innerHTML=(phase==="stream"?tokS.toFixed(1):"0")+'<small> tok/s</small>';
+      elC.textContent=Object.keys(ccs).length; }
+
+    function zoomAt(f,mx,my){ var lon=invLon(mx),lat=invLat(my);
+      view.z=Math.max(1,Math.min(9,view.z*f));
+      view.cx=lon-(mx-RECT.w/2)/ppd(); view.cy=lat+(my-RECT.h/2)/ppd(); clampView(); }
+    cv.addEventListener('wheel',function(e){ e.preventDefault(); var r=cv.getBoundingClientRect();
+      zoomAt(e.deltaY<0?1.16:1/1.16, e.clientX-r.left, e.clientY-r.top); },{passive:false});
+    var drag=null;
+    cv.addEventListener('pointerdown',function(e){ drag={x:e.clientX,y:e.clientY}; cv.classList.add('drag'); cv.setPointerCapture(e.pointerId); });
+    cv.addEventListener('pointermove',function(e){ if(!drag)return;
+      view.cx-=(e.clientX-drag.x)/ppd(); view.cy+=(e.clientY-drag.y)/ppd(); drag={x:e.clientX,y:e.clientY}; clampView(); });
+    function endDrag(){ drag=null; cv.classList.remove('drag'); }
+    cv.addEventListener('pointerup',endDrag); cv.addEventListener('pointercancel',endDrag);
+    document.getElementById('zin').onclick=function(){ zoomAt(1.4,RECT.w/2,RECT.h/2); };
+    document.getElementById('zout').onclick=function(){ zoomAt(1/1.4,RECT.w/2,RECT.h/2); };
+    document.getElementById('zworld').onclick=function(){ view={z:1,cx:0,cy:12}; clampView(); };
+    var wrap=document.getElementById('mapWrap');
+    document.getElementById('zfull').onclick=function(){ if(document.fullscreenElement)document.exitFullscreen(); else if(wrap.requestFullscreen)wrap.requestFullscreen(); };
+    document.addEventListener('fullscreenchange',function(){ setTimeout(layout,60); });
+
+    var last=0;
+    function frame(ts){ var dt=last?Math.min(ts-last,80):16; last=ts;
+      if(!reduce){ tick(dt); joins(dt); } draw(); stats(); requestAnimationFrame(frame); }
+    function boot(){ layout();
+      if(reduce){ var c=CONVOS[0]; pushMsg("you","you").textContent=c.q; pushMsg("swarm","swarm").textContent=c.a;
+        attribEl.innerHTML='served by <b>'+(RING.length+1)+' gpus</b> across <b>'+geoCount+' countries</b>'; pulse=2.5; }
+      requestAnimationFrame(frame); }
+    var rz; window.addEventListener('resize',function(){ clearTimeout(rz); rz=setTimeout(layout,120); });
+    if(cv.clientWidth) boot(); else requestAnimationFrame(boot);
+  })();
+  </script>
+</body>
+</html>
