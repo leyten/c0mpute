@@ -26,6 +26,12 @@ import { decideRole } from '../lib/shard-admission';
 
 const PORT = Number(process.argv[process.argv.indexOf('--port') + 1] || 0) || 3777;
 const ONCE = process.argv.includes('--once');
+// layers assigned per node: small + TAIL-anchored so a real single GPU (e.g. a 24 GB card)
+// actually loads its range and READYs for real — 62-layer full stacks are for real rings
+const LAYERS = Math.min(62, Math.max(1,
+  Number(process.argv[process.argv.indexOf('--layers') + 1] || 0) || 3));
+// wait for this many announced nodes before forming (multi-daemon ring tests)
+const NODES = Math.max(1, Number(process.argv[process.argv.indexOf('--nodes') + 1] || 0) || 1);
 
 function log(msg: string): void {
   console.log(`[sim] ${msg}`);
@@ -41,13 +47,15 @@ class SimSeam implements Seam {
     const r = req as { nodes: { id: string }[]; model: { n_layers: number } };
     const n = r.nodes.length;
     const L = r.model.n_layers;
-    const per = Math.floor(L / n);
+    // consecutive LAYERS-sized blocks ENDING at the model tail, so every stage's pull is a
+    // few real shards (+ lm_head on the tail) instead of an unservable 62-layer stack
     const stages = r.nodes.map((node, i) => ({
       id: node.id, index: i,
-      lo: i * per, hi: i === n - 1 ? L : (i + 1) * per,
+      lo: L - (n - i) * LAYERS, hi: L - (n - i - 1) * LAYERS,
       head: i === 0, tail: i === n - 1,
-      layers: (i === n - 1 ? L : (i + 1) * per) - i * per,
+      layers: LAYERS,
     }));
+    if (stages[0].lo < 0) { log(`SimSeam.plan: ${n} nodes × ${LAYERS} layers exceeds ${L} — lower --layers`); return null; }
     log(`SimSeam.plan: ${n} node(s) -> ${stages.map((s) => `[${s.lo}:${s.hi})`).join(' ')}`);
     return {
       order: stages.map((s) => s.id), head: stages[0].id, stages,
@@ -120,7 +128,13 @@ const handle = attachSwarmLoop(io, {
     paySplit: 'layers', minCandidates: 1, privacy: null, spotCheckTimeoutMs: 300_000,
   },
   seam: new SimSeam(),
-  log: (m) => log(`loop: ${m}`),
+  log: (m) => {
+    log(`loop: ${m}`);
+    if (/ READY — all /.test(m)) {
+      log('*** LIFECYCLE COMPLETE — every stage pulled, connected, and reported ready ***');
+      if (ONCE) setTimeout(() => { log('(--once) success, exiting 0'); process.exit(0); }, 500);
+    }
+  },
 });
 
 io.on('connection', (socket) => {
@@ -128,22 +142,25 @@ io.on('connection', (socket) => {
   socket.onAny((event, ...args) => {
     if (event === 'node:announce') {
       const { model } = args[0] ?? {};
-      const n = (announced.get(model) ?? 0) + 1;
-      announced.set(model, n);
-      // debounce so a burst of daemons lands in ONE ring, then auto-form (the trigger the
-      // running server doesn't have yet — swarm-loop.ts's named integration gap)
-      if (formTimer) clearTimeout(formTimer);
-      formTimer = setTimeout(async () => {
-        const rtt = Array.from({ length: n }, () => Array.from({ length: n }, () => 0));
-        log(`auto-forming swarm for ${model} over ${n} node(s)...`);
-        const swarm = await handle.formSwarm(model, 'mf:m25-nvfp4-v1', M25_PROFILE, rtt);
-        if (!swarm) log('formSwarm returned null — see loop log above');
-      }, 3000);
+      // read the REAL pool size one tick later — onAny fires before the swarm loop's own
+      // announce handler admits the node, so a synchronous read is always one behind
+      setImmediate(() => {
+        const n: number = ((handle.manager as unknown as { candidates: Map<string, unknown[]> })
+          .candidates.get(model) ?? []).length;
+        announced.set(model, n);
+        if (n < NODES) { log(`pool ${n}/${NODES} for ${model} — waiting for more nodes`); return; }
+        // debounce so a burst of daemons lands in ONE ring, then auto-form (the trigger the
+        // running server doesn't have yet — swarm-loop.ts's named integration gap)
+        if (formTimer) clearTimeout(formTimer);
+        formTimer = setTimeout(async () => {
+          const rtt = Array.from({ length: n }, () => Array.from({ length: n }, () => 0));
+          log(`auto-forming swarm for ${model} over ${n} node(s)...`);
+          const swarm = await handle.formSwarm(model, 'mf:m25-nvfp4-v1', M25_PROFILE, rtt);
+          if (!swarm) log('formSwarm returned null — see loop log above');
+        }, 3000);
+      });
     }
-    if (event === 'swarm:ready') {
-      log(`*** swarm:ready received from ${socket.id} — LIFECYCLE COMPLETE ***`);
-      if (ONCE) setTimeout(() => { log('(--once) success, exiting 0'); process.exit(0); }, 500);
-    }
+    if (event === 'swarm:ready') log(`swarm:ready from ${socket.id}`);
   });
   socket.on('disconnect', (why) => log(`node disconnected: ${socket.id} (${why})`));
 });

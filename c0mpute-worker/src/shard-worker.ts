@@ -10,9 +10,11 @@
 import { io, Socket } from 'socket.io-client';
 import { hostname } from 'os';
 import {
-  ensureShardHome, proveIdentity, receiptPubkey, detectGpuName, detectFreeVramMB, probeMeasure,
-  pullRange, startSidecar, StageProcess, MODEL_DIR, SHARD_REPO,
+  proveIdentity, receiptPubkey, detectGpuName, detectFreeVramMB, probeMeasure,
+  pullRange, startSidecar, pickDialAddrs, StageProcess, FORWARD_PORT, MODEL_DIR, SHARD_REPO,
+  type SidecarHandle,
 } from './shard-runner.js';
+import { ensureShardSetup } from './shard-setup.js';
 
 const MODEL = process.env.C0MPUTE_SHARD_MODEL || 'minimax-m2.5';
 const MANIFEST_REF = process.env.C0MPUTE_SHARD_MANIFEST || 'mf:m25-nvfp4-v1';
@@ -24,7 +26,10 @@ interface ShardWorkerOptions {
 }
 
 // Mirrors lib/orchestrator/swarm-types.ts (the payloads a stage assignment carries).
-interface StagePeer { nodeId: string; pubkey: string; stageIndex: number; layerStart: number; layerEnd: number }
+interface StagePeer {
+  nodeId: string; pubkey: string; stageIndex: number; layerStart: number; layerEnd: number;
+  addrs: string[];
+}
 interface StageAssignment {
   swarmId: string;
   model: string;
@@ -106,10 +111,43 @@ async function buildCapabilities(): Promise<{ measured: Record<string, unknown>;
 
 export async function startShardWorker(opts: ShardWorkerOptions): Promise<void> {
   log(`shard node daemon starting (model ${MODEL}, engine at ${SHARD_REPO}, weights at ${MODEL_DIR})`);
-  ensureShardHome();
+
+  // ── ENROLL step 0: self-provision (engine, venv, sidecar, probe slice — zero env vars) ──
+  await ensureShardSetup();
+
+  // ── the sidecar is a DAEMON-scoped fixture: a standby listener from enroll on (its ADDR
+  // lines are the dialable identity peers get in their assignments), restarted with -forward/
+  // -allow ring legs when serving, restored to a bare listener on teardown. Generation counter
+  // = intentional restarts never trip the death watcher.
+  let sidecar: SidecarHandle | null = null;
+  let sidecarGen = 0;
+  let shuttingDown = false;
+  function bootSidecar(cfg: { forwards?: string[]; allow?: string[] } = {}): SidecarHandle {
+    const gen = ++sidecarGen;
+    sidecar?.proc.kill('SIGTERM');
+    const sc = startSidecar(cfg);
+    sidecar = sc;
+    sc.proc.on('exit', (code) => {
+      if (gen !== sidecarGen || shuttingDown) return;   // superseded / operator shutdown
+      if (current) {
+        release(`sidecar exited (${code}) — the ring leg is dark`);
+      } else {
+        log(`standby sidecar died (${code}) — restarting in 2s`);
+        setTimeout(() => { if (gen === sidecarGen && !shuttingDown) bootSidecar(); }, 2000);
+      }
+    });
+    sc.proc.on('error', (e) => {
+      if (gen !== sidecarGen || shuttingDown) return;
+      log(`sidecar spawn error: ${e.message}`);
+    });
+    return sc;
+  }
 
   // ── ENROLL ──
+  const myAddrs = await bootSidecar().addrs;
+  log(`dialable addrs: ${myAddrs.length ? myAddrs.join(' ') : 'NONE (NAT without relays? set C0MPUTE_SHARD_RELAYS)'}`);
   const { measured, announceCap } = await buildCapabilities();
+  announceCap.addrs = myAddrs;              // ring peers dial these for their forward legs
   await bindIdentity(opts, measured);
 
   const socket: Socket = io(opts.orchestratorUrl, {
@@ -124,7 +162,6 @@ export async function startShardWorker(opts: ShardWorkerOptions): Promise<void> 
   let current: {
     assignment: StageAssignment;
     stage: StageProcess;
-    sidecar: ReturnType<typeof startSidecar> | null;
     restarts: number;
     abort: AbortController;                 // kills an in-flight pull when the assignment dies
     retryTimer: ReturnType<typeof setTimeout> | null;
@@ -136,8 +173,8 @@ export async function startShardWorker(opts: ShardWorkerOptions): Promise<void> 
     if (current.retryTimer) clearTimeout(current.retryTimer);
     current.abort.abort();
     current.stage.stop();
-    current.sidecar?.kill('SIGTERM');
     current = null;
+    bootSidecar();                          // drop the ring legs, back to the standby listener
   }
 
   /** Local teardown + recycle the socket. The server frees a node's swarm lease ONLY in
@@ -186,24 +223,32 @@ export async function startShardWorker(opts: ShardWorkerOptions): Promise<void> 
   async function serve(a: StageAssignment): Promise<void> {
     log(`assigned: swarm ${a.swarmId} stage ${a.stageIndex}/${a.peers.length} layers [${a.layerStart}:${a.layerEnd}) `
       + `${a.isHead ? 'HEAD ' : ''}${a.isTail ? 'TAIL ' : ''}(${a.model} @ ${a.manifestRef})`);
+    // ring legs: a non-tail stage dials its successor's sidecar (the forward tunnel the engine's
+    // --next rides); inbound is pinned to the predecessor's PeerId (the C2 neighbour allowlist —
+    // the head stays open for the coordinator return channel, leg 8).
+    const forwards: string[] = [];
+    const allow: string[] = [];
     if (!a.isTail) {
-      // A non-tail stage must dial its successor, and the assign payload carries no peer
-      // multiaddrs yet (the NODE_DAEMON.md addressing gap) — launching one is a guaranteed
-      // boot-crash loop that wedges the whole swarm. Refuse LOUDLY and free the ring.
-      release(`non-tail stage ${a.stageIndex} refused: forward-leg peer addressing not wired yet (leg7 gap)`);
-      return;
+      const successor = a.peers.find((p) => p.stageIndex === a.stageIndex + 1);
+      const dial = pickDialAddrs(successor?.addrs ?? []);
+      if (!dial.length) {
+        release(`non-tail stage ${a.stageIndex}: successor ${successor?.nodeId ?? '?'} announced no dialable addrs`);
+        return;
+      }
+      forwards.push(`127.0.0.1:${FORWARD_PORT}=${dial[0]}`);
     }
+    const predPid = a.peers.find((p) => p.stageIndex === a.stageIndex - 1)
+      ?.addrs?.[0]?.split('/p2p/').pop();
+    if (predPid) allow.push(predPid);
     const mine = current!;
     try {
+      // ring legs FIRST (the sidecar doesn't need the weights): every stage's sidecar is
+      // settled minutes before any peer's engine dials in — assign-time restarts never race
+      bootSidecar({ forwards, allow });     // same key + ports: the addrs peers hold stay valid
       log(`pulling layers [${a.layerStart}:${a.layerEnd}) ...`);
       await pullRange(a.layerStart, a.layerEnd, a.isHead, a.isTail, mine.abort.signal);
       // dissolved (or re-assigned) while pulling — the new assignment owns the slot
       if (current !== mine) return;
-      const sc = startSidecar();
-      current.sidecar = sc;
-      // a dead sidecar = the ring is dark while the stage looks healthy — that's a leave
-      sc.on('error', (e: Error) => { if (current?.sidecar === sc) release(`sidecar failed: ${e.message}`); });
-      sc.on('exit', (code) => { if (current?.sidecar === sc) release(`sidecar exited (${code})`); });
       launchStage();
     } catch (err: any) {
       if (current === mine) release(`serve failed: ${err.message}`);
@@ -239,7 +284,7 @@ export async function startShardWorker(opts: ShardWorkerOptions): Promise<void> 
       teardown(`preempted by assignment for ${a.swarmId}`);
     }
     current = {
-      assignment: a, stage: new StageProcess(), sidecar: null, restarts: 0,
+      assignment: a, stage: new StageProcess(), restarts: 0,
       abort: new AbortController(), retryTimer: null,
     };
     void serve(a);
@@ -254,7 +299,9 @@ export async function startShardWorker(opts: ShardWorkerOptions): Promise<void> 
 
   const shutdown = (): void => {
     log('shutting down');
+    shuttingDown = true;
     teardown('operator shutdown');
+    sidecar?.proc.kill('SIGTERM');
     socket.disconnect();
     process.exit(0);
   };

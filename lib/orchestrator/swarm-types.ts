@@ -38,6 +38,11 @@ export interface NodeCapabilities {
   totalVramMb?: number;        // device total; the planner density-scales the proven cap to the card size
   loadPeakExtraMb?: number;    // measured load/run transient above resident (the admit-then-OOM gate)
   layerMs?: number;            // measured decode ms/layer (graph-replayed); overrides the modeled base
+  /** the node's dialable sidecar multiaddrs (each ending /p2p/<PeerId>) — captured from the
+   *  sidecar's ADDR lines at enroll; ring peers dial these to build the forward tunnels. A NAT'd
+   *  node lists its relay circuit addrs here. UNVERIFIED at announce (a lie only breaks the liar's
+   *  own ring legs — the forward dial fails and the swarm degrades before serving). */
+  addrs?: string[];
 }
 
 /** A node in the admitted candidate pool, waiting to be placed into a swarm for `model`. */
@@ -71,8 +76,11 @@ export interface StageAssignment {
   /** the wire mode the ring must run — the node uses it, and settlement chain-checks iff true. Decided
    *  by the swarm (from the model profile), NOT inferred, so the trust check matches the actual wire. */
   losslessWire: boolean;
-  /** the per-job freshness nonce lives on the job, not here; this is the static ring shape */
-  peers: { nodeId: string; pubkey: string; stageIndex: number; layerStart: number; layerEnd: number }[];
+  /** the per-job freshness nonce lives on the job, not here; this is the static ring shape.
+   *  `addrs` = each peer's dialable sidecar multiaddrs (from its announce) — stage i dials
+   *  stage i+1's to build its forward ring leg. */
+  peers: { nodeId: string; pubkey: string; stageIndex: number; layerStart: number; layerEnd: number;
+           addrs: string[] }[];
   coordinatorNodeId: string;
 }
 
