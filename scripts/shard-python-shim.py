@@ -98,4 +98,11 @@ if argv and argv[0].endswith("m25_pull_range.py"):
     print("RANGE_PULL_DONE (sim shim — no bytes moved)", flush=True)
     sys.exit(0)
 
+if argv[:2] == ["-m", "shard.fetch"]:
+    print("SHARD_FETCH_DONE " + json.dumps({"files": 0, "bytes": 0, "dir": "sim"}), flush=True)
+    sys.exit(0)
+
+if argv[:2] == ["-m", "shard.probe"] or (argv and argv[0].endswith("publish_manifest.py")):
+    sys.exit(0)                                     # heavy real calls the GPU-less demo skips
+
 os.execvp("python3", ["python3"] + argv)

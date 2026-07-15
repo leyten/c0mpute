@@ -245,8 +245,13 @@ export async function startShardWorker(opts: ShardWorkerOptions): Promise<void> 
       // ring legs FIRST (the sidecar doesn't need the weights): every stage's sidecar is
       // settled minutes before any peer's engine dials in — assign-time restarts never race
       bootSidecar({ forwards, allow });     // same key + ports: the addrs peers hold stay valid
-      log(`pulling layers [${a.layerStart}:${a.layerEnd}) ...`);
-      await pullRange(a.layerStart, a.layerEnd, a.isHead, a.isTail, mine.abort.signal);
+      // peers-first fetch: the OTHER stages' sidecars are the DHT bootstrap for the torrent path
+      const bootstrap = a.peers
+        .filter((p) => p.stageIndex !== a.stageIndex)
+        .flatMap((p) => pickDialAddrs(p.addrs).slice(0, 1));
+      log(`pulling layers [${a.layerStart}:${a.layerEnd}) (peers-first: ${bootstrap.length} ringmate seed(s)) ...`);
+      await pullRange(a.layerStart, a.layerEnd, a.isHead, a.isTail,
+        { bootstrap, role: a.role === 'coordinator' ? 'coordinator' : 'stage' }, mine.abort.signal);
       // dissolved (or re-assigned) while pulling — the new assignment owns the slot
       if (current !== mine) return;
       launchStage();
