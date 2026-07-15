@@ -321,6 +321,8 @@ export class SwarmManager {
     const peers = stages.map((s) => ({
       nodeId: s.nodeId, pubkey: s.pubkey, stageIndex: s.stageIndex,
       layerStart: s.layerStart, layerEnd: s.layerEnd,
+      // dialable sidecar multiaddrs from the announce — stage i dials stage i+1's forward leg
+      addrs: byId.get(s.nodeId)?.cap.addrs ?? [],
     }));
     for (const st of stages) {
       const assign: StageAssignment = {

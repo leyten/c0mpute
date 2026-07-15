@@ -9,7 +9,9 @@ import { mkdirSync, existsSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
 
-export const SHARD_HOME = join(homedir(), '.c0mpute');
+// C0MPUTE_SHARD_HOME / C0MPUTE_SHARD_PORT_BASE let several daemons share one box (the
+// multi-node local ring test); a real install never sets them.
+export const SHARD_HOME = process.env.C0MPUTE_SHARD_HOME || join(homedir(), '.c0mpute');
 export const NODE_KEY_FILE = join(SHARD_HOME, 'node.key');        // libp2p identity (sidecar-minted, 0600)
 export const RECEIPT_KEY_FILE = join(SHARD_HOME, 'receipt.key');  // engine receipt-signing key (python-minted)
 // TODO(leg7): NODE_DAEMON.md §1 wants ONE key for libp2p + announce + receipts; today the sidecar
@@ -18,15 +20,23 @@ export const RECEIPT_KEY_FILE = join(SHARD_HOME, 'receipt.key');  // engine rece
 
 // Port layout mirrors phase0/m25_scatter_pipe.py: the engine binds loopback (the local sidecar
 // is the only legitimate dialer); the sidecar owns the public listener + the ring tunnels.
-export const LIBP2P_PORT = 29600;
-export const ENGINE_PORT = 29610;
-export const FORWARD_PORT = 29611;
+const PORT_BASE = Number(process.env.C0MPUTE_SHARD_PORT_BASE || 29600);
+export const LIBP2P_PORT = PORT_BASE;
+export const ENGINE_PORT = PORT_BASE + 10;
+export const FORWARD_PORT = PORT_BASE + 11;
 
-const PYTHON = process.env.C0MPUTE_SHARD_PYTHON || 'python3';
-const SIDECAR_BIN = process.env.C0MPUTE_SIDECAR_BIN || join(SHARD_HOME, 'bin', 'sidecar');
+export const SIDECAR_BIN = process.env.C0MPUTE_SIDECAR_BIN || join(SHARD_HOME, 'bin', 'sidecar');
 // A shard checkout (or the flat runtime-artifact layout) to run `python -m shard.*` from.
 export const SHARD_REPO = process.env.C0MPUTE_SHARD_REPO || join(SHARD_HOME, 'shard');
 export const MODEL_DIR = process.env.C0MPUTE_SHARD_MODEL_DIR || join(SHARD_HOME, 'models', 'minimax-m2.5');
+
+/** Resolved LAZILY — the self-provision step (shard-setup.ts) creates the venv after this
+ *  module loads, so a const would freeze the pre-provision answer. */
+export function pythonBin(): string {
+  if (process.env.C0MPUTE_SHARD_PYTHON) return process.env.C0MPUTE_SHARD_PYTHON;
+  const venvPy = join(SHARD_HOME, 'venv', 'bin', 'python');
+  return existsSync(venvPy) ? venvPy : 'python3';
+}
 
 export function ensureShardHome(): void {
   mkdirSync(join(SHARD_HOME, 'models'), { recursive: true });
@@ -58,7 +68,7 @@ export function receiptPubkey(): string {
     + 'k = load_or_make_node_key(sys.argv[1]).public_key().public_bytes(\n'
     + '    serialization.Encoding.Raw, serialization.PublicFormat.Raw)\n'
     + 'print(base64.b64encode(k).decode())';
-  const r = spawnSync(PYTHON, ['-c', py, RECEIPT_KEY_FILE], { encoding: 'utf8', cwd: shardCwd() });
+  const r = spawnSync(pythonBin(), ['-c', py, RECEIPT_KEY_FILE], { encoding: 'utf8', cwd: shardCwd() });
   if (r.error || r.status !== 0) {
     throw new Error(`receipt-key mint failed: ${r.error?.message || r.stderr}`);
   }
@@ -94,7 +104,7 @@ function shardCwd(): string | undefined {
 /** `python -m shard.probe --measure` — the measured capability vector (footprint, transient,
  *  layer_ms, fast-kernel). Needs the probe slice on disk; null = announce falls back to basics. */
 export function probeMeasure(): Record<string, unknown> | null {
-  const r = spawnSync(PYTHON, ['-m', 'shard.probe', '--measure', '--dir', MODEL_DIR, '--backend', 'auto'],
+  const r = spawnSync(pythonBin(), ['-m', 'shard.probe', '--measure', '--dir', MODEL_DIR, '--backend', 'auto'],
     { encoding: 'utf8', cwd: shardCwd(), timeout: 15 * 60_000 });
   if (r.error || r.status !== 0) {
     log(`probe --measure unavailable (${(r.stderr || r.error?.message || '').toString().trim().slice(-200)})`);
@@ -124,7 +134,7 @@ export function pullRange(lo: number, hi: number, head: boolean, tail: boolean,
   return new Promise((resolve, reject) => {
     // the abort signal kills the pull when the assignment dissolves mid-download —
     // a 30 GB fetch must never outlive the swarm that asked for it
-    const p = spawn(PYTHON, args, { cwd: shardCwd(), stdio: ['ignore', 'pipe', 'pipe'], signal });
+    const p = spawn(pythonBin(), args, { cwd: shardCwd(), stdio: ['ignore', 'pipe', 'pipe'], signal });
     p.stdout.on('data', (d: Buffer) => process.stdout.write(`[pull] ${d}`));
     p.stderr.on('data', (d: Buffer) => process.stderr.write(`[pull] ${d}`));
     p.on('error', reject);
@@ -132,18 +142,65 @@ export function pullRange(lo: number, hi: number, head: boolean, tail: boolean,
   });
 }
 
+export interface SidecarHandle {
+  proc: ChildProcess;
+  /** the dialable multiaddrs the sidecar prints as ADDR lines at boot (each /p2p/<PeerId>-
+   *  suffixed); resolves once the tunnel is up. These ride in the announce so ring peers
+   *  can dial this node's forward legs. */
+  addrs: Promise<string[]>;
+}
+
 /** The local sidecar: public libp2p listener + inbound tunnel to the loopback engine port.
- *  TODO(leg7): forward legs to ring peers — `swarm:assign` carries no multiaddrs (the
- *  NODE_DAEMON.md peer-addressing gap), so non-tail stages can't dial their successor yet. */
-export function startSidecar(): ChildProcess {
+ *  `forwards` = "127.0.0.1:PORT=<peer maddr>" ring legs (a serving non-tail stage dials its
+ *  successor through one); `allow` = PeerIds permitted to open inbound streams (the C2
+ *  cryptographic neighbour pin — empty keeps it open, standby/legacy behavior). */
+export function startSidecar(opts: { forwards?: string[]; allow?: string[] } = {}): SidecarHandle {
   const args = ['-key', NODE_KEY_FILE, '-listen', `/ip4/0.0.0.0/tcp/${LIBP2P_PORT}`, '-quic',
     '-inbound', `127.0.0.1:${ENGINE_PORT}`];
+  for (const f of opts.forwards ?? []) args.push('-forward', f);
+  for (const a of opts.allow ?? []) args.push('-allow', a);
   const relays = process.env.C0MPUTE_SHARD_RELAYS;  // NAT'd home nodes reserve on public relays
   if (relays) args.push('-relays', relays);
-  const p = spawn(SIDECAR_BIN, args, { stdio: ['ignore', 'pipe', 'pipe'] });
-  p.stdout.on('data', (d: Buffer) => process.stdout.write(`[sidecar] ${d}`));
-  p.stderr.on('data', (d: Buffer) => process.stderr.write(`[sidecar] ${d}`));
-  return p;
+  const proc = spawn(SIDECAR_BIN, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+  const addrs: string[] = [];
+  let resolveAddrs!: (a: string[]) => void;
+  const addrsP = new Promise<string[]>((res) => { resolveAddrs = res; });
+  let buf = '';
+  let grace: ReturnType<typeof setTimeout> | null = null;
+  const scan = (d: Buffer) => {
+    buf = (buf + d.toString()).slice(-32768);
+    for (const line of buf.split('\n')) {
+      const m = /(?:^|\s)ADDR (\S+)/.exec(line);
+      if (m && !addrs.includes(m[1])) addrs.push(m[1]);
+      // ADDR lines print AFTER "tunnel up" — resolve on a short grace so they're all in
+      if (/tunnel up/.test(line) && !grace) {
+        grace = setTimeout(() => resolveAddrs([...addrs]), 1500);
+        grace.unref();
+      }
+    }
+  };
+  proc.stdout!.on('data', (d: Buffer) => { process.stdout.write(`[sidecar] ${d}`); scan(d); });
+  proc.stderr!.on('data', (d: Buffer) => { process.stderr.write(`[sidecar] ${d}`); scan(d); });
+  // belt-and-braces: never leave the addrs promise hanging (a dead sidecar resolves empty and
+  // the caller's exit watcher handles the death)
+  const t = setTimeout(() => resolveAddrs([...addrs]), 20_000);
+  t.unref();
+  proc.on('exit', () => resolveAddrs([...addrs]));
+  return { proc, addrs: addrsP };
+}
+
+/** Order a peer's announced multiaddrs by dialability: public direct first, relay circuit
+ *  next, private/loopback last (still tried — two nodes behind one NAT may share a LAN). */
+export function pickDialAddrs(addrs: string[]): string[] {
+  const rank = (a: string) => {
+    if (a.includes('/p2p-circuit')) return 1;
+    const ip = /\/ip4\/(\d+\.\d+\.\d+\.\d+)\//.exec(a)?.[1];
+    if (!ip) return 3;
+    const priv = ip.startsWith('10.') || ip.startsWith('192.168.') || ip.startsWith('127.')
+      || /^172\.(1[6-9]|2\d|3[01])\./.test(ip);
+    return priv ? 2 : 0;
+  };
+  return [...addrs].sort((a, b) => rank(a) - rank(b));
 }
 
 export interface StageSpec {
@@ -181,7 +238,7 @@ export class StageProcess {
       '--lo', String(spec.lo), '--hi', String(spec.hi),
       '--port', String(ENGINE_PORT), '--dir', MODEL_DIR, '--receipts'];
     if (!spec.isTail) args.push('--next', `127.0.0.1:${FORWARD_PORT}`);
-    this.proc = spawn(PYTHON, args, {
+    this.proc = spawn(pythonBin(), args, {
       cwd: shardCwd(),
       // receipts must be signed by the SAME key the announce advertised (settlement pins it)
       env: { ...process.env, SHARD_NODE_KEY: RECEIPT_KEY_FILE },
