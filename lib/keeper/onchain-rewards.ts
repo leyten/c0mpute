@@ -158,6 +158,79 @@ export async function resyncOnchainStakesFromChain(): Promise<number> {
   return owners.length;
 }
 
+/**
+ * Discover stakers the app never told us about, straight from the chain. A user who
+ * logs in with X and connects a wallet on the staking page can stake fully client-side,
+ * but the page's wallet->profile sync is rejected for wallets that aren't Privy-LINKED
+ * (connected-only doesn't count) — so the server never learns the wallet and the keeper
+ * would silently never pay them (the 2026-07-15 "$0 claimable" reports; 5 stakers hit).
+ * The chain is the source of truth: scan every ZERO token account, keep the ones held
+ * by a PDA we don't track, confirm the vault's earliest transaction invoked the staking
+ * program, recover the owner wallet from that deposit's fee payer, verify the ATA
+ * derivation round-trips, and seed a lot dated at the REAL first deposit so their 24h
+ * clock is honest. Non-stake PDAs (AMM pools, locks) are cached so each is checked once.
+ */
+export async function discoverUntrackedOnchainStakers(): Promise<number> {
+  initOnchainStakeTable();
+  const db = getDb();
+  db.exec('CREATE TABLE IF NOT EXISTS onchain_vault_scan_cache (vault TEXT PRIMARY KEY, verdict TEXT NOT NULL)');
+  const mint = zeroMint();
+  const conn = new Connection(
+    process.env.SOLANA_RPC_URL || process.env.NEXT_PUBLIC_ONCHAIN_RPC || 'https://api.devnet.solana.com', 'confirmed');
+
+  const owners = (db.prepare('SELECT DISTINCT owner FROM onchain_stake_lots').all() as { owner: string }[]).map((r) => r.owner);
+  const vaultFor = (owner: PublicKey): PublicKey => {
+    const [auth] = PublicKey.findProgramAddressSync([Buffer.from('stake'), owner.toBuffer()], stakingProgramId());
+    return getAssociatedTokenAddressSync(mint, auth, true, TOKEN_2022_PROGRAM_ID);
+  };
+  const knownVaults = new Set(owners.map((o) => vaultFor(new PublicKey(o)).toBase58()));
+
+  // One scan: pubkey + owner (bytes 32..64) + amount (64..72) of every ZERO token account.
+  const accs = await conn.getProgramAccounts(TOKEN_2022_PROGRAM_ID, {
+    dataSlice: { offset: 32, length: 40 },
+    filters: [{ memcmp: { offset: 0, bytes: mint.toBase58() } }],
+  });
+
+  const cached = new Set((db.prepare('SELECT vault FROM onchain_vault_scan_cache').all() as { vault: string }[]).map((r) => r.vault));
+  let seeded = 0;
+  for (const a of accs) {
+    const vaultAddr = a.pubkey.toBase58();
+    if (knownVaults.has(vaultAddr) || cached.has(vaultAddr)) continue;
+    const holder = new PublicKey(a.account.data.subarray(0, 32));
+    const amount = Number(a.account.data.readBigUInt64LE(32)) / 1e6;
+    if (amount < 1) continue;                          // dust/empty — recheck if it ever fills
+    if (PublicKey.isOnCurve(holder.toBytes())) continue; // normal wallet ATA, not a PDA vault
+    await new Promise((r) => setTimeout(r, 500)); // throttle the sig/tx lookups below
+    try {
+      const sigs = await conn.getSignaturesForAddress(a.pubkey, { limit: 1000 });
+      const oldest = sigs[sigs.length - 1];
+      const tx = oldest ? await conn.getTransaction(oldest.signature, { maxSupportedTransactionVersion: 0 }) : null;
+      const keys = tx?.transaction.message.staticAccountKeys;
+      if (!oldest || !keys?.some((k) => k.equals(stakingProgramId()))) {
+        db.prepare('INSERT OR IGNORE INTO onchain_vault_scan_cache (vault, verdict) VALUES (?, ?)').run(vaultAddr, 'not_stake');
+        continue;
+      }
+      const wallet = keys[0]; // fee payer of the first deposit = the staker
+      if (!vaultFor(wallet).equals(a.pubkey)) {
+        // fee payer isn't the vault's owner (sponsored tx?) — flag, don't guess
+        console.warn(`[Keeper v2] untracked stake vault ${vaultAddr} whose first fee payer doesn't derive it — needs manual look`);
+        continue;
+      }
+      const sinceIso = oldest.blockTime ? new Date(oldest.blockTime * 1000).toISOString() : new Date().toISOString();
+      if (seedOnchainLotIfEmpty(wallet.toBase58(), amount, sinceIso)) {
+        seeded++;
+        db.prepare('INSERT OR IGNORE INTO onchain_vault_scan_cache (vault, verdict) VALUES (?, ?)').run(vaultAddr, 'seeded');
+        console.log(`[Keeper v2] discovered untracked staker ${wallet.toBase58()}: ${amount} ZERO since ${sinceIso}`);
+      }
+    } catch (e) {
+      // leave uncached so a flaky RPC read retries next cycle
+      console.warn(`[Keeper v2] discovery check failed for ${vaultAddr}: ${e instanceof Error ? e.message : e}`);
+    }
+  }
+  if (seeded > 0) console.log(`[Keeper v2] discovery seeded ${seeded} previously untracked staker(s)`);
+  return seeded;
+}
+
 // ── fund one on-chain staker's reward vault (the new payout primitive) ──
 export async function fundStakerRewardVault(
   conn: Connection, keeper: Keypair, owner: PublicKey, amountUi: number,

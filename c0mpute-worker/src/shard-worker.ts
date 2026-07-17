@@ -11,8 +11,9 @@ import { io, Socket } from 'socket.io-client';
 import { hostname } from 'os';
 import {
   proveIdentity, receiptPubkey, detectGpuName, detectFreeVramMB, probeMeasure,
-  pullRange, startSidecar, pickDialAddrs, StageProcess, FORWARD_PORT, MODEL_DIR, SHARD_REPO,
-  type SidecarHandle,
+  pullRange, startSidecar, pickDialAddrs, StageProcess, CoordinatorProcess,
+  FORWARD_PORT, RETURN_PORT, MODEL_DIR, SHARD_REPO,
+  type SidecarHandle, type CoordJob,
 } from './shard-runner.js';
 import { ensureShardSetup } from './shard-setup.js';
 
@@ -165,6 +166,8 @@ export async function startShardWorker(opts: ShardWorkerOptions): Promise<void> 
     restarts: number;
     abort: AbortController;                 // kills an in-flight pull when the assignment dies
     retryTimer: ReturnType<typeof setTimeout> | null;
+    coord: CoordinatorProcess | null;       // HEAD only: the serving half (leg 8)
+    jobs: Map<string, { swarmId: string; nonce: string }>;  // in-flight swarm:job bookkeeping
   } | null = null;
 
   function teardown(reason: string): void {
@@ -172,6 +175,7 @@ export async function startShardWorker(opts: ShardWorkerOptions): Promise<void> 
     log(`leaving swarm ${current.assignment.swarmId}: ${reason} (ranges stay on disk for the warm re-join)`);
     if (current.retryTimer) clearTimeout(current.retryTimer);
     current.abort.abort();
+    current.coord?.stop();
     current.stage.stop();
     current = null;
     bootSidecar();                          // drop the ring legs, back to the standby listener
@@ -187,6 +191,62 @@ export async function startShardWorker(opts: ShardWorkerOptions): Promise<void> 
     socket.connect();
   }
 
+  /** Fail-closed job finish: the server has no job-error event, so a failed job completes
+   *  with zero tokens and no receipts — the client stream ends (no 300s hang) and settlement
+   *  fails closed (nothing to pay). */
+  function failJob(swarmId: string, jobId: string, nonce: string, error: string): void {
+    log(`job ${jobId} failed: ${error} — completing fail-closed`);
+    socket.emit('swarm:job_complete', {
+      swarmId, jobId, nonce, tokensGenerated: 0, response: '', receipts: [],
+    });
+  }
+
+  /** HEAD only: the long-lived `python -m shard.coordinate` beside the head stage (leg 8's
+   *  serving half). Started on stage READY; its death fails in-flight jobs closed and
+   *  restarts with the stage's own restart budget (a dead coordinator = an unservable swarm). */
+  function launchCoordinator(): void {
+    if (!current || !current.assignment.isHead) return;
+    const a = current.assignment;
+    current.coord?.stop();
+    const coord = new CoordinatorProcess();
+    current.coord = coord;
+    coord.onReady = () => log('coordinator READY (head-engine pipe + tail return tunnel up) — swarm can serve');
+    coord.onToken = (jobId, delta) => socket.emit('swarm:job_token', { jobId, delta });
+    coord.onDone = (done) => {
+      const j = current?.jobs.get(done.jobId);
+      if (!j) { log(`job ${done.jobId} completed but is not tracked — dropping`); return; }
+      current!.jobs.delete(done.jobId);
+      if (!done.ok) { failJob(j.swarmId, done.jobId, j.nonce, done.error || 'job failed'); return; }
+      log(`job ${done.jobId} DONE (${done.tokensGenerated} tokens, ${done.receipts?.length ?? 0} receipts) -> swarm:job_complete`);
+      socket.emit('swarm:job_complete', {
+        swarmId: j.swarmId, jobId: done.jobId, nonce: j.nonce,
+        tokensGenerated: done.tokensGenerated, response: done.response,
+        receipts: done.receipts ?? [],
+      });
+    };
+    coord.onJobError = (jobId, error) => {
+      const j = jobId ? current?.jobs.get(jobId) : undefined;
+      if (jobId && j) { current!.jobs.delete(jobId); failJob(j.swarmId, jobId, j.nonce, error); }
+      else log(`coordinator error (no job): ${error}`);
+    };
+    coord.onExit = (code, fatal) => {
+      if (current?.assignment.swarmId !== a.swarmId || current.coord !== coord) return;
+      for (const [jobId, j] of current.jobs) failJob(j.swarmId, jobId, j.nonce, 'coordinator died mid-job');
+      current.jobs.clear();
+      current.restarts += 1;
+      if (current.restarts > MAX_STAGE_RESTARTS) {
+        release(`coordinator kept dying (last: ${fatal || `exit ${code}`})`);
+        return;
+      }
+      const delay = 2000 * 2 ** (current.restarts - 1);
+      log(`coordinator exited (${fatal || `code ${code}`}) — restart in ${delay / 1000}s`);
+      current.retryTimer = setTimeout(() => {
+        if (current?.assignment.swarmId === a.swarmId) launchCoordinator();
+      }, delay);
+    };
+    coord.start();
+  }
+
   function launchStage(): void {
     if (!current) return;
     const a = current.assignment;
@@ -195,6 +255,9 @@ export async function startShardWorker(opts: ShardWorkerOptions): Promise<void> 
     stage.onReady = (info) => {
       log(`stage ${a.stageIndex} READY (layers [${info.lo}:${info.hi}), port ${info.port}) -> swarm:ready`);
       socket.emit('swarm:ready', { swarmId: a.swarmId });
+      // the serving half rides the head: coordinator up only once the local engine listens
+      // (its pipe socket dials the head stage loopback; a stage restart re-runs this)
+      if (a.isHead) launchCoordinator();
     };
     stage.onExit = (code, fatal) => {
       if (current?.assignment.swarmId !== a.swarmId) return;   // a stale process's death is not ours
@@ -224,10 +287,14 @@ export async function startShardWorker(opts: ShardWorkerOptions): Promise<void> 
     log(`assigned: swarm ${a.swarmId} stage ${a.stageIndex}/${a.peers.length} layers [${a.layerStart}:${a.layerEnd}) `
       + `${a.isHead ? 'HEAD ' : ''}${a.isTail ? 'TAIL ' : ''}(${a.model} @ ${a.manifestRef})`);
     // ring legs: a non-tail stage dials its successor's sidecar (the forward tunnel the engine's
-    // --next rides); inbound is pinned to the predecessor's PeerId (the C2 neighbour allowlist —
-    // the head stays open for the coordinator return channel, leg 8).
+    // --next rides); inbound is pinned to the predecessor's PeerId (the C2 neighbour allowlist).
+    // Leg 8 closes the loop (the m25_scatter_pipe layout, proven on real rings): the HEAD also
+    // -forwards a local return port to the TAIL's sidecar (the coordinator dials it loopback and
+    // its hello_return classifies the stream tail-side), and the TAIL additionally allows the
+    // head's PeerId so that return dial lands.
     const forwards: string[] = [];
     const allow: string[] = [];
+    const peerPid = (p?: StagePeer) => p?.addrs?.[0]?.split('/p2p/').pop();
     if (!a.isTail) {
       const successor = a.peers.find((p) => p.stageIndex === a.stageIndex + 1);
       const dial = pickDialAddrs(successor?.addrs ?? []);
@@ -237,9 +304,21 @@ export async function startShardWorker(opts: ShardWorkerOptions): Promise<void> 
       }
       forwards.push(`127.0.0.1:${FORWARD_PORT}=${dial[0]}`);
     }
-    const predPid = a.peers.find((p) => p.stageIndex === a.stageIndex - 1)
-      ?.addrs?.[0]?.split('/p2p/').pop();
+    if (a.isHead) {
+      const tail = a.peers.find((p) => p.stageIndex === a.peers.length - 1);
+      const dial = pickDialAddrs(tail?.addrs ?? []);
+      if (!dial.length) {
+        release(`head: tail ${tail?.nodeId ?? '?'} announced no dialable addrs (no return leg)`);
+        return;
+      }
+      forwards.push(`127.0.0.1:${RETURN_PORT}=${dial[0]}`);
+    }
+    const predPid = peerPid(a.peers.find((p) => p.stageIndex === a.stageIndex - 1));
     if (predPid) allow.push(predPid);
+    if (a.isTail) {
+      const headPid = peerPid(a.peers.find((p) => p.stageIndex === 0));
+      if (headPid && !allow.includes(headPid)) allow.push(headPid);
+    }
     const mine = current!;
     try {
       // ring legs FIRST (the sidecar doesn't need the weights): every stage's sidecar is
@@ -291,8 +370,38 @@ export async function startShardWorker(opts: ShardWorkerOptions): Promise<void> 
     current = {
       assignment: a, stage: new StageProcess(), restarts: 0,
       abort: new AbortController(), retryTimer: null,
+      coord: null, jobs: new Map(),
     };
     void serve(a);
+  });
+
+  // leg 8, the serving half: the server dispatches a job to the swarm's coordinator (us,
+  // iff head). Stream deltas ride swarm:job_token; ONE swarm:job_complete finishes the
+  // client stream AND settles (nonce echoed for settlement freshness).
+  socket.on('swarm:job', (job: {
+    swarmId: string; jobId: string; nonce: string; messages: unknown[];
+    maxNew?: number; reasoning?: boolean; tools?: unknown[];
+  }) => {
+    if (!current || current.assignment.swarmId !== job.swarmId || !current.assignment.isHead) {
+      log(`swarm:job ${job.jobId} refused: not the serving head of ${job.swarmId}`);
+      failJob(job.swarmId, job.jobId, job.nonce, 'not the serving head');
+      return;
+    }
+    if (!current.coord) {
+      failJob(job.swarmId, job.jobId, job.nonce, 'coordinator not running');
+      return;
+    }
+    log(`swarm:job ${job.jobId} accepted (${job.maxNew ?? 512} max tokens)`);
+    current.jobs.set(job.jobId, { swarmId: job.swarmId, nonce: job.nonce });
+    try {
+      current.coord.submit({
+        jobId: job.jobId, swarmId: job.swarmId, nonce: job.nonce, messages: job.messages,
+        maxNew: job.maxNew, reasoning: job.reasoning, tools: job.tools,
+      });
+    } catch (err: any) {
+      current.jobs.delete(job.jobId);
+      failJob(job.swarmId, job.jobId, job.nonce, `submit failed: ${err.message}`);
+    }
   });
 
   socket.on('swarm:challenge', (c: { checkId: string }) => {

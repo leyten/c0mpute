@@ -26,6 +26,14 @@ import { decideRole } from '../lib/shard-admission';
 
 const PORT = Number(process.argv[process.argv.indexOf('--port') + 1] || 0) || 3777;
 const ONCE = process.argv.includes('--once');
+// --serve: once the swarm is READY, dispatch a real serveRequest through the daemon's coordinator
+// (leg 8 node half: swarm:job -> SHARD_JOB_TOKEN stream -> swarm:job_complete -> settle).
+const SERVE = process.argv.includes('--serve');
+// --accept-receipts: SIMULATED settlement verify — receipts are NOT checked; the verdict is
+// synthesized from the job's own assignments map so paySplit/earnings wiring can be exercised
+// GPU-less (the shim coordinator has no stages to sign real receipts). The REAL receipts path
+// is proven on-engine (shard tests + live rings); never use this flag outside the sim.
+const ACCEPT = process.argv.includes('--accept-receipts');
 // layers assigned per node: small + TAIL-anchored so a real single GPU (e.g. a 24 GB card)
 // actually loads its range and READYs for real — 62-layer full stacks are for real rings
 const LAYERS = Math.min(62, Math.max(1,
@@ -63,7 +71,15 @@ class SimSeam implements Seam {
     };
   }
 
-  verify(req: unknown): Promise<SettleResult> { return this.real.verify(req); }
+  verify(req: unknown): Promise<SettleResult> {
+    if (ACCEPT) {
+      const a = (req as { assignments?: Record<string, [number, number]> }).assignments ?? {};
+      const stages = Object.entries(a).map(([pubkey, [lo, hi]]) => ({ pubkey, lo, hi, layers: hi - lo }));
+      log(`verify: SIMULATED ACCEPT (--accept-receipts) — receipts NOT checked, ${stages.length} stage(s) credited`);
+      return Promise.resolve({ ok: true, stages } as SettleResult);
+    }
+    return this.real.verify(req);
+  }
 
   challenge(req: { a: BlockSketch; b: BlockSketch; cos_thresh?: number }):
     ReturnType<SubprocessSeam['challenge']> { return this.real.challenge(req); }
@@ -125,8 +141,9 @@ const SIM_SPEC = {
   profile: { layerCount: 62, prefill_bytes: 1.0e8, decode_bytes: 1.6e4, decode_steps: 64 },
 };
 
-attachSwarmLoop(io, {
-  recordStageEarning: (e) => log(`EARNING recorded: ${JSON.stringify(e)}`),
+const earnings: unknown[] = [];
+const loop = attachSwarmLoop(io, {
+  recordStageEarning: (e) => { earnings.push(e); log(`EARNING recorded: ${JSON.stringify(e)}`); },
   config: {
     admission: { mode: 'open', minFreeVramMb: 0 },           // sim: a 0-VRAM box may exercise the protocol
     paySplit: 'layers', minCandidates: NODES, privacy: null, spotCheckTimeoutMs: 300_000,
@@ -138,10 +155,56 @@ attachSwarmLoop(io, {
     log(`loop: ${m}`);
     if (/ READY — all /.test(m)) {
       log('*** LIFECYCLE COMPLETE — every stage pulled, connected, and reported ready ***');
-      if (ONCE) setTimeout(() => { log('(--once) success, exiting 0'); process.exit(0); }, 500);
+      if (SERVE) serveOnce(1);
+      else if (ONCE) setTimeout(() => { log('(--once) success, exiting 0'); process.exit(0); }, 500);
     }
   },
 });
+
+/** Leg-8 node-half proof: one request through the REAL dispatch path — serveRequest ->
+ *  swarm:job to the daemon's coordinator -> SHARD_JOB_TOKEN deltas relayed as swarm:job_token
+ *  -> swarm:job_complete -> settleJob. The coordinator process may still be probing its return
+ *  tunnel when the swarm READYs; jobs queue in its stdin, so one dispatch suffices — retries
+ *  cover a coordinator that crashed and is in its restart backoff. */
+function serveOnce(attempt: number): void {
+  const deltas: string[] = [];
+  const r = loop.serveRequest({
+    model: 'minimax-m2.5',
+    messages: [{ role: 'user', content: 'What is a scattered ring?' }],
+    params: { maxNew: 48 },
+    timeoutMs: 240_000,
+    onToken: (d: string) => deltas.push(d),
+    onDone: (response: string, tokens: number) => {
+      const joinOk = response === deltas.join('');
+      log(`*** SERVED — ${tokens} token(s) in ${deltas.length} delta(s); stream==response: ${joinOk}`);
+      // settlement runs AFTER the client stream finishes (the complete handler relays onDone,
+      // then awaits settleJob) — poll for the earnings instead of judging synchronously
+      const t0 = Date.now();
+      const judge = (): void => {
+        const settled = !ACCEPT || earnings.length > 0;
+        if (settled || Date.now() - t0 > 10_000) {
+          log(`settlement credited: ${earnings.length} earning(s)`);
+          if (tokens > 0 && joinOk && settled) {
+            log('*** LEG-8 NODE HALF COMPLETE — request -> served -> settled ***');
+            if (ONCE) setTimeout(() => { log('(--once) success, exiting 0'); process.exit(0); }, 500);
+          } else if (ONCE) {
+            log(`(--once) FAIL: tokens=${tokens} joinOk=${joinOk} settled=${settled}`);
+            process.exit(1);
+          }
+          return;
+        }
+        setTimeout(judge, 300);
+      };
+      judge();
+    },
+    onError: (m: string) => {
+      log(`serve error: ${m}${attempt < 4 ? ' — retrying in 5s' : ''}`);
+      if (attempt < 4) setTimeout(() => serveOnce(attempt + 1), 5000);
+      else if (ONCE) process.exit(1);
+    },
+  });
+  if (!r) log('serveRequest returned null (no ready swarm?) — waiting for the next READY');
+}
 
 io.on('connection', (socket) => {
   log(`node connected: ${socket.id}`);
