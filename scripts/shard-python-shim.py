@@ -102,6 +102,56 @@ if argv[:2] == ["-m", "shard.fetch"]:
     print("SHARD_FETCH_DONE " + json.dumps({"files": 0, "bytes": 0, "dir": "sim"}), flush=True)
     sys.exit(0)
 
+if argv[:2] == ["-m", "shard.coordinate"]:
+    def arg(name, default):
+        return argv[argv.index(name) + 1] if name in argv else default
+    if "--check" in argv:
+        print("SHARD_COORD_OK " + json.dumps({"dir": arg("--dir", "sim"), "transport": "shim"}), flush=True)
+        sys.exit(0)
+    tail = arg("--tail", "127.0.0.1:29612")
+    host, p = tail.rsplit(":", 1)
+    # the RETURN-TUNNEL receipt (leg 8): dial the head sidecar's return -forward; the probe rides
+    # sidecar -> libp2p -> the TAIL's sidecar -> the tail shim stage, which echoes it. Only the
+    # echo proves the tunnel (a local connect alone proves nothing — same rule as the forward leg).
+    probe = b"SHIM_RETURN_PROBE from coordinator"
+    for attempt in range(60):
+        try:
+            s = socket.create_connection((host, int(p)), timeout=5)
+            s.settimeout(5)
+            send_frame(s, probe)
+            if recv_frame(s) == probe:
+                print(f"SHIM_RETURN_ROUNDTRIP -> {tail} OK", flush=True)
+                break
+            s.close()
+        except OSError:
+            pass
+        time.sleep(2)
+    else:
+        print("SHARD_JOB_FATAL " + json.dumps(
+            {"error": f"shim: return roundtrip via {tail} never completed"}), flush=True)
+        sys.exit(1)
+    print("SHARD_COORD_READY " + json.dumps({"head": arg("--head", ""), "tail": tail,
+                                             "shim": True}), flush=True)
+    for line in sys.stdin:                           # NDJSON jobs, exactly the real CLI's loop
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            job = json.loads(line)
+            jid = job["jobId"]
+        except (ValueError, KeyError) as e:
+            print("SHARD_JOB_FATAL " + json.dumps({"error": f"shim: bad job line: {e}"}), flush=True)
+            continue
+        words = ["a ", "scattered ", "ring ", "served ", "this."]
+        for w in words:
+            print("SHARD_JOB_TOKEN " + json.dumps({"jobId": jid, "delta": w}), flush=True)
+            time.sleep(0.05)
+        print("SHARD_JOB_DONE " + json.dumps({
+            "jobId": jid, "ok": True, "response": "".join(words),
+            "tokensGenerated": len(words), "receipts": [], "receiptsOk": None,
+            "nonce": job.get("nonce")}), flush=True)
+    sys.exit(0)
+
 if argv[:2] == ["-m", "shard.probe"] or (argv and argv[0].endswith("publish_manifest.py")):
     sys.exit(0)                                     # heavy real calls the GPU-less demo skips
 

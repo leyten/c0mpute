@@ -44,7 +44,7 @@ import {
   realizeFees,
 } from '../lib/treasury-ledger';
 import { distributeEpochRewards, getEligibleStakers, getAllStakingWallets, syncStake } from '../lib/staking';
-import { getEligibleOnchainStakers, distributeOnchainRewards, resyncOnchainStakesFromChain } from '../lib/keeper/onchain-rewards';
+import { getEligibleOnchainStakers, distributeOnchainRewards, resyncOnchainStakesFromChain, discoverUntrackedOnchainStakers } from '../lib/keeper/onchain-rewards';
 import { getTokenUiBalance } from '../lib/payout';
 import {
   isDryRun,
@@ -146,6 +146,7 @@ async function resyncStakesFromChain(): Promise<void> {
 
 async function runStakerRewards(): Promise<void> {
   await resyncStakesFromChain();
+  await step('discover untracked stakers', discoverUntrackedOnchainStakers);
   await step('resync on-chain stakes', resyncOnchainStakesFromChain);
   const pool = getBucket('staker_rewards');
   if (pool <= 0) {

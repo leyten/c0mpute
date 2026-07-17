@@ -37,8 +37,13 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
+# SERVE=1: after READY, dispatch one real request through the daemon's coordinator and settle it
+# (leg 8 end-to-end; simulated receipt-verify — the shim has no stages to sign real receipts).
+SERVE_ARGS=()
+if [ "${SERVE:-0}" = "1" ]; then SERVE_ARGS=(--serve --accept-receipts); fi
+
 echo "== starting mock orchestrator on :$PORT (waiting for $NODES node(s), $LAYERS layer(s) each)"
-( cd "$REPO_ROOT" && npx tsx scripts/shard-daemon-sim.ts --nodes "$NODES" --layers "$LAYERS" --port "$PORT" ) &
+( cd "$REPO_ROOT" && npx tsx scripts/shard-daemon-sim.ts --nodes "$NODES" --layers "$LAYERS" --port "$PORT" "${SERVE_ARGS[@]}" ) &
 PIDS+=($!)
 sleep 4
 

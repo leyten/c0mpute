@@ -24,6 +24,10 @@ const PORT_BASE = Number(process.env.C0MPUTE_SHARD_PORT_BASE || 29600);
 export const LIBP2P_PORT = PORT_BASE;
 export const ENGINE_PORT = PORT_BASE + 10;
 export const FORWARD_PORT = PORT_BASE + 11;
+// The head's local end of the tail->coordinator RETURN tunnel (leg 8): the head sidecar
+// -forwards this port to the TAIL's sidecar, and the coordinator process dials it loopback
+// exactly like the gateway dials a local tail (hello_return rides the tunnel).
+export const RETURN_PORT = PORT_BASE + 12;
 
 export const SIDECAR_BIN = process.env.C0MPUTE_SIDECAR_BIN || join(SHARD_HOME, 'bin', 'sidecar');
 // A shard checkout (or the flat runtime-artifact layout) to run `python -m shard.*` from.
@@ -295,6 +299,118 @@ export class StageProcess {
       this.onExit = undefined;              // an operator stop is not a crash — no self-heal
       p.kill('SIGTERM');
       // a stage wedged in a CUDA sync ignores SIGTERM and squats the engine port — escalate
+      const t = setTimeout(() => { if (p.exitCode === null) p.kill('SIGKILL'); }, 10_000);
+      t.unref();
+      p.on('exit', () => clearTimeout(t));
+    }
+    this.proc = null;
+  }
+}
+
+// ── the coordinator seam (leg 8, node half) ─────────────────────────────────────────────
+
+export interface CoordJob {
+  jobId: string;
+  swarmId: string;
+  nonce: string;
+  messages: unknown[];
+  maxNew?: number;
+  reasoning?: boolean;
+  tools?: unknown[];
+}
+
+export interface CoordJobDone {
+  jobId: string;
+  ok: boolean;
+  response: string;
+  tokensGenerated: number;
+  receipts: unknown[];
+  error?: string;
+}
+
+/** One supervised `python -m shard.coordinate` process on the HEAD node — the serving half
+ *  of leg 8. Long-lived (drafter weights load once): jobs go in as NDJSON lines on stdin,
+ *  results come back on the stdout contract mirroring shard.stage's:
+ *    SHARD_COORD_READY <json>          — pipe + return sockets up, jobs accepted
+ *    SHARD_JOB_TOKEN {jobId, delta}    — one committed decode delta (relay to swarm:job_token)
+ *    SHARD_JOB_DONE  <CoordJobDone>    — job finished (relay to swarm:job_complete + settle)
+ *    SHARD_JOB_FATAL {jobId?, error}   — job (or boot) failed; process may exit
+ *  One job at a time (the engine coordinator is single-job); the caller serializes. */
+export class CoordinatorProcess {
+  private proc: ChildProcess | null = null;
+  private buf = '';
+  private exited = false;
+  private fatal: string | null = null;
+  ready = false;
+  onReady?: () => void;
+  onToken?: (jobId: string, delta: string) => void;
+  onDone?: (done: CoordJobDone) => void;
+  onJobError?: (jobId: string | null, error: string) => void;
+  onExit?: (code: number | null, fatal: string | null) => void;
+
+  start(): void {
+    // gateway-parity endpoints (phase0/m25_scatter_pipe.py layout): pipe = the LOCAL head
+    // engine; tail = the head sidecar's return -forward that tunnels to the tail's engine.
+    const args = ['-m', 'shard.coordinate',
+      '--head', `127.0.0.1:${ENGINE_PORT}`, '--tail', `127.0.0.1:${RETURN_PORT}`,
+      '--dir', MODEL_DIR, '--receipts'];
+    this.proc = spawn(pythonBin(), args, {
+      cwd: shardCwd(),
+      env: { ...process.env, SHARD_NODE_KEY: RECEIPT_KEY_FILE },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    this.proc.stdout!.on('data', (d: Buffer) => this.onStdout(d));
+    this.proc.stderr!.on('data', (d: Buffer) => process.stderr.write(`[coord] ${d}`));
+    this.proc.on('error', (e) => { this.fatal = this.fatal || `spawn failed: ${e.message}`; this.fireExit(null); });
+    this.proc.on('exit', (code) => this.fireExit(code));
+  }
+
+  /** Queue one job (NDJSON on stdin; the python side reads jobs serially). */
+  submit(job: CoordJob): void {
+    if (!this.proc || this.proc.exitCode !== null) throw new Error('coordinator not running');
+    this.proc.stdin!.write(JSON.stringify(job) + '\n');
+  }
+
+  private fireExit(code: number | null): void {
+    if (this.exited) return;
+    this.exited = true;
+    this.onExit?.(code, this.fatal);
+  }
+
+  private onStdout(d: Buffer): void {
+    process.stdout.write(`[coord] ${d}`);
+    this.buf += d.toString();
+    // consume COMPLETE lines only (token deltas are payload — a torn JSON line must wait
+    // for its tail, and the SHARD_STAGE-style lastIndexOf-rescan would double-fire tokens)
+    let nl: number;
+    while ((nl = this.buf.indexOf('\n')) >= 0) {
+      const line = this.buf.slice(0, nl).trim();
+      this.buf = this.buf.slice(nl + 1);
+      try {
+        if (line.startsWith('SHARD_COORD_READY')) {
+          this.ready = true;
+          this.onReady?.();
+        } else if (line.startsWith('SHARD_JOB_TOKEN ')) {
+          const t = JSON.parse(line.slice('SHARD_JOB_TOKEN '.length)) as { jobId: string; delta: string };
+          this.onToken?.(t.jobId, t.delta);
+        } else if (line.startsWith('SHARD_JOB_DONE ')) {
+          this.onDone?.(JSON.parse(line.slice('SHARD_JOB_DONE '.length)) as CoordJobDone);
+        } else if (line.startsWith('SHARD_JOB_FATAL ')) {
+          const f = JSON.parse(line.slice('SHARD_JOB_FATAL '.length)) as { jobId?: string; error?: string };
+          this.fatal = this.fatal || f.error || 'coordinator fatal';
+          this.onJobError?.(f.jobId ?? null, f.error ?? 'coordinator fatal');
+        }
+      } catch (e: any) {
+        log(`coordinator: unparseable contract line (${e.message}): ${line.slice(0, 200)}`);
+      }
+    }
+  }
+
+  stop(): void {
+    const p = this.proc;
+    if (p && p.exitCode === null) {
+      this.onExit = undefined;
+      p.kill('SIGTERM');
       const t = setTimeout(() => { if (p.exitCode === null) p.kill('SIGKILL'); }, 10_000);
       t.unref();
       p.on('exit', () => clearTimeout(t));
