@@ -93,6 +93,11 @@ const http = createServer(async (req, res) => {
     res.writeHead(code, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(body));
   };
+  if (req.url?.startsWith('/relays.json') && req.method === 'GET') {
+    // P0-#3 auto-discovery: a well-formed (unreachable) fixture relay — the daemon must validate,
+    // pass it via -relays, and the real sidecar must survive the failed connect (Printf, not fatal)
+    return send(200, { relays: ['/ip4/192.0.2.1/tcp/29600/p2p/12D3KooWQoQPY5dJhdaXbzBFhSqCJoDwPPkQZJEHYYyBXVCbdJNs'] });
+  }
   if (req.url?.startsWith('/manifests/') && req.method === 'GET') {
     // the static /manifests/<name>.json doc the daemon resolves at enroll/assign. The FIXTURE pin
     // pair: export C0MPUTE_SHARD_MANIFEST_PUBKEY=sim-publisher-pin on the daemon. Engine-side

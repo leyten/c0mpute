@@ -219,14 +219,16 @@ export interface SidecarHandle {
  *  cryptographic neighbour pin — empty keeps it open, standby/legacy behavior); `seed` =
  *  "manifest.json=modelDir" — announce + serve the complete manifest shards on disk over the
  *  shard DHT/blockx (harmless with zero complete shards: the Go seeder no-ops, tunnel unaffected). */
-export function startSidecar(opts: { forwards?: string[]; allow?: string[]; seed?: string } = {}): SidecarHandle {
+export function startSidecar(opts: { forwards?: string[]; allow?: string[]; seed?: string;
+  relays?: string[] } = {}): SidecarHandle {
   const args = ['-key', NODE_KEY_FILE, '-listen', `/ip4/0.0.0.0/tcp/${LIBP2P_PORT}`, '-quic',
     '-inbound', `127.0.0.1:${ENGINE_PORT}`];
   for (const f of opts.forwards ?? []) args.push('-forward', f);
   for (const a of opts.allow ?? []) args.push('-allow', a);
   if (opts.seed) args.push('-seed', opts.seed);
-  const relays = process.env.C0MPUTE_SHARD_RELAYS;  // NAT'd home nodes reserve on public relays
-  if (relays) args.push('-relays', relays);
+  // NAT'd home nodes reserve on public relays (rendezvous only — DCUtR upgrades to direct, so a
+  // relay never carries the data path). List = network-resolved (P0-#3) + the operator env.
+  if (opts.relays?.length) args.push('-relays', opts.relays.join(','));
   const proc = spawn(SIDECAR_BIN, args, { stdio: ['ignore', 'pipe', 'pipe'] });
   const addrs: string[] = [];
   let resolveAddrs!: (a: string[]) => void;

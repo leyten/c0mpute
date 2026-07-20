@@ -61,6 +61,12 @@ Every item verified missing in code, with build-shape:
    `publisher_pubkey` into `MANIFEST_PUBKEY`, flip `MODEL_SPECS.manifestRef` to
    `mf1:m25-nvfp4-v1@<cid>` (CID = `python -c "from shard import manifest as m; s,_=m.sha256_file('m25-nvfp4-v1.json'); print(m.cidv1_raw(s))"`),
    and point `SWARM_SEED_ADDRS` at ≥1 always-on full-model seed box.
+   **Relay half (P0-#3, daemon side BUILT 2026-07-20):** the daemon resolves `/relays.json` off the
+   orchestrator origin at enroll (validated — a malformed entry would log.Fatalf every sidecar, so
+   bad entries are dropped loudly; env `C0MPUTE_SHARD_RELAYS` outranks), caches it, and passes
+   `-relays` on every sidecar boot. `public/relays.json` ships EMPTY (git carries no public IPs);
+   the launch deploy fills it with the operator relays' multiaddrs (systemd `shard-relay.service`
+   boxes running `sidecar -relay -quic`; addrs in the ops notes).
 6. **Transport authorization.** The libp2p sidecar pipes activation streams from ANY peer
    into the engine socket (sidecar main.go:517) — a stranger who learns a stage addr can
    inject frames into a live ring. Build: ringmate allowlist per assignment (gate the
