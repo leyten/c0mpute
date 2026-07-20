@@ -17,7 +17,7 @@ import {
   MODEL_REPO, SHARD_REPO,
   type SidecarHandle, type CoordJob,
 } from './shard-runner.js';
-import { ensureShardSetup, resolveManifest } from './shard-setup.js';
+import { ensureShardSetup, resolveManifest, resolveRelays } from './shard-setup.js';
 
 const MODEL = process.env.C0MPUTE_SHARD_MODEL || 'minimax-m2.5';
 const MAX_STAGE_RESTARTS = 5;
@@ -120,6 +120,9 @@ export async function startShardWorker(opts: ShardWorkerOptions): Promise<void> 
   // ── ENROLL step 0: self-provision (engine, venv, sidecar, network manifest, probe slice —
   // zero env vars) ──
   await ensureShardSetup({ orchestratorUrl: opts.orchestratorUrl });
+  // P0-#3: the network's public circuit relays, resolved once per daemon run (a NAT'd box needs
+  // them from the FIRST sidecar boot — its announced addrs must include the circuit addrs)
+  const relays = await resolveRelays(opts.orchestratorUrl);
 
   // ── the sidecar is a DAEMON-scoped fixture: a standby listener from enroll on (its ADDR
   // lines are the dialable identity peers get in their assignments), restarted with -forward/
@@ -136,7 +139,7 @@ export async function startShardWorker(opts: ShardWorkerOptions): Promise<void> 
     // teardown-restore (the Go seeder scans holdings ONCE at boot, so this restore is exactly the
     // moment the just-served range enters the seed set). Harmless with nothing on disk.
     const seed = existsSync(MANIFEST_FILE) ? `${MANIFEST_FILE}=${MODEL_DIR}` : undefined;
-    const sc = startSidecar({ ...cfg, seed });
+    const sc = startSidecar({ ...cfg, seed, relays });
     sidecar = sc;
     sc.proc.on('exit', (code) => {
       if (gen !== sidecarGen || shuttingDown) return;   // superseded / operator shutdown

@@ -1,0 +1,4 @@
+{
+  "_runbook": "launch publish drops the real signed manifest here as <name>.json — see LAUNCH_READINESS item 5",
+  "relays_note": "relays live in ../relays.json"
+}

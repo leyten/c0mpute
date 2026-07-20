@@ -229,6 +229,57 @@ export async function resolveManifest(orchestratorUrl: string | undefined, ref =
   log(`manifest: resolved ${name} v${version} from the network (engine re-verifies on every pull)`);
 }
 
+const RELAYS_CACHE = join(SHARD_HOME, 'relays.json');
+
+/** A relay entry must be a full /p2p multiaddr. Validation is LOAD-BEARING, not hygiene: the
+ *  sidecar log.Fatalf's on a malformed -relays entry, so one bad list push would kill every
+ *  daemon's sidecar at boot network-wide. Malformed entries are dropped loudly instead. */
+const RELAY_RE = /^\/(ip4|ip6|dns4|dns6|dns)\/[^/\s]+\/(tcp|udp)\/\d{1,5}(\/quic-v1)?\/p2p\/[A-Za-z0-9]{20,}$/;
+
+/** Pure merge+validate: network list + operator env (env first — an operator override outranks),
+ *  deduped, malformed dropped. Exported for tests. */
+export function mergeRelayLists(network: unknown, envCsv: string | undefined): string[] {
+  const fromNet = Array.isArray((network as { relays?: unknown })?.relays)
+    ? ((network as { relays: unknown[] }).relays).filter((r): r is string => typeof r === 'string')
+    : [];
+  const fromEnv = (envCsv ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+  const out: string[] = [];
+  for (const r of [...fromEnv, ...fromNet]) {
+    if (!RELAY_RE.test(r)) { log(`relays: DROPPED malformed entry ${JSON.stringify(r.slice(0, 80))}`); continue; }
+    if (!out.includes(r)) out.push(r);
+  }
+  return out;
+}
+
+/** P0-#3 relay auto-discovery: the network's public circuit relays from the orchestrator origin
+ *  (static `/relays.json`, same untrusted-transport pattern as /manifests/). Relay addrs are NOT
+ *  trust-bearing — a relay is rendezvous only (every link is e2e-encrypted libp2p and DCUtR
+ *  upgrades to direct), so a poisoned list costs availability, never integrity. Offline-tolerant:
+ *  the last good list is cached; no network + no cache -> env-only (or none: direct-only nodes
+ *  work fine without relays). */
+export async function resolveRelays(orchestratorUrl: string | undefined): Promise<string[]> {
+  const env = process.env.C0MPUTE_SHARD_RELAYS;
+  let doc: unknown = null;
+  if (orchestratorUrl) {
+    try {
+      const res = await fetch(`${orchestratorUrl.replace(/\/$/, '')}/relays.json`,
+        { signal: AbortSignal.timeout(15_000) });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      doc = await res.json();
+      writeFileSync(RELAYS_CACHE + '.part', JSON.stringify(doc));
+      renameSync(RELAYS_CACHE + '.part', RELAYS_CACHE);
+    } catch (e: any) {
+      doc = readJson(RELAYS_CACHE);
+      log(`relays: resolve failed (${e.message}) — ${doc ? 'using the cached list' : 'no cache, env-only'}`);
+    }
+  } else {
+    doc = readJson(RELAYS_CACHE);
+  }
+  const relays = mergeRelayLists(doc, env);
+  log(relays.length ? `relays: ${relays.length} public relay(s) armed` : 'relays: none (direct-only node)');
+  return relays;
+}
+
 /** ENROLL step 0 — provision the box. Idempotent; a warm box runs through in seconds. */
 export async function ensureShardSetup(opts: { orchestratorUrl?: string } = {}): Promise<void> {
   mkdirSync(join(SHARD_HOME, 'models'), { recursive: true });
