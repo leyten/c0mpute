@@ -7,7 +7,11 @@ import type { ModelProfile } from './swarm';
 
 export interface ModelSpec {
   model: string;
-  manifestRef: string;   // default content-addressed manifest; the candidates' announced ref wins if present
+  /** the manifest ref every assignment for this model carries (the announced ref is advisory —
+   *  stored, never load-bearing). At launch this flips to the full `mf1:<name>@<cid>` form the
+   *  operator's one-time publish mints: the CID pins the exact signed manifest a joiner's
+   *  `shard.fetch --manifest-cid` verifies bytes against (shard INTEGRATION.md §4). */
+  manifestRef: string;
   profile: ModelProfile;
   minStages: number;     // don't auto-form below this many candidates (must be able to hold the model)
   // Requester price, USD per 1M generated tokens (display: "$/M"). PHASE 2 (per-token billing):

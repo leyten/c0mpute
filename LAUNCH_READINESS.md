@@ -47,10 +47,20 @@ Every item verified missing in code, with build-shape:
    free tab. Build: mapModel entry + submit/stream path through the authed layer; clamp and
    firewall the naked gateway. **The adversary's #1 refuse-to-launch-without.** *(the biggest
    item — a real submit path, ~week-class)*
-5. **Model catalog + manifest distribution.** `manifestRef` is a bare string minted in
-   scripts; no store maps it to a signed manifest + pinned publisher pubkey; a stranger's
-   daemon cannot discover its weights. Engine trust root exists (shard/manifest.py) — build
-   the catalog table/endpoint + pin the publisher key in the shipped daemon. *(days)*
+5. ~~**Model catalog + manifest distribution.**~~ ✅ **BUILT 2026-07-20** (this PR + shard #125).
+   `manifestRef` becomes `mf1:<name>@<cid>`; the daemon resolves the signed doc from the
+   orchestrator's static `/manifests/<name>.json`, pins the network publisher key
+   (`MANIFEST_PUBKEY` in shard-runner.ts — the SIDECAR_SHA256 pattern), and `shard.fetch`
+   enforces bytes==CID + pinned signature + model_id/layer_count cross-checks fail-closed.
+   Self-published throwaway-key manifests + the raw serving pull are DELETED (dev hatch:
+   `C0MPUTE_SHARD_MANIFEST_FILE`, refused whenever an assignment carries `mf1:`). Standby
+   sidecars now `-seed`; assignments hand out free-candidate seeders + `SWARM_SEED_ADDRS`.
+   **Remaining = the one-time LAUNCH PUBLISH runbook step (leyten):** on the ops box run
+   `python phase0/publish_manifest.py --hf nvidia/MiniMax-M2.5-NVFP4 --key <OFFLINE key> --out m25-nvfp4-v1.json --version 1`,
+   check the doc into `public/manifests/m25-nvfp4-v1.json`, paste the printed
+   `publisher_pubkey` into `MANIFEST_PUBKEY`, flip `MODEL_SPECS.manifestRef` to
+   `mf1:m25-nvfp4-v1@<cid>` (CID = `python -c "from shard import manifest as m; s,_=m.sha256_file('m25-nvfp4-v1.json'); print(m.cidv1_raw(s))"`),
+   and point `SWARM_SEED_ADDRS` at ≥1 always-on full-model seed box.
 6. **Transport authorization.** The libp2p sidecar pipes activation streams from ANY peer
    into the engine socket (sidecar main.go:517) — a stranger who learns a stage addr can
    inject frames into a live ring. Build: ringmate allowlist per assignment (gate the

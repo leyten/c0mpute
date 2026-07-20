@@ -8,17 +8,18 @@
 // the HTTP node-bind step submits the measured vector and the server decides (#19 semantics).
 
 import { io, Socket } from 'socket.io-client';
+import { existsSync } from 'fs';
 import { hostname } from 'os';
 import {
   proveIdentity, receiptPubkey, detectGpuName, detectFreeVramMB, probeMeasure,
   pullRange, startSidecar, pickDialAddrs, StageProcess, CoordinatorProcess,
-  FORWARD_PORT, RETURN_PORT, MODEL_DIR, SHARD_REPO,
+  FORWARD_PORT, RETURN_PORT, MANIFEST_DEV_FILE, MANIFEST_FILE, MANIFEST_REF, MODEL_DIR,
+  MODEL_REPO, SHARD_REPO,
   type SidecarHandle, type CoordJob,
 } from './shard-runner.js';
-import { ensureShardSetup } from './shard-setup.js';
+import { ensureShardSetup, resolveManifest } from './shard-setup.js';
 
 const MODEL = process.env.C0MPUTE_SHARD_MODEL || 'minimax-m2.5';
-const MANIFEST_REF = process.env.C0MPUTE_SHARD_MANIFEST || 'mf:m25-nvfp4-v1';
 const MAX_STAGE_RESTARTS = 5;
 
 interface ShardWorkerOptions {
@@ -44,6 +45,9 @@ interface StageAssignment {
   losslessWire: boolean;
   peers: StagePeer[];
   coordinatorNodeId: string;
+  /** standby seeders' sidecar addrs (free candidates + operator seed boxes) — extra block
+   *  sources beyond the ringmates; unverified, safe (every byte re-hashed vs the manifest) */
+  seeders?: string[];
 }
 
 function log(msg: string): void {
@@ -113,8 +117,9 @@ async function buildCapabilities(): Promise<{ measured: Record<string, unknown>;
 export async function startShardWorker(opts: ShardWorkerOptions): Promise<void> {
   log(`shard node daemon starting (model ${MODEL}, engine at ${SHARD_REPO}, weights at ${MODEL_DIR})`);
 
-  // ── ENROLL step 0: self-provision (engine, venv, sidecar, probe slice — zero env vars) ──
-  await ensureShardSetup();
+  // ── ENROLL step 0: self-provision (engine, venv, sidecar, network manifest, probe slice —
+  // zero env vars) ──
+  await ensureShardSetup({ orchestratorUrl: opts.orchestratorUrl });
 
   // ── the sidecar is a DAEMON-scoped fixture: a standby listener from enroll on (its ADDR
   // lines are the dialable identity peers get in their assignments), restarted with -forward/
@@ -126,7 +131,12 @@ export async function startShardWorker(opts: ShardWorkerOptions): Promise<void> 
   function bootSidecar(cfg: { forwards?: string[]; allow?: string[] } = {}): SidecarHandle {
     const gen = ++sidecarGen;
     sidecar?.proc.kill('SIGTERM');
-    const sc = startSidecar(cfg);
+    // STANDBY SEEDING (P0-#1): every sidecar boot seeds whatever complete manifest shards this
+    // disk already holds — enroll (a warm node's prior ranges), assign (seed while pulling/serving),
+    // teardown-restore (the Go seeder scans holdings ONCE at boot, so this restore is exactly the
+    // moment the just-served range enters the seed set). Harmless with nothing on disk.
+    const seed = existsSync(MANIFEST_FILE) ? `${MANIFEST_FILE}=${MODEL_DIR}` : undefined;
+    const sc = startSidecar({ ...cfg, seed });
     sidecar = sc;
     sc.proc.on('exit', (code) => {
       if (gen !== sidecarGen || shuttingDown) return;   // superseded / operator shutdown
@@ -286,6 +296,20 @@ export async function startShardWorker(opts: ShardWorkerOptions): Promise<void> 
   async function serve(a: StageAssignment): Promise<void> {
     log(`assigned: swarm ${a.swarmId} stage ${a.stageIndex}/${a.peers.length} layers [${a.layerStart}:${a.layerEnd}) `
       + `${a.isHead ? 'HEAD ' : ''}${a.isTail ? 'TAIL ' : ''}(${a.model} @ ${a.manifestRef})`);
+    // a real network ref must never be satisfied by the local dev-manifest hatch — the hatch is
+    // for offline harnesses only, and refusing here keeps a leaked env inert against production
+    if (a.manifestRef.startsWith('mf1:') && MANIFEST_DEV_FILE) {
+      release('assignment carries a network manifest ref but C0MPUTE_SHARD_MANIFEST_FILE forces a dev manifest — refusing');
+      return;
+    }
+    // re-resolve against the ASSIGNMENT's ref (idempotent; offline-tolerant). The engine still
+    // pins bytes==CID + publisher on the pull — this just refreshes the doc the pull reads.
+    try {
+      await resolveManifest(opts.orchestratorUrl, a.manifestRef);
+    } catch (e: any) {
+      release(`manifest resolution failed: ${e.message}`);
+      return;
+    }
     // ring legs: a non-tail stage dials its successor's sidecar (the forward tunnel the engine's
     // --next rides); inbound is pinned to the predecessor's PeerId (the C2 neighbour allowlist).
     // Leg 8 closes the loop (the m25_scatter_pipe layout, proven on real rings): the HEAD also
@@ -324,13 +348,22 @@ export async function startShardWorker(opts: ShardWorkerOptions): Promise<void> 
       // ring legs FIRST (the sidecar doesn't need the weights): every stage's sidecar is
       // settled minutes before any peer's engine dials in — assign-time restarts never race
       bootSidecar({ forwards, allow });     // same key + ports: the addrs peers hold stay valid
-      // peers-first fetch: the OTHER stages' sidecars are the DHT bootstrap for the torrent path
-      const bootstrap = a.peers
+      // peers-first fetch: ringmate sidecars + the assignment's standby seeders are the block
+      // sources (the fetcher direct-dials each — no DHT-health dependency); mirror = fallback
+      const ringmates = a.peers
         .filter((p) => p.stageIndex !== a.stageIndex)
         .flatMap((p) => pickDialAddrs(p.addrs).slice(0, 1));
-      log(`pulling layers [${a.layerStart}:${a.layerEnd}) (peers-first: ${bootstrap.length} ringmate seed(s)) ...`);
+      const seeders = (a.seeders ?? []).filter((s) => !ringmates.includes(s));
+      const bootstrap = [...ringmates, ...seeders].slice(0, 10);
+      log(`pulling layers [${a.layerStart}:${a.layerEnd}) (peers-first: ${ringmates.length} ringmate(s) `
+        + `+ ${seeders.length} standby seeder(s)) ...`);
       await pullRange(a.layerStart, a.layerEnd, a.isHead, a.isTail,
-        { bootstrap, role: a.role === 'coordinator' ? 'coordinator' : 'stage' }, mine.abort.signal);
+        {
+          bootstrap, role: a.role === 'coordinator' ? 'coordinator' : 'stage',
+          manifestRef: a.manifestRef, expectModelId: MODEL_REPO,
+          // what the ASSIGNMENT believes the model's depth is — the manifest must agree
+          expectLayerCount: Math.max(...a.peers.map((p) => p.layerEnd)),
+        }, mine.abort.signal);
       // dissolved (or re-assigned) while pulling — the new assignment owns the slot
       if (current !== mine) return;
       launchStage();

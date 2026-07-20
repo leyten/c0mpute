@@ -82,6 +82,11 @@ export interface StageAssignment {
   peers: { nodeId: string; pubkey: string; stageIndex: number; layerStart: number; layerEnd: number;
            addrs: string[] }[];
   coordinatorNodeId: string;
+  /** standby seeders (free candidates' sidecar addrs + the operator's cfg.seedAddrs): extra
+   *  block sources for the pull beyond the ringmates. Unverified announce data — safe to hand
+   *  out because every byte a joiner pulls is re-hashed against the signed manifest (a lying
+   *  seeder costs bandwidth, never integrity). */
+  seeders?: string[];
 }
 
 export type SwarmStatus = 'forming' | 'pulling' | 'ready' | 'serving' | 'degraded' | 'failed';

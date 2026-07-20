@@ -8,10 +8,11 @@
 
 import { spawn, spawnSync } from 'child_process';
 import { createHash } from 'crypto';
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'fs';
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import {
-  MANIFEST_FILE, MODEL_DIR, MODEL_REPO, SHARD_HOME, SHARD_REPO, SIDECAR_BIN, pythonBin,
+  MANIFEST_DEV_FILE, MANIFEST_FILE, MANIFEST_PUBKEY, MANIFEST_REF, MODEL_DIR, MODEL_REPO,
+  SHARD_HOME, SHARD_REPO, SIDECAR_BIN, manifestRefName, pullProbeSliceRaw, pullRange, pythonBin,
 } from './shard-runner.js';
 
 const ENGINE_GIT_URL = process.env.C0MPUTE_SHARD_GIT || 'https://github.com/leyten/shard';
@@ -140,7 +141,9 @@ async function ensureSidecar(): Promise<void> {
 }
 
 /** The probe slice (config + index + the probe layer's shards, ~2.4 GB) so `shard.probe
- *  --measure` runs REAL physics at enroll. Public repo: anonymous HF works (slower). */
+ *  --measure` runs REAL physics at enroll. VERIFIED via the resolved manifest when one is on
+ *  disk (a joiner's first byte is pinned); the raw m25_pull_range path survives ONLY as the
+ *  measurement fallback — the slice feeds the probe and is never served. */
 async function ensureProbeSlice(): Promise<void> {
   if (existsSync(join(MODEL_DIR, 'config.json'))) {
     log(`model dir: ${MODEL_DIR}`);
@@ -148,38 +151,91 @@ async function ensureProbeSlice(): Promise<void> {
   }
   mkdirSync(MODEL_DIR, { recursive: true });
   log('model: pulling the probe slice (config + layer 30, ~2.4 GB) — first-join download');
-  await run(pythonBin(), [join(SHARD_REPO, 'phase0', 'm25_pull_range.py'),
-    '--lo', '30', '--hi', '31', '--dir', MODEL_DIR],
-  { cwd: SHARD_REPO, label: 'probe-slice pull', streamTag: 'pull' });
-  log('model: probe slice ready');
+  if (existsSync(MANIFEST_FILE)) {
+    try {
+      await pullRange(30, 31, false, false, {
+        manifestRef: MANIFEST_REF, expectModelId: MODEL_REPO,
+      });
+      log('model: probe slice ready (verified)');
+      return;
+    } catch (e: any) {
+      log(`model: verified probe-slice pull failed (${e.message}) — raw fallback (measurement-only)`);
+    }
+  }
+  await pullProbeSliceRaw(30, 31);
+  log('model: probe slice ready (UNVERIFIED raw pull — measurement-only, serving pulls stay pinned)');
 }
 
-/** The signed, content-addressed weight manifest — built from HF metadata in seconds (LFS oids
- *  ARE sha256, no weight download). It's what makes `python -m shard.fetch` a VERIFIED pull:
- *  every shard re-hashed against it. Locally-published for now (integrity, not publisher trust —
- *  TODO(leg7): resolve the network's signed manifest + pinned publisher pubkey from `manifestRef`
- *  once the catalog seam exists). Best-effort: a failure just leaves pullRange on the raw path. */
-async function ensureManifest(): Promise<void> {
-  if (existsSync(MANIFEST_FILE)) { log(`manifest: ${MANIFEST_FILE}`); return; }
-  const key = join(SHARD_HOME, 'publisher.key');
-  try {
-    log(`manifest: building from ${MODEL_REPO} metadata (no weight download)`);
-    await run(pythonBin(), [join('phase0', 'publish_manifest.py'), '--hf', MODEL_REPO,
-      '--key', key, '--out', MANIFEST_FILE],
-    { cwd: SHARD_REPO, label: 'publish_manifest', streamTag: 'manifest' });
-    log('manifest: ready (verified fetch enabled)');
-  } catch (e: any) {
-    log(`manifest: build failed (${e.message}) — pullRange stays on the raw snapshot path`);
+const MANIFEST_STATE = join(SHARD_HOME, 'manifest-state.json');   // {ref, version} last adopted
+
+function readJson(path: string): Record<string, any> | null {
+  try { return JSON.parse(readFileSync(path, 'utf8')); } catch { return null; }
+}
+
+/** Resolve the NETWORK's signed manifest for `ref` (P0-#1: kills the self-published throwaway-key
+ *  manifest). Delivery = a static doc on the orchestrator origin (`/manifests/<name>.json`) —
+ *  untrusted transport by design: the TS checks here (pin string-compare, monotonic version) are
+ *  EARLY LOUD FAILURE only; the trust boundary stays `shard.fetch`, which re-verifies bytes==CID
+ *  and the pinned ed25519 signature fail-closed on every pull. Offline-tolerant: a cached doc
+ *  matching the pin is kept when the GET fails. Exported: serve() re-resolves when an assignment
+ *  carries a ref the cache doesn't match. */
+export async function resolveManifest(orchestratorUrl: string | undefined, ref = MANIFEST_REF): Promise<void> {
+  if (MANIFEST_DEV_FILE) {
+    if (!existsSync(MANIFEST_DEV_FILE)) throw new Error(`dev manifest ${MANIFEST_DEV_FILE} does not exist`);
+    copyFileSync(MANIFEST_DEV_FILE, MANIFEST_FILE);
+    log(`manifest: DEV HATCH — using local ${MANIFEST_DEV_FILE} (never a production path)`);
+    return;
   }
+  // a cached doc from a previous era (self-published, wrong publisher) must never linger where
+  // the seeder/loader can pick it up — drop it and resolve fresh
+  const cached = readJson(MANIFEST_FILE);
+  if (cached && MANIFEST_PUBKEY && cached.publisher_pubkey !== MANIFEST_PUBKEY) {
+    log('manifest: cached doc does not match the pinned network publisher — dropping it');
+    rmSync(MANIFEST_FILE, { force: true });
+  }
+  if (!orchestratorUrl) {
+    log(existsSync(MANIFEST_FILE)
+      ? 'manifest: no orchestrator URL — keeping the cached doc'
+      : 'manifest: no orchestrator URL and no cache — serving will refuse until one resolves');
+    return;
+  }
+  const name = manifestRefName(ref);
+  const url = `${orchestratorUrl.replace(/\/$/, '')}/manifests/${name}.json`;
+  let doc: Record<string, any>;
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(30_000) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    doc = (await res.json()) as Record<string, any>;
+  } catch (e: any) {
+    log(existsSync(MANIFEST_FILE)
+      ? `manifest: resolve failed (${e.message}) — keeping the cached doc`
+      : `manifest: resolve failed (${e.message}) and no cache — serving will refuse until one resolves`);
+    return;
+  }
+  if (MANIFEST_PUBKEY && doc.publisher_pubkey !== MANIFEST_PUBKEY) {
+    log(`manifest: REFUSED ${url} — publisher_pubkey does not match the pinned network key`);
+    return;
+  }
+  const state = readJson(MANIFEST_STATE) ?? {};
+  const version = Number(doc.version ?? 1);
+  if (typeof state.version === 'number' && version < state.version) {
+    log(`manifest: REFUSED ${url} — version ${version} rolls back the adopted ${state.version}`);
+    return;
+  }
+  const tmp = MANIFEST_FILE + '.part';
+  writeFileSync(tmp, JSON.stringify(doc));
+  renameSync(tmp, MANIFEST_FILE);
+  writeFileSync(MANIFEST_STATE, JSON.stringify({ ref, version }));
+  log(`manifest: resolved ${name} v${version} from the network (engine re-verifies on every pull)`);
 }
 
 /** ENROLL step 0 — provision the box. Idempotent; a warm box runs through in seconds. */
-export async function ensureShardSetup(): Promise<void> {
+export async function ensureShardSetup(opts: { orchestratorUrl?: string } = {}): Promise<void> {
   mkdirSync(join(SHARD_HOME, 'models'), { recursive: true });
   await ensureEngine();
   await ensureVenv();
   await ensureSidecar();
+  await resolveManifest(opts.orchestratorUrl);      // before the probe slice: first byte verified
   await ensureProbeSlice();
-  await ensureManifest();
-  log('provisioned: engine + venv + sidecar + probe slice + manifest');
+  log('provisioned: engine + venv + sidecar + manifest + probe slice');
 }
