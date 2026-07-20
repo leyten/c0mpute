@@ -200,7 +200,12 @@ export function attachSwarmLoop(io: Server, opts: SwarmLoopOptions) {
       for (const [jobId, p] of pending) {
         if (p.coordinatorNodeId === socket.id) { finishJob(jobId); p.onError('coordinator disconnected mid-job'); }
       }
-      mgr.onNodeGone(socket.id);
+      const swarm = mgr.onNodeGone(socket.id);
+      // CHURN SELF-HEAL (P0-#6): a dead stage just freed its whole ring's slots — re-form from
+      // the survivors + free spares NOW. Auto-form's only other trigger is an ANNOUNCE, which
+      // may never come; without this the network stays down until fresh supply happens by
+      // (churn-proof.sh red run 2026-07-20: DEGRADED then 120s of silence).
+      if (swarm) scheduleAutoForm(swarm.model);
     });
   });
 
