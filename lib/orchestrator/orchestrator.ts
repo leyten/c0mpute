@@ -26,7 +26,7 @@ import { AVAILABLE_TOOLS, executeToolCalls } from './tools';
 import { attachSwarmLoop } from './swarm-loop';
 import { specForModel } from './model-profiles';
 import { buildNetworkFeed, type FeedCounters } from './network-feed';
-import type { StageEarning } from './swarm-types';
+import type { JobRevenue, StageEarning } from './swarm-types';
 
 // Load search server module for Brave API key initialization
 try {
@@ -197,15 +197,39 @@ export class Orchestrator {
     setInterval(() => this.canarySweep(), 120000);
   }
 
-  // Per-shard credit for a settled swarm job. Turning a stage's token share into a recordEarning()
-  // call (tier / creditsCharged / payout basis, and a boundary-role premium) is the PAY-MODEL fork
-  // (NETWORK_ARCHITECTURE §6, PERMISSIONLESS_LOOP.md) — leyten's call — so it is logged, not billed,
-  // until that is decided. The verified per-shard split is already correct; only the $ mapping waits.
+  // Per-shard credit for a settled swarm job (leyten's pay-model, 2026-07-20). settleJob already
+  // split the job's COLLECTED revenue flat by layers onto e.revenueCredits; here each stage keeps
+  // its OWN cut — getWorkerRevenueShare(e.account) is 0.8 if THAT operator staked, 0.7 if not —
+  // applied to its slice, AFTER the split, never blended (stages stake independently). One
+  // recordEarning per stage (jobId#pubkey ⇒ per-stage once-only), so a job of N shards books N
+  // earnings on the SAME rails as a classic job: paid → real revenue + margin; free/allowance →
+  // treasury-funded (creditsCharged 0). Gated by SWARM_PAYOUT_ENABLED so a merge/deploy is inert
+  // until leyten flips it on; until then it logs (the network has no serving swarms pre-launch).
   private recordSwarmStageEarning(
     e: StageEarning & { swarmId: string; jobId: string; model: string },
   ) {
-    console.log(`[swarm] credit ${e.account} for ${e.tokens} tokens on ${e.model} `
-      + `layers[${e.layerStart}:${e.layerEnd}] (job ${e.jobId}) — pay-model fork pending`);
+    if (process.env.SWARM_PAYOUT_ENABLED === '1' && e.revenueCredits && e.revenueCredits > 0) {
+      try {
+        const paid = !e.subsidyKind;
+        recordEarning({
+          privyId: e.account,
+          jobId: `${e.jobId}#${e.pubkey}`,           // per-stage: distinct row, once-only per shard
+          tier: 'pro',
+          creditsCharged: paid ? e.revenueCredits : 0,   // paid ⇒ real revenue (margin); subsidy ⇒ 0
+          payoutCredits: e.revenueCredits,               // worker-pay basis = this stage's layer slice
+          tokensGenerated: e.tokens,
+          revenueShare: getWorkerRevenueShare(e.account),  // ← the PER-WORKER cut, after the split
+          subsidized: !paid,
+          subsidyKind: e.subsidyKind,
+          payerPrivyId: e.payerPrivyId,
+        });
+      } catch (err) {
+        console.error(`[swarm] recordEarning failed for ${e.account} (job ${e.jobId}):`, err);
+      }
+    } else {
+      console.log(`[swarm] credit ${e.account} for ${e.tokens} tokens on ${e.model} `
+        + `layers[${e.layerStart}:${e.layerEnd}] (job ${e.jobId}) — payout ${process.env.SWARM_PAYOUT_ENABLED === '1' ? 'no-revenue' : 'disabled'}`);
+    }
     // map counters (anonymous aggregates: nodeId-keyed internally, never emitted with identity)
     const day = new Date().toISOString().slice(0, 10);
     if (day !== this.swarmCountersDay) { this.swarmCountersDay = day; this.swarmCounters.tokensToday = 0; }
@@ -1106,13 +1130,30 @@ export class Orchestrator {
     if (!model || !specForModel(model)) return false;
     const userSocket = () => this.io.sockets.sockets.get(job.userSocketId);
     const fin = () => { this.jobs.delete(job.id); this.jobQueue = this.jobQueue.filter((id) => id !== job.id); };
+    // The revenue the stages split at settlement = what THIS job collected: paid ⇒ creditsCharged
+    // (real revenue); free/allowance ⇒ subsidyCredits (treasury-funded, booked subsidized). Frozen
+    // now so payout is exactly a share of what was charged (self-solvent).
+    const revenue: JobRevenue = {
+      credits: (job.creditsCharged && job.creditsCharged > 0) ? job.creditsCharged : (job.subsidyCredits ?? 0),
+      subsidyKind: job.subsidyKind,
+      payerPrivyId: job.privyUserId,
+    };
     this.swarmLoop.serveRequest({
       model,
       messages: job.messages ?? [],
       params: { maxNew: 512, reasoning: !!job.think, tools: job.toolPassthrough ? job.clientTools : undefined },
+      revenue,
       onToken: (delta) => userSocket()?.emit('job:token', { jobId: job.id, token: delta }),
       onDone: (response) => { userSocket()?.emit('job:complete', { jobId: job.id, response }); fin(); },
-      onError: (message) => { userSocket()?.emit('job:error', { jobId: job.id, error: message }); fin(); },
+      onError: (message) => {
+        // a swarm that never served owes nothing — refund the charge (classic jobs already refund
+        // on timeout; the swarm path used to just drop the job, silently keeping the user's credits).
+        // creditsCharged is 0 for free/allowance jobs, so this only refunds real paid spend.
+        if (job.privyUserId && job.creditsCharged) {
+          refundCredits(job.privyUserId, job.creditsCharged, `Swarm ${model} unavailable: ${message}`);
+        }
+        userSocket()?.emit('job:error', { jobId: job.id, error: message }); fin();
+      },
     });
     job.status = 'processing';
     return true;   // a sharded model is served (or errored) here — never queued to a whole-model worker

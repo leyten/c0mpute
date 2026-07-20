@@ -27,7 +27,7 @@
  * PERMISSIONLESS_LOOP.md): a client/server-side token count must bind pay before real payout. Bounded here.
  */
 import type {
-  BlockSketch, Candidate, JobSettleSnapshot, NodeCapabilities, RingPlan, SettleResult, SpotCheck,
+  BlockSketch, Candidate, JobRevenue, JobSettleSnapshot, NodeCapabilities, RingPlan, SettleResult, SpotCheck,
   SpotCheckAssignment, StageAssignment, StageEarning, SwarmInfo, SwarmStage,
 } from './swarm-types';
 import type { ReputationEventKind, SwarmRole } from './reputation';
@@ -392,7 +392,8 @@ export class SwarmManager {
    * serving — the pre-epoch behavior, kept for direct callers.
    */
   async settleJob(swarmId: string, jobId: string, submitterNodeId: string, nonce: string,
-    tokens: number, receipts: unknown[], snap?: JobSettleSnapshot | null): Promise<StageEarning[] | null> {
+    tokens: number, receipts: unknown[], snap?: JobSettleSnapshot | null,
+    revenue?: JobRevenue | null): Promise<StageEarning[] | null> {
     if (snap && snap.swarmId !== swarmId) {
       this.log(`settle ${jobId}: snapshot is for ${snap.swarmId}, not ${swarmId} — rejected`); return null;
     }
@@ -439,12 +440,18 @@ export class SwarmManager {
 
     this.settled.add(key);                                   // commit BEFORE crediting: no double-pay on retry
     const split = this.splitTokens(payTokens, epoch.stages);
+    // Revenue splits by the SAME pay-split rule (flat by layers) so each stage's earning is its own
+    // slice of what the requester actually paid; the per-worker cut is applied downstream, per stage.
+    const revSplit = revenue && revenue.credits > 0
+      ? this.splitTokens(revenue.credits, epoch.stages) : null;
     const byPub = new Map(epoch.stages.map((s) => [s.pubkey, s]));
     const earnings: StageEarning[] = (res.stages ?? []).map((s) => {
       const st = byPub.get(s.pubkey)!;                       // verify pinned signers to assigned blocks
       return {
         nodeId: st.nodeId, pubkey: s.pubkey, account: st.account,
         layerStart: s.lo, layerEnd: s.hi, layers: s.layers, tokens: split.get(s.pubkey) ?? 0,
+        ...(revSplit ? { revenueCredits: revSplit.get(s.pubkey) ?? 0,
+                         payerPrivyId: revenue!.payerPrivyId, subsidyKind: revenue!.subsidyKind } : {}),
       };
     });
     for (const e of earnings) {
