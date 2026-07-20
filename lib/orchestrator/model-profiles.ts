@@ -10,6 +10,12 @@ export interface ModelSpec {
   manifestRef: string;   // default content-addressed manifest; the candidates' announced ref wins if present
   profile: ModelProfile;
   minStages: number;     // don't auto-form below this many candidates (must be able to hold the model)
+  // Requester price, USD per 1M generated tokens (display: "$/M"). PHASE 2 (per-token billing):
+  // this drives what the requester is charged, replacing the flat pro-tier credit cost for swarm
+  // models. Phase 1 (the payout landed here) splits the ALREADY-collected charge, so this number
+  // is staged/documented but not yet wired into billing — turning it on modifies the live submit
+  // path and is its own reviewed deploy. leyten's number.
+  pricePerMTokensUsd?: number;
 }
 
 const H = 3072;   // MiniMax-M2.5 hidden size
@@ -19,6 +25,9 @@ export const MODEL_SPECS: Record<string, ModelSpec> = {
     model: 'minimax-m2.5',
     manifestRef: 'mf:m25-nvfp4-v1',
     minStages: 2,
+    pricePerMTokensUsd: 0.50,   // $0.50 / 1M generated tokens — undercuts the ~$1.20/M centralized
+                                // option; operators keep 70-80%. Phase-2 billing (see interface).
+
     profile: {
       layerCount: 62,
       layer_vram_mb: 2330,        // NVFP4 experts + bf16 attn + norms, per decoder layer (measured)

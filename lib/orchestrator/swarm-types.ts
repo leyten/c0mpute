@@ -199,4 +199,19 @@ export interface StageEarning {
   layerEnd: number;
   layers: number;
   tokens: number;              // this stage's share of the job's tokens
+  // PAY-MODEL (leyten 2026-07-20): this stage's flat-by-layers slice of the job's COLLECTED revenue,
+  // in credits. The per-worker cut (getWorkerRevenueShare of THIS stage's account) is applied to this
+  // slice at payout — AFTER the split, never blended, because stages stake independently. payer +
+  // subsidy lane ride along so the earning books referral + treasury-vs-paid exactly like a classic job.
+  revenueCredits?: number;
+  payerPrivyId?: string;
+  subsidyKind?: 'free' | 'allowance';
+}
+
+/** The job's collected-revenue basis, threaded from dispatch to settlement so the payout splits
+ *  exactly what was charged (self-solvent: pay a share of collected, never more). */
+export interface JobRevenue {
+  credits: number;             // creditsCharged (paid) or subsidyCredits (free/allowance, treasury-funded)
+  subsidyKind?: 'free' | 'allowance';   // set ⇒ treasury-funded, booked as subsidized (creditsCharged 0)
+  payerPrivyId?: string;       // the requester, for the referral cut
 }

@@ -22,7 +22,7 @@
 import { randomUUID, randomBytes } from 'crypto';
 import type { Server } from 'socket.io';
 import { SwarmManager, type Seam, type SwarmConfig, type TrustOracle, DEFAULT_SWARM_CONFIG, type ModelProfile } from './swarm';
-import type { JobSettleSnapshot } from './swarm-types';
+import type { JobRevenue, JobSettleSnapshot } from './swarm-types';
 import { SubprocessSeam } from './swarm-seam';
 import type { ModelSpec } from './model-profiles';
 import type { BlockSketch, NodeCapabilities, StageEarning } from './swarm-types';
@@ -67,6 +67,7 @@ export interface SwarmServeArgs {
   onDone: (response: string, tokens: number) => void;
   onError: (message: string) => void;
   timeoutMs?: number;
+  revenue?: JobRevenue;        // the collected-revenue basis, split flat-by-layers to the stages at settle
 }
 
 export function attachSwarmLoop(io: Server, opts: SwarmLoopOptions) {
@@ -123,6 +124,7 @@ export function attachSwarmLoop(io: Server, opts: SwarmLoopOptions) {
     /** the job's assignment EPOCH, frozen at dispatch — settlement's authority even if the
      *  swarm degrades/dissolves mid-job (P1-#2 epoch fix) */
     snap: JobSettleSnapshot | null;
+    revenue?: JobRevenue;      // frozen at dispatch too, so payout splits exactly what was charged
     onToken: (d: string) => void; onDone: (r: string, t: number) => void; onError: (m: string) => void;
     timer: ReturnType<typeof setTimeout>;
   }
@@ -142,7 +144,7 @@ export function attachSwarmLoop(io: Server, opts: SwarmLoopOptions) {
     }, a.timeoutMs ?? 300_000);
     (timer as { unref?: () => void }).unref?.();
     pending.set(jobId, { coordinatorNodeId: swarm.coordinatorNodeId, swarmId: swarm.id, nonce,
-      snap: mgr.snapshotForSettlement(swarm.id),
+      snap: mgr.snapshotForSettlement(swarm.id), revenue: a.revenue,
       onToken: a.onToken, onDone: a.onDone, onError: a.onError, timer });
     io.to(swarm.coordinatorNodeId).emit('swarm:job' as never, {
       swarmId: swarm.id, jobId, messages: a.messages, nonce,
@@ -180,7 +182,7 @@ export function attachSwarmLoop(io: Server, opts: SwarmLoopOptions) {
       const p = finishJob(data.jobId);
       if (p && p.coordinatorNodeId === socket.id) p.onDone(data.response ?? '', data.tokensGenerated);
       await mgr.settleJob(data.swarmId, data.jobId, socket.id, data.nonce, data.tokensGenerated,
-        data.receipts, p?.snap ?? null);
+        data.receipts, p?.snap ?? null, p?.revenue ?? null);
     });
 
     socket.on('swarm:challenge_result', async (data: ChallengeResultPayload) => {
