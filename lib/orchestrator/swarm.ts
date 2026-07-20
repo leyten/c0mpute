@@ -26,6 +26,7 @@
  * is trusted up to the cap — is the "coordinator-untrusted output attribution" item (INTEGRATION.md §6 /
  * PERMISSIONLESS_LOOP.md): a client/server-side token count must bind pay before real payout. Bounded here.
  */
+import { randomBytes } from 'crypto';
 import type {
   BlockSketch, Candidate, JobRevenue, JobSettleSnapshot, NodeCapabilities, RingPlan, SettleResult, SpotCheck,
   SpotCheckAssignment, StageAssignment, StageEarning, SwarmInfo, SwarmStage,
@@ -570,7 +571,11 @@ export class SwarmManager {
       suspectNodeId: suspect.nodeId, suspectPubkey: suspect.pubkey,
       verifierNodeId: verifier.nodeId, verifierPubkey: verifier.pubkey,
       layerStart: suspect.layerStart, layerEnd: suspect.layerEnd,
-      seed: `${swarmId}:${checkId}`,                     // unpredictable pre-announce, identical both sides
+      // CRYPTO-random, minted at emit (the old `${swarmId}:${checkId}` was predictable from
+      // public state); projSeed is the commit-first projection seed — unpredictable, so a
+      // cheater can't pre-learn which 256 coordinates will be sampled
+      seed: randomBytes(16).toString('hex'),
+      projSeed: randomBytes(16).toString('hex'),
       nTokens: 8, hiddenSize: 3072,
       deadlineAt: this.now() + this.cfg.spotCheckTimeoutMs,
       sketches: {},
@@ -579,7 +584,9 @@ export class SwarmManager {
     const assign: SpotCheckAssignment = {
       checkId, model: check.model, manifestRef: check.manifestRef,
       layerStart: check.layerStart, layerEnd: check.layerEnd,
-      seed: check.seed, nTokens: check.nTokens, hiddenSize: check.hiddenSize,
+      seed: check.seed, projSeed: check.projSeed,
+      nTokens: check.nTokens, hiddenSize: check.hiddenSize,
+      deadlineAt: check.deadlineAt,
     };
     this.d.emit(check.suspectNodeId, 'swarm:challenge', assign);
     this.d.emit(check.verifierNodeId, 'swarm:challenge', assign);
@@ -623,6 +630,30 @@ export class SwarmManager {
       this.log(`spot-check ${checkId} passed (cosine ${verdict.cosine.toFixed(4)})`);
     }
     return { passed: verdict.passed, cosine: verdict.cosine };
+  }
+
+  /**
+   * A node reports a STRUCTURED failure instead of a sketch. Explicit errors are not silence
+   * (silence = a cheat, swept below) and not proof of dishonesty either:
+   *   - `busy` from the suspect = it retried its probe door for the whole window and every
+   *     attempt hit a live job. No spot_check_fail (an honestly saturated node must not be
+   *     struck) but a `flake` — an ALWAYS-busy node can't dodge for free, its graded score
+   *     erodes until policy escalates (hold dispatch to its swarm, probe in the gap).
+   *   - anything else (range_mismatch, probe unreachable, no_proj_seed) = an aiming/infra
+   *     signal: drop the check, punish nobody, log loud.
+   */
+  reportCheckError(checkId: string, nodeId: string, error: string): void {
+    const check = this.checks.get(checkId);
+    if (!check) return;
+    if (nodeId !== check.suspectNodeId && nodeId !== check.verifierNodeId) return;
+    this.checks.delete(checkId);
+    const who = nodeId === check.suspectNodeId ? 'suspect' : 'verifier';
+    if (error === 'busy') {
+      this.d.trust?.record(who === 'suspect' ? check.suspectPubkey : check.verifierPubkey, 'flake');
+      this.log(`spot-check ${checkId}: ${who} ${nodeId} busy for the whole window — flaked, recheck later`);
+    } else {
+      this.log(`spot-check ${checkId}: ${who} ${nodeId} reported '${error}' — check dropped (infra/aim, no strike)`);
+    }
   }
 
   /** Expire overdue checks: a silent SUSPECT fails (refusal is not free); a silent verifier only
