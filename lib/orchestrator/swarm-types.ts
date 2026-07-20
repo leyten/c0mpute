@@ -115,6 +115,17 @@ export interface SwarmStage {
   ready: boolean;              // pulled its range, warmed, ring-connected
 }
 
+/** The settlement-relevant slice of a swarm FROZEN at job dispatch (the job's assignment epoch):
+ *  settlement verifies + pays against this, immune to churn between dispatch and complete. */
+export interface JobSettleSnapshot {
+  swarmId: string;
+  model: string;
+  layerCount: number;
+  losslessWire: boolean;
+  coordinatorNodeId: string;
+  stages: SwarmStage[];
+}
+
 /** The shape `python3 -m shard.plan` returns (a subset — the fields the control plane consumes). */
 export interface RingPlan {
   order: string[];
