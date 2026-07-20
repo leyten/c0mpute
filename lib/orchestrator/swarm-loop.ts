@@ -22,6 +22,7 @@
 import { randomUUID, randomBytes } from 'crypto';
 import type { Server } from 'socket.io';
 import { SwarmManager, type Seam, type SwarmConfig, type TrustOracle, DEFAULT_SWARM_CONFIG, type ModelProfile } from './swarm';
+import type { JobSettleSnapshot } from './swarm-types';
 import { SubprocessSeam } from './swarm-seam';
 import type { ModelSpec } from './model-profiles';
 import type { BlockSketch, NodeCapabilities, StageEarning } from './swarm-types';
@@ -119,6 +120,9 @@ export function attachSwarmLoop(io: Server, opts: SwarmLoopOptions) {
   // ── SERVE: route a client request to a ready swarm's coordinator, relay tokens back ──
   interface Pending {
     coordinatorNodeId: string; swarmId: string; nonce: string;
+    /** the job's assignment EPOCH, frozen at dispatch — settlement's authority even if the
+     *  swarm degrades/dissolves mid-job (P1-#2 epoch fix) */
+    snap: JobSettleSnapshot | null;
     onToken: (d: string) => void; onDone: (r: string, t: number) => void; onError: (m: string) => void;
     timer: ReturnType<typeof setTimeout>;
   }
@@ -138,6 +142,7 @@ export function attachSwarmLoop(io: Server, opts: SwarmLoopOptions) {
     }, a.timeoutMs ?? 300_000);
     (timer as { unref?: () => void }).unref?.();
     pending.set(jobId, { coordinatorNodeId: swarm.coordinatorNodeId, swarmId: swarm.id, nonce,
+      snap: mgr.snapshotForSettlement(swarm.id),
       onToken: a.onToken, onDone: a.onDone, onError: a.onError, timer });
     io.to(swarm.coordinatorNodeId).emit('swarm:job' as never, {
       swarmId: swarm.id, jobId, messages: a.messages, nonce,
@@ -169,10 +174,13 @@ export function attachSwarmLoop(io: Server, opts: SwarmLoopOptions) {
 
     socket.on('swarm:job_complete', async (data: CompletePayload) => {
       // ONE event does two jobs: finish the client stream AND settle. Relay the response first
-      // (only the job's coordinator may), then settle (settleJob independently re-checks coordinator).
+      // (only the job's coordinator may), then settle against the job's dispatch-time EPOCH
+      // (settleJob independently re-checks coordinator; the snapshot makes settlement immune to
+      // churn between dispatch and complete — without it, a mid-job degrade stranded honest work).
       const p = finishJob(data.jobId);
       if (p && p.coordinatorNodeId === socket.id) p.onDone(data.response ?? '', data.tokensGenerated);
-      await mgr.settleJob(data.swarmId, data.jobId, socket.id, data.nonce, data.tokensGenerated, data.receipts);
+      await mgr.settleJob(data.swarmId, data.jobId, socket.id, data.nonce, data.tokensGenerated,
+        data.receipts, p?.snap ?? null);
     });
 
     socket.on('swarm:challenge_result', async (data: ChallengeResultPayload) => {

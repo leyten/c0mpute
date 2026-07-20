@@ -27,7 +27,7 @@
  * PERMISSIONLESS_LOOP.md): a client/server-side token count must bind pay before real payout. Bounded here.
  */
 import type {
-  BlockSketch, Candidate, NodeCapabilities, RingPlan, SettleResult, SpotCheck,
+  BlockSketch, Candidate, JobSettleSnapshot, NodeCapabilities, RingPlan, SettleResult, SpotCheck,
   SpotCheckAssignment, StageAssignment, StageEarning, SwarmInfo, SwarmStage,
 } from './swarm-types';
 import type { ReputationEventKind, SwarmRole } from './reputation';
@@ -353,21 +353,51 @@ export class SwarmManager {
   }
 
   /**
+   * The settlement-relevant slice of a swarm, FROZEN at job dispatch — the job's assignment EPOCH.
+   * Settlement verifies + pays against THIS, not the swarm's live state: a ring that degraded or
+   * dissolved after the job was dispatched must neither strand honestly-served work unpaid (the
+   * status guard) nor fail receipt-verify against a since-mutated assignment map and frame the
+   * coordinator as fraud (P1-#2's correctness bomb).
+   */
+  snapshotForSettlement(swarmId: string): JobSettleSnapshot | null {
+    const swarm = this.swarms.get(swarmId);
+    if (!swarm) return null;
+    return {
+      swarmId, model: swarm.model, layerCount: swarm.layerCount,
+      losslessWire: swarm.losslessWire, coordinatorNodeId: swarm.coordinatorNodeId,
+      stages: swarm.stages.map((s) => ({ ...s })),
+    };
+  }
+
+  /**
    * SETTLE + PAY — the coordinator returns one signed receipt per stage on job complete. Only the
-   * COORDINATOR of a live swarm may settle, each (swarm, job) settles at most ONCE, and `tokens` is
-   * bounded. Then verify the set (shard.verify: signatures, coverage tiling, per-job nonce, chain iff
+   * job's COORDINATOR may settle, each (swarm, job) settles at most ONCE, and `tokens` is bounded.
+   * Then verify the set (shard.verify: signatures, coverage tiling, per-job nonce, chain iff
    * lossless, per-signer block binding) and fan the (bounded) tokens out PER SHARD to each stage's frozen
    * account. Returns the per-stage earnings, or null if anything failed (nobody is paid).
+   *
+   * `snap` = the job's dispatch-time epoch and the authority when given: the job settles against the
+   * assignment set it was actually SERVED under even if the swarm has since degraded or dissolved
+   * (anti-replay, submitter, nonce and verify checks all still apply — and a verify failure is now a
+   * TRUE fraud signal, never a churn artifact). Without a snapshot the live swarm must still be
+   * serving — the pre-epoch behavior, kept for direct callers.
    */
   async settleJob(swarmId: string, jobId: string, submitterNodeId: string, nonce: string,
-    tokens: number, receipts: unknown[]): Promise<StageEarning[] | null> {
-    const swarm = this.swarms.get(swarmId);
-    if (!swarm) { this.log(`settle: unknown swarm ${swarmId}`); return null; }
-    if (swarm.status !== 'ready' && swarm.status !== 'serving') {
-      this.log(`settle ${swarmId}: swarm not serving (status ${swarm.status}) — rejected`); return null;
+    tokens: number, receipts: unknown[], snap?: JobSettleSnapshot | null): Promise<StageEarning[] | null> {
+    if (snap && snap.swarmId !== swarmId) {
+      this.log(`settle ${jobId}: snapshot is for ${snap.swarmId}, not ${swarmId} — rejected`); return null;
     }
-    if (submitterNodeId !== swarm.coordinatorNodeId) {
-      this.log(`settle ${swarmId} job ${jobId}: submitter ${submitterNodeId} is not the coordinator — rejected`);
+    let epoch = snap ?? null;
+    if (!epoch) {
+      const live = this.swarms.get(swarmId);
+      if (!live) { this.log(`settle: unknown swarm ${swarmId}`); return null; }
+      if (live.status !== 'ready' && live.status !== 'serving') {
+        this.log(`settle ${swarmId}: swarm not serving (status ${live.status}) — rejected`); return null;
+      }
+      epoch = this.snapshotForSettlement(swarmId)!;
+    }
+    if (submitterNodeId !== epoch.coordinatorNodeId) {
+      this.log(`settle ${swarmId} job ${jobId}: submitter ${submitterNodeId} is not the job's coordinator — rejected`);
       return null;
     }
     const key = `${swarmId}:${jobId}`;
@@ -378,12 +408,12 @@ export class SwarmManager {
     const payTokens = Math.min(Math.floor(tokens), MAX_SWARM_JOB_TOKENS);
 
     const assignments: Record<string, [number, number]> = {};
-    for (const s of swarm.stages) assignments[s.pubkey] = [s.layerStart, s.layerEnd];
+    for (const s of epoch.stages) assignments[s.pubkey] = [s.layerStart, s.layerEnd];
     let res: SettleResult;
     try {
       res = await this.d.seam.verify({
-        receipts, layer_count: swarm.layerCount, expected_nonce: nonce,
-        check_chain: swarm.losslessWire, assignments,
+        receipts, layer_count: epoch.layerCount, expected_nonce: nonce,
+        check_chain: epoch.losslessWire, assignments,
       });
     } catch (e) {   // a seam crash / non-JSON output must fail CLOSED (pay nobody), never throw up to the socket
       this.log(`settle ${key}: verify seam error (${(e as Error).message}) — rejected, nobody paid`);
@@ -393,14 +423,14 @@ export class SwarmManager {
       this.log(`settle ${key} REJECTED: ${res.error} — nobody paid`);
       // only the submitter is safely attributable (any stage could be framed by a fabricated set,
       // but the coordinator CHOSE to submit this one) — a serially-dishonest coordinator burns out
-      const coordStage = swarm.stages.find((s) => s.nodeId === swarm.coordinatorNodeId);
+      const coordStage = epoch.stages.find((s) => s.nodeId === epoch.coordinatorNodeId);
       if (coordStage) this.d.trust?.record(coordStage.pubkey, 'receipt_invalid');
       return null;
     }
 
     this.settled.add(key);                                   // commit BEFORE crediting: no double-pay on retry
-    const split = this.splitTokens(payTokens, swarm.stages);
-    const byPub = new Map(swarm.stages.map((s) => [s.pubkey, s]));
+    const split = this.splitTokens(payTokens, epoch.stages);
+    const byPub = new Map(epoch.stages.map((s) => [s.pubkey, s]));
     const earnings: StageEarning[] = (res.stages ?? []).map((s) => {
       const st = byPub.get(s.pubkey)!;                       // verify pinned signers to assigned blocks
       return {
@@ -409,7 +439,7 @@ export class SwarmManager {
       };
     });
     for (const e of earnings) {
-      this.d.recordStageEarning({ ...e, swarmId, jobId, model: swarm.model });
+      this.d.recordStageEarning({ ...e, swarmId, jobId, model: epoch.model });
       this.d.trust?.record(e.pubkey, 'job_served');           // slow trust accrual for verified work
     }
     this.log(`settled ${key}: ${payTokens} tokens split across ${earnings.length} shards `
