@@ -1597,16 +1597,35 @@ export class Orchestrator {
 
   // Build a challenge that an echo/canned-response worker can't pass: it must read a
   // random nonce (proves it saw the prompt) AND compute a sum (proves it generated,
-  // not echoed). Sum is digits, nonce is letters — disjoint, so echoing the prompt
-  // can never accidentally contain the answer.
+  // not echoed). Sum is digits, nonce is letters, and the sum NEVER appears in the
+  // prompt (a,b >= 10 so a+b > both) — so echoing the prompt verbatim can never
+  // contain the answer.
+  //
+  // The phrasing is randomized across several templates with a variable separator and
+  // nonce length. This defeats a worker that statically regex-detects a fixed canary
+  // template (the published "canary trap" bypass): there is no single fixed string
+  // to match, so a cheater must actually parse+solve arbitrary NL to fake a pass —
+  // and even then only redundancy (real fix) catches selective cheating on real jobs.
   private buildCanary(): { messages: ChatMessage[]; expected: { sum: number; nonce: string } } {
     const a = 10 + Math.floor(Math.random() * 90);
     const b = 10 + Math.floor(Math.random() * 90);
-    const letters = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
-    let nonce = '';
-    for (let i = 0; i < 4; i++) nonce += letters[Math.floor(Math.random() * letters.length)];
     const sum = a + b;
-    const content = `Add the numbers ${a} and ${b}. Then write a single line in the exact format <sum>-${nonce} where <sum> is the result of that addition. Reply with only that line.`;
+    const letters = 'ABCDEFGHJKLMNPQRSTUVWXYZ'; // no I/O/1/0 ambiguity
+    const nonceLen = 4 + Math.floor(Math.random() * 3); // 4-6
+    let nonce = '';
+    for (let i = 0; i < nonceLen; i++) nonce += letters[Math.floor(Math.random() * letters.length)];
+
+    // Several unrelated phrasings; each requires BOTH the computed sum and the nonce
+    // in the reply, but with no shared fixed substring a static matcher could key on.
+    const templates = [
+      `What is ${a} plus ${b}? Reply with the total, then the verification code ${nonce}.`,
+      `Compute ${a} + ${b}. On one line, write the answer followed by the code ${nonce}.`,
+      `Add ${a} and ${b} together, then output the reference token ${nonce} right after the number.`,
+      `I need the sum of ${a} and ${b}, and please echo the reference ${nonce} next to it.`,
+      `${a} + ${b} = ? Include the token ${nonce} in your reply along with the result.`,
+      `Please total ${a} and ${b}. End your reply with the confirmation code ${nonce}.`,
+    ];
+    const content = templates[Math.floor(Math.random() * templates.length)];
     return { messages: [{ role: 'user', content }], expected: { sum, nonce } };
   }
 
@@ -1651,12 +1670,16 @@ export class Orchestrator {
     this.jobs.delete(job.id);
 
     const exp = job.canaryExpected!;
-    // Liveness check: a worker running real inference echoes the nonce that was in
-    // the prompt; a faker returning canned text does not. We deliberately DON'T
-    // require the arithmetic to be right — honest small/quantized models flub
-    // 2-digit math occasionally, and that's a model limitation, not fraud.
+    // Pass requires BOTH: the nonce (proves it saw the prompt, defeats canned text)
+    // AND the computed sum (proves it generated, defeats echoing the prompt back —
+    // the sum is never in the prompt). Requiring the sum is what closes the
+    // echo-the-nonce bypass; 2-digit addition is trivial for every live tier (>=8B),
+    // and the ban window (recordCanaryResult) forgives isolated misses, so a rare
+    // honest flub never bans. Digits-only match on the sum since nonce is letters.
     const stripped = response.replace(/<think>[\s\S]*?<\/think>/g, '').toUpperCase();
-    const passed = stripped.includes(exp.nonce);
+    const sawNonce = stripped.includes(exp.nonce);
+    const sawSum = new RegExp(`(^|[^0-9])${exp.sum}([^0-9]|$)`).test(stripped);
+    const passed = sawNonce && sawSum;
 
     if (worker?.privyUserId) {
       const rep = recordCanaryResult(worker.privyUserId, passed);
