@@ -28,7 +28,7 @@ const PORT = Number(process.argv[process.argv.indexOf('--port') + 1] || 0) || 37
 const ONCE = process.argv.includes('--once');
 // --serve: once the swarm is READY, dispatch a real serveRequest through the daemon's coordinator
 // (leg 8 node half: swarm:job -> SHARD_JOB_TOKEN stream -> swarm:job_complete -> settle).
-const SERVE = process.argv.includes('--serve');
+const SERVE = process.argv.includes('--serve') || process.argv.includes('--churn');
 // --accept-receipts: SIMULATED settlement verify — receipts are NOT checked; the verdict is
 // synthesized from the job's own assignments map so paySplit/earnings wiring can be exercised
 // GPU-less (the shim coordinator has no stages to sign real receipts). The REAL receipts path
@@ -40,6 +40,13 @@ const LAYERS = Math.min(62, Math.max(1,
   Number(process.argv[process.argv.indexOf('--layers') + 1] || 0) || 3));
 // wait for this many announced nodes before forming (multi-daemon ring tests)
 const NODES = Math.max(1, Number(process.argv[process.argv.indexOf('--nodes') + 1] || 0) || 1);
+// ring width: plan over the FIRST N announced only, leaving the rest as FREE candidates — the
+// standby spares a churn re-form draws from (P0-#6). Default: everyone (the old behavior).
+const STAGES = Math.max(1, Number(process.argv[process.argv.indexOf('--stages') + 1] || 0) || NODES);
+// --churn (implies --serve): the P0-#6 churn-survival proof. serve request 1 -> print CHURN_NOW
+// (the driver SIGKILLs a placed stage daemon) -> the swarm must RE-FORM from the free spare ->
+// serve request 2 -> CHURN_PROOF COMPLETE, exit 0. A network that can't re-form times out red.
+const CHURN = process.argv.includes('--churn');
 
 function log(msg: string): void {
   console.log(`[sim] ${msg}`);
@@ -53,11 +60,11 @@ class SimSeam implements Seam {
 
   async plan(req: unknown): Promise<RingPlan | null> {
     const r = req as { nodes: { id: string }[]; model: { n_layers: number } };
-    const n = r.nodes.length;
+    const n = Math.min(r.nodes.length, STAGES);        // spares beyond STAGES stay free candidates
     const L = r.model.n_layers;
     // consecutive LAYERS-sized blocks ENDING at the model tail, so every stage's pull is a
     // few real shards (+ lm_head on the tail) instead of an unservable 62-layer stack
-    const stages = r.nodes.map((node, i) => ({
+    const stages = r.nodes.slice(0, n).map((node, i) => ({
       id: node.id, index: i,
       lo: L - (n - i) * LAYERS, hi: L - (n - i - 1) * LAYERS,
       head: i === 0, tail: i === n - 1,
@@ -159,7 +166,7 @@ const SIM_MANIFEST = {
 const SIM_SPEC = {
   model: 'minimax-m2.5',
   manifestRef: 'mf1:m25-nvfp4-v1@bafkreisimfixturecidnotarealhashbutshapedlikeone0000000000',
-  minStages: NODES,
+  minStages: STAGES,        // a ring needs STAGES nodes; spares beyond it are the churn reserve
   profile: { layerCount: 62, prefill_bytes: 1.0e8, decode_bytes: 1.6e4, decode_steps: 64 },
 };
 
@@ -168,7 +175,7 @@ const loop = attachSwarmLoop(io, {
   recordStageEarning: (e) => { earnings.push(e); log(`EARNING recorded: ${JSON.stringify(e)}`); },
   config: {
     admission: { mode: 'open', minFreeVramMb: 0 },           // sim: a 0-VRAM box may exercise the protocol
-    paySplit: 'layers', minCandidates: NODES, privacy: null, spotCheckTimeoutMs: 300_000,
+    paySplit: 'layers', minCandidates: STAGES, privacy: null, spotCheckTimeoutMs: 300_000,
   },
   seam: new SimSeam(),
   resolveModel: (m) => (m === 'minimax-m2.5' ? SIM_SPEC : undefined),   // auto-form this model
@@ -188,6 +195,9 @@ const loop = attachSwarmLoop(io, {
  *  -> swarm:job_complete -> settleJob. The coordinator process may still be probing its return
  *  tunnel when the swarm READYs; jobs queue in its stdin, so one dispatch suffices — retries
  *  cover a coordinator that crashed and is in its restart backoff. */
+let served = 0;                                       // churn proof: completions across re-forms
+let churnTimer: ReturnType<typeof setTimeout> | null = null;
+
 function serveOnce(attempt: number): void {
   const deltas: string[] = [];
   const r = loop.serveRequest({
@@ -207,9 +217,24 @@ function serveOnce(attempt: number): void {
         if (settled || Date.now() - t0 > 10_000) {
           log(`settlement credited: ${earnings.length} earning(s)`);
           if (tokens > 0 && joinOk && settled) {
-            log('*** LEG-8 NODE HALF COMPLETE — request -> served -> settled ***');
-            if (ONCE) setTimeout(() => { log('(--once) success, exiting 0'); process.exit(0); }, 500);
-          } else if (ONCE) {
+            served += 1;
+            if (CHURN && served === 1) {
+              // request 1 proven end-to-end — now the survival half: the driver kills a placed
+              // stage; the network must re-form from the FREE spare and serve again, on its own
+              log('CHURN_NOW — kill a placed stage daemon; expecting re-form + request 2');
+              churnTimer = setTimeout(() => {
+                log('*** CHURN_PROOF FAILED — no re-formed swarm served within 120s ***');
+                process.exit(1);
+              }, 120_000);
+            } else if (CHURN && served >= 2) {
+              if (churnTimer) clearTimeout(churnTimer);
+              log('*** CHURN_PROOF COMPLETE — stage killed mid-serve, swarm re-formed from the spare, next request served + settled ***');
+              if (ONCE) setTimeout(() => { log('(--once) success, exiting 0'); process.exit(0); }, 500);
+            } else {
+              log('*** LEG-8 NODE HALF COMPLETE — request -> served -> settled ***');
+              if (ONCE) setTimeout(() => { log('(--once) success, exiting 0'); process.exit(0); }, 500);
+            }
+          } else if (ONCE && !CHURN) {
             log(`(--once) FAIL: tokens=${tokens} joinOk=${joinOk} settled=${settled}`);
             process.exit(1);
           }
