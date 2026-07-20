@@ -5,7 +5,9 @@
 // SHARD_STAGE_FATAL lines a supervisor can wait on.
 
 import { spawn, spawnSync, ChildProcess } from 'child_process';
+import { randomBytes } from 'crypto';
 import { mkdirSync, existsSync } from 'fs';
+import { connect as netConnect } from 'net';
 import { homedir } from 'os';
 import { join } from 'path';
 
@@ -28,6 +30,9 @@ export const FORWARD_PORT = PORT_BASE + 11;
 // -forwards this port to the TAIL's sidecar, and the coordinator process dials it loopback
 // exactly like the gateway dials a local tail (hello_return rides the tunnel).
 export const RETURN_PORT = PORT_BASE + 12;
+// The stage's loopback-only challenge door (P0-#1 spot-checks): the engine binds it iff the
+// daemon mints SHARD_PROBE_TOKEN at stage spawn. Never tunneled — daemon-local by construction.
+export const PROBE_PORT = PORT_BASE + 13;
 
 export const SIDECAR_BIN = process.env.C0MPUTE_SIDECAR_BIN || join(SHARD_HOME, 'bin', 'sidecar');
 // A shard checkout (or the flat runtime-artifact layout) to run `python -m shard.*` from.
@@ -292,8 +297,12 @@ export class StageProcess {
   onReady?: (info: StageReady) => void;
   onExit?: (code: number | null, fatal: string | null) => void;
   private fatal: string | null = null;
+  /** the per-launch probe-door secret (challenge spot-checks) — daemon-local, deliberately
+   *  distinct from the ring-wide swarm token; the engine binds its loopback door iff set. */
+  probeToken = '';
 
   start(spec: StageSpec): void {
+    this.probeToken = randomBytes(16).toString('hex');
     const args = ['-m', 'shard.stage',
       '--stage', String(spec.stageIndex), '--nstages', String(spec.nstages),
       '--lo', String(spec.lo), '--hi', String(spec.hi),
@@ -301,8 +310,10 @@ export class StageProcess {
     if (!spec.isTail) args.push('--next', `127.0.0.1:${FORWARD_PORT}`);
     this.proc = spawn(pythonBin(), args, {
       cwd: shardCwd(),
-      // receipts must be signed by the SAME key the announce advertised (settlement pins it)
-      env: { ...process.env, SHARD_NODE_KEY: RECEIPT_KEY_FILE },
+      // receipts must be signed by the SAME key the announce advertised (settlement pins it);
+      // the probe token/port arm the engine's loopback challenge door (env-only — never argv)
+      env: { ...process.env, SHARD_NODE_KEY: RECEIPT_KEY_FILE,
+             SHARD_PROBE_TOKEN: this.probeToken, SHARD_PROBE_PORT: String(PROBE_PORT) },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     this.proc.stdout!.on('data', (d: Buffer) => this.onStdout(d));
@@ -345,6 +356,83 @@ export class StageProcess {
       p.on('exit', () => clearTimeout(t));
     }
     this.proc = null;
+  }
+}
+
+// ── the challenge probe client (P0-#1 spot-checks) ──────────────────────────────────────
+// Speaks the engine's tensor-free frame codec on the stage's loopback probe door:
+// [8B BE body length][4B BE header length][JSON header]. Tensor-free messages pass through
+// shard/transport.py's encode() unchanged, so plain JSON is the whole wire.
+
+export interface ProbeReply {
+  ok?: number;
+  sketch?: { n: number; norm: number; proj: number[]; seed?: string };
+  error?: string;
+  lo?: number;
+  hi?: number;
+  t_ms?: number;
+}
+
+function frame(obj: unknown): Buffer {
+  const head = Buffer.from(JSON.stringify(obj), 'utf8');
+  const body = Buffer.alloc(12 + head.length);
+  body.writeBigUInt64BE(BigInt(4 + head.length), 0);
+  body.writeUInt32BE(head.length, 8);
+  head.copy(body, 12);
+  return body;
+}
+
+/** One challenge request against the local stage's probe door; resolves the engine's reply
+ *  (ok+sketch or a structured error), rejects on transport/timeout trouble. */
+export function probeStage(req: Record<string, unknown>, opts: { port?: number; timeoutMs?: number } = {}):
+  Promise<ProbeReply> {
+  const port = opts.port ?? PROBE_PORT;
+  return new Promise((resolve, reject) => {
+    const sock = netConnect(port, '127.0.0.1');
+    const chunks: Buffer[] = [];
+    let done = false;
+    const finish = (fn: () => void) => { if (!done) { done = true; sock.destroy(); fn(); } };
+    sock.setTimeout(opts.timeoutMs ?? 15_000, () => finish(() => reject(new Error('probe timeout'))));
+    sock.on('error', (e) => finish(() => reject(e)));
+    sock.on('connect', () => sock.write(frame({ op: 'challenge', ...req })));
+    sock.on('data', (d) => {
+      chunks.push(d);
+      const buf = Buffer.concat(chunks);
+      if (buf.length < 8) return;
+      const n = Number(buf.readBigUInt64BE(0));
+      if (buf.length < 8 + n) return;
+      try {
+        const hlen = buf.readUInt32BE(8);
+        resolve(JSON.parse(buf.subarray(12, 12 + hlen).toString('utf8')) as ProbeReply);
+      } catch (e) {
+        reject(e as Error);
+      }
+      finish(() => {});
+    });
+    sock.on('close', () => finish(() => reject(new Error('probe door closed before replying'))));
+  });
+}
+
+/** Answer one spot-check: probe the local stage, retrying `busy` (a mid-job probe is refused by
+ *  design — the door re-opens between jobs) until `deadlineAt`. Returns the sketch, or the last
+ *  structured error ('busy' included) for the daemon to report — an honest node ALWAYS reports
+ *  rather than going silent, because a silent suspect is scored as a cheat server-side. */
+export async function answerChallenge(
+  req: { token: string; proj_seed: string; n_tokens: number; lo: number; hi: number;
+         seed?: string; x?: number[][] },
+  deadlineAt: number, opts: { port?: number; retryMs?: number } = {},
+): Promise<ProbeReply> {
+  const retryMs = opts.retryMs ?? 5_000;
+  let last: ProbeReply = { error: 'probe unreachable' };
+  for (;;) {
+    try {
+      last = await probeStage(req, { port: opts.port });
+      if (last.error !== 'busy') return last;
+    } catch (e: any) {
+      last = { error: `probe transport: ${e.message}` };
+    }
+    if (Date.now() + retryMs >= deadlineAt) return last;
+    await new Promise((r) => setTimeout(r, retryMs));
   }
 }
 

@@ -12,7 +12,7 @@ import { existsSync } from 'fs';
 import { hostname } from 'os';
 import {
   proveIdentity, receiptPubkey, detectGpuName, detectFreeVramMB, probeMeasure,
-  pullRange, startSidecar, pickDialAddrs, StageProcess, CoordinatorProcess,
+  pullRange, startSidecar, pickDialAddrs, answerChallenge, StageProcess, CoordinatorProcess,
   FORWARD_PORT, RETURN_PORT, MANIFEST_DEV_FILE, MANIFEST_FILE, MANIFEST_REF, MODEL_DIR,
   MODEL_REPO, SHARD_REPO,
   type SidecarHandle, type CoordJob,
@@ -437,11 +437,39 @@ export async function startShardWorker(opts: ShardWorkerOptions): Promise<void> 
     }
   });
 
-  socket.on('swarm:challenge', (c: { checkId: string }) => {
-    // TODO(leg7): produce the BlockSketch via the engine (the judging side — shard.challenge —
-    // is server-side; the node-side sketch run over our layer range isn't CLI'd yet) and reply
-    // with swarm:challenge_result {checkId, sketch}. Until then a challenge times out server-side.
-    log(`spot-check ${c.checkId} received — sketch production not wired yet (leg7 TODO)`);
+  // P0-#1 spot-checks: produce the BlockSketch via the engine's loopback probe door. An honest
+  // node ALWAYS replies (sketch or structured error) — silence is scored as a cheat server-side.
+  socket.on('swarm:challenge', (c: {
+    checkId: string; layerStart: number; layerEnd: number;
+    seed: string; projSeed?: string; nTokens: number; deadlineAt?: number;
+  }) => {
+    const respond = (r: { sketch?: unknown; error?: string }) =>
+      socket.emit('swarm:challenge_result', { checkId: c.checkId, ...r });
+    const a = current?.assignment;
+    if (!a || a.layerStart !== c.layerStart || a.layerEnd !== c.layerEnd) {
+      log(`spot-check ${c.checkId} refused: not serving layers [${c.layerStart}:${c.layerEnd})`);
+      respond({ error: 'range_mismatch' });
+      return;
+    }
+    if (!c.projSeed) {                      // an old orchestrator's check has no commit-first
+      log(`spot-check ${c.checkId} refused: no projSeed (orchestrator too old)`);   // projection
+      respond({ error: 'no_proj_seed' });   // seed — the engine door requires it, refuse loudly
+      return;
+    }
+    const deadline = c.deadlineAt ?? Date.now() + 120_000;
+    log(`spot-check ${c.checkId}: probing local stage layers [${c.layerStart}:${c.layerEnd})`);
+    void answerChallenge({
+      token: current!.stage.probeToken, proj_seed: c.projSeed, n_tokens: c.nTokens,
+      lo: c.layerStart, hi: c.layerEnd, seed: c.seed,
+    }, deadline).then((r) => {
+      if (r.ok && r.sketch) {
+        log(`spot-check ${c.checkId}: sketch produced (${r.t_ms?.toFixed(1)}ms)`);
+        respond({ sketch: r.sketch });
+      } else {
+        log(`spot-check ${c.checkId}: ${r.error}`);
+        respond({ error: r.error ?? 'probe failed' });
+      }
+    });
   });
 
   const shutdown = (): void => {

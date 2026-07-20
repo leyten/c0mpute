@@ -166,14 +166,19 @@ export interface SpotCheck {
   layerStart: number;
   layerEnd: number;
   seed: string;                // both sides derive the identical challenge input from this
+  /** commit-first PROJECTION seed (shard.challenge sketch_seed): minted fresh per check so a
+   *  cheater can't pre-learn the sampled coordinates; both sides must sketch with exactly it
+   *  (compare_sketches fail-closes on a seed mismatch). */
+  projSeed: string;
   nTokens: number;
   hiddenSize: number;
   deadlineAt: number;
   sketches: { suspect?: BlockSketch; verifier?: BlockSketch };
 }
 
-/** shard.challenge sketch — a compact fingerprint of a block output (fixed-seed 256-dim projection). */
-export interface BlockSketch { n: number; norm: number; proj: number[] }
+/** shard.challenge sketch — a compact fingerprint of a block output (commit-first seeded 256-dim
+ *  projection; `seed` records the projection seed the node sketched with). */
+export interface BlockSketch { n: number; norm: number; proj: number[]; seed?: string }
 
 /** The `swarm:challenge` payload a node receives (both suspect and verifier get the same one). */
 export interface SpotCheckAssignment {
@@ -183,8 +188,11 @@ export interface SpotCheckAssignment {
   layerStart: number;
   layerEnd: number;
   seed: string;
+  projSeed: string;
   nTokens: number;
   hiddenSize: number;
+  /** epoch-ms the check expires server-side — the node's busy-retry window */
+  deadlineAt: number;
 }
 
 /** The shape `python3 -m shard.verify` returns. */
