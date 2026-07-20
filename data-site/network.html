@@ -192,6 +192,46 @@
     var ARCS=[]; RINGS.forEach(function(r,ri){ for(var i=0;i<r.length;i++){ var a=r[i],b=r[(i+1)%r.length];
       ARCS.push({ ring:ri, pts:buildArc(a,b) }); } });
 
+    // ── LIVE FEED: network.json (the orchestrator's real node+ring state, published next to this
+    // page) hot-swaps the simulation the moment it is fresh and non-empty. The sim stays the
+    // fallback so the page never shows an empty globe while the network is small or the feed is
+    // stale. Fields the feed doesn't measure yet (down/rtt) keep the deterministic id-derived
+    // placeholders so the panel never shows blanks. ──
+    function nodeFromFeed(f){
+      var n={ city:f.city||"?", cc:f.cc||"?", lon:f.lon, lat:f.lat, gpu:f.gpu||"unknown",
+        v:sph(f.lon,f.lat), status:(f.status==="serving")?"serve":"stand", id:f.id };
+      if(n.status==="serve"){ n.swarm=f.swarm; n.stageIdx=f.stageIdx; n.stageN=f.stageN; n.lo=f.layerLo; n.hi=f.layerHi; }
+      var h=hash(n.id); function r(mod){ h=(Math.imul(h,1103515245)+12345)>>>0; return h%mod; }
+      n.down=160+r(780);
+      n.up=(typeof f.upMbps==="number")?Math.round(f.upMbps):(24+r(96));
+      n.rtt=8+r(64);
+      n.uphrs=Math.max(1,Math.round(f.uptimeHrs||0));
+      n.tok=f.tokensServed||0; n.rcpt=f.receipts||0;
+      if(n.status!=="serve"){ var lo=r(48); n.lo=lo; n.hi=Math.min(62,lo+8+r(8)); n.swarm="—"; }
+      return n; }
+    function applyFeed(feed){
+      if(!feed || !feed.nodes || !feed.nodes.length) return false;
+      var age=Date.now()-Date.parse(feed.generatedAt||0);
+      if(!(age>=0 && age<15*60*1000)) return false;              // stale feed → stay on the sim
+      var ns=feed.nodes.filter(function(f){ return typeof f.lat==="number" && typeof f.lon==="number"; })
+        .map(nodeFromFeed);
+      if(!ns.length) return false;
+      var byId={}; ns.forEach(function(n){ byId[n.id]=n; });
+      var rings=(feed.rings||[]).map(function(rg){
+          return (rg.order||[]).map(function(id){ return byId[id]; }).filter(Boolean); })
+        .filter(function(r){ return r.length>=2; });
+      var arcs=[]; rings.forEach(function(r,ri){ for(var i=0;i<r.length;i++){
+        arcs.push({ ring:ri, pts:buildArc(r[i],r[(i+1)%r.length]) }); } });
+      NODES=ns; RINGS=rings; ARCS=arcs; hovered=null; selected=null;
+      if(feed.stats && typeof feed.stats.tokensServedToday==="number") served=feed.stats.tokensServedToday;
+      return true; }
+    function pollFeed(){
+      try{ fetch('network.json',{cache:'no-store'})
+        .then(function(r){ return r.ok?r.json():null; })
+        .then(function(f){ if(f) applyFeed(f); })
+        .catch(function(){}); }catch(e){} }
+    pollFeed(); setInterval(pollFeed, 60*1000);
+
     // ── globe camera / projection ──
     var cv=document.getElementById('globe'), ctx=cv.getContext('2d');
     var W=0,H=0,CX=0,CY=0,R=0,dpr=1;
