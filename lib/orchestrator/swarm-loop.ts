@@ -55,7 +55,7 @@ interface ReadyPayload { swarmId: string }
 // `response` — one event settles the job AND finishes the client stream.
 interface CompletePayload { swarmId: string; jobId: string; nonce: string; tokensGenerated: number; receipts: unknown[]; response?: string }
 interface JobTokenPayload { jobId: string; delta: string }
-interface ChallengeResultPayload { checkId: string; sketch: BlockSketch }
+interface ChallengeResultPayload { checkId: string; sketch: BlockSketch; error?: string }
 
 /** A client inference request the orchestrator hands to a ready swarm. onToken streams committed
  *  deltas; onDone ends the stream; onError aborts. Callbacks bridge to the waiting HTTP/SSE client. */
@@ -186,7 +186,11 @@ export function attachSwarmLoop(io: Server, opts: SwarmLoopOptions) {
     });
 
     socket.on('swarm:challenge_result', async (data: ChallengeResultPayload) => {
-      // socket.id must be the check's suspect or verifier — submitSketch ignores anyone else
+      // socket.id must be the check's suspect or verifier — both paths ignore anyone else
+      if (data.error) {                 // structured refusal (busy / range_mismatch / infra) —
+        mgr.reportCheckError(data.checkId, socket.id, data.error);   // never scored as silence
+        return;
+      }
       await mgr.submitSketch(data.checkId, socket.id, data.sketch);
     });
 
