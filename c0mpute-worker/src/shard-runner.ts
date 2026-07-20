@@ -37,6 +37,27 @@ export const MANIFEST_FILE = join(SHARD_HOME, 'manifest.json');   // signed cont
 // The HF repo the probe slice + weights come from, and the model NAME the network places by.
 export const MODEL_REPO = process.env.C0MPUTE_SHARD_REPO_HF || 'nvidia/MiniMax-M2.5-NVFP4';
 
+// ── the network manifest trust anchors (P0-#1 manifest resolution) ──────────────────────
+// The default manifest ref this daemon resolves at enroll. At launch the default flips to the
+// full `mf1:<name>@<cid>` form minted by the operator's one-time publish (docs: shard
+// INTEGRATION.md §4); the CID part is what `shard.fetch --manifest-cid` pins bytes against.
+export const MANIFEST_REF = process.env.C0MPUTE_SHARD_MANIFEST || 'mf:m25-nvfp4-v1';
+// The NETWORK publisher pubkey pin (base64 raw ed25519) — baked into the daemon distribution
+// exactly like SIDECAR_SHA256, never taken from the channel that delivers the manifest. Filled
+// by the launch publish runbook (`publish_manifest.py` prints it); the env override exists for
+// harnesses, which must bring their own pin. Empty = no pin in this build: pullRange refuses
+// to pull unless the dev manifest hatch (C0MPUTE_SHARD_MANIFEST_FILE) is explicitly in force.
+export const MANIFEST_PUBKEY = process.env.C0MPUTE_SHARD_MANIFEST_PUBKEY || '';
+// Local-manifest DEV HATCH: a path to a manifest file used INSTEAD of network resolution.
+// Local env only, never remotely settable; serve() refuses it whenever the assignment carries
+// a real mf1: ref, so it is inert against the production network even if the env leaks.
+export const MANIFEST_DEV_FILE = process.env.C0MPUTE_SHARD_MANIFEST_FILE || '';
+
+/** `mf1:<name>@<cid>` / legacy `mf:<name>` -> the advisory name (the /manifests/<name>.json key). */
+export function manifestRefName(ref: string): string {
+  return ref.replace(/^mf1?:/, '').split('@')[0];
+}
+
 /** Resolved LAZILY — the self-provision step (shard-setup.ts) creates the venv after this
  *  module loads, so a const would freeze the pre-provision answer. */
 export function pythonBin(): string {
@@ -140,26 +161,43 @@ function spawnPull(args: string[], signal?: AbortSignal): Promise<void> {
   });
 }
 
-/** Pull layer range [lo, hi) into MODEL_DIR. VERIFIED path first: `python -m shard.fetch` against
- *  the signed manifest, PEERS-FIRST (bootstrap = the ringmates' sidecar multiaddrs — the torrent
- *  path lights up the moment they seed) then the HF mirror, re-hashing every byte. Falls back to
- *  the raw snapshot pull only if the manifest is absent (offline manifest-gen at setup). */
+/** Pull layer range [lo, hi) into MODEL_DIR — VERIFIED, always: `python -m shard.fetch` against
+ *  the resolved signed manifest, PEERS-FIRST (bootstrap = ringmate + standby-seeder sidecar
+ *  multiaddrs) then the HF mirror, re-hashing every byte. The engine additionally pins the
+ *  manifest itself: bytes==CID when the assignment ref carries one, publisher==the baked pin,
+ *  and the model_id/layer_count cross-checks. There is NO unverified fallback here — a missing
+ *  manifest or pin fails the serve loudly instead of quietly serving unpinned weights. */
 export function pullRange(lo: number, hi: number, head: boolean, tail: boolean,
-  opts: { bootstrap?: string[]; role?: 'stage' | 'coordinator' } = {}, signal?: AbortSignal): Promise<void> {
-  if (existsSync(MANIFEST_FILE)) {
-    const args = ['-m', 'shard.fetch', '--manifest', MANIFEST_FILE, '--dir', MODEL_DIR,
-      '--lo', String(lo), '--hi', String(hi), '--role', opts.role ?? 'stage',
-      '--sidecar', SIDECAR_BIN, '--key', NODE_KEY_FILE];
-    if (head) args.push('--head');
-    if (tail) args.push('--tail');
-    if (opts.bootstrap?.length) args.push('--bootstrap', opts.bootstrap.join(','));
-    return spawnPull(args, signal);
+  opts: {
+    bootstrap?: string[]; role?: 'stage' | 'coordinator';
+    manifestRef?: string; expectModelId?: string; expectLayerCount?: number;
+  } = {}, signal?: AbortSignal): Promise<void> {
+  if (!existsSync(MANIFEST_FILE)) {
+    return Promise.reject(new Error(
+      'no signed manifest on disk (network resolution failed?) — refusing an unverified pull'));
   }
-  const legacy = [join('phase0', 'm25_pull_range.py'), '--lo', String(lo), '--hi', String(hi),
-    '--dir', MODEL_DIR];
-  if (head) legacy.push('--head');
-  if (tail) legacy.push('--tail');
-  return spawnPull(legacy, signal);
+  if (!MANIFEST_PUBKEY && !MANIFEST_DEV_FILE) {
+    return Promise.reject(new Error(
+      'no publisher pin in this build (MANIFEST_PUBKEY empty) and no dev manifest hatch — refusing'));
+  }
+  const args = ['-m', 'shard.fetch', '--manifest', MANIFEST_FILE, '--dir', MODEL_DIR,
+    '--lo', String(lo), '--hi', String(hi), '--role', opts.role ?? 'stage',
+    '--sidecar', SIDECAR_BIN, '--key', NODE_KEY_FILE];
+  if (MANIFEST_PUBKEY) args.push('--pubkey', MANIFEST_PUBKEY);
+  if (opts.manifestRef?.startsWith('mf1:')) args.push('--manifest-cid', opts.manifestRef);
+  if (opts.expectModelId) args.push('--expect-model-id', opts.expectModelId);
+  if (opts.expectLayerCount != null) args.push('--expect-layer-count', String(opts.expectLayerCount));
+  if (head) args.push('--head');
+  if (tail) args.push('--tail');
+  if (opts.bootstrap?.length) args.push('--bootstrap', opts.bootstrap.join(','));
+  return spawnPull(args, signal);
+}
+
+/** The UNVERIFIED probe-slice pull (m25_pull_range) — measurement-only: the slice feeds
+ *  `shard.probe --measure` and is never served. Serving pulls go through pullRange, always. */
+export function pullProbeSliceRaw(lo: number, hi: number, signal?: AbortSignal): Promise<void> {
+  return spawnPull([join('phase0', 'm25_pull_range.py'), '--lo', String(lo), '--hi', String(hi),
+    '--dir', MODEL_DIR], signal);
 }
 
 export interface SidecarHandle {
@@ -173,12 +211,15 @@ export interface SidecarHandle {
 /** The local sidecar: public libp2p listener + inbound tunnel to the loopback engine port.
  *  `forwards` = "127.0.0.1:PORT=<peer maddr>" ring legs (a serving non-tail stage dials its
  *  successor through one); `allow` = PeerIds permitted to open inbound streams (the C2
- *  cryptographic neighbour pin — empty keeps it open, standby/legacy behavior). */
-export function startSidecar(opts: { forwards?: string[]; allow?: string[] } = {}): SidecarHandle {
+ *  cryptographic neighbour pin — empty keeps it open, standby/legacy behavior); `seed` =
+ *  "manifest.json=modelDir" — announce + serve the complete manifest shards on disk over the
+ *  shard DHT/blockx (harmless with zero complete shards: the Go seeder no-ops, tunnel unaffected). */
+export function startSidecar(opts: { forwards?: string[]; allow?: string[]; seed?: string } = {}): SidecarHandle {
   const args = ['-key', NODE_KEY_FILE, '-listen', `/ip4/0.0.0.0/tcp/${LIBP2P_PORT}`, '-quic',
     '-inbound', `127.0.0.1:${ENGINE_PORT}`];
   for (const f of opts.forwards ?? []) args.push('-forward', f);
   for (const a of opts.allow ?? []) args.push('-allow', a);
+  if (opts.seed) args.push('-seed', opts.seed);
   const relays = process.env.C0MPUTE_SHARD_RELAYS;  // NAT'd home nodes reserve on public relays
   if (relays) args.push('-relays', relays);
   const proc = spawn(SIDECAR_BIN, args, { stdio: ['ignore', 'pipe', 'pipe'] });

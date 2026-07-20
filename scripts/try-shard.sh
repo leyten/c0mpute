@@ -48,7 +48,9 @@ PIDS+=($!)
 sleep 4
 
 echo "== starting the shard daemon"
-( cd "$WORKER" && env "${SHIM_ENV[@]}" node dist/index.js --mode shard --token cwt_local --url "http://127.0.0.1:$PORT" ) &
+# the sim's fixture publisher pin (pairs with shard-daemon-sim's SIM_MANIFEST) — a build without
+# a baked network pin refuses to pull unless its env brings one, so the harness brings the fixture's
+( cd "$WORKER" && env C0MPUTE_SHARD_MANIFEST_PUBKEY=sim-publisher-pin "${SHIM_ENV[@]}" node dist/index.js --mode shard --token cwt_local --url "http://127.0.0.1:$PORT" ) &
 PIDS+=($!)
 
 echo "== streaming (Ctrl-C to stop) ================================================"
