@@ -25,6 +25,7 @@ import { scanOutput, BLOCKED_MESSAGE } from '../safety';
 import { AVAILABLE_TOOLS, executeToolCalls } from './tools';
 import { attachSwarmLoop } from './swarm-loop';
 import { specForModel } from './model-profiles';
+import { buildNetworkFeed, type FeedCounters } from './network-feed';
 import type { StageEarning } from './swarm-types';
 
 // Load search server module for Brave API key initialization
@@ -54,6 +55,9 @@ interface ImageJob {
 export class Orchestrator {
   private io: Server<ClientToServerEvents, ServerToClientEvents>;
   private swarmLoop!: ReturnType<typeof attachSwarmLoop>;   // the sharded-swarm control plane handle
+  // Settled-token counters for the public network map (aggregates only — the data-site rule).
+  private swarmCounters: FeedCounters = { perNode: new Map(), tokensToday: 0, recent: [] };
+  private swarmCountersDay = new Date().toISOString().slice(0, 10);
   private workers: Map<string, WorkerInfo> = new Map();
   private rateLimits: Map<string, number[]> = new Map();
   private jobs: Map<string, Job> = new Map();
@@ -202,6 +206,26 @@ export class Orchestrator {
   ) {
     console.log(`[swarm] credit ${e.account} for ${e.tokens} tokens on ${e.model} `
       + `layers[${e.layerStart}:${e.layerEnd}] (job ${e.jobId}) — pay-model fork pending`);
+    // map counters (anonymous aggregates: nodeId-keyed internally, never emitted with identity)
+    const day = new Date().toISOString().slice(0, 10);
+    if (day !== this.swarmCountersDay) { this.swarmCountersDay = day; this.swarmCounters.tokensToday = 0; }
+    const c = this.swarmCounters.perNode.get(e.nodeId) ?? { tokens: 0, receipts: 0 };
+    c.tokens += e.tokens; c.receipts += 1;
+    this.swarmCounters.perNode.set(e.nodeId, c);
+    this.swarmCounters.tokensToday += e.tokens;
+    const now = Date.now();
+    this.swarmCounters.recent.push({ at: now, tokens: e.tokens });
+    while (this.swarmCounters.recent.length && now - this.swarmCounters.recent[0].at > 10 * 60_000) {
+      this.swarmCounters.recent.shift();
+    }
+  }
+
+  /** The network-map feed (P1-#1). `includeDial` (loopback callers only — the feed generator)
+   *  adds each node's public dial IP for server-side geo lookup; the public shape never has it. */
+  getShardNetwork(includeDial = false) {
+    const snapshot = this.swarmLoop.manager.snapshot();
+    const layerCount = snapshot.swarms[0]?.layerCount ?? 62;
+    return buildNetworkFeed(snapshot, this.swarmCounters, { layerCount, includeDial });
   }
 
   private cleanupStaleJobs() {
