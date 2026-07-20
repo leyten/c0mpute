@@ -16,6 +16,10 @@ const ORCH_URL = process.env.NETWORKMAP_ORCH || 'http://127.0.0.1:3004';  // loo
 const OUT = join(ROOT, 'data-site', 'network.json');
 const WWW = process.env.NETWORKMAP_WWW || '/var/www/shard.c0mpute.ai/network.json';
 const GEO_CACHE = join(ROOT, 'data', 'geo-cache.json');
+// One-way live latch (leyten 2026-07-20: once the betanet is live, the page must NEVER show the
+// sim — an empty network renders as an honest empty globe). Latched the first time real nodes
+// appear (or forced via NETWORKMAP_LIVE=1); the marker persists across restarts.
+const LIVE_MARKER = join(ROOT, 'data', 'networkmap.live');
 
 interface FeedNode {
   id: string; gpu: string; vramGb: number | null; status: string;
@@ -83,8 +87,12 @@ async function main() {
       lat: geo.lat + jitter(n.id, 1), lon: geo.lon + jitter(n.id, 2) }];
   });
 
+  if ((nodes.length > 0 || process.env.NETWORKMAP_LIVE === '1') && !existsSync(LIVE_MARKER)) {
+    writeFileSync(LIVE_MARKER, new Date().toISOString());
+    console.log('[network-map] LIVE latched — the sim never renders again');
+  }
   const out = {
-    generatedAt: feed.generatedAt, layerCount: feed.layerCount,
+    generatedAt: feed.generatedAt, live: existsSync(LIVE_MARKER), layerCount: feed.layerCount,
     stats: { ...feed.stats, countries: new Set(placed.map((p) => p.cc)).size },
     nodes: placed,
     rings: feed.rings ?? [],
