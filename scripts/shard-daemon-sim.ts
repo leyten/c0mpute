@@ -93,6 +93,14 @@ const http = createServer(async (req, res) => {
     res.writeHead(code, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(body));
   };
+  if (req.url?.startsWith('/manifests/') && req.method === 'GET') {
+    // the static /manifests/<name>.json doc the daemon resolves at enroll/assign. The FIXTURE pin
+    // pair: export C0MPUTE_SHARD_MANIFEST_PUBKEY=sim-publisher-pin on the daemon. Engine-side
+    // crypto verification is exercised in shard's own suite (test_manifest_resolution.py); the
+    // sim proves the daemon RESOLVES + pins + threads the ref through to the pull args.
+    log(`manifest doc served (${req.url})`);
+    return send(200, SIM_MANIFEST);
+  }
   if (req.url?.startsWith('/api/node-bind') && req.method === 'GET') {
     const nonce = randomBytes(16).toString('hex');
     nonces.set(nonce, Date.now() + 5 * 60_000);
@@ -136,8 +144,17 @@ io.use((socket, next) => {
 // The sim now drives formation through the SERVER's own auto-form (opts.resolveModel) instead of
 // calling formSwarm by hand — so this harness tests the real live-server path. minStages = --nodes
 // so the ring forms once the expected pool has announced.
+// mf1 fixture ref: the CID part is a fixture (the shim's fetch never hashes it); what the sim
+// proves is the daemon accepting an mf1 ref, resolving /manifests/, and forwarding --manifest-cid.
+const SIM_MANIFEST = {
+  schema: 'shard-manifest/1', model_id: 'nvidia/MiniMax-M2.5-NVFP4', version: 1,
+  layer_count: 62, weight_map: {}, shards: [],
+  publisher_pubkey: 'sim-publisher-pin', signature: 'sim-fixture',
+};
 const SIM_SPEC = {
-  model: 'minimax-m2.5', manifestRef: 'mf:m25-nvfp4-v1', minStages: NODES,
+  model: 'minimax-m2.5',
+  manifestRef: 'mf1:m25-nvfp4-v1@bafkreisimfixturecidnotarealhashbutshapedlikeone0000000000',
+  minStages: NODES,
   profile: { layerCount: 62, prefill_bytes: 1.0e8, decode_bytes: 1.6e4, decode_steps: 64 },
 };
 

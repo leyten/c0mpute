@@ -83,6 +83,10 @@ export interface SwarmConfig {
   /** how long a challenged node has to return its spot-check sketch (the verifier may need to pull
    *  the suspect's layer range first); past the deadline the SUSPECT fails — refusal is not free. */
   spotCheckTimeoutMs: number;
+  /** operator insurance seeders (env SWARM_SEED_ADDRS at the server hook): sidecar multiaddrs of
+   *  always-on boxes running `sidecar -seed` with the full model — appended to every assignment's
+   *  `seeders` so joiner #1 already pulls peers-first, before any stranger holds bytes. */
+  seedAddrs?: string[];
 }
 
 // DECIDED (leyten):
@@ -333,6 +337,19 @@ export class SwarmManager {
       // dialable sidecar multiaddrs from the announce — stage i dials stage i+1's forward leg
       addrs: byId.get(s.nodeId)?.cap.addrs ?? [],
     }));
+    // STANDBY SEEDERS (P0-#1, the torrent path): un-placed candidates — including relegated
+    // nodes and auditors, the off-ring roles the gate above reserves them for — run standby
+    // sidecars seeding whatever verified ranges their disks hold. One dialable addr each
+    // (skip obvious loopback); the operator's cfg.seedAddrs lead so joiner #1 pulls peers-first.
+    const placed = new Set(stages.map((s) => s.nodeId));
+    const dialable = (addrs: string[]) => addrs.find((x) => !x.includes('/ip4/127.')) ?? addrs[0];
+    const seeders = [
+      ...(this.cfg.seedAddrs ?? []),
+      ...full.filter((c) => !placed.has(c.nodeId) && !this.nodeToSwarm.has(c.nodeId)
+        && (c.cap.addrs?.length ?? 0) > 0)
+        .map((c) => dialable(c.cap.addrs!))
+        .slice(0, 8),
+    ];
     for (const st of stages) {
       const assign: StageAssignment = {
         swarmId, model, manifestRef,
@@ -340,6 +357,7 @@ export class SwarmManager {
         role: st.isHead ? 'coordinator' : 'stage',
         isHead: st.isHead, isTail: st.isTail, boundary: st.boundary, losslessWire,
         peers, coordinatorNodeId: plan.head,
+        ...(seeders.length && { seeders }),
       };
       this.d.emit(st.nodeId, 'swarm:assign', assign);
     }

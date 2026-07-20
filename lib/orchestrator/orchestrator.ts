@@ -24,6 +24,7 @@ import { consumeStakerAllowance, recordStakerRequest } from '../staker-allowance
 import { scanOutput, BLOCKED_MESSAGE } from '../safety';
 import { AVAILABLE_TOOLS, executeToolCalls } from './tools';
 import { attachSwarmLoop } from './swarm-loop';
+import { DEFAULT_SWARM_CONFIG } from './swarm';
 import { specForModel } from './model-profiles';
 import { buildNetworkFeed, type FeedCounters } from './network-feed';
 import type { JobRevenue, StageEarning } from './swarm-types';
@@ -187,10 +188,14 @@ export class Orchestrator {
     // resolveModel = AUTO-FORM: as nodes announce a shardable model, the loop forms rings on its own
     // (the trigger the live server was missing). The handle is CAPTURED (was discarded) so the
     // request path can route a sharded-model job to a ready swarm's coordinator (Leg 8 dispatch).
+    // SWARM_SEED_ADDRS: the operator's always-on `sidecar -seed` boxes (comma-separated sidecar
+    // multiaddrs) — appended to every assignment's `seeders` so joiner #1 pulls peers-first.
+    const seedAddrs = (process.env.SWARM_SEED_ADDRS ?? '').split(',').map((s) => s.trim()).filter(Boolean);
     this.swarmLoop = attachSwarmLoop(this.io as unknown as import('socket.io').Server, {
       recordStageEarning: (e) => this.recordSwarmStageEarning(e),
       resolveModel: specForModel,
       log: (m) => console.log(m),
+      ...(seedAddrs.length && { config: { ...DEFAULT_SWARM_CONFIG, seedAddrs } }),
     });
     setInterval(() => this.broadcastStats(), 5000);
     setInterval(() => this.cleanupStaleJobs(), 10000);

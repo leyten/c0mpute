@@ -99,6 +99,9 @@ if argv and argv[0].endswith("m25_pull_range.py"):
     sys.exit(0)
 
 if argv[:2] == ["-m", "shard.fetch"]:
+    # echo the argv so the harness can ASSERT the daemon threads the trust args through
+    # (--manifest-cid from the assignment ref, --pubkey = the pin, the --expect-* cross-checks)
+    print("SHIM_FETCH_ARGS " + json.dumps(argv), flush=True)
     print("SHARD_FETCH_DONE " + json.dumps({"files": 0, "bytes": 0, "dir": "sim"}), flush=True)
     sys.exit(0)
 
