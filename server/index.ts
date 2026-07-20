@@ -22,6 +22,15 @@ const httpServer = createServer((req, res) => {
     res.end(JSON.stringify(orchestrator.getPublicStats()));
     return;
   }
+  if (req.url === '/api/network') {
+    // the network-map feed. Dial IPs (geo-lookup input) are served ONLY to loopback — the
+    // feed generator on this box; any remote caller gets the public (identity-free) shape.
+    const ra = req.socket.remoteAddress ?? '';
+    const loopback = ra === '127.0.0.1' || ra === '::1' || ra === '::ffff:127.0.0.1';
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(orchestrator.getShardNetwork(loopback)));
+    return;
+  }
   res.writeHead(404);
   res.end();
 });

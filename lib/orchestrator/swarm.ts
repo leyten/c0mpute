@@ -198,6 +198,15 @@ export class SwarmManager {
     return [...this.swarms.values()].find((s) => s.model === model && s.status === 'ready');
   }
 
+  /** A deep-enough copy of the live control-plane state for read-only consumers (the network-map
+   *  feed) — callers can never mutate a swarm or candidate through it. */
+  snapshot(): { swarms: SwarmInfo[]; candidates: Candidate[] } {
+    return {
+      swarms: [...this.swarms.values()].map((s) => ({ ...s, stages: s.stages.map((st) => ({ ...st })) })),
+      candidates: [...this.candidates.values()].flat().map((c) => ({ ...c, cap: { ...c.cap } })),
+    };
+  }
+
   /**
    * PLACE + ASSIGN — form a swarm for `model` from the admitted pool. `rtt[i][j]` is the measured
    * one-way ms matrix aligned to the CURRENT candidate pool for `model` (`this.candidates.get(model)`
