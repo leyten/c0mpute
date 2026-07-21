@@ -13,7 +13,7 @@ import { hostname } from 'os';
 import {
   proveIdentity, receiptPubkey, detectGpuName, detectFreeVramMB, probeMeasure,
   pullRange, startSidecar, pickDialAddrs, answerChallenge, StageProcess, CoordinatorProcess,
-  FORWARD_PORT, RETURN_PORT, MANIFEST_DEV_FILE, MANIFEST_FILE, MANIFEST_REF, MODEL_DIR,
+  FORWARD_PORT, RETURN_PORT, LIBP2P_PORT, MANIFEST_DEV_FILE, MANIFEST_FILE, MANIFEST_REF, MODEL_DIR,
   MODEL_REPO, SHARD_REPO,
   type SidecarHandle, type CoordJob,
 } from './shard-runner.js';
@@ -54,6 +54,33 @@ interface StageAssignment {
 
 function log(msg: string): void {
   console.log(`[${new Date().toISOString()}] [shard] ${msg}`);
+}
+
+/** This box's public IPv4 (for the anti-colocation subnet AND the sidecar -announce addr).
+ *  null if lookup fails. */
+async function detectPublicIp(): Promise<string | null> {
+  for (const url of ['https://checkip.amazonaws.com', 'https://api.ipify.org']) {
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
+      const ip = (await res.text()).trim();
+      if (/^\d+\.\d+\.\d+\.\d+$/.test(ip)) return ip;
+    } catch { /* try the next service */ }
+  }
+  return null;
+}
+
+/** The DIRECT public multiaddrs to -announce so ringmates get a DIALABLE addr (not the
+ *  container-internal one docker/NAT would otherwise advertise). `C0MPUTE_SHARD_ANNOUNCE`
+ *  (comma-separated maddrs) overrides — REQUIRED when the public port != LIBP2P_PORT, e.g. a
+ *  docker host-port map or a manual port-forward to a different external port. Otherwise assumes
+ *  the port is preserved (UPnP / transparent forward / host networking) and announces public:PORT.
+ *  Empty (no public IP, no override) = fall back to relay+DCUtR only. */
+async function announceAddrs(): Promise<string[]> {
+  const override = (process.env.C0MPUTE_SHARD_ANNOUNCE ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+  if (override.length) return override;
+  const ip = await detectPublicIp();
+  if (!ip) return [];
+  return [`/ip4/${ip}/tcp/${LIBP2P_PORT}`, `/ip4/${ip}/udp/${LIBP2P_PORT}/quic-v1`];
 }
 
 /** Public-IP /24 for the anti-colocation key. Falls back to a host-local tag (announce
@@ -125,6 +152,11 @@ export async function startShardWorker(opts: ShardWorkerOptions): Promise<void> 
   // P0-#3: the network's public circuit relays, resolved once per daemon run (a NAT'd box needs
   // them from the FIRST sidecar boot — its announced addrs must include the circuit addrs)
   const relays = await resolveRelays(opts.orchestratorUrl);
+  // the DIRECT public addr(s) to advertise — without this a docker/NAT box announces only its
+  // container-internal addr and ringmates can't dial it (the ring silently never forms)
+  const announce = await announceAddrs();
+  log(announce.length ? `announcing direct addrs: ${announce.join(' ')}`
+    : 'no public addr to announce — ring legs will rely on relay + DCUtR');
 
   // ── the sidecar is a DAEMON-scoped fixture: a standby listener from enroll on (its ADDR
   // lines are the dialable identity peers get in their assignments), restarted with -forward/
@@ -141,7 +173,7 @@ export async function startShardWorker(opts: ShardWorkerOptions): Promise<void> 
     // teardown-restore (the Go seeder scans holdings ONCE at boot, so this restore is exactly the
     // moment the just-served range enters the seed set). Harmless with nothing on disk.
     const seed = existsSync(MANIFEST_FILE) ? `${MANIFEST_FILE}=${MODEL_DIR}` : undefined;
-    const sc = startSidecar({ ...cfg, seed, relays });
+    const sc = startSidecar({ ...cfg, seed, relays, announce });
     sidecar = sc;
     sc.proc.on('exit', (code) => {
       if (gen !== sidecarGen || shuttingDown) return;   // superseded / operator shutdown

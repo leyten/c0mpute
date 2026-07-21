@@ -220,12 +220,18 @@ export interface SidecarHandle {
  *  "manifest.json=modelDir" — announce + serve the complete manifest shards on disk over the
  *  shard DHT/blockx (harmless with zero complete shards: the Go seeder no-ops, tunnel unaffected). */
 export function startSidecar(opts: { forwards?: string[]; allow?: string[]; seed?: string;
-  relays?: string[] } = {}): SidecarHandle {
+  relays?: string[]; announce?: string[] } = {}): SidecarHandle {
   const args = ['-key', NODE_KEY_FILE, '-listen', `/ip4/0.0.0.0/tcp/${LIBP2P_PORT}`, '-quic',
     '-inbound', `127.0.0.1:${ENGINE_PORT}`];
   for (const f of opts.forwards ?? []) args.push('-forward', f);
   for (const a of opts.allow ?? []) args.push('-allow', a);
   if (opts.seed) args.push('-seed', opts.seed);
+  // Advertise the DIRECT public addr(s). Inside docker/NAT the sidecar only sees its container-
+  // internal addr (172.17.x.x) and would announce THAT — ringmates then dial an unroutable private
+  // IP and the ring silently never forms (a real bug on any port-mapped / home box, not just vast).
+  // -announce prepends the reachable addr so peers get a dialable one; falls back to relay/DCUtR if
+  // the direct dial still fails. Empty = old behavior (announce whatever libp2p observed).
+  for (const a of opts.announce ?? []) args.push('-announce', a);
   // NAT'd home nodes reserve on public relays (rendezvous only — DCUtR upgrades to direct, so a
   // relay never carries the data path). List = network-resolved (P0-#3) + the operator env.
   if (opts.relays?.length) args.push('-relays', opts.relays.join(','));
@@ -269,6 +275,19 @@ export function pickDialAddrs(addrs: string[]): string[] {
     return priv ? 2 : 0;
   };
   return [...addrs].sort((a, b) => rank(a) - rank(b));
+}
+
+/** The graph-aux perf trio, defaulted ON for every engine process (stage + coordinator) unless
+ *  the operator already set it. CUDA-graph + static-KV + SDPA are bit-exact and need no extra
+ *  weights — a ~2× speedup over the eager path. WITHOUT this a stranger's `--mode shard` (no env)
+ *  serves at the no-graph floor, so real rings would be ~2× slower than they should be. EAGLE is
+ *  NOT defaulted here (it needs the drafter head; enable it explicitly once provisioned). */
+function perfDefaults(): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries({ M25_CUDA_GRAPH: '1', M25_STATIC_KV: '1', M25_SDPA: '1' })) {
+    if (process.env[k] === undefined) out[k] = v;   // operator env always wins
+  }
+  return out;
 }
 
 export interface StageSpec {
@@ -320,7 +339,7 @@ export class StageProcess {
       // receipts must be signed by the SAME key the announce advertised (settlement pins it);
       // the probe token/port arm the engine's loopback challenge door (env-only — never argv);
       // SHARD_SWARM_TOKEN arms the ring-wide C2 engine-auth gate (never argv: argv is world-readable)
-      env: { ...process.env, SHARD_NODE_KEY: RECEIPT_KEY_FILE,
+      env: { ...process.env, ...perfDefaults(), SHARD_NODE_KEY: RECEIPT_KEY_FILE,
              SHARD_PROBE_TOKEN: this.probeToken, SHARD_PROBE_PORT: String(PROBE_PORT),
              ...(spec.swarmToken ? { SHARD_SWARM_TOKEN: spec.swarmToken } : {}) },
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -499,7 +518,7 @@ export class CoordinatorProcess {
     this.proc = spawn(pythonBin(), args, {
       cwd: shardCwd(),
       env: {
-        ...process.env, SHARD_NODE_KEY: RECEIPT_KEY_FILE,
+        ...process.env, ...perfDefaults(), SHARD_NODE_KEY: RECEIPT_KEY_FILE,
         // the coordinator dials the head engine + the tail return — it must greet with the same
         // ring-wide token, or the token-armed engine rejects it (C2 auth)
         ...(opts.swarmToken ? { SHARD_SWARM_TOKEN: opts.swarmToken } : {}),
