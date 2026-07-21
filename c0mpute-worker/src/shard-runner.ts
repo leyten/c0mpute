@@ -277,6 +277,11 @@ export interface StageSpec {
   lo: number;
   hi: number;
   isTail: boolean;
+  /** the per-swarm C2 engine-auth token (orchestrator-minted, shared ring-wide) — armed as
+   *  SHARD_SWARM_TOKEN so every engine hop requires an identity-bound greeting carrying it. This
+   *  closes the head allow-all hole: the head's sidecar accepts any dialer, but the engine rejects
+   *  any greeting without the token, so a stranger who learns the head's addr cannot inject frames. */
+  swarmToken?: string;
 }
 
 export interface StageReady {
@@ -313,9 +318,11 @@ export class StageProcess {
     this.proc = spawn(pythonBin(), args, {
       cwd: shardCwd(),
       // receipts must be signed by the SAME key the announce advertised (settlement pins it);
-      // the probe token/port arm the engine's loopback challenge door (env-only — never argv)
+      // the probe token/port arm the engine's loopback challenge door (env-only — never argv);
+      // SHARD_SWARM_TOKEN arms the ring-wide C2 engine-auth gate (never argv: argv is world-readable)
       env: { ...process.env, SHARD_NODE_KEY: RECEIPT_KEY_FILE,
-             SHARD_PROBE_TOKEN: this.probeToken, SHARD_PROBE_PORT: String(PROBE_PORT) },
+             SHARD_PROBE_TOKEN: this.probeToken, SHARD_PROBE_PORT: String(PROBE_PORT),
+             ...(spec.swarmToken ? { SHARD_SWARM_TOKEN: spec.swarmToken } : {}) },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     this.proc.stdout!.on('data', (d: Buffer) => this.onStdout(d));
@@ -479,7 +486,11 @@ export class CoordinatorProcess {
   onJobError?: (jobId: string | null, error: string) => void;
   onExit?: (code: number | null, fatal: string | null) => void;
 
-  start(): void {
+  /** `degraded`: restart with the speculative-decode levers OFF (M25_EAGLE/M25_TREE=0) — the
+   *  proven plain ring on the wire. The daemon flips this on after a stall-kill (an
+   *  EAGLE-implicated wedge, P0-#5 L3) so the re-launched coordinator serves reliably instead of
+   *  walking back into the same wedge; speed is traded for a swarm that actually serves. */
+  start(opts: { degraded?: boolean; swarmToken?: string } = {}): void {
     // gateway-parity endpoints (phase0/m25_scatter_pipe.py layout): pipe = the LOCAL head
     // engine; tail = the head sidecar's return -forward that tunnels to the tail's engine.
     const args = ['-m', 'shard.coordinate',
@@ -487,7 +498,13 @@ export class CoordinatorProcess {
       '--dir', MODEL_DIR, '--receipts'];
     this.proc = spawn(pythonBin(), args, {
       cwd: shardCwd(),
-      env: { ...process.env, SHARD_NODE_KEY: RECEIPT_KEY_FILE },
+      env: {
+        ...process.env, SHARD_NODE_KEY: RECEIPT_KEY_FILE,
+        // the coordinator dials the head engine + the tail return — it must greet with the same
+        // ring-wide token, or the token-armed engine rejects it (C2 auth)
+        ...(opts.swarmToken ? { SHARD_SWARM_TOKEN: opts.swarmToken } : {}),
+        ...(opts.degraded ? { M25_EAGLE: '0', M25_TREE: '0' } : {}),
+      },
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     this.proc.stdout!.on('data', (d: Buffer) => this.onStdout(d));

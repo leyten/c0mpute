@@ -317,6 +317,11 @@ export class SwarmManager {
       return null;
     }
     const swarmId = this.id('swarm');
+    // per-swarm C2 engine-auth token: every ring member (stages + coordinator) arms it as
+    // SHARD_SWARM_TOKEN so the engine rejects any greeting without it — closes the head stage's
+    // allow-all sidecar hole (a stranger who learns the head addr can't inject activation frames).
+    // Distributed only over the authenticated swarm:assign channel, never announced.
+    const swarmToken = randomBytes(16).toString('hex');
     const swarm: SwarmInfo = {
       id: swarmId,
       model,
@@ -357,7 +362,7 @@ export class SwarmManager {
         stageIndex: st.stageIndex, layerStart: st.layerStart, layerEnd: st.layerEnd,
         role: st.isHead ? 'coordinator' : 'stage',
         isHead: st.isHead, isTail: st.isTail, boundary: st.boundary, losslessWire,
-        peers, coordinatorNodeId: plan.head,
+        peers, coordinatorNodeId: plan.head, swarmToken,
         ...(seeders.length && { seeders }),
       };
       this.d.emit(st.nodeId, 'swarm:assign', assign);
