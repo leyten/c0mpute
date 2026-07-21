@@ -67,6 +67,14 @@ Every item verified missing in code, with build-shape:
    `-relays` on every sidecar boot. `public/relays.json` ships EMPTY (git carries no public IPs);
    the launch deploy fills it with the operator relays' multiaddrs (systemd `shard-relay.service`
    boxes running `sidecar -relay -quic`; addrs in the ops notes).
+
+**WSL2 turnkey (P1-#3) — daemon side BUILT 2026-07-21.** The two hard blockers were the sidecar
+release (now published, sidecar-v0.1.0) and the npm publish (below). `scripts/wsl-setup.sh` (one
+bootstrap: git + Node 20 + Python 3.11 → `npx @c0mpute/worker --mode shard`) + `c0mpute-worker/
+WINDOWS.md` (WSL install, Windows NVIDIA driver, mirrored networking, one command) make a Windows
+stranger's join turnkey. **Remaining:** (a) `npm publish @c0mpute/worker` at ≥2.8.3 — LEYTEN's npm
+creds (the bootstrap calls `npx @c0mpute/worker@latest`); (b) one end-to-end smoke from the Ghent
+home box (the only step that genuinely needs Windows hardware).
 6. **Transport authorization.** The libp2p sidecar pipes activation streams from ANY peer
    into the engine socket (sidecar main.go:517) — a stranger who learns a stage addr can
    inject frames into a live ring. Build: ringmate allowlist per assignment (gate the
