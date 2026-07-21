@@ -41,6 +41,10 @@ npx @c0mpute/worker --mode shard --token cwt_...   # get a token at c0mpute.ai
 The daemon self-provisions on first run, enrolls, and waits to be placed. Everything lives
 under `~/.c0mpute` (node key, receipt key, engine, venv, weights) — delete it to start clean.
 
+**On Windows?** See **[WINDOWS.md](./WINDOWS.md)** — WSL2 + one bootstrap command
+(`scripts/wsl-setup.sh`). Relays for a NAT'd home box are discovered automatically now
+(no `C0MPUTE_SHARD_RELAYS` needed).
+
 ## What's under the hood
 
 - **Identity**: an ed25519 node key (`~/.c0mpute/node.key`) proves your PeerId to the
