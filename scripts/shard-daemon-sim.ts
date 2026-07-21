@@ -224,7 +224,7 @@ const loop = attachSwarmLoop(io, {
   },
   seam: new SimSeam(),
   resolveModel: (m) => (m === 'minimax-m2.5' ? SIM_SPEC : undefined),   // auto-form this model
-  autoFormDebounceMs: 900,
+  autoFormDebounceMs: Number(process.argv[process.argv.indexOf('--debounce') + 1] || 0) || 900,
   log: (m) => {
     log(`loop: ${m}`);
     if (/ READY — all /.test(m) && !suiteStarted) {
