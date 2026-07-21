@@ -158,6 +158,9 @@ export interface NetworkStats {
   nativeWorkers: number;
   /** Native worker counts broken down by the model string they run. */
   nativeByModel?: Record<string, number>;
+  /** decentralized-swarm model ids with at least one READY ring serving them (the /models
+   *  availability signal — swarm nodes are not `native` workers, so nativeByModel never sees them). */
+  swarmModels?: string[];
   jobsInQueue: number;
   jobsCompleted: number;
   tokensGenerated: number;

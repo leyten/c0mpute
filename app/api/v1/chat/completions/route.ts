@@ -30,6 +30,14 @@ function mapModel(model: string | undefined): { model: string; think: boolean } 
     case 'devstral-24b':
     case 'c0mpute-code':
       return { model: 'native-code', think: false };
+    // the decentralized SWARM model — served by the permissionless GPU network, not a whole-model
+    // worker. The orchestrator id must be a MODEL_SPECS key so tryDispatchSwarm routes it to a ring
+    // (specForModel); think rides reasoning through serveRequest.
+    case 'minimax-m2.5':
+    case 'c0mpute-swarm':
+      return { model: 'minimax-m2.5', think: false };
+    case 'c0mpute-swarm-think':
+      return { model: 'minimax-m2.5', think: true };
     case 'c0mpute-pro':
     case '':
     case undefined as any:

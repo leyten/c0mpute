@@ -1805,11 +1805,17 @@ export class Orchestrator {
 
   private buildStats(): NetworkStats {
     const counts = this.getWorkerCounts();
+    // ready swarm rings (decentralized models) — swarm nodes aren't `native` workers, so the
+    // /models availability check reads this instead of nativeByModel
+    const swarmModels = [...new Set(this.swarmLoop.manager.snapshot().swarms
+      .filter((s) => s.status === 'ready' || s.status === 'serving')
+      .map((s) => s.model))];
     return {
       workersOnline: counts.total,
       browserWorkers: counts.browser,
       nativeWorkers: counts.native,
       nativeByModel: counts.nativeByModel,
+      swarmModels,
       jobsInQueue: this.jobQueue.length,
       jobsCompleted: this.totalJobsCompleted,
       tokensGenerated: this.totalTokensGenerated,

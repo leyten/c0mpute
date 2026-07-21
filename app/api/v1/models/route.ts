@@ -9,12 +9,12 @@ const ORCH_URL = process.env.INTERNAL_ORCHESTRATOR_URL || 'http://127.0.0.1:3004
 
 // Quick live worker counts from the orchestrator (stats:update fires on connect).
 // Returns null if unavailable → callers should assume models are up.
-async function getWorkerCounts(): Promise<{ native: number; browser: number; byModel: Record<string, number> } | null> {
+async function getWorkerCounts(): Promise<{ native: number; browser: number; byModel: Record<string, number>; swarmModels: string[] } | null> {
   const secret = process.env.INTERNAL_API_SECRET;
   if (!secret) return null;
   return new Promise((resolve) => {
     let done = false;
-    const finish = (v: { native: number; browser: number; byModel: Record<string, number> } | null) => {
+    const finish = (v: { native: number; browser: number; byModel: Record<string, number>; swarmModels: string[] } | null) => {
       if (done) return;
       done = true;
       try { socket.disconnect(); } catch {}
@@ -22,7 +22,7 @@ async function getWorkerCounts(): Promise<{ native: number; browser: number; byM
     };
     const socket = io(ORCH_URL, { auth: { token: secret }, transports: ['websocket'], reconnection: false, timeout: 5000 });
     const t = setTimeout(() => finish(null), 6000);
-    socket.on('stats:update', (s: any) => { clearTimeout(t); finish({ native: s?.nativeWorkers ?? 0, browser: s?.browserWorkers ?? 0, byModel: s?.nativeByModel ?? {} }); });
+    socket.on('stats:update', (s: any) => { clearTimeout(t); finish({ native: s?.nativeWorkers ?? 0, browser: s?.browserWorkers ?? 0, byModel: s?.nativeByModel ?? {}, swarmModels: s?.swarmModels ?? [] }); });
     socket.on('connect_error', () => { clearTimeout(t); finish(null); });
   });
 }
@@ -38,6 +38,9 @@ export async function GET(req: NextRequest) {
   const maxUp = counts ? (counts.byModel['qwen3.5-27b-abliterated'] ?? 0) > 0 : true;
   const sgUp = counts ? (counts.byModel['supergemma4-26b'] ?? 0) > 0 : true;
   const codeUp = counts ? (counts.byModel['devstral-24b'] ?? 0) > 0 : true;
+  // the swarm model is up iff a READY ring is serving it (swarmModels, not nativeByModel — swarm
+  // nodes aren't native workers); unknown counts → assume up (same convention as the tiers above)
+  const swarmUp = counts ? counts.swarmModels.includes('minimax-m2.5') : true;
   const created = 1748000000;
   // Flat per-message pricing (credits; 1 credit = $0.01) — c0mpute bills per
   // request, not per token. Costs mirror the orchestrator's charge table.
@@ -54,6 +57,7 @@ export async function GET(req: NextRequest) {
       model('c0mpute-max-think', maxUp, 'c0mpute-max with extended chain-of-thought reasoning.', 20),
       model('supergemma4-26b', sgUp, 'Uncensored SuperGemma4 26B MoE with tools. Newer, faster. Max tier.', 15),
       model('code', codeUp, 'Devstral 24B — agentic coding model (powers c0mpute code). Max tier.', 15),
+      model('c0mpute-swarm', swarmUp, 'MiniMax-M2.5 (229B) served by the decentralized GPU swarm — no single host holds the model. Pro tier.', 10),
     ],
   });
 }
