@@ -87,6 +87,10 @@ export interface StageAssignment {
    *  out because every byte a joiner pulls is re-hashed against the signed manifest (a lying
    *  seeder costs bandwidth, never integrity). */
   seeders?: string[];
+  /** per-swarm C2 engine-auth token, minted by the orchestrator and shared by every ring member.
+   *  Armed as SHARD_SWARM_TOKEN on the stage + coordinator so the engine requires an identity-bound
+   *  greeting carrying it — closes the head stage's allow-all sidecar exposure. Assign-channel only. */
+  swarmToken?: string;
 }
 
 export type SwarmStatus = 'forming' | 'pulling' | 'ready' | 'serving' | 'degraded' | 'failed';

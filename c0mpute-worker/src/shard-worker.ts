@@ -48,6 +48,8 @@ interface StageAssignment {
   /** standby seeders' sidecar addrs (free candidates + operator seed boxes) — extra block
    *  sources beyond the ringmates; unverified, safe (every byte re-hashed vs the manifest) */
   seeders?: string[];
+  /** per-swarm C2 engine-auth token (orchestrator-minted, shared by every ring member) */
+  swarmToken?: string;
 }
 
 function log(msg: string): void {
@@ -180,6 +182,7 @@ export async function startShardWorker(opts: ShardWorkerOptions): Promise<void> 
     abort: AbortController;                 // kills an in-flight pull when the assignment dies
     retryTimer: ReturnType<typeof setTimeout> | null;
     coord: CoordinatorProcess | null;       // HEAD only: the serving half (leg 8)
+    coordDegraded: boolean;                 // P11: relaunch the coordinator EAGLE-off after a stall-kill
     jobs: Map<string, { swarmId: string; nonce: string }>;  // in-flight swarm:job bookkeeping
   } | null = null;
 
@@ -247,17 +250,27 @@ export async function startShardWorker(opts: ShardWorkerOptions): Promise<void> 
       for (const [jobId, j] of current.jobs) failJob(j.swarmId, jobId, j.nonce, 'coordinator died mid-job');
       current.jobs.clear();
       current.restarts += 1;
+      // P11 restart-degraded: a stall-watchdog kill (P0-#5 L3) is an EAGLE-implicated wedge — the
+      // relaunch must drop the speculative levers or it walks straight back into the same stall.
+      // Belt-and-braces: any 2nd+ coordinator death also degrades (a coordinator that keeps dying
+      // is better slow-but-serving than fast-but-dead). Sticky for the swarm session.
+      if (!current.coordDegraded
+          && (/stall-watchdog/.test(fatal ?? '') || current.restarts >= 2)) {
+        current.coordDegraded = true;
+        log('coordinator: relaunching EAGLE-off (degraded) after a stall/repeat death — plain ring, reliable serve');
+      }
       if (current.restarts > MAX_STAGE_RESTARTS) {
         release(`coordinator kept dying (last: ${fatal || `exit ${code}`})`);
         return;
       }
       const delay = 2000 * 2 ** (current.restarts - 1);
-      log(`coordinator exited (${fatal || `code ${code}`}) — restart in ${delay / 1000}s`);
+      log(`coordinator exited (${fatal || `code ${code}`}) — restart in ${delay / 1000}s`
+        + (current.coordDegraded ? ' (EAGLE-off)' : ''));
       current.retryTimer = setTimeout(() => {
         if (current?.assignment.swarmId === a.swarmId) launchCoordinator();
       }, delay);
     };
-    coord.start();
+    coord.start({ degraded: current.coordDegraded, swarmToken: a.swarmToken });
   }
 
   function launchStage(): void {
@@ -293,6 +306,7 @@ export async function startShardWorker(opts: ShardWorkerOptions): Promise<void> 
       lo: a.layerStart,
       hi: a.layerEnd,
       isTail: a.isTail,
+      swarmToken: a.swarmToken,          // ring-wide C2 engine-auth (closes the head allow-all hole)
     });
   }
 
@@ -406,7 +420,7 @@ export async function startShardWorker(opts: ShardWorkerOptions): Promise<void> 
     current = {
       assignment: a, stage: new StageProcess(), restarts: 0,
       abort: new AbortController(), retryTimer: null,
-      coord: null, jobs: new Map(),
+      coord: null, coordDegraded: false, jobs: new Map(),
     };
     void serve(a);
   });
