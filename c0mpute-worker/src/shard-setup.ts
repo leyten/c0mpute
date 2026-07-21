@@ -23,15 +23,16 @@ const DEPS_MARKER = join(VENV_DIR, '.deps-ok-v1');
 const ENGINE_DEPS = process.env.C0MPUTE_SHARD_DEPS
   || 'vllm==0.23.0 torch==2.11.0 transformers==5.12.1 safetensors cryptography numpy huggingface_hub hf_transfer';
 
-// Prebuilt sidecar (linux-amd64, CGO_ENABLED=0) — verified against this sha256 before first
-// use. Publishing the release is the operator's call (shard .github/workflows/sidecar-release.yml,
-// workflow_dispatch); until it exists the go-build fallback covers boxes with a Go toolchain.
-// An overridden URL must bring its own checksum — integrity is never optional.
+// Prebuilt sidecar (linux-amd64, CGO_ENABLED=0) — verified against this sha256 before first use.
+// PUBLISHED 2026-07-21 as sidecar-v0.1.0 (reproducible: CGO_ENABLED=0 go build -trimpath
+// -buildvcs=false -ldflags="-s -w -buildid=", go 1.25.7 per sidecar/go.mod — rebuildable from the
+// public workflow, verify against this pin). Cutting a new release = update this pin in the same
+// breath (no auto-update by design). An overridden URL must bring its own checksum.
 const SIDECAR_URL = process.env.C0MPUTE_SIDECAR_URL
   || 'https://github.com/leyten/shard/releases/download/sidecar-v0.1.0/sidecar-linux-amd64';
 const SIDECAR_SHA256 = process.env.C0MPUTE_SIDECAR_URL
   ? (process.env.C0MPUTE_SIDECAR_SHA256 ?? '')
-  : '843fd1c67de8fe95e4658f18d67b7da240381dd70ec92f67aefbf13d674e53e0';
+  : '4f88dd4c6c70be636af520b6fc239f6e27a8e45ca4b4ec3bcbe585f1e3a01153';
 
 function log(msg: string): void {
   console.log(`[${new Date().toISOString()}] [shard-setup] ${msg}`);

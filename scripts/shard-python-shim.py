@@ -133,8 +133,12 @@ if argv[:2] == ["-m", "shard.coordinate"]:
         print("SHARD_JOB_FATAL " + json.dumps(
             {"error": f"shim: return roundtrip via {tail} never completed"}), flush=True)
         sys.exit(1)
+    # echo the coordinator's EAGLE arm so a harness can prove the P11 restart-degraded path:
+    # after a stall-kill the daemon relaunches us with M25_EAGLE=0 (the proven plain ring).
+    eagle = os.environ.get("M25_EAGLE", "1") != "0"
+    print("SHIM_COORD_EAGLE " + json.dumps({"eagle": eagle}), flush=True)
     print("SHARD_COORD_READY " + json.dumps({"head": arg("--head", ""), "tail": tail,
-                                             "shim": True}), flush=True)
+                                             "shim": True, "eagle": eagle}), flush=True)
     for line in sys.stdin:                           # NDJSON jobs, exactly the real CLI's loop
         line = line.strip()
         if not line:
@@ -145,6 +149,15 @@ if argv[:2] == ["-m", "shard.coordinate"]:
         except (ValueError, KeyError) as e:
             print("SHARD_JOB_FATAL " + json.dumps({"error": f"shim: bad job line: {e}"}), flush=True)
             continue
+        # P11 harness hook: a job carrying the __P11_STALL__ sentinel (in messages, the field that
+        # threads unchanged through the real dispatch path) makes the coordinator emit the L3
+        # stall-watchdog FATAL and hard-exit — the wedge signature the daemon relaunches EAGLE-off.
+        msgs = job.get("messages") or []
+        stall = job.get("stall") or any("__P11_STALL__" in str(m.get("content", "")) for m in msgs)
+        if stall:
+            print("SHARD_JOB_FATAL " + json.dumps({"jobId": jid,
+                  "error": "stall-watchdog: no progress in 240s (ring or drafter wedged) — exiting so the daemon restarts us"}), flush=True)
+            sys.exit(1)
         words = ["a ", "scattered ", "ring ", "served ", "this."]
         for w in words:
             print("SHARD_JOB_TOKEN " + json.dumps({"jobId": jid, "delta": w}), flush=True)

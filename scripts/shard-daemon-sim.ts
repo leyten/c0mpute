@@ -16,6 +16,7 @@
  */
 import { createServer } from 'node:http';
 import { randomBytes } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { Server } from 'socket.io';
 import { attachSwarmLoop } from '../lib/orchestrator/swarm-loop';
 import type { Seam } from '../lib/orchestrator/swarm';
@@ -28,7 +29,9 @@ const PORT = Number(process.argv[process.argv.indexOf('--port') + 1] || 0) || 37
 const ONCE = process.argv.includes('--once');
 // --serve: once the swarm is READY, dispatch a real serveRequest through the daemon's coordinator
 // (leg 8 node half: swarm:job -> SHARD_JOB_TOKEN stream -> swarm:job_complete -> settle).
-const SERVE = process.argv.includes('--serve') || process.argv.includes('--churn');
+// --p11: the restart-degraded proof (coordinator stall-kill -> daemon relaunches it EAGLE-off).
+const P11 = process.argv.includes('--p11');
+const SERVE = process.argv.includes('--serve') || process.argv.includes('--churn') || P11;
 // --accept-receipts: SIMULATED settlement verify — receipts are NOT checked; the verdict is
 // synthesized from the job's own assignments map so paySplit/earnings wiring can be exercised
 // GPU-less (the shim coordinator has no stages to sign real receipts). The REAL receipts path
@@ -47,6 +50,13 @@ const STAGES = Math.max(1, Number(process.argv[process.argv.indexOf('--stages') 
 // (the driver SIGKILLs a placed stage daemon) -> the swarm must RE-FORM from the free spare ->
 // serve request 2 -> CHURN_PROOF COMPLETE, exit 0. A network that can't re-form times out red.
 const CHURN = process.argv.includes('--churn');
+// --manifest-file PATH: serve a REAL signed manifest at /manifests/<name>.json (real-ring runs —
+// daemons then do the full verified pull against it; pair with the publisher pin env on daemons).
+// --relays-file PATH: serve a real relay list at /relays.json (default: the unreachable fixture).
+const MANIFEST_FILE_ARG = process.argv.includes('--manifest-file')
+  ? process.argv[process.argv.indexOf('--manifest-file') + 1] : null;
+const RELAYS_FILE_ARG = process.argv.includes('--relays-file')
+  ? process.argv[process.argv.indexOf('--relays-file') + 1] : null;
 
 function log(msg: string): void {
   console.log(`[sim] ${msg}`);
@@ -101,11 +111,21 @@ const http = createServer(async (req, res) => {
     res.end(JSON.stringify(body));
   };
   if (req.url?.startsWith('/relays.json') && req.method === 'GET') {
+    if (RELAYS_FILE_ARG) {
+      try { return send(200, JSON.parse(readFileSync(RELAYS_FILE_ARG, 'utf8'))); }
+      catch (e: any) { return send(500, { error: e.message }); }
+    }
     // P0-#3 auto-discovery: a well-formed (unreachable) fixture relay — the daemon must validate,
     // pass it via -relays, and the real sidecar must survive the failed connect (Printf, not fatal)
     return send(200, { relays: ['/ip4/192.0.2.1/tcp/29600/p2p/12D3KooWQoQPY5dJhdaXbzBFhSqCJoDwPPkQZJEHYYyBXVCbdJNs'] });
   }
   if (req.url?.startsWith('/manifests/') && req.method === 'GET') {
+    if (MANIFEST_FILE_ARG) {
+      try {
+        log(`manifest doc served from ${MANIFEST_FILE_ARG} (${req.url})`);
+        return send(200, JSON.parse(readFileSync(MANIFEST_FILE_ARG, 'utf8')));
+      } catch (e: any) { return send(500, { error: e.message }); }
+    }
     // the static /manifests/<name>.json doc the daemon resolves at enroll/assign. The FIXTURE pin
     // pair: export C0MPUTE_SHARD_MANIFEST_PUBKEY=sim-publisher-pin on the daemon. Engine-side
     // crypto verification is exercised in shard's own suite (test_manifest_resolution.py); the
@@ -197,12 +217,18 @@ const loop = attachSwarmLoop(io, {
  *  cover a coordinator that crashed and is in its restart backoff. */
 let served = 0;                                       // churn proof: completions across re-forms
 let churnTimer: ReturnType<typeof setTimeout> | null = null;
+// P11 (restart-degraded): serve #1 -> a STALL request that wedges the coordinator (L3 signature)
+// -> the daemon must relaunch the coordinator EAGLE-off and serve #2. The EAGLE-off assertion is
+// grepped from the daemon log (two SHIM_COORD_EAGLE lines: true then false) by p11-restart-test.sh.
+let p11Phase: 'normal1' | 'stalling' | 'recovering' = 'normal1';
+let p11Timer: ReturnType<typeof setTimeout> | null = null;
 
-function serveOnce(attempt: number): void {
+function serveOnce(attempt: number, opts: { stall?: boolean } = {}): void {
   const deltas: string[] = [];
   const r = loop.serveRequest({
     model: 'minimax-m2.5',
-    messages: [{ role: 'user', content: 'What is a scattered ring?' }],
+    messages: [{ role: 'user',
+      content: opts.stall ? '__P11_STALL__ wedge the coordinator' : 'What is a scattered ring?' }],
     params: { maxNew: 48 },
     timeoutMs: 240_000,
     onToken: (d: string) => deltas.push(d),
@@ -216,6 +242,14 @@ function serveOnce(attempt: number): void {
         const settled = !ACCEPT || earnings.length > 0;
         if (settled || Date.now() - t0 > 10_000) {
           log(`settlement credited: ${earnings.length} earning(s)`);
+          // P11: the STALL request finishes fail-closed (0 tokens) once the coordinator wedges +
+          // exits — that IS the trigger, not a failure. Advance to the recovery serve.
+          if (P11 && p11Phase === 'stalling') {
+            p11Phase = 'recovering';
+            log('P11_STALL_TRIGGERED (coordinator wedged, fail-closed) — waiting for the EAGLE-off relaunch, then re-serving');
+            setTimeout(() => serveOnce(1), 12_000);
+            return;
+          }
           if (tokens > 0 && joinOk && settled) {
             served += 1;
             if (CHURN && served === 1) {
@@ -229,6 +263,18 @@ function serveOnce(attempt: number): void {
             } else if (CHURN && served >= 2) {
               if (churnTimer) clearTimeout(churnTimer);
               log('*** CHURN_PROOF COMPLETE — stage killed mid-serve, swarm re-formed from the spare, next request served + settled ***');
+              if (ONCE) setTimeout(() => { log('(--once) success, exiting 0'); process.exit(0); }, 500);
+            } else if (P11 && p11Phase === 'normal1') {
+              // serve #1 clean — now wedge the coordinator with a stall request
+              p11Phase = 'stalling';
+              log('P11_STALL_NOW — dispatching a stall request to wedge the coordinator');
+              p11Timer = setTimeout(() => {
+                log('*** P11_PROOF FAILED — no degraded re-serve within 120s ***'); process.exit(1);
+              }, 120_000);
+              serveOnce(1, { stall: true });
+            } else if (P11 && p11Phase === 'recovering') {
+              if (p11Timer) clearTimeout(p11Timer);
+              log('*** P11_PROOF COMPLETE — coordinator stall-killed, relaunched EAGLE-off, next request served ***');
               if (ONCE) setTimeout(() => { log('(--once) success, exiting 0'); process.exit(0); }, 500);
             } else {
               log('*** LEG-8 NODE HALF COMPLETE — request -> served -> settled ***');
@@ -245,8 +291,16 @@ function serveOnce(attempt: number): void {
       judge();
     },
     onError: (m: string) => {
+      // P11: the stall request is SUPPOSED to fail (the coordinator wedged + exited). That is the
+      // trigger, not a failure — wait for the daemon's EAGLE-off relaunch, then serve the recovery.
+      if (P11 && opts.stall && p11Phase === 'stalling') {
+        p11Phase = 'recovering';
+        log(`P11_STALL_TRIGGERED (coordinator down: ${m}) — waiting for the EAGLE-off relaunch, then re-serving`);
+        setTimeout(() => serveOnce(1), 12_000);
+        return;
+      }
       log(`serve error: ${m}${attempt < 4 ? ' — retrying in 5s' : ''}`);
-      if (attempt < 4) setTimeout(() => serveOnce(attempt + 1), 5000);
+      if (attempt < 4) setTimeout(() => serveOnce(attempt + 1, opts), 5000);
       else if (ONCE) process.exit(1);
     },
   });
