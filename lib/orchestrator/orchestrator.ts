@@ -25,9 +25,12 @@ import { scanOutput, BLOCKED_MESSAGE } from '../safety';
 import { AVAILABLE_TOOLS, executeToolCalls } from './tools';
 import { attachSwarmLoop } from './swarm-loop';
 import { DEFAULT_SWARM_CONFIG } from './swarm';
+import { GradedReputation } from './reputation';
 import { specForModel } from './model-profiles';
 import { buildNetworkFeed, type FeedCounters } from './network-feed';
 import type { JobRevenue, StageEarning } from './swarm-types';
+import { readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { join } from 'path';
 
 // Load search server module for Brave API key initialization
 try {
@@ -56,6 +59,14 @@ interface ImageJob {
 export class Orchestrator {
   private io: Server<ClientToServerEvents, ServerToClientEvents>;
   private swarmLoop!: ReturnType<typeof attachSwarmLoop>;   // the sharded-swarm control plane handle
+  // Graded reputation = the swarm's sybil/cheat gate (roleFor -> 'rejected' refuses a proven
+  // cheater at admission; spot-check verdicts feed it). Persisted to data/ so a restart doesn't
+  // forget a cheater. Pubkeys in SWARM_AUDITOR_PUBKEYS are our we-run recompute oracles (kept out
+  // of placement, used as the trusted verifier a spot-check compares strangers against).
+  private reputation = new GradedReputation();
+  private auditorPubkeys = new Set(
+    (process.env.SWARM_AUDITOR_PUBKEYS ?? '').split(',').map((s) => s.trim()).filter(Boolean));
+  private repPath = join(process.cwd(), 'data', 'swarm-reputation.json');
   // Settled-token counters for the public network map (aggregates only — the data-site rule).
   private swarmCounters: FeedCounters = { perNode: new Map(), tokensToday: 0, recent: [] };
   private swarmCountersDay = new Date().toISOString().slice(0, 10);
@@ -191,15 +202,24 @@ export class Orchestrator {
     // SWARM_SEED_ADDRS: the operator's always-on `sidecar -seed` boxes (comma-separated sidecar
     // multiaddrs) — appended to every assignment's `seeders` so joiner #1 pulls peers-first.
     const seedAddrs = (process.env.SWARM_SEED_ADDRS ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+    try { this.reputation.restore(JSON.parse(readFileSync(this.repPath, 'utf8'))); } catch { /* first boot */ }
     this.swarmLoop = attachSwarmLoop(this.io as unknown as import('socket.io').Server, {
       recordStageEarning: (e) => this.recordSwarmStageEarning(e),
       resolveModel: specForModel,
+      // the sybil/cheat gate + the trusted recompute oracle for spot-checks (both were unwired —
+      // the live server formed rings with NO reputation and NO way to spot-check strangers)
+      trust: this.reputation,
+      auditors: () => this.swarmLoop.manager.snapshot().candidates
+        .filter((c) => this.auditorPubkeys.has(c.cap.pubkey))
+        .map((c) => ({ nodeId: c.nodeId, pubkey: c.cap.pubkey })),
       log: (m) => console.log(m),
-      ...(seedAddrs.length && { config: { ...DEFAULT_SWARM_CONFIG, seedAddrs } }),
+      config: { ...DEFAULT_SWARM_CONFIG, ...(seedAddrs.length ? { seedAddrs } : {}) },
     });
     setInterval(() => this.broadcastStats(), 5000);
     setInterval(() => this.cleanupStaleJobs(), 10000);
     setInterval(() => this.canarySweep(), 120000);
+    setInterval(() => this.swarmSpotCheckSweep(), 90000);   // probabilistic layer-block spot-checks
+    setInterval(() => this.persistReputation(), 120000);    // durable cheater memory across restarts
   }
 
   // Per-shard credit for a settled swarm job (leyten's pay-model, 2026-07-20). settleJob already
@@ -1537,6 +1557,29 @@ export class Orchestrator {
     const due = (worker.jobsSinceCanary ?? 0) >= this.CANARY_EVERY_N_JOBS;
     if (!due && Math.random() > this.CANARY_RANDOM_PROB) return;
     this.dispatchCanary(worker);
+  }
+
+  // The SWARM analogue of canarySweep: the whole-model canary can't probe a stage node (it
+  // transforms activations, never sees a prompt), so a ready ring gets a layer-block spot-check
+  // instead — startSpotCheck derives a seeded activation, the suspect + a trusted auditor both
+  // run the block, shard.challenge compares the sketches, a mismatch degrades the swarm + strikes
+  // reputation. Probabilistic + one ring per tick (gentle); a no-auditor / no-trust setup no-ops.
+  private swarmSpotCheckSweep() {
+    if (this.auditorPubkeys.size === 0) return;             // no we-run oracle -> nothing to compare against
+    const ready = this.swarmLoop.manager.snapshot().swarms
+      .filter((s) => s.status === 'ready' || s.status === 'serving');
+    if (ready.length === 0) return;
+    if (Math.random() > 0.5) return;                        // ~half the ticks, so ~one check / few min / ring
+    const swarm = ready[Math.floor(Math.random() * ready.length)];
+    const check = this.swarmLoop.manager.startSpotCheck(swarm.id);
+    if (check) console.log(`[orchestrator] swarm spot-check ${check.checkId} launched on ${swarm.id}`);
+  }
+
+  private persistReputation() {
+    try {
+      mkdirSync(join(process.cwd(), 'data'), { recursive: true });
+      writeFileSync(this.repPath, JSON.stringify(this.reputation.snapshot()));
+    } catch (e) { console.warn(`[orchestrator] reputation persist failed: ${(e as Error).message}`); }
   }
 
   // Periodic sweep so even a low-volume worker that never trips the counter still
