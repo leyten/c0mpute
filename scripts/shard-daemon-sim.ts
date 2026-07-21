@@ -138,8 +138,13 @@ const http = createServer(async (req, res) => {
   if (req.url?.startsWith('/manifests/') && req.method === 'GET') {
     if (MANIFEST_FILE_ARG) {
       try {
-        log(`manifest doc served from ${MANIFEST_FILE_ARG} (${req.url})`);
-        return send(200, JSON.parse(readFileSync(MANIFEST_FILE_ARG, 'utf8')));
+        // serve the file BYTES VERBATIM — the manifest CID is over the exact bytes, so a
+        // JSON.parse->stringify round-trip changes the hash and the daemon's --manifest-cid check
+        // fails (found on the real-ring preflight; launch static-file serving is byte-exact too).
+        const raw = readFileSync(MANIFEST_FILE_ARG);
+        log(`manifest doc served VERBATIM from ${MANIFEST_FILE_ARG} (${req.url}, ${raw.length}B)`);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        return res.end(raw);
       } catch (e: any) { return send(500, { error: e.message }); }
     }
     // the static /manifests/<name>.json doc the daemon resolves at enroll/assign. The FIXTURE pin
