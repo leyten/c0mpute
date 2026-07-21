@@ -202,11 +202,16 @@ export async function resolveManifest(orchestratorUrl: string | undefined, ref =
   }
   const name = manifestRefName(ref);
   const url = `${orchestratorUrl.replace(/\/$/, '')}/manifests/${name}.json`;
-  let doc: Record<string, any>;
+  // Keep the RAW bytes: the manifest CID (in the ref) is over the exact file bytes, and the engine
+  // re-hashes the file vs the CID on every pull. Re-serializing here (JSON.parse -> stringify)
+  // changes the bytes and breaks that check — every pull fail-closes. Parse only a COPY for the
+  // pin/version guards; write the bytes verbatim. (Caught on the real-ring preflight.)
+  let raw: string; let doc: Record<string, any>;
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(30_000) });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    doc = (await res.json()) as Record<string, any>;
+    raw = await res.text();
+    doc = JSON.parse(raw) as Record<string, any>;
   } catch (e: any) {
     log(existsSync(MANIFEST_FILE)
       ? `manifest: resolve failed (${e.message}) — keeping the cached doc`
@@ -224,10 +229,10 @@ export async function resolveManifest(orchestratorUrl: string | undefined, ref =
     return;
   }
   const tmp = MANIFEST_FILE + '.part';
-  writeFileSync(tmp, JSON.stringify(doc));
+  writeFileSync(tmp, raw);                     // VERBATIM — the CID is over these exact bytes
   renameSync(tmp, MANIFEST_FILE);
   writeFileSync(MANIFEST_STATE, JSON.stringify({ ref, version }));
-  log(`manifest: resolved ${name} v${version} from the network (engine re-verifies on every pull)`);
+  log(`manifest: resolved ${name} v${version} from the network (${raw.length}B, verbatim; engine re-verifies on every pull)`);
 }
 
 const RELAYS_CACHE = join(SHARD_HOME, 'relays.json');
