@@ -1,47 +1,56 @@
-# Publishing `@c0mpute/worker` to npm (operator runbook)
+# Publishing `@c0mpute/worker` to npm — a GO-LIVE action, NOT a pre-launch step
 
-Publishing is a **leyten action** — it needs the `@c0mpute` npm org credentials (the automation
-box has none; `npm whoami` there returns E401). Currently npm has **2.8.2 (pre-shard)**; the repo is
-**2.8.3** with `--mode shard`. Until this ships, `npx @c0mpute/worker --mode shard` errors for
-strangers and the WSL bootstrap (`scripts/wsl-setup.sh`, which calls `npx @c0mpute/worker@latest`)
-can't complete.
+> ⛔ **DO NOT publish before the coordinated betanet launch.** Publishing is a world-facing deploy:
+> the package your real, live operators install from. There is **no benefit** to publishing before
+> launch and real risk in doing so:
+> - the live network runs fine on what operators already have (npm 2.8.2 today);
+> - a new publish makes the reinstall menu advertise **"3) Shard node — serve a slice of a frontier
+>   model with the swarm"** to everyone, exposing the un-launched betanet;
+> - it entangles not-yet-launched betanet code into the world-facing install.
+>
+> Publishing belongs in the **single coordinated go-live flip**, together with: deploying the
+> swarm-hardening code to the prod orchestrator (pull master + restart in a window), publishing the
+> signed manifest to `public/manifests/`, setting `MANIFEST_PUBKEY` / `SWARM_AUDITOR_PUBKEYS` /
+> `SWARM_SEED_ADDRS`, filling `public/relays.json`, and flipping `SWARM_PAYOUT_ENABLED`. All at once,
+> deliberately, when we actually launch — never piecemeal.
 
-## The publish (one paste, from a clean master checkout)
+## Rehearsal does NOT need this
+
+The pre-launch rehearsal ring runs a **directly-shipped built worker** on isolated test boxes pointed
+at a **test/sim orchestrator** — never the prod orchestrator, never npm. Nothing about validating the
+betanet requires touching the live install path.
+
+## The publish (only at go-live, one paste, from a clean master checkout)
 
 ```bash
-# from a fresh, up-to-date master clone (NOT a dev tree with uncommitted changes)
+# GO-LIVE ONLY. From a fresh, up-to-date master clone.
 cd c0mpute/c0mpute-worker
-git -C .. pull --ff-only origin master      # ensure you're on merged master
-npm ci                                       # clean install from the lockfile
-npm run build                                # tsc -> dist/index.js
-node dist/index.js --mode shard              # smoke: prints "c0mpute worker v2.8.3" + asks for --token
+git -C .. pull --ff-only origin master
+npm ci
+npm run build
+node dist/index.js --mode shard        # smoke: "c0mpute worker v2.8.3" + asks for --token
 
-npm login                                    # if not already logged into the @c0mpute org
-npm publish --access public                  # scoped package -> --access public
+npm login                              # @c0mpute org creds (leyten)
+npm publish --access public            # scoped package -> --access public
 ```
 
-## Verify (30 seconds after publish)
+## Verify (30 s after publish)
 
 ```bash
-npm view @c0mpute/worker version             # -> 2.8.3
-npx -y @c0mpute/worker@latest --mode shard   # -> "c0mpute worker v2.8.3", asks for --token
+npm view @c0mpute/worker version           # -> 2.8.3
+npx -y @c0mpute/worker@latest --mode shard # -> "c0mpute worker v2.8.3", asks for --token
 ```
 
-## Pre-publish checklist
+## Pre-publish checklist (go-live)
 
-- [ ] On **merged master** (`git log --oneline -1` matches origin/master), no local edits.
-- [ ] `npm run build` clean; `dist/index.js` present; the smoke line shows **v2.8.3**.
-- [ ] `dist` + `README.md` are the `files` shipped (package.json `files`) — no stray secrets.
-- [ ] Version is **2.8.3** (npm has 2.8.2; `npm publish` refuses a duplicate version, so a re-publish
-      needs a bump — `npm version patch` — then repeat build + publish).
+- [ ] The betanet is **actually launching** — this is part of the coordinated flip, not a standalone step.
+- [ ] The prod orchestrator has been updated to master + restarted (so it speaks the shard protocol the
+      published worker expects).
+- [ ] On merged master, no local edits; `npm run build` clean; smoke shows **v2.8.3**.
+- [ ] `files` ships only `dist` + `README.md` — no secrets.
+- [ ] Version is unused on npm (npm has 2.8.2; `npm publish` refuses a duplicate — bump with
+      `npm version patch` if needed).
 
-## What this unblocks
-
-- **Every stranger's `npx` join** (the standard install path).
-- **The WSL2 bootstrap** end-to-end (`wsl-setup.sh` → `npx @c0mpute/worker@latest --mode shard`).
-- **The full-daemon rehearsal ring** (real boxes running the current worker without hand-shipping a
-  build), which produces the P0-#6 warm re-join ≤3min receipt.
-
-> Note: the daemon self-provisions the shard **engine** from GitHub (public) and the **sidecar** from
-> the published `sidecar-v0.1.0` release (already live, sha-pinned) — so once the worker is on npm, a
-> Go-less stranger on stock Ubuntu/WSL needs nothing else.
+> Auto-update was removed (`feat!: remove worker auto-update`), so existing operators are never
+> force-upgraded — but a fresh `npx`/reinstall gets whatever is `@latest`, which is why the *timing*
+> of the publish is the whole point.
