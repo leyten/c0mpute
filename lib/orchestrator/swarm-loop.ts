@@ -103,6 +103,15 @@ export function attachSwarmLoop(io: Server, opts: SwarmLoopOptions) {
   async function autoForm(model: string) {
     const spec = opts.resolveModel?.(model);
     if (!spec) return;
+    // DON'T form a new/replacement ring while one for this model is still PULLING (loading). A cold
+    // cohort takes ~30min to pull+load; forming again during that window (on any transient
+    // disconnect) preempts the in-progress pulls and thrashes — the re-form STORM that starved the
+    // rehearsal serve. Let the current ring load to `ready` (or genuinely fail) first; reschedule.
+    if (mgr.snapshot().swarms.some((s) => s.model === model && (s.status === 'pulling' || s.status === 'forming'))) {
+      log(`auto-form ${model}: a ring is still loading — deferring to avoid a re-form storm`);
+      scheduleAutoForm(model);
+      return;
+    }
     const n = mgr.candidateCount(model);
     if (n < spec.minStages) return;
     // Uniform placeholder RTT until the probe round lands (PLACEMENT_AS_PROTOCOL: re-measure at
