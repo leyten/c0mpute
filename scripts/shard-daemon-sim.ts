@@ -29,6 +29,13 @@ const PORT = Number(process.argv[process.argv.indexOf('--port') + 1] || 0) || 37
 const ONCE = process.argv.includes('--once');
 // --serve: once the swarm is READY, dispatch a real serveRequest through the daemon's coordinator
 // (leg 8 node half: swarm:job -> SHARD_JOB_TOKEN stream -> swarm:job_complete -> settle).
+// --full: tile the WHOLE model [0:L) across the ring (real serving ring); default = tail-anchored
+// partial ranges for the GPU-less shim tests.
+const FULL = process.argv.includes('--full');
+// --manifest-ref <mf1:name@cid>: the real signed manifest's ref, so daemons' --manifest-cid check
+// passes against the real doc served via --manifest-file (else the empty fixture ref -> FETCH_FATAL).
+const MANIFEST_REF_ARG = process.argv.includes('--manifest-ref')
+  ? process.argv[process.argv.indexOf('--manifest-ref') + 1] : null;
 // --p11: the restart-degraded proof (coordinator stall-kill -> daemon relaunches it EAGLE-off).
 const P11 = process.argv.includes('--p11');
 const SERVE = process.argv.includes('--serve') || process.argv.includes('--churn') || P11;
@@ -72,16 +79,25 @@ class SimSeam implements Seam {
     const r = req as { nodes: { id: string }[]; model: { n_layers: number } };
     const n = Math.min(r.nodes.length, STAGES);        // spares beyond STAGES stay free candidates
     const L = r.model.n_layers;
-    // consecutive LAYERS-sized blocks ENDING at the model tail, so every stage's pull is a
-    // few real shards (+ lm_head on the tail) instead of an unservable 62-layer stack
-    const stages = r.nodes.slice(0, n).map((node, i) => ({
-      id: node.id, index: i,
-      lo: L - (n - i) * LAYERS, hi: L - (n - i - 1) * LAYERS,
-      head: i === 0, tail: i === n - 1,
-      layers: LAYERS,
-    }));
-    if (stages[0].lo < 0) { log(`SimSeam.plan: ${n} nodes × ${LAYERS} layers exceeds ${L} — lower --layers`); return null; }
-    log(`SimSeam.plan: ${n} node(s) -> ${stages.map((s) => `[${s.lo}:${s.hi})`).join(' ')}`);
+    // FULL mode (--full, the real serving ring): tile ALL [0:L) across n stages as evenly as
+    // possible (lo_i = floor(i*L/n)). This is the ONLY correct split for a real serve — the old
+    // tail-anchored LAYERS blocks CANNOT tile 62 across 6 (62=2×31: --layers 10 drops layers 0-1,
+    // --layers 11 overshoots → null). Homogeneous 5090s → even ≈ what the real planner decides.
+    // DEFAULT mode keeps the tail-anchored partial ranges for the GPU-less shim tests (--layers 1).
+    const stages = FULL
+      ? r.nodes.slice(0, n).map((node, i) => {
+          const lo = Math.floor((i * L) / n), hi = Math.floor(((i + 1) * L) / n);
+          return { id: node.id, index: i, lo, hi, head: i === 0, tail: i === n - 1, layers: hi - lo };
+        })
+      : r.nodes.slice(0, n).map((node, i) => ({
+          id: node.id, index: i,
+          lo: L - (n - i) * LAYERS, hi: L - (n - i - 1) * LAYERS,
+          head: i === 0, tail: i === n - 1, layers: LAYERS,
+        }));
+    if (stages[0].lo < 0 || stages.some((s) => s.hi <= s.lo)) {
+      log(`SimSeam.plan: cannot tile ${L} layers across ${n} stage(s) (mode=${FULL ? 'full' : 'partial'})`); return null;
+    }
+    log(`SimSeam.plan: ${n} node(s) [${FULL ? 'FULL' : 'partial'}] -> ${stages.map((s) => `[${s.lo}:${s.hi})`).join(' ')}`);
     return {
       order: stages.map((s) => s.id), head: stages[0].id, stages,
       dropped: [], step_ms: 100, tok_s_per_g: 10, k: n,
@@ -185,7 +201,9 @@ const SIM_MANIFEST = {
 };
 const SIM_SPEC = {
   model: 'minimax-m2.5',
-  manifestRef: 'mf1:m25-nvfp4-v1@bafkreisimfixturecidnotarealhashbutshapedlikeone0000000000',
+  // real ring: pass --manifest-ref so the daemon's --manifest-cid check matches the real doc
+  manifestRef: MANIFEST_REF_ARG
+    || 'mf1:m25-nvfp4-v1@bafkreisimfixturecidnotarealhashbutshapedlikeone0000000000',
   minStages: STAGES,        // a ring needs STAGES nodes; spares beyond it are the churn reserve
   profile: { layerCount: 62, prefill_bytes: 1.0e8, decode_bytes: 1.6e4, decode_steps: 64 },
 };
@@ -196,15 +214,18 @@ const loop = attachSwarmLoop(io, {
   config: {
     admission: { mode: 'open', minFreeVramMb: 0 },           // sim: a 0-VRAM box may exercise the protocol
     paySplit: 'layers', minCandidates: STAGES, privacy: null, spotCheckTimeoutMs: 300_000,
+    // launch-parity: the operator seed box(es) so joiners pull peers-first (mirrors prod orchestrator.ts)
+    seedAddrs: (process.env.SWARM_SEED_ADDRS ?? '').split(',').map((s) => s.trim()).filter(Boolean),
   },
   seam: new SimSeam(),
   resolveModel: (m) => (m === 'minimax-m2.5' ? SIM_SPEC : undefined),   // auto-form this model
   autoFormDebounceMs: 900,
   log: (m) => {
     log(`loop: ${m}`);
-    if (/ READY — all /.test(m)) {
+    if (/ READY — all /.test(m) && !suiteStarted) {
       log('*** LIFECYCLE COMPLETE — every stage pulled, connected, and reported ready ***');
-      if (SERVE) serveOnce(1);
+      if (SUITE) { suiteStarted = true; setTimeout(() => void runSuite(), 1500); }
+      else if (SERVE) serveOnce(1);
       else if (ONCE) setTimeout(() => { log('(--once) success, exiting 0'); process.exit(0); }, 500);
     }
   },
@@ -217,6 +238,94 @@ const loop = attachSwarmLoop(io, {
  *  cover a coordinator that crashed and is in its restart backoff. */
 let served = 0;                                       // churn proof: completions across re-forms
 let churnTimer: ReturnType<typeof setTimeout> | null = null;
+
+// ── PERFORMANCE SUITE (--suite): the launch-representative numbers ────────────────────────────
+// Drives the real serveRequest path per prompt class, timestamping externally (TTFT + steady-state
+// decode tok/s from the token stream). Engine-truth g/transport come from the head daemon's
+// SHARD_JOB_METRICS line (grepped over SSH by the ring harness) — this measures what a client feels.
+const SUITE = process.argv.includes('--suite');
+let suiteStarted = false;
+const CODE_CTX = 'def process(items):\n    out = []\n    for it in items:\n        out.append(it * 2)\n    return out\n';
+const LONG_CTX = Array.from({ length: 220 }, (_, i) =>
+  `Section ${i}: the quarterly metric for unit ${i} was ${(i * 37) % 100}. `).join('') +
+  '\nThe secret access code is PLUM-7731-QX. \n' +
+  Array.from({ length: 220 }, (_, i) => `Note ${i}: routine status nominal for subsystem ${i}. `).join('');
+interface PromptClass { key: string; label: string; messages: unknown[]; maxNew: number; coherence?: RegExp }
+const PROMPTS: PromptClass[] = [
+  { key: 'A-prose', label: 'unique prose (worst case for spec-decode)',
+    messages: [{ role: 'user', content: 'Write an original short story about a lighthouse keeper who discovers a message in a bottle. Make it vivid and unpredictable.' }], maxNew: 256 },
+  { key: 'B-chat', label: 'multi-turn chat (realistic traffic)',
+    messages: [
+      { role: 'user', content: 'I am planning a trip to Japan in spring. Any tips?' },
+      { role: 'assistant', content: 'Spring is cherry-blossom season — book early, and consider Kyoto and Nara.' },
+      { role: 'user', content: 'Earlier you mentioned Kyoto. What are three must-see temples there, and why?' },
+    ], maxNew: 256 },
+  { key: 'C-code', label: 'code/reasoning (best case for spec-decode)',
+    messages: [{ role: 'user', content: `Refactor this Python function to be more efficient and explain each change step by step:\n\n${CODE_CTX}` }], maxNew: 384 },
+  { key: 'D-longctx', label: 'long-context needle (~8k ctx, short answer)',
+    messages: [{ role: 'user', content: `${LONG_CTX}\n\nQuestion: what is the secret access code mentioned in the document? Answer with just the code.` }], maxNew: 32, coherence: /PLUM-7731-QX/ },
+];
+
+interface RepResult { ttftMs: number; tokS: number; tokens: number; coherent: boolean; wallMs: number }
+function measureServe(p: PromptClass): Promise<RepResult> {
+  return new Promise((resolve, reject) => {
+    const tDispatch = Date.now();
+    let tFirst = 0; let full = '';
+    const to = setTimeout(() => reject(new Error('serve timeout 240s')), 240_000);
+    const r = loop.serveRequest({
+      model: 'minimax-m2.5', messages: p.messages, params: { maxNew: p.maxNew }, timeoutMs: 240_000,
+      onToken: (d: string) => { if (!tFirst) tFirst = Date.now(); full += d; },
+      onDone: (response: string, tokens: number) => {
+        clearTimeout(to);
+        const tDone = Date.now();
+        const decodeS = tFirst ? (tDone - tFirst) / 1000 : 0;
+        resolve({
+          ttftMs: tFirst ? tFirst - tDispatch : (tDone - tDispatch),
+          tokS: decodeS > 0 && tokens > 1 ? (tokens - 1) / decodeS : 0,
+          tokens, wallMs: tDone - tDispatch,
+          coherent: (response === full || response === '') && (!p.coherence || p.coherence.test(response || full)),
+        });
+      },
+      onError: (m: string) => { clearTimeout(to); reject(new Error(m)); },
+    });
+    if (!r) { clearTimeout(to); reject(new Error('serveRequest returned null (no ready swarm)')); }
+  });
+}
+
+async function runSuite(): Promise<void> {
+  const REPS = Number(process.argv[process.argv.indexOf('--reps') + 1] || 0) || 3;
+  log('=== PERFORMANCE SUITE start — warm-up (discarded) then interleaved reps ===');
+  const results = new Map<string, RepResult[]>(PROMPTS.map((p) => [p.key, []]));
+  // warm-up: one of each, discarded (graph capture, drafter load, KV alloc happen here)
+  for (const p of PROMPTS) {
+    try { const w = await measureServe(p); log(`warmup ${p.key}: ttft=${w.ttftMs}ms tok/s=${w.tokS.toFixed(1)} (discarded)`); }
+    catch (e: any) { log(`warmup ${p.key} FAILED: ${e.message}`); }
+  }
+  // interleaved reps: A,B,C,D,A,B,C,D… so drift spreads across classes
+  for (let rep = 0; rep < REPS; rep++) {
+    for (const p of PROMPTS) {
+      try {
+        const m = await measureServe(p);
+        results.get(p.key)!.push(m);
+        log(`rep${rep + 1} ${p.key}: ttft=${m.ttftMs}ms tok/s=${m.tokS.toFixed(1)} tokens=${m.tokens} coherent=${m.coherent}`);
+      } catch (e: any) { log(`rep${rep + 1} ${p.key} FAILED: ${e.message}`); }
+    }
+  }
+  // scorecard
+  const med = (xs: number[]) => { const s = [...xs].sort((a, b) => a - b); return s.length ? s[Math.floor(s.length / 2)] : 0; };
+  log('');
+  log('════════════ PERFORMANCE SCORECARD ════════════');
+  log('class                              tok/s(med)  ttft(med,ms)  tokens  coherent  reps');
+  for (const p of PROMPTS) {
+    const rs = results.get(p.key)!;
+    const toks = rs.map((r) => r.tokS), ttfts = rs.map((r) => r.ttftMs);
+    const coh = rs.length ? rs.every((r) => r.coherent) : false;
+    log(`${p.key.padEnd(12)} ${p.label.slice(0, 20).padEnd(21)} ${med(toks).toFixed(1).padStart(9)}  ${String(med(ttfts)).padStart(11)}  ${String(rs[0]?.tokens ?? 0).padStart(6)}  ${String(coh).padStart(8)}  ${String(rs.length).padStart(4)}`);
+  }
+  log('════════════════════════════════════════════════');
+  log('SUITE_COMPLETE');
+  if (ONCE) setTimeout(() => process.exit(0), 800);
+}
 // P11 (restart-degraded): serve #1 -> a STALL request that wedges the coordinator (L3 signature)
 // -> the daemon must relaunch the coordinator EAGLE-off and serve #2. The EAGLE-off assertion is
 // grepped from the daemon log (two SHIM_COORD_EAGLE lines: true then false) by p11-restart-test.sh.
