@@ -254,7 +254,7 @@ export function drawJourney(ctx: CanvasRenderingContext2D, W: number, H: number,
       const ry = lerp(ry0 - 26, ly - i * 8, tt);
       receipt(ctx, rx, ry, 1.7, Math.max(ledgerA * 0.85, 0.05), tt >= 1 && seg(q6, 0.5 + i * 0.05, 0.62 + i * 0.05) >= 1);
     }
-    label(ctx, 'receipts settle', lx, ly + 44, ledgerA * seg(q6, 0.5, 0.8) * (1 - seg(q7, 0.6, 0.9)), 13);
+    label(ctx, 'receipts settle', lx, ly + 44, ledgerA * seg(q6, 0.5, 0.8), 13);
   }
   if (q7 > 0 && worldA > 0.01) {
     const coinA = easeIO(seg(q7, 0, 0.25)) * worldA;

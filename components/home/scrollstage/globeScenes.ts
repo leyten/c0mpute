@@ -4,7 +4,7 @@
 // gets paid — then the camera pulls back and more rings light the map.
 import {
   clamp01, seg, easeIO, easeOut, lerp, w, green,
-  ripple, coinStack, receipt, meter, label,
+  ripple, coinStack, receipt, meter, label, cardBox,
   drawGlobe, drawArc, buildArc, project, rotv, sph, GlobeView, V3,
 } from './art';
 
@@ -60,8 +60,8 @@ export function drawGlobeStory(ctx: CanvasRenderingContext2D, W: number, H: numb
   // camera: anchored on the EU ring's centroid, zooming in as the ring
   // becomes the story, then pulling back to the whole globe for the finale
   const zoomOut = easeIO(q8);
-  const zoomIn = easeIO(seg(p, 2.2 * CH, 3.8 * CH));
-  const R = lerp(lerp(minD * 1.02, minD * 1.24, zoomIn), minD * 0.34, zoomOut);
+  const zoomIn = easeIO(seg(p, 2.2 * CH, 5 * CH));
+  const R = lerp(lerp(minD * 1.02, minD * 1.18, zoomIn), minD * 0.34, zoomOut);
   const yaw = lerp(-0.07, -0.35, zoomOut) + tMs * 0.000012 * zoomOut;
   const tilt = lerp(0.72, 0.36, zoomOut);
   rotv(centroid!, 0, yaw, tilt, _cv);
@@ -95,8 +95,7 @@ export function drawGlobeStory(ctx: CanvasRenderingContext2D, W: number, H: numb
     const a = easeIO(seg(q1, 0.05, 0.3)) * (1 - easeIO(seg(q2, 0.4, 0.8)));
     if (a > 0.01) {
       const hx = Math.min(home.x + 46, W - 205), hy = home.y - 66;
-      ctx.fillStyle = `rgba(12,10,9,${(0.8 * a).toFixed(3)})`;
-      ctx.fillRect(hx - 14, hy - 26, Math.min(W * 0.22, 156) + 28, 152);
+      cardBox(ctx, hx - 14, hy - 26, Math.min(W * 0.22, 156) + 28, 152, a);
       ctx.strokeStyle = w(0.3 * a);
       ctx.setLineDash([2, 3]);
       ctx.beginPath();
@@ -121,9 +120,7 @@ export function drawGlobeStory(ctx: CanvasRenderingContext2D, W: number, H: numb
     const bx = (desktop ? W * 0.58 : W * 0.5) - bw2 / 2;
     const by = H * 0.86;
     const bwUnit = bw2 / n;
-    // translucent backdrop so the bar reads over the land dots
-    ctx.fillStyle = `rgba(12,10,9,${(0.82 * barA).toFixed(3)})`;
-    ctx.fillRect(bx - 18, by - 40, bw2 + 36, 104);
+    cardBox(ctx, bx - 18, by - 40, bw2 + 36, 104, barA);
     const hiLo = 8, hiHi = 14;
     const hiA = easeIO(seg(q2, 0.3, 0.6));
     const fills = Array.from({ length: hiHi - hiLo }, (_, i) => seg(q3, 0.08 + i * 0.12, 0.36 + i * 0.12));
@@ -175,13 +172,15 @@ export function drawGlobeStory(ctx: CanvasRenderingContext2D, W: number, H: numb
   }
 
   // ---------- 04 pull: peers seed the slice over arcs ----------
-  if (q3 > 0 && q3 < 1.15 && seedArcs) {
+  if (q3 > 0 && q3 < 1 && seedArcs) {
     const a = easeIO(seg(q3, 0, 0.2)) * (1 - easeIO(seg(q4, 0, 0.3)));
     seedArcs.forEach((arc, si) => {
       drawArc(ctx, arc, gv, w(0.3 * a), 1, -1);
-      for (let k = 0; k < 3; k++) {
-        const t = (q3 * 2.4 + k / 3 + si * 0.17) % 1;
-        drawArc(ctx, arc, gv, 'rgba(0,0,0,0)', 1, t);
+      if (a > 0.05) {
+        for (let k = 0; k < 3; k++) {
+          const t = (q3 * 1.6 + k / 3 + si * 0.17) % 1;
+          drawArc(ctx, arc, gv, 'rgba(0,0,0,0)', 1, t);
+        }
       }
     });
   }
@@ -218,8 +217,7 @@ export function drawGlobeStory(ctx: CanvasRenderingContext2D, W: number, H: numb
   const ly = desktop ? H * 0.3 : H * 0.14;
   if (q6 > 0) {
     const a = easeIO(seg(q6, 0, 0.25)) * (1 - easeIO(seg(q8, 0, 0.3)));
-    ctx.fillStyle = `rgba(12,10,9,${(0.75 * a).toFixed(3)})`;
-    ctx.fillRect(lx - 100, ly - 62, 200, q7 > 0 ? 310 : 130);
+    cardBox(ctx, lx - 100, ly - 62, 200, 130 + 180 * easeIO(seg(q7, 0, 0.25)), a);
     for (let i = 0; i < 6; i++) {
       const tt = easeIO(seg(q6, 0.05 + i * 0.07, 0.45 + i * 0.07));
       const c = scr[i];
@@ -227,7 +225,7 @@ export function drawGlobeStory(ctx: CanvasRenderingContext2D, W: number, H: numb
       receipt(ctx, lerp(sxx, lx + (i % 2) * 4 - 2, tt), lerp(syy, ly - i * 8, tt), 1.8,
         Math.max(a * 0.85, 0.03), tt >= 1 && seg(q6, 0.5 + i * 0.05, 0.62 + i * 0.05) >= 1);
     }
-    label(ctx, 'receipts settle', lx, ly + 44, a * seg(q6, 0.5, 0.8) * (1 - seg(q7, 0.6, 0.9)), 13);
+    label(ctx, 'receipts settle', lx, ly + 44, a * seg(q6, 0.5, 0.8), 13);
   }
   if (q7 > 0) {
     const a = easeIO(seg(q7, 0, 0.25)) * (1 - easeIO(seg(q8, 0, 0.3)));

@@ -576,7 +576,7 @@ export default function Home() {
               <div className="flex flex-col gap-2">
                 <a href="/#network" className="pixel-sans text-white/60 hover:text-white transition-colors text-sm">Lifecycle</a>
                 <a href="https://shard.c0mpute.ai" target="_blank" rel="noopener noreferrer" className="pixel-sans text-white/60 hover:text-white transition-colors text-sm">Map</a>
-                <a href="https://github.com/leyten/c0mpute" target="_blank" rel="noopener noreferrer" className="pixel-sans text-white/60 hover:text-white transition-colors text-sm">GitHub</a>
+                <a href="https://github.com/leyten/shard" target="_blank" rel="noopener noreferrer" className="pixel-sans text-white/60 hover:text-white transition-colors text-sm">Engine</a>
                 <a href="https://docs.c0mpute.ai" target="_blank" rel="noopener noreferrer" className="pixel-sans text-white/60 hover:text-white transition-colors text-sm">Protocol</a>
               </div>
             </div>

@@ -97,7 +97,7 @@ export default function LifecycleScroll({ variant }: { variant: '1' | '2' }) {
           style={{ background: 'linear-gradient(to top, rgba(12,10,9,0.92), rgba(12,10,9,0))' }} />
 
         {/* step text — left rail on desktop, bottom sheet on mobile */}
-        <div className="absolute left-5 right-5 bottom-10 md:right-auto md:left-[15%] md:bottom-auto md:top-1/2 md:-translate-y-1/2 md:max-w-sm">
+        <div className="absolute left-5 right-5 bottom-10 md:right-auto md:left-[20%] md:bottom-auto md:top-1/2 md:-translate-y-1/2 md:max-w-sm">
           {!finale ? (
             <div key={step} className="fade-step">
               <div className="pixel-serif step-num text-white/40 text-lg md:text-2xl">{STEPS[step].n}</div>
@@ -110,14 +110,14 @@ export default function LifecycleScroll({ variant }: { variant: '1' | '2' }) {
             <div key="finale" className="fade-step">
               <h3 className="pixel-serif text-white text-3xl md:text-5xl">One network.</h3>
               <p className="pixel-sans text-white/60 text-sm md:text-base mt-2 md:mt-4 leading-relaxed max-w-xs md:max-w-sm">
-                Models too big for any one machine, served by everyone — and no node is essential.
+                Too big for one machine, so it runs on all of them.
               </p>
               <div className="mt-4 md:mt-6 flex flex-col gap-2">
                 <a href="https://shard.c0mpute.ai" target="_blank" rel="noopener noreferrer"
                   className="cursor-pointer pixel-sans text-[#80a0c1]/50 hover:text-[#80a0c1] text-sm transition-colors">
                   Network map (testbed preview) →
                 </a>
-                <a href="https://github.com/leyten/c0mpute" target="_blank" rel="noopener noreferrer"
+                <a href="https://github.com/leyten/shard" target="_blank" rel="noopener noreferrer"
                   className="cursor-pointer pixel-sans text-[#80a0c1]/50 hover:text-[#80a0c1] text-sm transition-colors">
                   Engine source →
                 </a>

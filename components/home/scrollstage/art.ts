@@ -52,6 +52,19 @@ export function pcIcon(ctx: CanvasRenderingContext2D, cx: number, cy: number, s:
   u(6, 16, 12, 2, w(alpha));
 }
 
+// HUD card: the site's card language (rounded corner + hairline border) so
+// canvas overlays read as cards, not floating black boxes.
+export function cardBox(ctx: CanvasRenderingContext2D, x: number, y: number, wd: number, ht: number, alpha: number) {
+  if (alpha <= 0.01) return;
+  ctx.beginPath();
+  ctx.roundRect(x, y, wd, ht, 14);
+  ctx.fillStyle = `rgba(12,10,9,${(0.85 * alpha).toFixed(3)})`;
+  ctx.fill();
+  ctx.strokeStyle = w(0.12 * alpha);
+  ctx.lineWidth = 1;
+  ctx.stroke();
+}
+
 // Soft radar ping: expanding thin circles (announce) — calm, map-language.
 export function ripple(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number, alpha: number) {
   if (alpha <= 0.01) return;
