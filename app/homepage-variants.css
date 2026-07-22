@@ -70,6 +70,13 @@
 }
 .badge-chip.badge-live { color: rgba(110, 231, 183, 0.9); }
 
+/* ---------- scroll-stage step text crossfade ---------- */
+.fade-step { animation: fadeStep 0.55s ease both; }
+@keyframes fadeStep {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 /* ---------- preview-only layout switcher ---------- */
 .variant-switcher {
   position: fixed;

@@ -143,8 +143,12 @@
     min-height: 100vh;
     @apply text-foreground;
     background: #000000;
-    overflow-x: hidden;
-    overflow-y: auto;
+    /* clip, not hidden: overflow-x hidden + overflow-y auto made body a
+       scroll container, which broke position:sticky (the homepage scroll
+       stage pins against body instead of the viewport). clip does not
+       create a scroll container. */
+    overflow-x: clip;
+    overflow-y: visible;
     font-smooth: never;
     -webkit-font-smoothing: none;
     -moz-osx-font-smoothing: unset;

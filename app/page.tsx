@@ -5,18 +5,11 @@ import { useRouter } from 'next/navigation';
 import { Inter, Newsreader } from 'next/font/google';
 import './homepage-variants.css';
 import PixelBlast from '@/components/PixelBlast';
-import OrchestratorFlow from '@/components/OrchestratorFlow';
-import PrivateVisual from '@/components/PrivateVisual';
-import BrowserVisual from '@/components/BrowserVisual';
-import EarningsVisual from '@/components/EarningsVisual';
 import AnonGateModal from '@/components/AnonGateModal';
 import StatusBadge from '@/components/StatusBadge';
-import LifecycleFlow from '@/components/home/LifecycleFlow';
-import LifecycleList from '@/components/home/LifecycleList';
+import LifecycleScroll from '@/components/home/LifecycleScroll';
 import Receipts from '@/components/home/Receipts';
-import Verification from '@/components/home/Verification';
 import Doors from '@/components/home/Doors';
-import ZeroSection from '@/components/home/ZeroSection';
 import RoadmapStrip from '@/components/home/RoadmapStrip';
 import { useAuth } from '@/hooks/useAuth';
 
@@ -24,10 +17,10 @@ import { useAuth } from '@/hooks/useAuth';
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
 const newsreader = Newsreader({ subsets: ['latin'], style: ['normal', 'italic'], variable: '--font-newsreader' });
 
-// Preview: three page LAYOUTS on the same theme.
-// 1 = Direct (compressed) · 2 = Editorial split · 3 = Chapters
-type Layout = '1' | '2' | '3';
-const LAYOUT_KEY = 'c0mpute_preview_layout';
+// Preview: two scroll-story variants on the same theme.
+// 1 = "One GPU's journey" (pixel-card stage) · 2 = "The network view" (globe)
+type Layout = '1' | '2';
+const LAYOUT_KEY = 'c0mpute_preview_story';
 
 // Key for passing prompt to user page
 const PENDING_PROMPT_KEY = 'c0mpute_pending_prompt';
@@ -46,12 +39,12 @@ export default function Home() {
   const [anonModalOpen, setAnonModalOpen] = useState(false);
   const [layout, setLayout] = useState<Layout>('1');
 
-  // Preview-only: pick the page layout via ?v=1|2|3 or the switcher
-  // (persisted). URL param wins so each layout is directly linkable.
+  // Preview-only: pick the scroll-story variant via ?v=1|2 or the switcher
+  // (persisted). URL param wins so each variant is directly linkable.
   useEffect(() => {
     const fromUrl = new URLSearchParams(window.location.search).get('v');
     const stored = localStorage.getItem(LAYOUT_KEY);
-    const pick = (v: string | null): v is Layout => v === '1' || v === '2' || v === '3';
+    const pick = (v: string | null): v is Layout => v === '1' || v === '2';
     if (pick(fromUrl)) { setLayout(fromUrl); localStorage.setItem(LAYOUT_KEY, fromUrl); }
     else if (pick(stored)) setLayout(stored);
   }, []);
@@ -156,9 +149,9 @@ export default function Home() {
 
   return (
     <div className={`relative bg-black v-b ${inter.variable} ${newsreader.variable}`} style={{ overflow: 'visible' }}>
-      {/* Preview-only layout switcher */}
-      <div className="variant-switcher" title="Preview layout variants">
-        {(['1', '2', '3'] as Layout[]).map((v) => (
+      {/* Preview-only story-variant switcher */}
+      <div className="variant-switcher" title="Preview scroll-story variants">
+        {(['1', '2'] as Layout[]).map((v) => (
           <button key={v} className={layout === v ? 'on' : ''} onClick={() => chooseLayout(v)}>
             {v}
           </button>
@@ -467,92 +460,49 @@ export default function Home() {
           />
         </div>
         
-        {/* Hero Content — centered (layouts 1/3) or split editorial (layout 2) */}
-        {layout === '2' ? (
-          <div className="relative z-10 h-full max-w-6xl mx-auto px-4 md:px-6 grid grid-cols-1 md:grid-cols-2 gap-8 md:gap-16 content-center items-center">
-            <div className="text-left space-y-5">
-              <h1 className="pixel-serif text-white text-4xl md:text-5xl lg:text-6xl font-bold leading-tight tracking-tight">
-                The foundation layer of decentralized AI
-              </h1>
-              <p className="pixel-sans text-white/80 text-sm md:text-base max-w-md">
+        {/* Hero Content */}
+        <div className="relative z-10 flex flex-col items-center justify-center px-4 md:px-6 h-full">
+          <div className="text-center space-y-6 md:space-y-8 max-w-5xl w-full -mt-24">
+            <div className="space-y-4">
+              <div className="pixel-serif-wrapper">
+                <h1 className="pixel-serif text-white text-3xl md:text-5xl lg:text-6xl font-bold leading-tight tracking-tight">
+                  The foundation layer<br />of decentralized AI
+                </h1>
+              </div>
+              <p className="pixel-sans text-white/90 text-sm md:text-lg lg:text-xl max-w-2xl mx-auto px-4">
                 A permissionless network of user-owned GPUs doing verifiable AI work.
               </p>
-              <p className="pixel-serif text-white/90 text-lg md:text-2xl italic leading-snug max-w-lg">
+              <p className="pixel-serif text-white/90 text-lg md:text-2xl italic leading-snug max-w-2xl mx-auto px-4">
                 We don&apos;t rent out GPUs. We deliver AI work that proves itself.
               </p>
             </div>
-            <div className="w-full">
-              <form onSubmit={handleSubmit} className="w-full">
-                <div className="flex gap-2 md:gap-3 items-stretch">
-                  <input
-                    type="text"
-                    value={prompt}
-                    onChange={(e) => setPrompt(e.target.value)}
-                    placeholder="Ask anything..."
-                    className="flex-1 pixel-sans bg-black border border-[#2a2a2a] rounded-xl text-white placeholder:text-white/50 px-3 md:px-4 py-3 focus:outline-none focus:border-[#3a3a3a] transition-colors text-sm md:text-lg"
-                  />
-                  <button
-                    type="submit"
-                    className="cursor-pointer bg-black text-white border border-[#2a2a2a] rounded-xl px-3 md:px-4 py-3 flex items-center justify-center"
-                    aria-label="Send"
-                  >
-                    <img src="/PixelSendIcon.png" alt="Send" width={20} height={20} />
-                  </button>
-                </div>
-              </form>
-              <p className="pixel-sans text-white/60 text-xs md:text-sm mt-4 flex items-center gap-2 flex-wrap">
-                <StatusBadge state="live" />
-                <span>The first product on the network answers today — free, no login.</span>
-              </p>
-            </div>
-          </div>
-        ) : (
-          <div className="relative z-10 flex flex-col items-center justify-center px-4 md:px-6 h-full">
-            <div className="text-center space-y-6 md:space-y-8 max-w-5xl w-full -mt-24">
-              <div className="space-y-4">
-                <div className="pixel-serif-wrapper">
-                  <h1 className="pixel-serif text-white text-3xl md:text-5xl lg:text-6xl font-bold leading-tight tracking-tight">
-                    The foundation layer<br />of decentralized AI
-                  </h1>
-                </div>
-                <p className="pixel-sans text-white/90 text-sm md:text-lg lg:text-xl max-w-2xl mx-auto px-4">
-                  A permissionless network of user-owned GPUs doing verifiable AI work.
-                </p>
-                {layout === '1' && (
-                  <p className="pixel-serif text-white/90 text-lg md:text-2xl italic leading-snug max-w-2xl mx-auto px-4">
-                    We don&apos;t rent out GPUs. We deliver AI work that proves itself.
-                  </p>
-                )}
+
+            {/* Prompt Input */}
+            <form onSubmit={handleSubmit} className="mt-6 md:mt-8 max-w-3xl mx-auto w-full px-2">
+              <div className="flex gap-2 md:gap-3 items-stretch">
+                <input
+                  type="text"
+                  value={prompt}
+                  onChange={(e) => setPrompt(e.target.value)}
+                  placeholder="Ask anything..."
+                  className="flex-1 pixel-sans bg-black border border-[#2a2a2a] rounded-xl text-white placeholder:text-white/50 px-3 md:px-4 py-3 focus:outline-none focus:border-[#3a3a3a] transition-colors text-sm md:text-lg"
+                />
+                <button
+                  type="submit"
+                  className="cursor-pointer bg-black text-white border border-[#2a2a2a] rounded-xl px-3 md:px-4 py-3 flex items-center justify-center"
+                  aria-label="Send"
+                >
+                  <img src="/PixelSendIcon.png" alt="Send" width={20} height={20} />
+                </button>
               </div>
+            </form>
 
-              {/* Prompt Input */}
-              <form onSubmit={handleSubmit} className="mt-6 md:mt-8 max-w-3xl mx-auto w-full px-2">
-                <div className="flex gap-2 md:gap-3 items-stretch">
-                  <input
-                    type="text"
-                    value={prompt}
-                    onChange={(e) => setPrompt(e.target.value)}
-                    placeholder="Ask anything..."
-                    className="flex-1 pixel-sans bg-black border border-[#2a2a2a] rounded-xl text-white placeholder:text-white/50 px-3 md:px-4 py-3 focus:outline-none focus:border-[#3a3a3a] transition-colors text-sm md:text-lg"
-                  />
-                  <button
-                    type="submit"
-                    className="cursor-pointer bg-black text-white border border-[#2a2a2a] rounded-xl px-3 md:px-4 py-3 flex items-center justify-center"
-                    aria-label="Send"
-                  >
-                    <img src="/PixelSendIcon.png" alt="Send" width={20} height={20} />
-                  </button>
-                </div>
-              </form>
-
-              <p className="pixel-sans text-white/60 text-xs md:text-sm max-w-xl mx-auto px-4 mt-6 flex items-center justify-center gap-2 flex-wrap">
-                <StatusBadge state="live" />
-                <span>The first product on the network answers today — free, no login.</span>
-              </p>
-            </div>
+            <p className="pixel-sans text-white/60 text-xs md:text-sm max-w-xl mx-auto px-4 mt-6 flex items-center justify-center gap-2 flex-wrap">
+              <StatusBadge state="live" />
+              <span>The first product on the network answers today — free, no login.</span>
+            </p>
           </div>
-        )}
-        
+        </div>
         {/* Scroll indicator */}
         <div className={`absolute bottom-8 left-1/2 -translate-x-1/2 z-10 transition-opacity duration-500 ${hasScrolled ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
           <div 
@@ -573,281 +523,29 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ============ LAYOUT 1 — Direct (compressed) ============ */}
-      {layout === '1' && (
-        <>
-          <section id="network" className="bg-black py-16 md:py-24 border-t border-white/5">
-            <div className="max-w-6xl mx-auto px-4 md:px-6">
-              <div className="text-center mb-10 md:mb-14">
-                <div className="pixel-sans text-white/40 text-xs tracking-widest mb-3 flex items-center justify-center gap-2">
-                  <span>THE NETWORK</span>
-                  <StatusBadge state="launching" />
-                </div>
-                <h2 className="pixel-serif text-white text-3xl md:text-4xl lg:text-5xl">
-                  Torrent, but for compute
-                </h2>
-                <p className="pixel-sans text-white/70 text-sm md:text-base mt-4 max-w-2xl mx-auto">
-                  A model too big for any one machine is split into layers across GPUs people own —
-                  inference runs through the pieces, and no node is essential.
-                </p>
-              </div>
-              <LifecycleFlow />
-              <div className="mt-10 text-center flex flex-wrap items-center justify-center gap-x-8 gap-y-3">
-                <a href="https://shard.c0mpute.ai" target="_blank" rel="noopener noreferrer" className="cursor-pointer pixel-sans text-[#80a0c1]/50 hover:text-[#80a0c1] text-xs md:text-sm transition-colors">Network map (testbed preview) →</a>
-                <a href="https://github.com/leyten/c0mpute" target="_blank" rel="noopener noreferrer" className="cursor-pointer pixel-sans text-[#80a0c1]/50 hover:text-[#80a0c1] text-xs md:text-sm transition-colors">Engine source →</a>
-              </div>
-            </div>
-          </section>
+      {/* The scroll-locked lifecycle story */}
+      <LifecycleScroll variant={layout} />
 
-          <section id="verification" className="bg-black py-16 md:py-24 border-t border-white/5">
-            <div className="max-w-6xl mx-auto px-4 md:px-6">
-              <div className="text-center mb-10 md:mb-14">
-                <h2 className="pixel-serif text-white text-3xl md:text-4xl lg:text-5xl">
-                  Receipts, not promises
-                </h2>
-              </div>
-              <Receipts />
-              <p className="pixel-sans text-white/60 text-sm text-center max-w-3xl mx-auto mt-10">
-                Every stage signs receipts; outputs that diverge are caught structurally; random blocks are
-                re-checked on trusted nodes. Cheating is detectable — and unprofitable by design.{' '}
-                <a href="https://docs.c0mpute.ai" target="_blank" rel="noopener noreferrer" className="cursor-pointer text-[#80a0c1]/50 hover:text-[#80a0c1] transition-colors">How verification works →</a>
-              </p>
-            </div>
-          </section>
-        </>
-      )}
-
-      {/* ============ LAYOUT 2 — Editorial split ============ */}
-      {layout === '2' && (
-        <>
-          <section id="network" className="bg-black py-16 md:py-24 border-t border-white/5">
-            <div className="max-w-6xl mx-auto px-4 md:px-6 grid grid-cols-1 md:grid-cols-5 gap-10 md:gap-16">
-              <div className="md:col-span-2 md:sticky md:top-28 self-start">
-                <div className="pixel-sans text-white/40 text-xs tracking-widest mb-3 flex items-center gap-2">
-                  <span>THE NETWORK</span>
-                  <StatusBadge state="launching" />
-                </div>
-                <h2 className="pixel-serif text-white text-3xl md:text-4xl lg:text-5xl">
-                  Torrent, but for compute
-                </h2>
-                <p className="pixel-sans text-white/70 text-sm md:text-base mt-4">
-                  A model too big for any one machine is split into layers across GPUs people own. Instead
-                  of downloading the pieces, inference runs through them — and no node is essential.
-                </p>
-                <div className="mt-6 flex flex-col gap-2.5">
-                  <a href="https://shard.c0mpute.ai" target="_blank" rel="noopener noreferrer" className="cursor-pointer pixel-sans text-[#80a0c1]/50 hover:text-[#80a0c1] text-sm transition-colors">Network map (testbed preview) →</a>
-                  <a href="https://github.com/leyten/c0mpute" target="_blank" rel="noopener noreferrer" className="cursor-pointer pixel-sans text-[#80a0c1]/50 hover:text-[#80a0c1] text-sm transition-colors">Engine source →</a>
-                </div>
-              </div>
-              <div className="md:col-span-3">
-                <LifecycleList />
-              </div>
-            </div>
-          </section>
-
-          <section id="verification" className="bg-black py-16 md:py-24 border-t border-white/5">
-            <div className="max-w-6xl mx-auto px-4 md:px-6 grid grid-cols-1 md:grid-cols-5 gap-10 md:gap-16">
-              <div className="md:col-span-2 md:sticky md:top-28 self-start">
-                <div className="pixel-sans text-white/40 text-xs tracking-widest mb-3">VERIFICATION</div>
-                <h2 className="pixel-serif text-white text-3xl md:text-4xl lg:text-5xl">
-                  Don&apos;t trust the node. Check the work.
-                </h2>
-                <p className="pixel-sans text-white/70 text-sm md:text-base mt-4">
-                  Permissionless only works if lying doesn&apos;t. The moat isn&apos;t the GPUs —
-                  it&apos;s proving what they did.
-                </p>
-              </div>
-              <div className="md:col-span-3">
-                <Verification stacked />
-              </div>
-            </div>
-          </section>
-
-          <section className="bg-black py-16 md:py-24 border-t border-white/5">
-            <div className="max-w-6xl mx-auto px-4 md:px-6">
-              <h2 className="pixel-serif text-white text-2xl md:text-3xl text-center mb-8 md:mb-12">
-                Receipts, not promises
-              </h2>
-              <Receipts />
-            </div>
-          </section>
-        </>
-      )}
-
-      {/* ============ LAYOUT 3 — Chapters (one idea per screen) ============ */}
-      {layout === '3' && (
-        <>
-          <section className="bg-black min-h-[70vh] flex items-center border-t border-white/5">
-            <div className="max-w-4xl mx-auto px-4 md:px-6 text-center py-20">
-              <h2 className="pixel-serif text-white text-3xl md:text-5xl lg:text-6xl leading-tight">
-                We don&apos;t rent out GPUs.<br />We deliver AI work that proves itself.
-              </h2>
-              <p className="pixel-sans text-white/60 text-sm md:text-base mt-8 max-w-2xl mx-auto">
-                Every stage of every job signs a receipt — an audit trail the work carries with it. The
-                first product on the network is live today; the betanet is launching.
-              </p>
-            </div>
-          </section>
-
-          <section id="network" className="bg-black min-h-[85vh] flex items-center border-t border-white/5">
-            <div className="max-w-6xl mx-auto px-4 md:px-6 py-20 w-full">
-              <div className="text-center mb-12 md:mb-16">
-                <div className="pixel-sans text-white/40 text-xs tracking-widest mb-3 flex items-center justify-center gap-2">
-                  <span>THE NETWORK</span>
-                  <StatusBadge state="launching" />
-                </div>
-                <h2 className="pixel-serif text-white text-3xl md:text-4xl lg:text-5xl">
-                  Torrent, but for compute
-                </h2>
-              </div>
-              <LifecycleFlow large />
-              <div className="mt-12 text-center flex flex-wrap items-center justify-center gap-x-8 gap-y-3">
-                <a href="https://shard.c0mpute.ai" target="_blank" rel="noopener noreferrer" className="cursor-pointer pixel-sans text-[#80a0c1]/50 hover:text-[#80a0c1] text-xs md:text-sm transition-colors">Network map (testbed preview) →</a>
-                <a href="https://github.com/leyten/c0mpute" target="_blank" rel="noopener noreferrer" className="cursor-pointer pixel-sans text-[#80a0c1]/50 hover:text-[#80a0c1] text-xs md:text-sm transition-colors">Engine source →</a>
-              </div>
-            </div>
-          </section>
-
-          <section id="verification" className="bg-black min-h-[85vh] flex items-center border-t border-white/5">
-            <div className="max-w-6xl mx-auto px-4 md:px-6 py-20 w-full">
-              <h2 className="pixel-serif text-white text-3xl md:text-4xl lg:text-5xl text-center mb-12 md:mb-16">
-                Receipts, not promises
-              </h2>
-              <Receipts />
-              <div className="mt-12 md:mt-16">
-                <Verification />
-              </div>
-            </div>
-          </section>
-        </>
-      )}
-
-      {/* Bento Grid Section — the live v1 product */}
-      <section className="bg-black py-12 md:py-24 border-t border-white/5">
+      {/* Receipts, not promises */}
+      <section id="verification" className="bg-black py-16 md:py-24 border-t border-white/5">
         <div className="max-w-6xl mx-auto px-4 md:px-6">
-
-          <div className="text-center mb-12 md:mb-16">
-            <div className="pixel-sans text-white/40 text-xs tracking-widest mb-3 flex items-center justify-center gap-2">
-              <span>THE PRODUCT</span>
-              <StatusBadge state="live" />
-            </div>
+          <div className="text-center mb-10 md:mb-14">
             <h2 className="pixel-serif text-white text-3xl md:text-4xl lg:text-5xl">
-              The first product on the network
+              Receipts, not promises
             </h2>
-            <p className="pixel-sans text-white/70 text-sm md:text-base mt-4 max-w-2xl mx-auto">
-              Chat, create, and earn — browser workers doing paid AI work today, settled in USDC.
-            </p>
           </div>
-
-          {/* Mobile: Stacked text-only cards */}
-          <div className="md:hidden flex flex-col gap-4">
-            {/* Card 1 - People Powered */}
-            <div className="border border-white/10 bg-white/[0.02] rounded-2xl p-6">
-              <h3 className="pixel-serif text-white text-xl">
-                People-Powered AI
-              </h3>
-              <p className="pixel-sans text-white/70 text-sm mt-2">
-                Compute shared by people around the world — not hyperscale data centers — powering AI for everyone.
-              </p>
-            </div>
-            
-            {/* Card 2 - Privacy */}
-            <div className="border border-white/10 bg-white/[0.02] rounded-2xl p-6">
-              <h3 className="pixel-serif text-white text-xl">
-                Private by Design
-              </h3>
-              <p className="pixel-sans text-white/70 text-sm mt-2">
-                We never store your prompts, and workers never see who you are.
-              </p>
-            </div>
-            
-            {/* Card 3 - Browser */}
-            <div className="border border-white/10 bg-white/[0.02] rounded-2xl p-6">
-              <h3 className="pixel-serif text-white text-xl">
-                In-Browser
-              </h3>
-              <p className="pixel-sans text-white/70 text-sm mt-2">
-                No downloads. Just open and go.
-              </p>
-            </div>
-            
-            {/* Card 4 - Get Paid */}
-            <div className="border border-white/10 bg-white/[0.02] rounded-2xl p-6">
-              <h3 className="pixel-serif text-white text-xl">
-                Get Paid for Your Compute
-              </h3>
-              <p className="pixel-sans text-white/70 text-sm mt-2">
-                Get paid in <span className="dollar">$</span>USDC for your computing power. Passive income just by keeping a tab open.
-              </p>
-            </div>
-          </div>
-
-          {/* Desktop: Bento Grid with visuals */}
-          <div className="hidden md:grid grid-cols-5 grid-rows-2 gap-4 h-[750px]">
-            {/* Row 1: Large + Small */}
-            {/* Cell 1 - People Powered (large) */}
-            <div className="col-span-3 border border-white/10 bg-white/[0.02] rounded-2xl p-8 flex flex-col hover:bg-white/[0.04] transition-colors overflow-hidden">
-              <h3 className="pixel-serif text-white text-2xl md:text-3xl">
-                People-Powered AI
-              </h3>
-              <p className="pixel-sans text-white/70 text-sm mt-3">
-                Compute shared by people around the world — not hyperscale data centers — powering AI for everyone.
-              </p>
-              {/* Orchestrator Flow Animation */}
-              <div className="flex-1 flex items-center justify-center mt-4">
-                <OrchestratorFlow />
-              </div>
-            </div>
-            
-            {/* Cell 2 - Privacy (small) */}
-            <div className="col-span-2 border border-white/10 bg-white/[0.02] rounded-2xl p-6 flex flex-col hover:bg-white/[0.04] transition-colors overflow-hidden">
-              <h3 className="pixel-serif text-white text-xl">
-                Private by Design
-              </h3>
-              <p className="pixel-sans text-white/70 text-sm mt-2">
-                We never store your prompts,<br />and workers never see who you are.
-              </p>
-              {/* Privacy Visual */}
-              <div className="flex-1 flex items-center justify-center mt-4">
-                <PrivateVisual />
-              </div>
-            </div>
-            
-            {/* Row 2: Small + Large */}
-            {/* Cell 3 - Browser (small) */}
-            <div className="col-span-2 border border-white/10 bg-white/[0.02] rounded-2xl p-6 flex flex-col hover:bg-white/[0.04] transition-colors overflow-hidden">
-              <h3 className="pixel-serif text-white text-xl">
-                In-Browser
-              </h3>
-              <p className="pixel-sans text-white/70 text-sm mt-2">
-                No downloads. Just open and go.
-              </p>
-              {/* Browser Visual */}
-              <div className="flex-1 flex items-center justify-center mt-4">
-                <BrowserVisual />
-              </div>
-            </div>
-            
-            {/* Cell 4 - Get Paid (large) */}
-            <div className="col-span-3 border border-white/10 bg-white/[0.02] rounded-2xl p-8 flex flex-col hover:bg-white/[0.04] transition-colors overflow-hidden">
-              <h3 className="pixel-serif text-white text-2xl md:text-3xl">
-                Get Paid for Your Compute
-              </h3>
-              <p className="pixel-sans text-white/70 text-sm mt-3">
-                Get paid in <span className="dollar">$</span>USDC for your computing power. Passive income just by keeping a tab open.
-              </p>
-              {/* Earnings Visual */}
-              <div className="flex-1 flex items-center justify-center mt-4">
-                <EarningsVisual />
-              </div>
-            </div>
-          </div>
+          <Receipts />
+          <p className="pixel-sans text-white/60 text-sm text-center max-w-3xl mx-auto mt-10">
+            Every stage signs receipts; outputs that diverge are caught structurally; random blocks are
+            re-checked on trusted nodes. Cheating is detectable — and unprofitable by design.{' '}
+            <a href="https://docs.c0mpute.ai" target="_blank" rel="noopener noreferrer" className="cursor-pointer text-[#80a0c1]/50 hover:text-[#80a0c1] transition-colors">How verification works →</a>
+          </p>
         </div>
       </section>
 
-      {/* Doors + economics */}
+
+      {/* Doors */}
       <Doors />
-      {layout === '2' && <ZeroSection />}
 
       {/* The honest arc, one slim strip */}
       <RoadmapStrip />
