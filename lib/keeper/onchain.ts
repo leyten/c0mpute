@@ -16,8 +16,6 @@ import {
   Connection,
   Keypair,
   PublicKey,
-  Transaction,
-  sendAndConfirmTransaction,
 } from '@solana/web3.js';
 import {
   getAssociatedTokenAddress,
@@ -40,6 +38,7 @@ import {
   coinCreatorVaultAtaPda,
 } from '@pump-fun/pump-swap-sdk';
 import { getZeroMint, ZERO_DECIMALS } from '../tokenomics';
+import { sendReliably } from './send';
 import pumpIdl from './pump-idl.json';
 
 const USDC_MINT = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
@@ -48,7 +47,10 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 // Deliberate pause after a claim tx before reading the dev-wallet balance to
 // sweep it: gives the freshly-claimed fees time to land AND avoids hammering the
 // RPC immediately after the claim (which 429s and stranded fees before). Tunable.
-const RPC_SETTLE_MS = Number(process.env.KEEPER_RPC_SETTLE_MS || 60000);
+// 15s + the stabilization poll below has the same stranding protection as the
+// old 60s; claims now confirm fast (priority fee) so the long blind wait was
+// mostly dead time.
+const RPC_SETTLE_MS = Number(process.env.KEEPER_RPC_SETTLE_MS || 15000);
 // Slippage tolerance for the daily buyback swap, in pump-swap-sdk units where
 // 1 = 1% (NOT a 0.0-1.0 fraction — passing 0.01 here means 0.01% and reverts
 // with ExceededSlippage on any price move). Default 5% — the buyback is a small
@@ -167,14 +169,15 @@ export async function claimCreatorFees(): Promise<number> {
     const provider = new anchor.AnchorProvider(connection, new anchor.Wallet(dev), { commitment: 'confirmed' });
     const program = new anchor.Program(pumpIdl as unknown as anchor.Idl, provider);
     // IDL is loaded untyped, so reach the generated method through `any`.
-    await (program.methods as any)
+    const claimIx = await (program.methods as any)
       .collectCreatorFeeV2()
       .accounts({
         creator: dev.publicKey,
         quoteMint: USDC_MINT,
         quoteTokenProgram: TOKEN_PROGRAM_ID,
       })
-      .rpc();
+      .instruction();
+    await sendReliably(connection, () => [claimIx], [dev], { cuLimit: 100_000 });
     console.log('[Keeper] Claimed bonding-curve creator fees');
     claimAttempted = true;
   } catch (err) {
@@ -212,13 +215,10 @@ export async function claimCreatorFees(): Promise<number> {
       };
       const ixs = await offline.collectCoinCreatorFee(state, dev.publicKey);
       if (ixs.length > 0) {
-        const tx = new Transaction();
-        if (!creatorInfo) {
-          tx.add(createAssociatedTokenAccountIdempotentInstruction(dev.publicKey, creatorUsdcAta, dev.publicKey, USDC_MINT, quoteTokenProgram));
-        }
-        tx.add(...ixs);
-        tx.feePayer = dev.publicKey;
-        await sendAndConfirmTransaction(connection, tx, [dev]);
+        const claimIxs = creatorInfo
+          ? ixs
+          : [createAssociatedTokenAccountIdempotentInstruction(dev.publicKey, creatorUsdcAta, dev.publicKey, USDC_MINT, quoteTokenProgram), ...ixs];
+        await sendReliably(connection, () => claimIxs, [dev], { cuLimit: 100_000 });
         console.log('[Keeper] Claimed PumpSwap coin-creator fees (USDC)');
         claimAttempted = true;
       }
@@ -245,11 +245,16 @@ export async function claimCreatorFees(): Promise<number> {
     // balance STOPS INCREASING so the full claimed amount is captured.
     await sleep(RPC_SETTLE_MS);
     claimedRaw = await tokenBalanceRaw(connection, dev.publicKey, USDC_MINT, TOKEN_PROGRAM_ID);
-    for (let i = 0; i < 8; i++) {
+    // Require TWO consecutive non-increasing reads before trusting the value:
+    // a single stable pair can be two reads off the same lagging backend, and
+    // exiting early on that swept a partial balance before ($19 swept while
+    // $1,704 lagged behind, 2026-06-07).
+    let stable = 0;
+    for (let i = 0; i < 10 && stable < 2; i++) {
       await sleep(2500);
       const next = await tokenBalanceRaw(connection, dev.publicKey, USDC_MINT, TOKEN_PROGRAM_ID);
-      if (next <= claimedRaw) break; // stabilized — no further fees settling in
-      claimedRaw = next;
+      if (next <= claimedRaw) stable++;
+      else { claimedRaw = next; stable = 0; }
     }
   } else {
     claimedRaw = await tokenBalanceRaw(connection, dev.publicKey, USDC_MINT, TOKEN_PROGRAM_ID);
@@ -260,11 +265,12 @@ export async function claimCreatorFees(): Promise<number> {
   // as token authority — same pattern as the deposit sweep).
   const fromAta = await getAssociatedTokenAddress(USDC_MINT, dev.publicKey, false, TOKEN_PROGRAM_ID);
   const toAccount = await getOrCreateAssociatedTokenAccount(connection, treasury, USDC_MINT, treasury.publicKey);
-  const sweepTx = new Transaction().add(
-    createTransferInstruction(fromAta, toAccount.address, dev.publicKey, claimedRaw),
+  await sendReliably(
+    connection,
+    () => [createTransferInstruction(fromAta, toAccount.address, dev.publicKey, claimedRaw)],
+    [treasury, dev],
+    { cuLimit: 30_000 },
   );
-  sweepTx.feePayer = treasury.publicKey;
-  await sendAndConfirmTransaction(connection, sweepTx, [treasury, dev]);
 
   return Number(claimedRaw) / 10 ** USDC_DECIMALS;
 }
@@ -289,13 +295,18 @@ export async function buyZeroWithUsdc(
 
   const online = new OnlinePumpAmmSdk(connection);
   const offline = new PumpAmmSdk();
-  const state = await online.swapSolanaState(pool, treasury.publicKey);
   const usdcRaw = new BN(Math.round(usdcUi * 10 ** USDC_DECIMALS));
-  const ixs = await offline.buyQuoteInput(state, usdcRaw, BUYBACK_SLIPPAGE);
-
-  const tx = new Transaction().add(...ixs);
-  tx.feePayer = treasury.publicKey;
-  const swapSig = await sendAndConfirmTransaction(connection, tx, [treasury]);
+  // Quote fresh per attempt so a retry after congestion re-prices instead of
+  // reusing a stale quote that would trip the slippage guard.
+  const swapSig = await sendReliably(
+    connection,
+    async () => {
+      const state = await online.swapSolanaState(pool, treasury.publicKey);
+      return offline.buyQuoteInput(state, usdcRaw, BUYBACK_SLIPPAGE);
+    },
+    [treasury],
+    { cuLimit: 400_000 },
+  );
 
   // Measure ZERO received from the CONFIRMED transaction's own balance changes
   // rather than a post-swap balance query: the latter races RPC commitment and
@@ -339,11 +350,12 @@ export async function burnZero(zeroOutRaw: bigint): Promise<string> {
   const zeroProgram = await mintTokenProgram(connection, zeroMint);
   const ata = await getAssociatedTokenAddress(zeroMint, treasury.publicKey, false, zeroProgram);
 
-  const tx = new Transaction().add(
-    createBurnCheckedInstruction(ata, zeroMint, treasury.publicKey, zeroOutRaw, ZERO_DECIMALS, [], zeroProgram),
+  return sendReliably(
+    connection,
+    () => [createBurnCheckedInstruction(ata, zeroMint, treasury.publicKey, zeroOutRaw, ZERO_DECIMALS, [], zeroProgram)],
+    [treasury],
+    { cuLimit: 30_000 },
   );
-  tx.feePayer = treasury.publicKey;
-  return sendAndConfirmTransaction(connection, tx, [treasury]);
 }
 
 /** UI ZERO amount from raw base units (for ledger/recordBurn). */

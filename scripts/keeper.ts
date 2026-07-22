@@ -45,7 +45,7 @@ import {
 } from '../lib/treasury-ledger';
 import { distributeEpochRewards, getEligibleStakers, getAllStakingWallets, syncStake } from '../lib/staking';
 import { getEligibleOnchainStakers, distributeOnchainRewards, resyncOnchainStakesFromChain, discoverUntrackedOnchainStakers } from '../lib/keeper/onchain-rewards';
-import { getTokenUiBalance } from '../lib/payout';
+import { getTokenUiBalancesBatch } from '../lib/payout';
 import {
   isDryRun,
   findGraduatedPool,
@@ -54,11 +54,7 @@ import {
   burnZero,
   zeroRawToUi,
 } from '../lib/keeper/onchain';
-
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-// Space out RPC reads so the daily resync (one balance read per staking wallet)
-// doesn't burst-trigger 429 rate-limits that strand the cycle. Tunable via env.
-const RPC_GAP_MS = Number(process.env.KEEPER_RPC_GAP_MS || 1500);
+import { isOutcomeUnknown } from '../lib/keeper/send';
 
 async function step<T>(label: string, fn: () => Promise<T>): Promise<T | undefined> {
   try {
@@ -108,8 +104,14 @@ async function runBuyback(): Promise<void> {
     recordBurn(reserved, zeroUi, burnSig);
     console.log(`[Keeper] Bought + burned ${zeroUi} ZERO for $${reserved.toFixed(2)} (swap ${swapSig}, burn ${burnSig})`);
   } catch (err) {
-    creditBuyback(reserved, 'buyback_failed');
-    console.error('[Keeper] Buyback failed, budget refunded to bucket:', err);
+    if (isOutcomeUnknown(err)) {
+      // The swap/burn MAY have executed — refunding here would re-spend the
+      // budget next cycle if it did. Keep the reservation and reconcile by hand.
+      console.error(`[Keeper] BUYBACK OUTCOME UNKNOWN — $${reserved.toFixed(2)} stays reserved (NOT refunded), reconcile manually:`, err);
+    } else {
+      creditBuyback(reserved, 'buyback_failed');
+      console.error('[Keeper] Buyback failed, budget refunded to bucket:', err);
+    }
   }
 }
 
@@ -123,29 +125,30 @@ async function resyncStakesFromChain(): Promise<void> {
   const mint = getZeroMint();
   if (!mint) return;
   const wallets = getAllStakingWallets();
+  if (wallets.length === 0) return;
+  // Batched reads (100 wallets per RPC call). A null balance means that chunk's
+  // read failed after retries — skip the wallet and keep the DB value, so a
+  // rate-limit can never zero out a staker's position.
+  const balances = await getTokenUiBalancesBatch(wallets.map((w) => w.publicKey), mint);
   let synced = 0;
   let skipped = 0;
   for (const w of wallets) {
-    try {
-      // strict read: throw (not silent 0) on a persistent RPC failure so a
-      // rate-limit can't zero out this staker's position. Skip + keep the DB
-      // value instead.
-      const bal = await getTokenUiBalance(w.publicKey, mint, { throwOnError: true });
-      syncStake(w.privyId, bal);
-      synced++;
-    } catch (e) {
+    const bal = balances.get(w.publicKey);
+    if (bal === null || bal === undefined) {
       skipped++;
-      console.warn(`[Keeper] resync skipped for ${w.privyId} (RPC read failed, position left unchanged): ${e instanceof Error ? e.message : e}`);
+      console.warn(`[Keeper] resync skipped for ${w.privyId} (RPC read failed, position left unchanged)`);
+      continue;
     }
-    await sleep(RPC_GAP_MS); // throttle so 76 reads don't burst-429
+    syncStake(w.privyId, bal);
+    synced++;
   }
-  if (wallets.length > 0) {
-    console.log(`[Keeper] Re-synced ${synced}/${wallets.length} staking positions from chain${skipped ? ` (${skipped} skipped on RPC errors)` : ''}`);
-  }
+  console.log(`[Keeper] Re-synced ${synced}/${wallets.length} staking positions from chain${skipped ? ` (${skipped} skipped on RPC errors)` : ''}`);
 }
 
 async function runStakerRewards(): Promise<void> {
-  await resyncStakesFromChain();
+  // step-wrapped: a resync failure skips the sync (stale-but-safe DB values,
+  // bucket untouched) instead of aborting the whole payout run.
+  await step('resync custodial stakes', resyncStakesFromChain);
   await step('discover untracked stakers', discoverUntrackedOnchainStakers);
   await step('resync on-chain stakes', resyncOnchainStakesFromChain);
   const pool = getBucket('staker_rewards');

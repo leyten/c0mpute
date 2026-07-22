@@ -158,6 +158,73 @@ export async function getTokenUiBalance(
 }
 
 /**
+ * Batch version of getTokenUiBalance: one getMultipleAccountsInfo call per 100
+ * wallets instead of one round-trip (plus throttle sleep) per wallet — the
+ * per-wallet loop was 27 of the keeper cycle's 32 minutes at 1,041 stakers.
+ * Returns wallet -> UI balance; a missing ATA is a real 0, but a wallet whose
+ * chunk failed after retries maps to null and the caller must SKIP it (same
+ * never-zero-a-staker-on-RPC-failure rule as { throwOnError: true } above).
+ */
+export async function getTokenUiBalancesBatch(
+  walletAddresses: string[],
+  mintAddress: string,
+): Promise<Map<string, number | null>> {
+  const out = new Map<string, number | null>();
+  if (walletAddresses.length === 0) return out;
+  const rpcUrl = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
+  const connection = new Connection(rpcUrl, 'confirmed');
+  const mint = new PublicKey(mintAddress);
+
+  // Retry the two mint-metadata reads: a single transient 429 here would abort
+  // the whole batch (and with it the day's resync), where the old per-wallet
+  // path only skipped one wallet.
+  const withRetry = async <T>(fn: () => Promise<T>): Promise<T> => {
+    let lastErr: unknown;
+    for (let attempt = 0; attempt < 4; attempt++) {
+      try { return await fn(); } catch (e) { lastErr = e; await new Promise((r) => setTimeout(r, 800 * (attempt + 1))); }
+    }
+    throw lastErr;
+  };
+  const program = await withRetry(() => tokenProgramFor(connection, mint));
+  const mintInfo = await withRetry(() => connection.getParsedAccountInfo(mint));
+  const decimals = (mintInfo.value?.data as { parsed?: { info?: { decimals?: number } } })?.parsed?.info?.decimals;
+  if (typeof decimals !== 'number') throw new Error(`[payout] could not read decimals for mint ${mintAddress}`);
+
+  // Derive each wallet's ATA; a malformed address just maps to null (skipped).
+  const entries: { wallet: string; ata: PublicKey }[] = [];
+  for (const wallet of walletAddresses) {
+    try {
+      entries.push({ wallet, ata: await getAssociatedTokenAddress(mint, new PublicKey(wallet), false, program) });
+    } catch {
+      out.set(wallet, null);
+    }
+  }
+
+  for (let i = 0; i < entries.length; i += 100) {
+    const chunk = entries.slice(i, i + 100);
+    let infos: ({ data: Buffer } | null)[] | null = null;
+    for (let attempt = 0; attempt < 4 && !infos; attempt++) {
+      try {
+        infos = await connection.getMultipleAccountsInfo(chunk.map((e) => e.ata));
+      } catch {
+        await new Promise((r) => setTimeout(r, 800 * (attempt + 1)));
+      }
+    }
+    for (let j = 0; j < chunk.length; j++) {
+      if (!infos) { out.set(chunk[j].wallet, null); continue; } // chunk read failed — skip, never 0
+      const info = infos[j];
+      // SPL token account layout (legacy + Token-2022 base): amount u64 LE at
+      // offset 64. An account at the ATA address that is NOT a token account
+      // (anyone can send 1 lamport there and create a 0-byte system account)
+      // holds no tokens — treat as 0, don't let a short buffer throw and kill
+      // the whole resync.
+      out.set(chunk[j].wallet, info && info.data.length >= 72 ? Number(info.data.readBigUInt64LE(64)) / 10 ** decimals : 0);
+    }
+  }
+  return out;
+}
+
+/**
  * Transfer `uiAmount` of `mintAddress` (with `decimals`) out of a per-user
  * staking wallet to `destAddress` (an unstake). Like the deposit sweep, the
  * staking wallet holds no SOL, so the treasury is fee payer while the staking

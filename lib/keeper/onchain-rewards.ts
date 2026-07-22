@@ -7,17 +7,17 @@
 // original `since`, mirrored into `onchain_stake_lots`. Distribution is pro-rata over
 // the COMBINED mature stake so neither side is over/under-paid.
 import {
-  Connection, Keypair, PublicKey, Transaction, TransactionInstruction,
-  ComputeBudgetProgram, sendAndConfirmTransaction,
+  Connection, Keypair, PublicKey, TransactionInstruction,
 } from '@solana/web3.js';
 import {
   TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, getAssociatedTokenAddressSync,
-  createAssociatedTokenAccountIdempotentInstruction, getAccount,
+  createAssociatedTokenAccountIdempotentInstruction,
 } from '@solana/spl-token';
 import Database from 'better-sqlite3';
 import path from 'path';
 import { STAKE_MIN_AGE_MS } from '../tokenomics';
 import { loadTreasuryKeypair } from '../payout';
+import { sendReliably, isOutcomeUnknown } from './send';
 
 const USDC_DECIMALS = 6;
 
@@ -241,7 +241,6 @@ export async function fundStakerRewardVault(
   const vault = rewardVault(owner, mint);
   const keeperAta = getAssociatedTokenAddressSync(mint, keeper.publicKey, false, TOKEN_PROGRAM_ID);
 
-  const before = await safeBal(conn, vault);
   const fundIx = new TransactionInstruction({
     programId: rewardsProgramId(),
     keys: [
@@ -258,49 +257,13 @@ export async function fundStakerRewardVault(
   const ensureVault = createAssociatedTokenAccountIdempotentInstruction(
     keeper.publicKey, vault, rewardAuthority(owner), mint, TOKEN_PROGRAM_ID);
 
-  // Priority fee + retry so a congested block can't silently skip a staker: the plain
-  // send used to expire under load ("block height exceeded"), dropping the reward for
-  // the whole cycle. Rebuild with a fresh blockhash each attempt; a guard skips the
-  // send if a prior attempt already landed (idempotent — never double-funds).
-  const want = before + amountRaw;
-  const cuLimit = ComputeBudgetProgram.setComputeUnitLimit({ units: 60_000 });
-  const cuPrice = ComputeBudgetProgram.setComputeUnitPrice({
-    microLamports: Number(process.env.KEEPER_PRIORITY_FEE_MICROLAMPORTS || 150_000),
-  });
-  let sig = '';
-  let lastErr: unknown;
-  for (let attempt = 0; attempt < 4; attempt++) {
-    if (await safeBal(conn, vault) >= want) { sig = sig || 'already-funded'; break; }
-    try {
-      const tx = new Transaction().add(cuLimit, cuPrice, ensureVault, fundIx);
-      tx.feePayer = keeper.publicKey;
-      const { blockhash, lastValidBlockHeight } = await conn.getLatestBlockhash('confirmed');
-      tx.recentBlockhash = blockhash;
-      tx.lastValidBlockHeight = lastValidBlockHeight;
-      sig = await sendAndConfirmTransaction(conn, tx, [keeper], { commitment: 'confirmed' });
-      break;
-    } catch (e) {
-      lastErr = e;
-      if (attempt < 3) await new Promise((r) => setTimeout(r, 1500));
-    }
-  }
-  if (!sig) throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
-
-  // Verify with retry: a getAccount right after sendAndConfirmTransaction can read a
-  // stale (pre-tx) balance on a lagging RPC node. Poll until it reflects the deposit
-  // before concluding failure — avoids false "mismatch" that prompts a double-fund.
-  let after = BigInt(0);
-  for (let i = 0; i < 8; i++) {
-    after = await safeBal(conn, vault);
-    if (after >= want) break;
-    await new Promise((r) => setTimeout(r, 800));
-  }
-  if (after < want) throw new Error(`reward vault mismatch for ${owner}: ${after} < ${want}`);
+  // sendReliably: priority fee, fresh blockhash per attempt, and a signature-status
+  // check before any resend so an expired-but-landed attempt is never duplicated.
+  // No post-hoc balance verify: a confirmed signature IS the proof the transfer
+  // happened — the old balance re-read raced lagging RPC nodes and flagged landed
+  // deposits as failed, which is what caused the double-pays.
+  const sig = await sendReliably(conn, () => [ensureVault, fundIx], [keeper], { cuLimit: 100_000 });
   return { sig, amountRaw };
-}
-
-async function safeBal(conn: Connection, ata: PublicKey): Promise<bigint> {
-  try { return BigInt((await getAccount(conn, ata, 'confirmed', TOKEN_PROGRAM_ID)).amount); } catch { return BigInt(0); }
 }
 
 // ── auto-compound: opted-in stakers get their USDC share swapped to ZERO and
@@ -384,8 +347,8 @@ function zeroMint(): PublicKey {
 /**
  * Deposit treasury-held ZERO into `owner`'s self-custody stake vault using the
  * program's permissionless deposit (same instruction the migration uses:
- * beneficiary = owner, depositor = keeper). Verified with the same retry-read
- * pattern as fundStakerRewardVault.
+ * beneficiary = owner, depositor = keeper). Sent via sendReliably, same as
+ * fundStakerRewardVault.
  */
 export async function stakeZeroForBeneficiary(
   conn: Connection, keeper: Keypair, owner: PublicKey, zeroRaw: bigint,
@@ -395,11 +358,6 @@ export async function stakeZeroForBeneficiary(
   const [stakeAuth] = PublicKey.findProgramAddressSync([Buffer.from('stake'), owner.toBuffer()], stakingProgramId());
   const vault = getAssociatedTokenAddressSync(mint, stakeAuth, true, TOKEN_2022_PROGRAM_ID);
   const keeperAta = getAssociatedTokenAddressSync(mint, keeper.publicKey, false, TOKEN_2022_PROGRAM_ID);
-
-  const bal = async (a: PublicKey): Promise<bigint> => {
-    try { return BigInt((await getAccount(conn, a, 'confirmed', TOKEN_2022_PROGRAM_ID)).amount); } catch { return BigInt(0); }
-  };
-  const before = await bal(vault);
 
   const stakeIx = new TransactionInstruction({
     programId: stakingProgramId(),
@@ -416,19 +374,11 @@ export async function stakeZeroForBeneficiary(
   });
   const ensureVault = createAssociatedTokenAccountIdempotentInstruction(
     keeper.publicKey, vault, stakeAuth, mint, TOKEN_2022_PROGRAM_ID);
-  const tx = new Transaction().add(ensureVault, stakeIx);
-  tx.feePayer = keeper.publicKey;
-  const sig = await sendAndConfirmTransaction(conn, tx, [keeper]);
-
-  const want = before + zeroRaw;
-  let after = BigInt(0);
-  for (let i = 0; i < 8; i++) {
-    after = await bal(vault);
-    if (after >= want) break;
-    await new Promise((r) => setTimeout(r, 800));
-  }
-  if (after < want) throw new Error(`stake vault mismatch for ${owner.toBase58()}: ${after} < ${want}`);
-  return sig;
+  // Same rationale as fundStakerRewardVault: a confirmed signature is the proof.
+  // The old balance-poll verify here raced stale RPC reads, threw "stake vault
+  // mismatch" for deposits that HAD landed, parked them, and double-deposited on
+  // the next cycle's retry (on-chain confirmed 2026-07-22).
+  return sendReliably(conn, () => [ensureVault, stakeIx], [keeper], { cuLimit: 100_000 });
 }
 
 function upsertPendingCompound(owner: string, zeroRaw: bigint, usd: number, swapSig: string | null): void {
@@ -461,7 +411,15 @@ async function retryPendingCompounds(conn: Connection, keeper: Keypair): Promise
       getDb().prepare('DELETE FROM autocompound_pending WHERE owner = ?').run(r.owner);
       console.log(`[Keeper v2] retried compound deposit for ${r.owner}: ${zeroUi} ZERO (${sig})`);
     } catch (e) {
-      console.error(`[Keeper v2] pending compound retry failed for ${r.owner}:`, e instanceof Error ? e.message : e);
+      if (isOutcomeUnknown(e)) {
+        // The deposit MAY have landed; leaving the row would re-deposit next
+        // cycle (double-pay). Drop it and log everything needed to restore it
+        // by hand (one INSERT) if the deposit turns out to have failed.
+        getDb().prepare('DELETE FROM autocompound_pending WHERE owner = ?').run(r.owner);
+        console.error(`[Keeper v2] PENDING COMPOUND OUTCOME UNKNOWN for ${r.owner} — row dropped to prevent double-pay; manual reconcile (zero_raw=${r.zero_raw}, usd=${r.usd}, swap_sig=${r.swap_sig}):`, e);
+      } else {
+        console.error(`[Keeper v2] pending compound retry failed for ${r.owner}:`, e instanceof Error ? e.message : e);
+      }
     }
   }
 }
@@ -497,7 +455,12 @@ async function compoundRewards(
         f += s.usd;
         console.log(`[Keeper v2] compound fallback: funded ${s.owner} reward vault $${s.usd.toFixed(6)}`);
       } catch (e) {
-        console.error(`[Keeper v2] compound fallback fund failed for ${s.owner}:`, e instanceof Error ? e.message : e);
+        if (isOutcomeUnknown(e)) {
+          f += s.usd; // MAY have landed — count as spent so it can't be re-paid next cycle
+          console.error(`[Keeper v2] FALLBACK FUND OUTCOME UNKNOWN for ${s.owner} ($${s.usd.toFixed(6)}) — counted as spent, reconcile manually:`, e);
+        } else {
+          console.error(`[Keeper v2] compound fallback fund failed for ${s.owner}:`, e instanceof Error ? e.message : e);
+        }
       }
     }
     return f;
@@ -517,6 +480,13 @@ async function compoundRewards(
   try {
     ({ zeroOutRaw, swapSig } = await swap.buyZeroWithUsdc(pool, compoundUsd));
   } catch (e) {
+    if (isOutcomeUnknown(e)) {
+      // The swap MAY have spent the USDC. Falling back to USDC payouts here
+      // would pay everyone twice within minutes if it did. Treat the money as
+      // spent, skip this cycle's compounds, reconcile from the log.
+      console.error(`[Keeper v2] COMPOUND SWAP OUTCOME UNKNOWN ($${compoundUsd.toFixed(2)} across ${shares.length} staker(s)) — no fallback paid, reconcile manually. Shares: ${JSON.stringify(shares)}`, e);
+      return compoundUsd;
+    }
     console.error('[Keeper v2] compound swap failed — paying USDC instead:', e instanceof Error ? e.message : e);
     return fallbackToUsdc();
   }
@@ -542,8 +512,13 @@ async function compoundRewards(
       addCompoundLot(s.owner, zeroUi);
       console.log(`[Keeper v2] compounded $${s.usd.toFixed(6)} → ${zeroUi} ZERO into ${s.owner}'s stake (${sig})`);
     } catch (e) {
-      upsertPendingCompound(s.owner, zeroShare, s.usd, swapSig);
-      console.error(`[Keeper v2] compound deposit failed for ${s.owner} (parked for retry):`, e instanceof Error ? e.message : e);
+      if (isOutcomeUnknown(e)) {
+        // Parking would re-deposit next cycle — double-pay if it landed.
+        console.error(`[Keeper v2] COMPOUND DEPOSIT OUTCOME UNKNOWN for ${s.owner} — NOT parked; manual reconcile (zero_raw=${zeroShare}, usd=${s.usd}, swap_sig=${swapSig}):`, e);
+      } else {
+        upsertPendingCompound(s.owner, zeroShare, s.usd, swapSig);
+        console.error(`[Keeper v2] compound deposit failed for ${s.owner} (parked for retry):`, e instanceof Error ? e.message : e);
+      }
     }
     distributed += s.usd; // swap already spent this share either way
   }
@@ -570,21 +545,32 @@ export async function distributeOnchainRewards(totalUsdForOnchain: number, swap?
   // Without swap rails (defensive default) everyone is paid USDC as before.
   const optins = swap ? getAutocompoundOptins() : new Set<string>();
   const compoundShares: { owner: string; usd: number }[] = [];
-  let funded = 0;
+  const payouts: { owner: string; usd: number }[] = [];
   for (const s of stakers) {
     const share = Math.floor((s.mature / totalMature) * totalUsdForOnchain * 1e6) / 1e6;
     if (share <= 0) continue;
-    if (optins.has(s.owner)) {
-      compoundShares.push({ owner: s.owner, usd: share });
-      continue;
-    }
-    try {
-      await fundStakerRewardVault(conn, keeper, new PublicKey(s.owner), share);
-      funded += share;
-      console.log(`[Keeper v2] funded ${s.owner} reward vault $${share.toFixed(6)}`);
-    } catch (e) {
-      console.error(`[Keeper v2] fund failed for ${s.owner}:`, e instanceof Error ? e.message : e);
-    }
+    (optins.has(s.owner) ? compoundShares : payouts).push({ owner: s.owner, usd: share });
+  }
+
+  // A few funds in flight at once (each is an independent tx from the keeper
+  // wallet; Solana has no account nonce to race). Modest cap keeps the RPC happy.
+  let funded = 0;
+  const FUND_CONCURRENCY = 5;
+  for (let i = 0; i < payouts.length; i += FUND_CONCURRENCY) {
+    await Promise.all(payouts.slice(i, i + FUND_CONCURRENCY).map(async (s) => {
+      try {
+        await fundStakerRewardVault(conn, keeper, new PublicKey(s.owner), s.usd);
+        funded += s.usd;
+        console.log(`[Keeper v2] funded ${s.owner} reward vault $${s.usd.toFixed(6)}`);
+      } catch (e) {
+        if (isOutcomeUnknown(e)) {
+          funded += s.usd; // MAY have landed — count as spent so the rounding refund can't re-pay it
+          console.error(`[Keeper v2] FUND OUTCOME UNKNOWN for ${s.owner} ($${s.usd.toFixed(6)}) — counted as spent, reconcile manually:`, e);
+        } else {
+          console.error(`[Keeper v2] fund failed for ${s.owner}:`, e instanceof Error ? e.message : e);
+        }
+      }
+    }));
   }
 
   const compoundUsd = compoundShares.reduce((s, x) => s + x.usd, 0);
