@@ -153,6 +153,62 @@ export const readWalletZero = (owner: PublicKey) =>
 
 export const mintsConfigured = () => Boolean(ZERO_MINT && USDC_MINT);
 
+/** SOL (ui) held by the wallet — fee/rent headroom for the staking txs. */
+export async function readSol(owner: PublicKey): Promise<number> {
+  try { return (await connection().getBalance(owner, 'confirmed')) / 1e9; } catch { return 0; }
+}
+
+// ── preflight simulation (Phantom-warning fix, 2026-06-25) ──
+const FEE_FLOOR_LAMPORTS = 5000;
+
+/**
+ * Simulate the exact serialized tx before handing it to Phantom. Returns a
+ * plain-language reason the tx would fail, or null when it looks fine.
+ * FAIL-OPEN: any RPC/own error returns null — this must never block a real
+ * stake; it only catches the known failure modes (no SOL for fee/rent,
+ * wrong/empty wallet, amount too high) with our own message instead of
+ * Phantom's "this transaction may fail" banner.
+ */
+export async function preflight(
+  owner: PublicKey,
+  serialized: Uint8Array,
+  kind: 'Stake' | 'Unstake' | 'Claim',
+): Promise<string | null> {
+  try {
+    const [lamports, sim] = await Promise.all([
+      connection().getBalance(owner, 'confirmed'),
+      fetch(RPC_URL, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0', id: 1, method: 'simulateTransaction',
+          params: [
+            Buffer.from(serialized).toString('base64'),
+            { encoding: 'base64', sigVerify: false, replaceRecentBlockhash: true, commitment: 'confirmed' },
+          ],
+        }),
+      }).then((r) => r.json()),
+    ]);
+    if (lamports < FEE_FLOOR_LAMPORTS) {
+      return 'This wallet has no SOL to pay the network fee — send it ~0.005 SOL and try again.';
+    }
+    const err = sim?.result?.value?.err;
+    if (!err) return null;
+    const text = `${JSON.stringify(err)} ${(sim?.result?.value?.logs ?? []).join(' ')}`;
+    if (/insufficient lamports|InsufficientFundsForRent/i.test(text)) {
+      return 'Not enough SOL for the network fee plus the one-time vault rent (~0.003 SOL). Top up a little SOL and try again.';
+    }
+    if (/insufficient funds/i.test(text)) {
+      if (kind === 'Stake') return "This wallet doesn't hold that much $ZERO — check the connected wallet and the amount.";
+      if (kind === 'Unstake') return "You don't have that much staked from this wallet.";
+      return 'Nothing to claim from this wallet yet.';
+    }
+    return `${kind} would fail on-chain right now (${JSON.stringify(err)}). Nothing was sent.`;
+  } catch {
+    return null; // fail open — never block a real stake on an RPC hiccup
+  }
+}
+
 // ── maturity chunks (derived purely from on-chain stake-vault history, no server) ──
 // Replays the vault's deposit/withdraw history; each remaining deposit "chunk" is
 // classified earning (>=24h) vs cooling (<24h). Withdrawals consume the most-recent
