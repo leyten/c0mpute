@@ -4,6 +4,7 @@ import { getStakingWalletSecret, reserveClaimableForMigrate, restoreClaimableAft
 import { isTreasuryConfigured, getTokenUiBalance, loadTreasuryKeypair } from '@/lib/payout';
 import { getZeroMint, isZeroLaunched } from '@/lib/tokenomics';
 import { migrateLotsToOnchain, fundStakerRewardVault, rewardVault } from '@/lib/keeper/onchain-rewards';
+import { isOutcomeUnknown } from '@/lib/keeper/send';
 import Database from 'better-sqlite3';
 import path from 'path';
 import {
@@ -129,12 +130,20 @@ export async function POST(req: NextRequest) {
         }
         const needed = reserved - inVault;
         if (needed > 0.000001) {
-          // fundStakerRewardVault verifies (with retry) the vault increased by `needed`.
+          // fundStakerRewardVault sends via sendReliably (signature-status
+          // verified, never resends a landed tx).
           await fundStakerRewardVault(conn, treasury, owner, needed);
         }
         migratedRewards = reserved;
       } catch (e) {
-        restoreClaimableAfterFailedMigrate(privyId, reserved); // funding failed — give the rewards back
+        if (isOutcomeUnknown(e)) {
+          // The funding tx MAY have landed. Restoring the claimable here would
+          // let the user cash it via claim-rewards while the vault also holds
+          // it — double-pay. Keep it reserved and reconcile by hand.
+          console.error(`[migrate] REWARD FUNDING OUTCOME UNKNOWN for ${privyId} ($${reserved.toFixed(6)}) — claimable NOT restored, reconcile manually:`, e);
+        } else {
+          restoreClaimableAfterFailedMigrate(privyId, reserved); // funding failed — give the rewards back
+        }
         throw e;
       }
     }
