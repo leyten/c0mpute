@@ -499,7 +499,7 @@ export default function Home() {
 
             <p className="pixel-sans text-white/60 text-xs md:text-sm max-w-xl mx-auto px-4 mt-6 flex items-center justify-center gap-2 flex-wrap">
               <StatusBadge state="live" />
-              <span>The first product on the network answers today — free, no login.</span>
+              <span>The first product on the network answers today, no login needed.</span>
             </p>
           </div>
         </div>
@@ -536,8 +536,8 @@ export default function Home() {
           </div>
           <Receipts />
           <p className="pixel-sans text-white/60 text-sm text-center max-w-3xl mx-auto mt-10">
-            Every stage signs receipts; outputs that diverge are caught structurally; random blocks are
-            re-checked on trusted nodes. Cheating is detectable — and unprofitable by design.{' '}
+            Every stage signs receipts, diverging outputs are caught in the act, and random blocks are
+            re-checked on trusted nodes.{' '}
             <a href="https://docs.c0mpute.ai" target="_blank" rel="noopener noreferrer" className="cursor-pointer text-[#80a0c1]/50 hover:text-[#80a0c1] transition-colors">How verification works →</a>
           </p>
         </div>

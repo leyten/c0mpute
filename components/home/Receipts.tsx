@@ -8,7 +8,7 @@ const RECEIPTS = [
   {
     tag: 'MEASURED · TEST RINGS',
     title: 'Interactive speed, scattered',
-    body: '20–30 tokens per second per stream, measured on betanet test rings of scattered consumer GPUs — no data-center interconnect anywhere.',
+    body: '20–30 tokens per second per stream, measured on betanet test rings of scattered consumer GPUs linked over the public internet.',
   },
   {
     tag: 'JUL 2026 · DEMONSTRATED',

@@ -218,7 +218,7 @@ export function drawJourney(ctx: CanvasRenderingContext2D, W: number, H: number,
   const serveA = easeIO(seg(q5, 0, 0.2)) * worldA;
   const ringDone = q4 >= 1;
   if (ringDone && serveA > 0.01 && p < 8 * CH) {
-    const laps = easeIO(q5) * 2.0 + (p > 5 * CH ? tMs * 0.00006 : 0);
+    const laps = q5 + (p > 5 * CH ? tMs * 0.00006 : 0);
     const ang = -Math.PI / 2 + laps * Math.PI * 2;
     const pxx = cx + Math.cos(ang) * Rr, pyy = cy + Math.sin(ang) * Rr;
     // trail
@@ -260,7 +260,7 @@ export function drawJourney(ctx: CanvasRenderingContext2D, W: number, H: number,
     const coinA = easeIO(seg(q7, 0, 0.25)) * worldA;
     const coins = 1 + 4 * easeOut(seg(q7, 0.05, 0.8));
     coinStack(ctx, lx, ly + 148, coins, 1.45, coinA);
-    label(ctx, 'usdc, per token', lx, ly + 178, coinA * seg(q7, 0.45, 0.75), 13);
+    label(ctx, 'usdc, per layer', lx, ly + 178, coinA * seg(q7, 0.45, 0.75), 13);
   }
 
   // ---------- the cast (drawn last, on top) ----------

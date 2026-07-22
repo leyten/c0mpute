@@ -198,7 +198,7 @@ export function drawGlobeStory(ctx: CanvasRenderingContext2D, W: number, H: numb
   if (q4 >= 1 && p < 8 * CH && ringArcs) {
     const sA = easeIO(seg(q5, 0, 0.2));
     ringArcs.forEach((arc) => drawArc(ctx, arc, gv, green(0.55), 1, -1));
-    const lapT = (easeIO(q5) * 2 + (p > 5 * CH ? tMs * 0.00006 : 0)) % 1;
+    const lapT = (q5 + (p > 5 * CH ? tMs * 0.00006 : 0)) % 1;
     const pos = lapT * 6;
     const ai = Math.floor(pos) % 6;
     drawArc(ctx, ringArcs[ai], gv, 'rgba(0,0,0,0)', 1, pos - Math.floor(pos));
@@ -217,20 +217,20 @@ export function drawGlobeStory(ctx: CanvasRenderingContext2D, W: number, H: numb
   const ly = desktop ? H * 0.3 : H * 0.14;
   if (q6 > 0) {
     const a = easeIO(seg(q6, 0, 0.25)) * (1 - easeIO(seg(q8, 0, 0.3)));
-    cardBox(ctx, lx - 100, ly - 62, 200, 130 + 180 * easeIO(seg(q7, 0, 0.25)), a);
+    cardBox(ctx, lx - 100, ly - 58, 200, 126 + 140 * easeIO(seg(q7, 0, 0.25)), a);
     for (let i = 0; i < 6; i++) {
       const tt = easeIO(seg(q6, 0.05 + i * 0.07, 0.45 + i * 0.07));
       const c = scr[i];
       const sxx = c ? c.x + 20 : gv.cx, syy = c ? c.y - 24 : gv.cy;
-      receipt(ctx, lerp(sxx, lx + (i % 2) * 4 - 2, tt), lerp(syy, ly - i * 8, tt), 1.8,
+      receipt(ctx, lerp(sxx, lx + (i % 2) * 4 - 2, tt), lerp(syy, ly + 8 - i * 8, tt), 1.8,
         Math.max(a * 0.85, 0.03), tt >= 1 && seg(q6, 0.5 + i * 0.05, 0.62 + i * 0.05) >= 1);
     }
-    label(ctx, 'receipts settle', lx, ly + 44, a * seg(q6, 0.5, 0.8), 13);
+    label(ctx, 'receipts settle', lx, ly + 52, a * seg(q6, 0.5, 0.8), 13);
   }
   if (q7 > 0) {
     const a = easeIO(seg(q7, 0, 0.25)) * (1 - easeIO(seg(q8, 0, 0.3)));
-    coinStack(ctx, lx, ly + 152, 1 + 4 * easeOut(seg(q7, 0.05, 0.8)), 1.4, a);
-    label(ctx, 'usdc, per token', lx, ly + 182, a * seg(q7, 0.45, 0.75), 13);
+    coinStack(ctx, lx, ly + 160, 1 + 4 * easeOut(seg(q7, 0.05, 0.8)), 1.4, a);
+    label(ctx, 'usdc, per layer', lx, ly + 190, a * seg(q7, 0.45, 0.75), 13);
   }
 
   // ---------- 09 finale: the rest of the world lights up ----------

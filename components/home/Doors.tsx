@@ -62,7 +62,7 @@ export default function Doors() {
             id="developers"
             eyebrow="FOR DEVELOPERS"
             title="Build on the network"
-            body="One API, served by a network instead of a data center — every response backed by the receipts underneath it. The v1 endpoint answers today; the betanet API opens at launch."
+            body="One API, served by a network instead of a data center. Every response is backed by the receipts underneath it. The v1 endpoint answers today, and the betanet API opens at launch."
             links={[
               { href: '/chat', text: 'Try it live →' },
               { href: 'https://docs.c0mpute.ai/api', text: 'Betanet API — at launch →', external: true },
@@ -74,7 +74,7 @@ export default function Doors() {
             id="gpu-owners"
             eyebrow="FOR GPU OWNERS"
             title="Plug in, get paid"
-            body="Your idle hardware earns USDC for real work — from a browser tab today, a full node when the betanet opens. No lock-in; leave whenever."
+            body="Your idle hardware earns USDC for real work: from a browser tab today, a full node when the betanet opens. Leave whenever you want."
             links={[
               { href: '/earn', text: 'Earn in your browser →' },
               { href: 'https://docs.c0mpute.ai', text: 'Run a full node — at launch →', external: true },
@@ -87,7 +87,7 @@ export default function Doors() {
             id="community"
             eyebrow="FOR THE OPEN-MODEL COMMUNITY"
             title={<>Own a piece</>}
-            body={<>Open models need open infrastructure to run on. Network revenue funds the treasury — half burns <span className="dollar">$</span>ZERO, half pays the people who stake it.</>}
+            body={<>Open models need open infrastructure to run on. Network revenue funds the treasury: half burns <span className="dollar">$</span>ZERO, half pays the people who stake it.</>}
             links={[
               { href: '/treasury', text: 'Treasury →' },
               { href: 'https://data.c0mpute.ai', text: 'Network data →', external: true },
