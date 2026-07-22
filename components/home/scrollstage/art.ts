@@ -173,10 +173,10 @@ export function layerStack(
   }
 }
 
-// Measured-capability bar (admit scene) — bar only, no caption: the DOM step
-// text carries the words, the canvas stays pure-graphic.
-export function meter(ctx: CanvasRenderingContext2D, x: number, y: number, wd: number, _name: string, fill: number, alpha: number) {
+// Measured-capability bar (admit scene), named — card-attached text stays.
+export function meter(ctx: CanvasRenderingContext2D, x: number, y: number, wd: number, name: string, fill: number, alpha: number) {
   if (alpha <= 0.01) return;
+  label(ctx, name, x, y - 11, alpha, 12, 'left');
   ctx.strokeStyle = w(alpha * 0.5);
   ctx.lineWidth = 1;
   ctx.strokeRect(Math.round(x) + 0.5, Math.round(y) + 0.5, Math.round(wd), 10);
