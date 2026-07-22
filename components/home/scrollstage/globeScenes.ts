@@ -136,7 +136,16 @@ export function drawGlobeStory(ctx: CanvasRenderingContext2D, W: number, H: numb
         ctx.fillRect(bx + i * bwUnit + 1.5, by + 1.5, (bwUnit - 5) * f, 16);
       }
     }
-    label(ctx, 'the model · 62 layers', bx + bw2 / 2, by + 40, barA, 12);
+    // full-width bracket under the bar, mirroring the slice bracket
+    ctx.strokeStyle = w(0.5 * barA);
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(bx + 0.5, by + 25);
+    ctx.lineTo(bx + 0.5, by + 30);
+    ctx.lineTo(bx + bw2 - 2, by + 30);
+    ctx.lineTo(bx + bw2 - 2, by + 25);
+    ctx.stroke();
+    label(ctx, 'the model', bx + bw2 / 2, by + 44, barA, 12);
     // your-slice bracket + line up to the home node
     if (hiA > 0.05 && home) {
       const x0 = bx + hiLo * bwUnit, x1 = bx + hiHi * bwUnit - 2;

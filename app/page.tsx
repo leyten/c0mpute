@@ -172,7 +172,7 @@ export default function Home() {
             {/* Left: Logo */}
             <div className="flex-1">
               <a href="/" className="cursor-pointer pixel-serif-logo text-white text-lg md:text-xl font-bold flex items-center">
-                C<span className="pixel-serif-logo" style={{ fontSize: '1.8em', display: 'inline-block', verticalAlign: 'baseline', lineHeight: '1', marginTop: '-0.3em' }}>0</span>MPUTE
+                c<span className="pixel-serif-logo" style={{ fontSize: '1.8em', display: 'inline-block', verticalAlign: 'baseline', lineHeight: '1', marginTop: '-0.3em' }}>0</span>mpute
               </a>
             </div>
             
@@ -556,7 +556,7 @@ export default function Home() {
           <div className="grid grid-cols-2 md:grid-cols-5 gap-8">
             <div>
               <a href="/" className="pixel-serif-logo text-white text-lg">
-                C<span className="pixel-serif-logo" style={{ fontSize: '1.8em', display: 'inline-block', verticalAlign: 'baseline', lineHeight: '1', marginTop: '-0.3em' }}>0</span>MPUTE
+                c<span className="pixel-serif-logo" style={{ fontSize: '1.8em', display: 'inline-block', verticalAlign: 'baseline', lineHeight: '1', marginTop: '-0.3em' }}>0</span>mpute
               </a>
               <p className="pixel-sans text-white/40 text-xs mt-3 max-w-[220px]">
                 AI infrastructure should be open, verifiable, and owned by the people who run it.
