@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { Inter, Newsreader, Space_Grotesk, JetBrains_Mono } from 'next/font/google';
+import './homepage-variants.css';
 import PixelBlast from '@/components/PixelBlast';
 import OrchestratorFlow from '@/components/OrchestratorFlow';
 import PrivateVisual from '@/components/PrivateVisual';
@@ -11,6 +13,15 @@ import AnonGateModal from '@/components/AnonGateModal';
 import StatusBadge from '@/components/StatusBadge';
 import LifecycleSpine from '@/components/LifecycleSpine';
 import { useAuth } from '@/hooks/useAuth';
+
+// Variant fonts (preview): A = Inter+mono, B = Newsreader serif, C = Space Grotesk
+const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
+const newsreader = Newsreader({ subsets: ['latin'], style: ['normal', 'italic'], variable: '--font-newsreader' });
+const grotesk = Space_Grotesk({ subsets: ['latin'], variable: '--font-grotesk' });
+const jbMono = JetBrains_Mono({ subsets: ['latin'], variable: '--font-mono' });
+
+type Variant = 'a' | 'b' | 'c';
+const VARIANT_KEY = 'c0mpute_preview_variant';
 
 // Key for passing prompt to user page
 const PENDING_PROMPT_KEY = 'c0mpute_pending_prompt';
@@ -27,6 +38,22 @@ export default function Home() {
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [hasScrolled, setHasScrolled] = useState(false);
   const [anonModalOpen, setAnonModalOpen] = useState(false);
+  const [variant, setVariant] = useState<Variant>('a');
+
+  // Preview-only: pick the type/color variant via ?v=a|b|c or the switcher
+  // (persisted). URL param wins so each variant is directly linkable.
+  useEffect(() => {
+    const fromUrl = new URLSearchParams(window.location.search).get('v');
+    const stored = localStorage.getItem(VARIANT_KEY);
+    const pick = (v: string | null): v is Variant => v === 'a' || v === 'b' || v === 'c';
+    if (pick(fromUrl)) { setVariant(fromUrl); localStorage.setItem(VARIANT_KEY, fromUrl); }
+    else if (pick(stored)) setVariant(stored);
+  }, []);
+
+  const chooseVariant = (v: Variant) => {
+    setVariant(v);
+    localStorage.setItem(VARIANT_KEY, v);
+  };
 
   // Capture referral code from /r/<code> redirects (?ref=...). Last click
   // wins; binding happens server-side at signup, new accounts only.
@@ -122,7 +149,15 @@ export default function Home() {
   };
 
   return (
-    <div className="relative bg-black" style={{ overflow: 'visible' }}>
+    <div className={`relative bg-black v-${variant} ${inter.variable} ${newsreader.variable} ${grotesk.variable} ${jbMono.variable}`} style={{ overflow: 'visible' }}>
+      {/* Preview-only variant switcher */}
+      <div className="variant-switcher" title="Preview type/color variants">
+        {(['a', 'b', 'c'] as Variant[]).map((v) => (
+          <button key={v} className={variant === v ? 'on' : ''} onClick={() => chooseVariant(v)}>
+            {v.toUpperCase()}
+          </button>
+        ))}
+      </div>
       {anonModalOpen && (
         <AnonGateModal
           mode="softlogin"
@@ -449,11 +484,6 @@ export default function Home() {
                   onChange={(e) => setPrompt(e.target.value)}
                   placeholder="Ask anything..."
                   className="flex-1 pixel-sans bg-black border border-[#2a2a2a] rounded-xl text-white placeholder:text-white/50 px-3 md:px-4 py-3 focus:outline-none focus:border-[#3a3a3a] transition-colors text-sm md:text-lg"
-                  style={{
-                    fontSmooth: 'never',
-                    WebkitFontSmoothing: 'none',
-                    MozOsxFontSmoothing: 'unset'
-                  }}
                 />
                 <button
                   type="submit"
@@ -591,22 +621,22 @@ export default function Home() {
               proving what they did.
             </p>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 md:gap-8">
-            <div className="border border-white/10 bg-white/[0.02] rounded-2xl p-6 md:p-8">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 md:gap-10">
+            <div className="border-t border-white/15 pt-5 md:pt-6">
               <h3 className="pixel-serif text-white text-lg md:text-xl mb-3">Signed Receipts</h3>
               <p className="pixel-sans text-white/70 text-sm leading-relaxed">
                 Every stage of every job emits a signed receipt: an activation hash-chain, the GPU that did
                 it, real latencies, the output hash. The work carries its own audit trail.
               </p>
             </div>
-            <div className="border border-white/10 bg-white/[0.02] rounded-2xl p-6 md:p-8">
+            <div className="border-t border-white/15 pt-5 md:pt-6">
               <h3 className="pixel-serif text-white text-lg md:text-xl mb-3">Lossless Verify + Spot-Checks</h3>
               <p className="pixel-sans text-white/70 text-sm leading-relaxed">
                 Speculative decoding re-checks tokens structurally — a stage whose outputs diverge is caught
                 in the act. On top of that, random blocks are recomputed on trusted nodes and compared.
               </p>
             </div>
-            <div className="border border-white/10 bg-white/[0.02] rounded-2xl p-6 md:p-8">
+            <div className="border-t border-white/15 pt-5 md:pt-6">
               <div className="flex items-center gap-2 mb-3">
                 <h3 className="pixel-serif text-white text-lg md:text-xl">Reputation, Staking &amp; Slashing</h3>
                 <StatusBadge state="roadmap" />
@@ -636,14 +666,8 @@ export default function Home() {
                 underneath it.
               </p>
               <div className="mt-5 flex flex-col gap-2.5">
-                <span className="flex items-center gap-2">
-                  <a href="/chat" className="cursor-pointer pixel-sans text-[#80a0c1]/50 hover:text-[#80a0c1] text-sm transition-colors">Try it live →</a>
-                  <StatusBadge state="live" />
-                </span>
-                <span className="flex items-center gap-2">
-                  <a href="https://docs.c0mpute.ai/api" target="_blank" rel="noopener noreferrer" className="cursor-pointer pixel-sans text-[#80a0c1]/50 hover:text-[#80a0c1] text-sm transition-colors">Betanet API →</a>
-                  <StatusBadge state="launching" />
-                </span>
+                <a href="/chat" className="cursor-pointer pixel-sans text-[#80a0c1]/50 hover:text-[#80a0c1] text-sm transition-colors">Try it live →</a>
+                <a href="https://docs.c0mpute.ai/api" target="_blank" rel="noopener noreferrer" className="cursor-pointer pixel-sans text-[#80a0c1]/50 hover:text-[#80a0c1] text-sm transition-colors">Betanet API — at launch →</a>
               </div>
               <a
                 href="https://docs.c0mpute.ai"
@@ -663,14 +687,8 @@ export default function Home() {
                 betanet opens. No lock-in; leave whenever.
               </p>
               <div className="mt-5 flex flex-col gap-2.5">
-                <span className="flex items-center gap-2">
-                  <a href="/earn" className="cursor-pointer pixel-sans text-[#80a0c1]/50 hover:text-[#80a0c1] text-sm transition-colors">Earn in your browser →</a>
-                  <StatusBadge state="live" />
-                </span>
-                <span className="flex items-center gap-2">
-                  <a href="https://docs.c0mpute.ai" target="_blank" rel="noopener noreferrer" className="cursor-pointer pixel-sans text-[#80a0c1]/50 hover:text-[#80a0c1] text-sm transition-colors">Run a full node →</a>
-                  <StatusBadge state="launching" />
-                </span>
+                <a href="/earn" className="cursor-pointer pixel-sans text-[#80a0c1]/50 hover:text-[#80a0c1] text-sm transition-colors">Earn in your browser →</a>
+                <a href="https://docs.c0mpute.ai" target="_blank" rel="noopener noreferrer" className="cursor-pointer pixel-sans text-[#80a0c1]/50 hover:text-[#80a0c1] text-sm transition-colors">Run a full node — at launch →</a>
               </div>
               <a
                 href="/earn"
@@ -910,8 +928,8 @@ export default function Home() {
           <div className="text-center mb-12 md:mb-16">
             <h2 className="pixel-serif text-white text-3xl md:text-4xl lg:text-5xl">Where this goes</h2>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 md:gap-8">
-            <div className="border border-white/10 bg-white/[0.02] rounded-2xl p-6 md:p-8">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 md:gap-10">
+            <div className="border-t border-white/15 pt-5 md:pt-6">
               <StatusBadge state="launching" />
               <h3 className="pixel-serif text-white text-lg md:text-xl mt-4 mb-3">The betanet</h3>
               <p className="pixel-sans text-white/70 text-sm leading-relaxed">
@@ -919,7 +937,7 @@ export default function Home() {
                 in dated demonstrations; the public network around it is launching.
               </p>
             </div>
-            <div className="border border-white/10 bg-white/[0.02] rounded-2xl p-6 md:p-8">
+            <div className="border-t border-white/15 pt-5 md:pt-6">
               <StatusBadge state="roadmap" />
               <h3 className="pixel-serif text-white text-lg md:text-xl mt-4 mb-3">A control plane built to decentralize</h3>
               <p className="pixel-sans text-white/70 text-sm leading-relaxed">
@@ -927,7 +945,7 @@ export default function Home() {
                 network without moving anyone&apos;s models or prompts.
               </p>
             </div>
-            <div className="border border-white/10 bg-white/[0.02] rounded-2xl p-6 md:p-8">
+            <div className="border-t border-white/15 pt-5 md:pt-6">
               <StatusBadge state="research" />
               <h3 className="pixel-serif text-white text-lg md:text-xl mt-4 mb-3">Verifiable training</h3>
               <p className="pixel-sans text-white/70 text-sm leading-relaxed">
