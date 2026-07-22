@@ -136,28 +136,11 @@ export function drawGlobeStory(ctx: CanvasRenderingContext2D, W: number, H: numb
         ctx.fillRect(bx + i * bwUnit + 1.5, by + 1.5, (bwUnit - 5) * f, 16);
       }
     }
-    // full-width bracket under the bar, mirroring the slice bracket
-    ctx.strokeStyle = w(0.5 * barA);
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(bx + 0.5, by + 25);
-    ctx.lineTo(bx + 0.5, by + 30);
-    ctx.lineTo(bx + bw2 - 2, by + 30);
-    ctx.lineTo(bx + bw2 - 2, by + 25);
-    ctx.stroke();
-    label(ctx, 'the model', bx + bw2 / 2, by + 44, barA, 12);
+    label(ctx, 'the model', bx + bw2 / 2, by + 40, barA, 12);
     // your-slice bracket + line up to the home node
     if (hiA > 0.05 && home) {
       const x0 = bx + hiLo * bwUnit, x1 = bx + hiHi * bwUnit - 2;
-      ctx.strokeStyle = w(0.7 * barA * hiA);
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(x0, by - 6);
-      ctx.lineTo(x0, by - 11);
-      ctx.lineTo(x1, by - 11);
-      ctx.lineTo(x1, by - 6);
-      ctx.stroke();
-      label(ctx, 'your slice', (x0 + x1) / 2, by - 26, barA * hiA, 12);
+      label(ctx, 'your slice', (x0 + x1) / 2, by - 20, barA * hiA, 12);
       ctx.strokeStyle = w(0.25 * barA * hiA * (1 - seg(q3, 0, 0.25)));
       ctx.setLineDash([3, 4]);
       ctx.beginPath();
