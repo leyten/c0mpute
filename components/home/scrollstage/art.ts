@@ -52,18 +52,14 @@ export function pcIcon(ctx: CanvasRenderingContext2D, cx: number, cy: number, s:
   u(6, 16, 12, 2, w(alpha));
 }
 
-// Expanding square broadcast ring (announce), pixel-corner style.
-export function broadcast(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number, alpha: number) {
+// Soft radar ping: expanding thin circles (announce) — calm, map-language.
+export function ripple(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number, alpha: number) {
   if (alpha <= 0.01) return;
   ctx.strokeStyle = w(alpha);
   ctx.lineWidth = 1;
-  ctx.strokeRect(Math.round(cx - r), Math.round(cy - r), Math.round(r * 2), Math.round(r * 2));
-  // corner accents (QueueIcon style)
-  const c = Math.max(2, r * 0.08);
-  ctx.fillStyle = w(alpha);
-  for (const [dx, dy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const) {
-    ctx.fillRect(Math.round(cx + dx * r - c / 2), Math.round(cy + dy * r - c / 2), c, c);
-  }
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.stroke();
 }
 
 // Halftone dot fill (EarningsVisual coin-side pattern).
@@ -177,10 +173,10 @@ export function layerStack(
   }
 }
 
-// Measured-capability bar (admit scene).
-export function meter(ctx: CanvasRenderingContext2D, x: number, y: number, wd: number, name: string, fill: number, alpha: number) {
+// Measured-capability bar (admit scene) — bar only, no caption: the DOM step
+// text carries the words, the canvas stays pure-graphic.
+export function meter(ctx: CanvasRenderingContext2D, x: number, y: number, wd: number, _name: string, fill: number, alpha: number) {
   if (alpha <= 0.01) return;
-  label(ctx, name, x, y - 11, alpha, 12, 'left');
   ctx.strokeStyle = w(alpha * 0.5);
   ctx.lineWidth = 1;
   ctx.strokeRect(Math.round(x) + 0.5, Math.round(y) + 0.5, Math.round(wd), 10);

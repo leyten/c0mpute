@@ -96,14 +96,8 @@ export default function LifecycleScroll({ variant }: { variant: '1' | '2' }) {
         <div className="absolute inset-x-0 bottom-0 h-56 md:hidden pointer-events-none"
           style={{ background: 'linear-gradient(to top, rgba(12,10,9,0.92), rgba(12,10,9,0))' }} />
 
-        {/* eyebrow */}
-        <div className="absolute top-24 left-1/2 -translate-x-1/2 pixel-sans text-white/40 text-xs tracking-widest flex items-center gap-2">
-          <span>THE NETWORK</span>
-          <StatusBadge state="launching" />
-        </div>
-
         {/* step text — left rail on desktop, bottom sheet on mobile */}
-        <div className="absolute left-5 right-5 bottom-10 md:right-auto md:left-16 md:bottom-auto md:top-1/2 md:-translate-y-1/2 md:max-w-sm">
+        <div className="absolute left-5 right-5 bottom-10 md:right-auto md:left-[15%] md:bottom-auto md:top-1/2 md:-translate-y-1/2 md:max-w-sm">
           {!finale ? (
             <div key={step} className="fade-step">
               <div className="pixel-serif step-num text-white/40 text-lg md:text-2xl">{STEPS[step].n}</div>
@@ -138,11 +132,6 @@ export default function LifecycleScroll({ variant }: { variant: '1' | '2' }) {
             <span key={s.n}
               className={`w-1.5 h-1.5 rounded-full transition-colors duration-300 ${i <= Math.min(step, 7) ? 'bg-white' : 'bg-white/20'}`} />
           ))}
-        </div>
-
-        {/* scroll hint, first chapter only */}
-        <div className={`absolute bottom-6 left-1/2 -translate-x-1/2 transition-opacity duration-500 ${step === 0 ? 'opacity-100' : 'opacity-0'}`}>
-          <span className="pixel-sans text-white/40 text-xs tracking-widest">KEEP SCROLLING</span>
         </div>
       </div>
     </section>

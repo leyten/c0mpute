@@ -1,19 +1,19 @@
 // Variant 2 — "The network view": the whole story happens ON the real
-// land-dot globe (the shard map aesthetic). A Ghent box announces, gets
+// land-dot globe (the shard map aesthetic). A Brussels box announces, gets
 // measured, pulls its slice from peers, forms an EU ring, serves, settles,
 // gets paid — then the camera pulls back and more rings light the map.
 import {
   clamp01, seg, easeIO, easeOut, lerp, w, green,
-  broadcast, coinStack, receipt, meter, label,
+  ripple, coinStack, receipt, meter,
   drawGlobe, drawArc, buildArc, project, rotv, sph, GlobeView, V3,
 } from './art';
 
 const CH = 1 / 9;
 const ch = (i: number, p: number) => seg(p, i * CH, (i + 1) * CH);
 
-// The 07-21 rehearsal geography: a 6-city EU ring, Ghent as the protagonist.
+// A 6-city EU ring, Brussels as the protagonist.
 const RING: { name: string; lon: number; lat: number }[] = [
-  { name: 'ghent', lon: 3.7, lat: 51.0 },
+  { name: 'brussels', lon: 4.35, lat: 50.85 },
   { name: 'amsterdam', lon: 4.9, lat: 52.37 },
   { name: 'frankfurt', lon: 8.7, lat: 50.1 },
   { name: 'prague', lon: 14.4, lat: 50.1 },
@@ -79,38 +79,35 @@ export function drawGlobeStory(ctx: CanvasRenderingContext2D, W: number, H: numb
   drawGlobe(ctx, gv);
 
   const scr = ringVs!.map((v) => project(v, gv));
-  const ghent = scr[0];
+  const home = scr[0];
 
   // ---------- 01 announce ----------
-  if (ghent && p < 2 * CH) {
+  if (home && p < 2 * CH) {
     const a = easeOut(seg(q0, 0.15, 0.5)) * (1 - easeIO(seg(q1, 0, 0.35)));
     for (let k = 0; k < 3; k++) {
       const phase = (tMs * 0.00045 + k / 3) % 1;
-      broadcast(ctx, ghent.x, ghent.y, 8 + phase * minD * 0.13, (1 - phase) * 0.5 * a);
+      ripple(ctx, home.x, home.y, 6 + phase * minD * 0.07, (1 - phase) * 0.4 * a);
     }
-    label(ctx, 'a box announces · ghent', ghent.x, ghent.y + 32, a, 13);
   }
 
   // ---------- 02 admit ----------
-  if (ghent && p >= CH * 0.8 && p < 3 * CH) {
+  if (home && p >= CH * 0.8 && p < 3 * CH) {
     const a = easeIO(seg(q1, 0.05, 0.3)) * (1 - easeIO(seg(q2, 0.4, 0.8)));
     if (a > 0.01) {
-      const hx = Math.min(ghent.x + 46, W - 205), hy = ghent.y - 66;
+      const hx = Math.min(home.x + 46, W - 205), hy = home.y - 66;
       ctx.fillStyle = `rgba(12,10,9,${(0.8 * a).toFixed(3)})`;
-      ctx.fillRect(hx - 14, hy - 26, Math.min(W * 0.22, 156) + 28, 152);
+      ctx.fillRect(hx - 14, hy - 14, Math.min(W * 0.22, 156) + 28, 90);
       ctx.strokeStyle = w(0.3 * a);
       ctx.setLineDash([2, 3]);
       ctx.beginPath();
-      ctx.moveTo(ghent.x + 4, ghent.y - 4);
+      ctx.moveTo(home.x + 4, home.y - 4);
       ctx.lineTo(hx - 8, hy + 30);
       ctx.stroke();
       ctx.setLineDash([]);
       const mw = Math.min(W * 0.22, 156);
       meter(ctx, hx, hy, mw, 'vram', easeOut(seg(q1, 0.25, 0.55)), a);
-      meter(ctx, hx, hy + 36, mw, 'uplink', easeOut(seg(q1, 0.35, 0.65)), a);
-      meter(ctx, hx, hy + 72, mw, 'latency', easeOut(seg(q1, 0.45, 0.75)), a);
-      const st = seg(q1, 0.72, 0.9);
-      if (st > 0) label(ctx, 'role · layers 20–31', hx + mw / 2, hy + 106, a * st, 12);
+      meter(ctx, hx, hy + 26, mw, 'uplink', easeOut(seg(q1, 0.35, 0.65)), a);
+      meter(ctx, hx, hy + 52, mw, 'latency', easeOut(seg(q1, 0.45, 0.75)), a);
     }
   }
 
@@ -124,7 +121,7 @@ export function drawGlobeStory(ctx: CanvasRenderingContext2D, W: number, H: numb
     const bwUnit = bw2 / n;
     // translucent backdrop so the bar reads over the land dots
     ctx.fillStyle = `rgba(12,10,9,${(0.82 * barA).toFixed(3)})`;
-    ctx.fillRect(bx - 18, by - 40, bw2 + 36, 100);
+    ctx.fillRect(bx - 18, by - 26, bw2 + 36, 72);
     const hiLo = 8, hiHi = 14;
     const hiA = easeIO(seg(q2, 0.3, 0.6));
     const fills = Array.from({ length: hiHi - hiLo }, (_, i) => seg(q3, 0.08 + i * 0.12, 0.36 + i * 0.12));
@@ -140,9 +137,8 @@ export function drawGlobeStory(ctx: CanvasRenderingContext2D, W: number, H: numb
         ctx.fillRect(bx + i * bwUnit + 1.5, by + 1.5, (bwUnit - 5) * f, 16);
       }
     }
-    label(ctx, 'the model · 62 layers', bx + bw2 / 2, by + 40, barA, 12);
-    // your-slice bracket + line up to ghent
-    if (hiA > 0.05 && ghent) {
+    // your-slice bracket + line up to the home node
+    if (hiA > 0.05 && home) {
       const x0 = bx + hiLo * bwUnit, x1 = bx + hiHi * bwUnit - 2;
       ctx.strokeStyle = w(0.7 * barA * hiA);
       ctx.lineWidth = 1;
@@ -152,12 +148,11 @@ export function drawGlobeStory(ctx: CanvasRenderingContext2D, W: number, H: numb
       ctx.lineTo(x1, by - 11);
       ctx.lineTo(x1, by - 6);
       ctx.stroke();
-      label(ctx, 'your slice', (x0 + x1) / 2, by - 26, barA * hiA, 12);
       ctx.strokeStyle = w(0.25 * barA * hiA * (1 - seg(q3, 0, 0.25)));
       ctx.setLineDash([3, 4]);
       ctx.beginPath();
       ctx.moveTo((x0 + x1) / 2, by - 28);
-      ctx.lineTo(ghent.x, ghent.y + 8);
+      ctx.lineTo(home.x, home.y + 8);
       ctx.stroke();
       ctx.setLineDash([]);
       // neighbouring slices assigned to ringmates
@@ -185,7 +180,6 @@ export function drawGlobeStory(ctx: CanvasRenderingContext2D, W: number, H: numb
         drawArc(ctx, arc, gv, 'rgba(0,0,0,0)', 1, t);
       }
     });
-    if (a > 0.01) label(ctx, 'weights, peer to peer · hash-checked', gv.cx, H * 0.2, a * seg(q3, 0.5, 0.8), 13);
   }
 
   // ---------- 05 form: green arcs close the ring ----------
@@ -212,7 +206,6 @@ export function drawGlobeStory(ctx: CanvasRenderingContext2D, W: number, H: numb
         const c = scr[i];
         if (rA > 0.03 && c) receipt(ctx, c.x + 17, c.y - 20, 1.35, rA, false);
       }
-      label(ctx, 'every stage signs', gv.cx, H * 0.2, sA * seg(q5, 0.3, 0.6), 13);
     }
   }
 
@@ -230,12 +223,10 @@ export function drawGlobeStory(ctx: CanvasRenderingContext2D, W: number, H: numb
       receipt(ctx, lerp(sxx, lx + (i % 2) * 3 - 1.5, tt), lerp(syy, ly - i * 6, tt), 1.4,
         Math.max(a * 0.85, 0.03), tt >= 1 && seg(q6, 0.5 + i * 0.05, 0.62 + i * 0.05) >= 1);
     }
-    label(ctx, 'receipts settle', lx, ly + 32, a * seg(q6, 0.5, 0.8) * (1 - seg(q7, 0.6, 0.9)), 12);
   }
   if (q7 > 0) {
     const a = easeIO(seg(q7, 0, 0.25)) * (1 - easeIO(seg(q8, 0, 0.3)));
     coinStack(ctx, lx, ly + 112, 1 + 4 * easeOut(seg(q7, 0.05, 0.8)), 1.05, a);
-    label(ctx, 'usdc, per token', lx, ly + 138, a * seg(q7, 0.45, 0.75), 12);
   }
 
   // ---------- 09 finale: the rest of the world lights up ----------
@@ -264,8 +255,8 @@ export function drawGlobeStory(ctx: CanvasRenderingContext2D, W: number, H: numb
   scr.forEach((c, i) => {
     if (!c) return;
     const serving = q4 >= 1;
-    const isGhent = i === 0;
-    const a = (isGhent ? 1 : p < CH ? 0.35 : 0.35 + 0.65 * easeIO(seg(ch(2, p), 0.3, 0.8))) * cityBase * Math.min(1, c.z + 0.25);
+    const isHome = i === 0;
+    const a = (isHome ? 1 : p < CH ? 0.35 : 0.35 + 0.65 * easeIO(seg(ch(2, p), 0.3, 0.8))) * cityBase * Math.min(1, c.z + 0.25);
     if (serving) {
       ctx.fillStyle = green(0.2 * a);
       ctx.fillRect((c.x | 0) - 4, (c.y | 0) - 4, 8, 8);
@@ -275,7 +266,7 @@ export function drawGlobeStory(ctx: CanvasRenderingContext2D, W: number, H: numb
       ctx.fillStyle = w(a);
       ctx.fillRect((c.x | 0) - 2, (c.y | 0) - 2, 4, 4);
     }
-    if (isGhent && p < 5 * CH) {
+    if (isHome && p < 5 * CH) {
       ctx.strokeStyle = w(0.5 * cityBase);
       ctx.lineWidth = 1;
       ctx.strokeRect((c.x | 0) - 6.5, (c.y | 0) - 6.5, 13, 13);

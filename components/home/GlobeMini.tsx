@@ -6,7 +6,7 @@ import { useEffect, useRef } from 'react';
 import { drawGlobe, drawArc, buildArc, project, sph, green, GlobeView, V3 } from './scrollstage/art';
 
 const CITIES: [number, number][] = [
-  [3.7, 51.0], [8.7, 50.1], [14.4, 50.1], [2.35, 48.85], [4.9, 52.37], [-0.13, 51.5],
+  [4.35, 50.85], [8.7, 50.1], [14.4, 50.1], [2.35, 48.85], [4.9, 52.37], [-0.13, 51.5],
 ];
 
 export default function GlobeMini() {
