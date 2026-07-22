@@ -112,7 +112,7 @@ export function drawJourney(ctx: CanvasRenderingContext2D, W: number, H: number,
       const phase = (tMs * 0.00045 + k / 3) % 1;
       broadcast(ctx, nx, ny, 16 * s + phase * minD * 0.2, (1 - phase) * 0.4 * bA * easeOut(seg(q0, 0.15, 0.5)));
     }
-    label(ctx, 'your box', nx, ny + 22 * iconS * 0.55, nodeA * (1 - seg(q1, 0.5, 0.9)), 10);
+    label(ctx, 'your box', nx, ny + 22 * iconS * 0.55, nodeA * (1 - seg(q1, 0.5, 0.9)), 13);
   }
 
   // ---------- 02 admit ----------
@@ -132,17 +132,17 @@ export function drawJourney(ctx: CanvasRenderingContext2D, W: number, H: number,
       }
       // measured capabilities
       const mx = nx + 20 * iconS;
-      const mw = Math.min(W * 0.2, 130);
-      meter(ctx, mx, ny - 26, mw, 'vram', easeOut(seg(q1, 0.25, 0.55)), a);
+      const mw = Math.min(W * 0.22, 156);
+      meter(ctx, mx, ny - 36, mw, 'vram', easeOut(seg(q1, 0.25, 0.55)), a);
       meter(ctx, mx, ny, mw, 'uplink', easeOut(seg(q1, 0.35, 0.65)), a);
-      meter(ctx, mx, ny + 26, mw, 'latency', easeOut(seg(q1, 0.45, 0.75)), a);
+      meter(ctx, mx, ny + 36, mw, 'latency', easeOut(seg(q1, 0.45, 0.75)), a);
       // role stamp
       const st = seg(q1, 0.72, 0.9);
       if (st > 0) {
         ctx.strokeStyle = w(0.5 * a * st);
-        const bw2 = 108, bh2 = 20;
+        const bw2 = 136, bh2 = 26;
         ctx.strokeRect(Math.round(nx - bw2 / 2), Math.round(ny + 16 * iconS), bw2, bh2);
-        label(ctx, 'role · layers 20–31', nx, ny + 16 * iconS + bh2 / 2, a * st, 9);
+        label(ctx, 'role · layers 20–31', nx, ny + 16 * iconS + bh2 / 2, a * st, 12);
       }
     }
   }
@@ -151,7 +151,7 @@ export function drawJourney(ctx: CanvasRenderingContext2D, W: number, H: number,
   const stackA = easeIO(seg(q2, 0, 0.3)) * (1 - easeIO(seg(q4, 0, 0.35))) * worldA;
   const sx = desktop ? cx - minD * 0.28 : cx - W * 0.33;
   if (stackA > 0.01) {
-    const n = 12, bw = Math.max(40, minD * 0.09), bh = Math.max(9, minD * 0.024), gap = 3;
+    const n = 12, bw = Math.max(52, minD * 0.11), bh = Math.max(12, minD * 0.03), gap = 4;
     const hiA = easeIO(seg(q2, 0.35, 0.7));
     const fills = [0, 1, 2, 3].map((i) => seg(q3, 0.1 + i * 0.17, 0.42 + i * 0.17));
     // staggered block appearance
@@ -159,7 +159,7 @@ export function drawJourney(ctx: CanvasRenderingContext2D, W: number, H: number,
     ctx.globalAlpha = 1;
     layerStack(ctx, sx, cy, n, bw, bh, gap, stackA, 5, 9, hiA, q3 > 0 ? fills : undefined);
     ctx.restore();
-    label(ctx, 'the model', sx, cy - (n * (bh + gap)) / 2 - 14, stackA, 9);
+    label(ctx, 'the model', sx, cy - (n * (bh + gap)) / 2 - 18, stackA, 12);
     if (hiA > 0.05) {
       const total = n * bh + (n - 1) * gap;
       const yLo = cy - total / 2 + 5 * (bh + gap), yHi = cy - total / 2 + 9 * (bh + gap) - gap;
@@ -171,7 +171,7 @@ export function drawJourney(ctx: CanvasRenderingContext2D, W: number, H: number,
       ctx.lineTo(sx - bw / 2 - 13, yHi);
       ctx.lineTo(sx - bw / 2 - 8, yHi);
       ctx.stroke();
-      label(ctx, 'your slice', sx - bw / 2 - 20, (yLo + yHi) / 2, stackA * hiA, 9, 'right');
+      label(ctx, 'your slice', sx - bw / 2 - 22, (yLo + yHi) / 2, stackA * hiA, 12, 'right');
     }
     // assignment line: slice -> node (place)
     const la = easeIO(seg(q2, 0.55, 0.85)) * (1 - seg(q3, 0, 0.2));
@@ -196,7 +196,7 @@ export function drawJourney(ctx: CanvasRenderingContext2D, W: number, H: number,
           px(ctx, pxx, pyy, 3, w(0.85 * stackA * (phase < 0.06 ? phase / 0.06 : 1)));
         }
       });
-      if (q3 > 0.85) label(ctx, 'hash-checked', sx, cy + (12 * (bh + gap)) / 2 + 16, stackA * seg(q3, 0.85, 1), 9);
+      if (q3 > 0.85) label(ctx, 'hash-checked', sx, cy + (12 * (bh + gap)) / 2 + 20, stackA * seg(q3, 0.85, 1), 12);
     }
   }
 
@@ -238,10 +238,10 @@ export function drawJourney(ctx: CanvasRenderingContext2D, W: number, H: number,
         const rA = Math.max(0, 1 - d * 1.4) * serveA;
         if (rA > 0.03) {
           const [rx, ry] = ringPt(i);
-          receipt(ctx, rx + 16, ry - 20, 1.1, rA, false);
+          receipt(ctx, rx + 20, ry - 26, 1.4, rA, false);
         }
       }
-      label(ctx, 'every stage signs', cx, cy, serveA * seg(q5, 0.3, 0.6), 10);
+      label(ctx, 'every stage signs', cx, cy, serveA * seg(q5, 0.3, 0.6), 13);
     }
   }
 
@@ -253,17 +253,17 @@ export function drawJourney(ctx: CanvasRenderingContext2D, W: number, H: number,
     for (let i = 0; i < 6; i++) {
       const tt = easeIO(seg(q6, 0.05 + i * 0.07, 0.45 + i * 0.07));
       const [rx0, ry0] = ringPt(i);
-      const rx = lerp(rx0 + 16, lx + (i % 2) * 3 - 1.5, tt);
-      const ry = lerp(ry0 - 20, ly - i * 5, tt);
-      receipt(ctx, rx, ry, 1.15, Math.max(ledgerA * 0.85, 0.05), tt >= 1 && seg(q6, 0.5 + i * 0.05, 0.62 + i * 0.05) >= 1);
+      const rx = lerp(rx0 + 20, lx + (i % 2) * 3 - 1.5, tt);
+      const ry = lerp(ry0 - 26, ly - i * 6, tt);
+      receipt(ctx, rx, ry, 1.4, Math.max(ledgerA * 0.85, 0.05), tt >= 1 && seg(q6, 0.5 + i * 0.05, 0.62 + i * 0.05) >= 1);
     }
-    label(ctx, 'receipts settle', lx, ly + 26, ledgerA * seg(q6, 0.5, 0.8) * (1 - seg(q7, 0.6, 0.9)), 9);
+    label(ctx, 'receipts settle', lx, ly + 34, ledgerA * seg(q6, 0.5, 0.8) * (1 - seg(q7, 0.6, 0.9)), 12);
   }
   if (q7 > 0 && worldA > 0.01) {
     const coinA = easeIO(seg(q7, 0, 0.25)) * worldA;
     const coins = 1 + 4 * easeOut(seg(q7, 0.05, 0.8));
-    coinStack(ctx, lx, ly + 108, coins, 1.05, coinA);
-    label(ctx, 'usdc, per token', lx, ly + 132, coinA * seg(q7, 0.45, 0.75), 9);
+    coinStack(ctx, lx, ly + 120, coins, 1.2, coinA);
+    label(ctx, 'usdc, per token', lx, ly + 152, coinA * seg(q7, 0.45, 0.75), 12);
   }
 
   // ---------- the cast (drawn last, on top) ----------

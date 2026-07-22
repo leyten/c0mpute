@@ -88,16 +88,16 @@ export function drawGlobeStory(ctx: CanvasRenderingContext2D, W: number, H: numb
       const phase = (tMs * 0.00045 + k / 3) % 1;
       broadcast(ctx, ghent.x, ghent.y, 8 + phase * minD * 0.13, (1 - phase) * 0.5 * a);
     }
-    label(ctx, 'a box announces · ghent', ghent.x, ghent.y + 26, a, 10);
+    label(ctx, 'a box announces · ghent', ghent.x, ghent.y + 32, a, 13);
   }
 
   // ---------- 02 admit ----------
   if (ghent && p >= CH * 0.8 && p < 3 * CH) {
     const a = easeIO(seg(q1, 0.05, 0.3)) * (1 - easeIO(seg(q2, 0.4, 0.8)));
     if (a > 0.01) {
-      const hx = Math.min(ghent.x + 46, W - 170), hy = ghent.y - 58;
+      const hx = Math.min(ghent.x + 46, W - 205), hy = ghent.y - 66;
       ctx.fillStyle = `rgba(12,10,9,${(0.8 * a).toFixed(3)})`;
-      ctx.fillRect(hx - 12, hy - 22, Math.min(W * 0.18, 120) + 24, 118);
+      ctx.fillRect(hx - 14, hy - 26, Math.min(W * 0.22, 156) + 28, 152);
       ctx.strokeStyle = w(0.3 * a);
       ctx.setLineDash([2, 3]);
       ctx.beginPath();
@@ -105,12 +105,12 @@ export function drawGlobeStory(ctx: CanvasRenderingContext2D, W: number, H: numb
       ctx.lineTo(hx - 8, hy + 30);
       ctx.stroke();
       ctx.setLineDash([]);
-      const mw = Math.min(W * 0.18, 120);
+      const mw = Math.min(W * 0.22, 156);
       meter(ctx, hx, hy, mw, 'vram', easeOut(seg(q1, 0.25, 0.55)), a);
-      meter(ctx, hx, hy + 26, mw, 'uplink', easeOut(seg(q1, 0.35, 0.65)), a);
-      meter(ctx, hx, hy + 52, mw, 'latency', easeOut(seg(q1, 0.45, 0.75)), a);
+      meter(ctx, hx, hy + 36, mw, 'uplink', easeOut(seg(q1, 0.35, 0.65)), a);
+      meter(ctx, hx, hy + 72, mw, 'latency', easeOut(seg(q1, 0.45, 0.75)), a);
       const st = seg(q1, 0.72, 0.9);
-      if (st > 0) label(ctx, 'role · layers 20–31', hx + mw / 2, hy + 78, a * st, 9);
+      if (st > 0) label(ctx, 'role · layers 20–31', hx + mw / 2, hy + 106, a * st, 12);
     }
   }
 
@@ -118,13 +118,13 @@ export function drawGlobeStory(ctx: CanvasRenderingContext2D, W: number, H: numb
   const barA = easeIO(seg(q2, 0, 0.3)) * (1 - easeIO(seg(q4, 0.3, 0.7)));
   if (barA > 0.01) {
     // horizontal layer bar across the bottom of the stage
-    const n = 24, bw2 = Math.min(W * 0.66, 560);
+    const n = 24, bw2 = Math.min(W * 0.72, 660);
     const bx = (desktop ? W * 0.58 : W * 0.5) - bw2 / 2;
     const by = H * 0.86;
     const bwUnit = bw2 / n;
     // translucent backdrop so the bar reads over the land dots
     ctx.fillStyle = `rgba(12,10,9,${(0.82 * barA).toFixed(3)})`;
-    ctx.fillRect(bx - 16, by - 34, bw2 + 32, 78);
+    ctx.fillRect(bx - 18, by - 40, bw2 + 36, 100);
     const hiLo = 8, hiHi = 14;
     const hiA = easeIO(seg(q2, 0.3, 0.6));
     const fills = Array.from({ length: hiHi - hiLo }, (_, i) => seg(q3, 0.08 + i * 0.12, 0.36 + i * 0.12));
@@ -133,14 +133,14 @@ export function drawGlobeStory(ctx: CanvasRenderingContext2D, W: number, H: numb
       const a = (inSlice ? 0.35 + 0.65 * hiA : 0.28) * barA;
       ctx.strokeStyle = w(a);
       ctx.lineWidth = 1;
-      ctx.strokeRect(Math.round(bx + i * bwUnit) + 0.5, Math.round(by) + 0.5, Math.round(bwUnit - 2), 14);
+      ctx.strokeRect(Math.round(bx + i * bwUnit) + 0.5, Math.round(by) + 0.5, Math.round(bwUnit - 2), 19);
       const f = inSlice && q3 > 0 ? clamp01(fills[i - hiLo]) : 0;
       if (f > 0) {
         ctx.fillStyle = w(a * 0.9);
-        ctx.fillRect(bx + i * bwUnit + 1.5, by + 1.5, (bwUnit - 5) * f, 11);
+        ctx.fillRect(bx + i * bwUnit + 1.5, by + 1.5, (bwUnit - 5) * f, 16);
       }
     }
-    label(ctx, 'the model · 62 layers', bx + bw2 / 2, by + 30, barA, 9);
+    label(ctx, 'the model · 62 layers', bx + bw2 / 2, by + 40, barA, 12);
     // your-slice bracket + line up to ghent
     if (hiA > 0.05 && ghent) {
       const x0 = bx + hiLo * bwUnit, x1 = bx + hiHi * bwUnit - 2;
@@ -152,7 +152,7 @@ export function drawGlobeStory(ctx: CanvasRenderingContext2D, W: number, H: numb
       ctx.lineTo(x1, by - 11);
       ctx.lineTo(x1, by - 6);
       ctx.stroke();
-      label(ctx, 'your slice', (x0 + x1) / 2, by - 20, barA * hiA, 9);
+      label(ctx, 'your slice', (x0 + x1) / 2, by - 26, barA * hiA, 12);
       ctx.strokeStyle = w(0.25 * barA * hiA * (1 - seg(q3, 0, 0.25)));
       ctx.setLineDash([3, 4]);
       ctx.beginPath();
@@ -185,7 +185,7 @@ export function drawGlobeStory(ctx: CanvasRenderingContext2D, W: number, H: numb
         drawArc(ctx, arc, gv, 'rgba(0,0,0,0)', 1, t);
       }
     });
-    if (a > 0.01) label(ctx, 'weights, peer to peer · hash-checked', gv.cx, H * 0.2, a * seg(q3, 0.5, 0.8), 9);
+    if (a > 0.01) label(ctx, 'weights, peer to peer · hash-checked', gv.cx, H * 0.2, a * seg(q3, 0.5, 0.8), 13);
   }
 
   // ---------- 05 form: green arcs close the ring ----------
@@ -210,9 +210,9 @@ export function drawGlobeStory(ctx: CanvasRenderingContext2D, W: number, H: numb
         let d = (pos - i + 6) % 6;
         const rA = Math.max(0, 1 - d * 1.1) * sA;
         const c = scr[i];
-        if (rA > 0.03 && c) receipt(ctx, c.x + 13, c.y - 15, 0.9, rA, false);
+        if (rA > 0.03 && c) receipt(ctx, c.x + 17, c.y - 20, 1.35, rA, false);
       }
-      label(ctx, 'every stage signs', gv.cx, H * 0.2, sA * seg(q5, 0.3, 0.6), 9);
+      label(ctx, 'every stage signs', gv.cx, H * 0.2, sA * seg(q5, 0.3, 0.6), 13);
     }
   }
 
@@ -222,20 +222,20 @@ export function drawGlobeStory(ctx: CanvasRenderingContext2D, W: number, H: numb
   if (q6 > 0) {
     const a = easeIO(seg(q6, 0, 0.25)) * (1 - easeIO(seg(q8, 0, 0.3)));
     ctx.fillStyle = `rgba(12,10,9,${(0.75 * a).toFixed(3)})`;
-    ctx.fillRect(lx - 62, ly - 46, 124, q7 > 0 ? 196 : 92);
+    ctx.fillRect(lx - 84, ly - 52, 168, q7 > 0 ? 240 : 108);
     for (let i = 0; i < 6; i++) {
       const tt = easeIO(seg(q6, 0.05 + i * 0.07, 0.45 + i * 0.07));
       const c = scr[i];
-      const sxx = c ? c.x + 13 : gv.cx, syy = c ? c.y - 15 : gv.cy;
-      receipt(ctx, lerp(sxx, lx + (i % 2) * 3 - 1.5, tt), lerp(syy, ly - i * 5, tt), 1.05,
+      const sxx = c ? c.x + 17 : gv.cx, syy = c ? c.y - 20 : gv.cy;
+      receipt(ctx, lerp(sxx, lx + (i % 2) * 3 - 1.5, tt), lerp(syy, ly - i * 6, tt), 1.4,
         Math.max(a * 0.85, 0.03), tt >= 1 && seg(q6, 0.5 + i * 0.05, 0.62 + i * 0.05) >= 1);
     }
-    label(ctx, 'receipts settle', lx, ly + 24, a * seg(q6, 0.5, 0.8) * (1 - seg(q7, 0.6, 0.9)), 9);
+    label(ctx, 'receipts settle', lx, ly + 32, a * seg(q6, 0.5, 0.8) * (1 - seg(q7, 0.6, 0.9)), 12);
   }
   if (q7 > 0) {
     const a = easeIO(seg(q7, 0, 0.25)) * (1 - easeIO(seg(q8, 0, 0.3)));
-    coinStack(ctx, lx, ly + 92, 1 + 4 * easeOut(seg(q7, 0.05, 0.8)), 0.8, a);
-    label(ctx, 'usdc, per token', lx, ly + 112, a * seg(q7, 0.45, 0.75), 9);
+    coinStack(ctx, lx, ly + 112, 1 + 4 * easeOut(seg(q7, 0.05, 0.8)), 1.05, a);
+    label(ctx, 'usdc, per token', lx, ly + 138, a * seg(q7, 0.45, 0.75), 12);
   }
 
   // ---------- 09 finale: the rest of the world lights up ----------

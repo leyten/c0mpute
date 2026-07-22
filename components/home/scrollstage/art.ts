@@ -180,12 +180,12 @@ export function layerStack(
 // Measured-capability bar (admit scene).
 export function meter(ctx: CanvasRenderingContext2D, x: number, y: number, wd: number, name: string, fill: number, alpha: number) {
   if (alpha <= 0.01) return;
-  label(ctx, name, x, y - 8, alpha, 9, 'left');
+  label(ctx, name, x, y - 11, alpha, 12, 'left');
   ctx.strokeStyle = w(alpha * 0.5);
   ctx.lineWidth = 1;
-  ctx.strokeRect(Math.round(x) + 0.5, Math.round(y) + 0.5, Math.round(wd), 7);
+  ctx.strokeRect(Math.round(x) + 0.5, Math.round(y) + 0.5, Math.round(wd), 10);
   ctx.fillStyle = w(alpha * 0.9);
-  ctx.fillRect(x + 1.5, y + 1.5, (wd - 3) * clamp01(fill), 4);
+  ctx.fillRect(x + 1.5, y + 1.5, (wd - 3) * clamp01(fill), 7);
 }
 
 // ---------- globe ----------
