@@ -1,18 +1,20 @@
-/* Homepage type/color variants (preview only). The markup keeps the legacy
-   .pixel-serif/.pixel-sans hooks; each .v-* scope re-skins them with readable
+/* Homepage theme (preview): the chosen "Editorial" treatment — Newsreader
+   display over a warm near-black, Inter body. The markup keeps the legacy
+   .pixel-serif/.pixel-sans hooks; the .v-b scope re-skins them with readable
    faces. Card ARTWORK (bento visuals, PixelBlast) is untouched by design. */
 
-/* ---------- shared: de-pixelate + re-enable antialiasing ---------- */
-.v-a .pixel-serif, .v-b .pixel-serif, .v-c .pixel-serif,
-.v-a .pixel-serif-sub, .v-b .pixel-serif-sub, .v-c .pixel-serif-sub {
-  letter-spacing: -0.02em;
+.v-b .pixel-serif, .v-b .pixel-serif-sub {
+  font-family: var(--font-newsreader), Georgia, serif;
+  font-weight: 500;
+  letter-spacing: -0.01em;
   line-height: 1.15;
   font-smooth: auto;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
 }
-.v-a .pixel-sans, .v-b .pixel-sans, .v-c .pixel-sans {
+.v-b .pixel-sans {
+  font-family: var(--font-inter), system-ui, sans-serif;
   letter-spacing: 0;
   line-height: 1.65;
   -webkit-text-stroke: 0;
@@ -21,36 +23,11 @@
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
 }
-.v-a .pixel-sans strong, .v-b .pixel-sans strong, .v-c .pixel-sans strong,
-.v-a .pixel-sans b, .v-b .pixel-sans b, .v-c .pixel-sans b {
+.v-b .pixel-sans strong, .v-b .pixel-sans b {
   text-shadow: none;
   letter-spacing: 0;
   -webkit-font-smoothing: antialiased;
 }
-.v-a .dollar, .v-b .dollar, .v-c .dollar {
-  font-family: inherit !important;
-  -webkit-font-smoothing: antialiased !important;
-}
-
-/* ---------- A · Precision — Inter + mono labels, pure black ---------- */
-.v-a .pixel-serif, .v-a .pixel-serif-sub {
-  font-family: var(--font-inter), system-ui, sans-serif;
-  font-weight: 600;
-}
-.v-a .pixel-sans { font-family: var(--font-inter), system-ui, sans-serif; }
-.v-a .tracking-widest {
-  font-family: var(--font-mono), ui-monospace, monospace;
-  letter-spacing: 0.14em;
-}
-.v-a .step-num { font-family: var(--font-mono), ui-monospace, monospace; }
-
-/* ---------- B · Editorial — Newsreader display, warm near-black ---------- */
-.v-b .pixel-serif, .v-b .pixel-serif-sub {
-  font-family: var(--font-newsreader), Georgia, serif;
-  font-weight: 500;
-  letter-spacing: -0.01em;
-}
-.v-b .pixel-sans { font-family: var(--font-inter), system-ui, sans-serif; }
 .v-b .pixel-serif-logo {
   font-family: var(--font-newsreader), Georgia, serif;
   font-weight: 500;
@@ -63,28 +40,19 @@
   margin-top: 0 !important;
   vertical-align: baseline !important;
 }
+.v-b .dollar {
+  font-family: inherit !important;
+  -webkit-font-smoothing: antialiased !important;
+}
+
+/* warm near-black instead of pure black */
 .v-b.bg-black, .v-b .bg-black { background-color: #0c0a09; }
 .v-b .bg-black\/80 { background-color: rgba(12, 10, 9, 0.8); }
 .v-b .bg-black\/95 { background-color: rgba(12, 10, 9, 0.95); }
+
 .v-b .step-num { font-style: italic; }
 
-/* ---------- C · Signal — Space Grotesk, blue-black, steel accents ---------- */
-.v-c .pixel-serif, .v-c .pixel-serif-sub {
-  font-family: var(--font-grotesk), system-ui, sans-serif;
-  font-weight: 600;
-  letter-spacing: -0.015em;
-}
-.v-c .pixel-sans { font-family: var(--font-inter), system-ui, sans-serif; }
-.v-c .tracking-widest {
-  font-family: var(--font-grotesk), system-ui, sans-serif;
-  letter-spacing: 0.14em;
-}
-.v-c.bg-black, .v-c .bg-black { background-color: #05070c; }
-.v-c .bg-black\/80 { background-color: rgba(5, 7, 12, 0.8); }
-.v-c .bg-black\/95 { background-color: rgba(5, 7, 12, 0.95); }
-.v-c .step-num { color: rgba(128, 160, 193, 0.85); }
-
-/* ---------- status badge (declutter: dot + small caps, no border box) ---------- */
+/* ---------- status badge (dot + small caps, no border box) ---------- */
 .badge-chip {
   display: inline-flex;
   align-items: center;
@@ -102,7 +70,7 @@
 }
 .badge-chip.badge-live { color: rgba(110, 231, 183, 0.9); }
 
-/* ---------- preview-only variant switcher ---------- */
+/* ---------- preview-only layout switcher ---------- */
 .variant-switcher {
   position: fixed;
   bottom: 16px;
@@ -113,7 +81,7 @@
   padding: 4px;
   border: 1px solid rgba(255, 255, 255, 0.15);
   border-radius: 9999px;
-  background: rgba(0, 0, 0, 0.7);
+  background: rgba(12, 10, 9, 0.75);
   backdrop-filter: blur(8px);
   font-family: var(--font-inter), system-ui, sans-serif;
 }

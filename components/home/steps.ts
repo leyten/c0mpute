@@ -1,7 +1,5 @@
-// The lifecycle of a GPU on the network (NETWORK_ARCHITECTURE.md §2), as a
-// numbered spine. Row 1 = joining, row 2 = working. Top-rule style, no card
-// boxes — boxes stay reserved for the artwork bento.
-const STEPS = [
+// The lifecycle of a GPU on the network (NETWORK_ARCHITECTURE.md §2).
+export const STEPS = [
   { n: '01', title: 'Announce', line: 'Your node joins and advertises what it has: GPU, VRAM, bandwidth, reputation.' },
   { n: '02', title: 'Admit', line: 'The network measures the box and assigns it a role. No allowlist, no application.' },
   { n: '03', title: 'Place', line: 'You get a slice: one model, a block of layers, sized to your VRAM, clustered by latency.' },
@@ -12,16 +10,9 @@ const STEPS = [
   { n: '08', title: 'Pay', line: 'You earn USDC for every token your slice helped produce.' },
 ];
 
-export default function LifecycleSpine() {
-  return (
-    <div className="grid grid-cols-2 md:grid-cols-4 gap-x-5 md:gap-x-8 gap-y-8 md:gap-y-12">
-      {STEPS.map((s) => (
-        <div key={s.n} className="border-t border-white/15 pt-4 md:pt-5">
-          <span className="pixel-sans step-num text-white/40 text-xs md:text-sm">{s.n}</span>
-          <h3 className="pixel-serif text-white text-base md:text-lg mt-2">{s.title}</h3>
-          <p className="pixel-sans text-white/60 text-xs md:text-sm mt-2 leading-relaxed">{s.line}</p>
-        </div>
-      ))}
-    </div>
-  );
-}
+// One-paragraph version of the spine for the compressed layouts.
+export const LIFECYCLE_SUMMARY =
+  'Announce your box and the network measures it, admits it, and hands it a slice of a model sized to its ' +
+  'VRAM. It torrents exactly those layers from peers, forms a low-latency ring that holds one full copy, ' +
+  'and serves — signing a receipt for every pass. Receipts settle, and it earns USDC for every token it ' +
+  'helped produce.';
