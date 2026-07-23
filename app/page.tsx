@@ -2,16 +2,10 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { Inter, Newsreader } from 'next/font/google';
-import './homepage-variants.css';
 import AnonGateModal from '@/components/AnonGateModal';
 import LifecycleScroll from '@/components/home/LifecycleScroll';
 import Doors from '@/components/home/Doors';
 import { useAuth } from '@/hooks/useAuth';
-
-// Chosen theme: "Editorial" — Newsreader display, Inter body (leyten's pick).
-const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
-const newsreader = Newsreader({ subsets: ['latin'], style: ['normal', 'italic'], variable: '--font-newsreader' });
 
 // Key for passing prompt to user page
 const PENDING_PROMPT_KEY = 'c0mpute_pending_prompt';
@@ -111,7 +105,7 @@ export default function Home() {
   };
 
   return (
-    <div className={`relative bg-black v-b ${inter.variable} ${newsreader.variable}`} style={{ overflow: 'visible' }}>
+    <div className="relative bg-black" style={{ overflow: 'visible' }}>
       {anonModalOpen && (
         <AnonGateModal
           mode="softlogin"

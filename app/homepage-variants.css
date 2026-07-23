@@ -46,6 +46,7 @@
 }
 
 /* warm near-black instead of pure black */
+body.v-b { background: #0c0a09; }
 .v-b.bg-black, .v-b .bg-black { background-color: #0c0a09; }
 .v-b .bg-black\/80 { background-color: rgba(12, 10, 9, 0.8); }
 .v-b .bg-black\/95 { background-color: rgba(12, 10, 9, 0.95); }

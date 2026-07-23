@@ -1325,7 +1325,7 @@ export default function UserPage() {
               </svg>
             </button>
             <a href="/" className="cursor-pointer pixel-serif-logo text-white text-lg font-bold flex items-center">
-              C<span className="pixel-serif-logo" style={{ fontSize: '1.8em', display: 'inline-block', verticalAlign: 'baseline', lineHeight: '1', marginTop: '-0.3em' }}>0</span>MPUTE
+              C<span className="pixel-serif-logo" style={{ fontSize: '1.8em', display: 'inline-block', verticalAlign: 'baseline', lineHeight: '1', marginTop: '-0.3em' }}>0</span>mpute
             </a>
           </div>
           
