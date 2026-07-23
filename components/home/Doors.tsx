@@ -1,8 +1,8 @@
 // Three audience doors, rebuilt as full-width editorial panels: big serif
 // heading + the living card art, alternating sides. Every CTA lands on an
 // existing surface.
-import OrchestratorFlow from '@/components/OrchestratorFlow';
-import EarningsVisual from '@/components/EarningsVisual';
+import ApiIdle from './ApiIdle';
+import CoinsIdle from './CoinsIdle';
 import GlobeMini from './GlobeMini';
 
 function Panel({
@@ -67,7 +67,7 @@ export default function Doors() {
               { href: 'https://docs.c0mpute.ai/api', text: 'Betanet API →', external: true },
             ]}
             cta={{ href: 'https://docs.c0mpute.ai', text: 'Read the docs', external: true }}
-            art={<div className="w-full max-w-[360px] h-[200px]"><OrchestratorFlow /></div>}
+            art={<div className="w-full h-[210px] md:h-[250px]"><ApiIdle /></div>}
           />
           <Panel
             id="gpu-owners"
@@ -79,7 +79,7 @@ export default function Doors() {
               { href: 'https://docs.c0mpute.ai', text: 'Run a full node →', external: true },
             ]}
             cta={{ href: '/earn', text: 'Start earning' }}
-            art={<div className="w-full max-w-[300px] h-[180px]"><EarningsVisual /></div>}
+            art={<div className="w-full h-[200px] md:h-[240px]"><CoinsIdle /></div>}
             flip
           />
           <Panel
