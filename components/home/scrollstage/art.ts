@@ -91,9 +91,12 @@ export function halftone(ctx: CanvasRenderingContext2D, x: number, y: number, wd
 // band with an elliptical bottom bulge (halftone-patterned) plus a stroked
 // top ellipse; lower faces carry the fine surface pattern, the top coin is
 // dark with a $. Patterns are cached per-context tile canvases.
-const _coinPats = new WeakMap<CanvasRenderingContext2D, { side: CanvasPattern | null; surface: CanvasPattern | null }>();
-function coinPatterns(ctx: CanvasRenderingContext2D) {
-  let p = _coinPats.get(ctx);
+const _coinPats = new WeakMap<CanvasRenderingContext2D, Map<number, { side: CanvasPattern | null; surface: CanvasPattern | null }>>();
+function coinPatterns(ctx: CanvasRenderingContext2D, s: number) {
+  let m = _coinPats.get(ctx);
+  if (!m) { m = new Map(); _coinPats.set(ctx, m); }
+  const bucket = Math.max(1, Math.round(s * 2) / 2);
+  let p = m.get(bucket);
   if (!p) {
     const mk = (size: number, r: number) => {
       const c = document.createElement('canvas');
@@ -106,8 +109,8 @@ function coinPatterns(ctx: CanvasRenderingContext2D) {
       g.fill();
       return ctx.createPattern(c, 'repeat');
     };
-    p = { surface: mk(3, 0.7), side: mk(4, 1.2) };
-    _coinPats.set(ctx, p);
+    p = { surface: mk(Math.round(3 * bucket), 0.7 * bucket), side: mk(Math.round(4 * bucket), 1.15 * bucket) };
+    m.set(bucket, p);
   }
   return p;
 }
@@ -115,7 +118,7 @@ function coinPatterns(ctx: CanvasRenderingContext2D) {
 export function coinStack(ctx: CanvasRenderingContext2D, cx: number, yBottom: number, coins: number, s: number, alpha: number) {
   if (alpha <= 0.01 || coins <= 0) return;
   const rx = 28 * s, ry = 9 * s, step = 10 * s, band = 8 * s;
-  const pats = coinPatterns(ctx);
+  const pats = coinPatterns(ctx, s);
   const full = Math.floor(coins);
   const frac = coins - full;
   const total = full + (frac > 0 ? 1 : 0);
