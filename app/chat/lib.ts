@@ -21,6 +21,16 @@ export const PLANS = [
 export type PlanId = typeof PLANS[number]['id'];
 export type Plan = typeof PLANS[number];
 
+// The swarm tier: MiniMax M2.5 sharded across worker GPUs. Not servable yet —
+// the model picker shows it as a launching entry, disabled while `available`
+// is false. There is intentionally no submission path for it.
+export const SWARM_PLAN = {
+  id: 'swarm' as const,
+  name: 'MiniMax M2.5',
+  description: '229B, sharded across the network',
+  available: false,
+} as const;
+
 // Online worker count for a given plan's model: per-model for native (max)
 // models so the indicator reflects the actual model, not the whole tier.
 export function planWorkerCount(plan: Plan, stats: NetworkStats | null | undefined): number {

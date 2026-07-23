@@ -3,6 +3,13 @@
 // The conversation column: finished messages, the live streaming response,
 // and every transient indicator (search, image generation, queue position,
 // processing, errors, tier-switch offer).
+//
+// `appearance` switches the skin only — every behavior and indicator is
+// shared:
+//   'studio'  (default) — V1/V3: assistant identity row, standard column.
+//   'gallery' — V2: wider margins, narrower reading column, generous leading,
+//               no assistant label (text nearly bare), quieter user blocks,
+//               serif empty state.
 
 import { RefObject } from 'react';
 import { ChatWithMessages, Message } from '@/lib/types';
@@ -13,6 +20,8 @@ import {
 } from '../lib';
 import { MessageMarkdown, SourceStrip } from './MarkdownContent';
 import ThinkingDropdown from './ThinkingDropdown';
+
+type Appearance = 'studio' | 'gallery';
 
 interface MessageListProps {
   activeChat: ChatWithMessages;
@@ -38,9 +47,10 @@ interface MessageListProps {
   endRef: RefObject<HTMLDivElement | null>;
   onScroll: () => void;
   onBackgroundClick: () => void;
+  appearance?: Appearance;
 }
 
-// The small identity row above every assistant turn
+// The small identity row above every assistant turn (hidden in gallery)
 function AssistantLabel({ pulse }: { pulse?: boolean }) {
   return (
     <div className="flex items-center gap-2 mb-1.5 px-1">
@@ -59,13 +69,14 @@ function CopyIcon({ copied }: { copied: boolean }) {
 }
 
 function MessageRow({
-  message, chatState, copiedId, onCopy, onEditUserMessage,
+  message, chatState, copiedId, onCopy, onEditUserMessage, appearance,
 }: {
   message: Message;
   chatState: ChatState;
   copiedId: string | null;
   onCopy: (messageId: string, content: string) => void;
   onEditUserMessage: (messageId: string) => void;
+  appearance: Appearance;
 }) {
   const { cleanContent: rawContent, sources } = message.role === 'assistant'
     ? parseSourcesFromContent(message.content)
@@ -75,11 +86,17 @@ function MessageRow({
     : { thinking: null, response: rawContent, thinkSeconds: null };
 
   const isUser = message.role === 'user';
+  const gallery = appearance === 'gallery';
 
   return (
     <div className={`group/msg msg-in flex flex-col ${isUser ? 'items-end' : 'items-start'}`}>
-      {!isUser && <AssistantLabel />}
-      <div className={isUser ? 'max-w-[80%] px-4 py-2.5 bg-white/[0.07] rounded-2xl rounded-br-md' : 'w-full px-1'}>
+      {!isUser && !gallery && <AssistantLabel />}
+      <div className={isUser
+        ? (gallery
+          ? 'max-w-[75%] px-4 py-2.5 bg-white/[0.04] border border-white/[0.07] rounded-2xl rounded-br-md'
+          : 'max-w-[80%] px-4 py-2.5 bg-white/[0.07] rounded-2xl rounded-br-md')
+        : 'w-full px-1'}
+      >
         {/* Display images: user uploads small, generated images large */}
         {message.images && message.images.length > 0 && (
           <div className="flex flex-wrap gap-2 mb-2">
@@ -123,22 +140,36 @@ export default function MessageList({
   error, tierSwitch, selectedPlanName, copiedId,
   onCopy, onEditUserMessage, onDismissError, onAcceptTierSwitch, onDismissTierSwitch,
   containerRef, endRef, onScroll, onBackgroundClick,
+  appearance = 'studio',
 }: MessageListProps) {
+  const gallery = appearance === 'gallery';
   return (
     <div
       ref={containerRef}
       onScroll={onScroll}
-      className="flex-1 overflow-y-auto py-6"
+      className={`flex-1 overflow-y-auto ${gallery ? 'py-10' : 'py-6'}`}
       onClick={onBackgroundClick}
     >
-      <div className="max-w-3xl mx-auto px-4 md:px-6 space-y-7">
+      <div className={gallery
+        ? 'max-w-2xl mx-auto px-5 md:px-8 space-y-10 [&_.chat-answer]:leading-[1.9]'
+        : 'max-w-3xl mx-auto px-4 md:px-6 space-y-7'}
+      >
         {activeChat.messages.length === 0 && chatState === 'idle' && (
-          <div className="flex flex-col items-center justify-center text-center pt-24">
-            <h2 className="pixel-serif text-white/90 text-3xl mb-3">Start the conversation</h2>
-            <p className="pixel-sans text-white/45 text-sm max-w-sm">
-              Your prompt runs on {selectedPlanName}, served by GPUs contributed to the network.
-            </p>
-          </div>
+          gallery ? (
+            <div className="flex flex-col items-center justify-center text-center pt-28">
+              <h2 className="pixel-serif text-white/90 text-4xl mb-4">Start the conversation</h2>
+              <p className="pixel-sans text-white/40 text-sm max-w-sm leading-relaxed">
+                Your prompt runs on {selectedPlanName}, served by GPUs contributed to the network.
+              </p>
+            </div>
+          ) : (
+            <div className="flex flex-col items-center justify-center text-center pt-24">
+              <h2 className="pixel-serif text-white/90 text-3xl mb-3">Start the conversation</h2>
+              <p className="pixel-sans text-white/45 text-sm max-w-sm">
+                Your prompt runs on {selectedPlanName}, served by GPUs contributed to the network.
+              </p>
+            </div>
+          )
         )}
 
         {activeChat.messages.map((message) => (
@@ -149,6 +180,7 @@ export default function MessageList({
             copiedId={copiedId}
             onCopy={onCopy}
             onEditUserMessage={onEditUserMessage}
+            appearance={appearance}
           />
         ))}
 
@@ -158,7 +190,7 @@ export default function MessageList({
           const isStillThinking = streamThinking !== null && !streamResponse;
           return (
             <div className="msg-in flex flex-col items-start">
-              <AssistantLabel pulse />
+              {!gallery && <AssistantLabel pulse />}
               <div className="w-full px-1">
                 <SourceStrip sources={pendingSources} />
                 {pendingGenImages.length > 0 && (
@@ -222,7 +254,7 @@ export default function MessageList({
         {/* Processing indicator */}
         {chatState === 'streaming' && !streamingContent && (
           <div className="msg-in flex flex-col items-start">
-            <AssistantLabel pulse />
+            {!gallery && <AssistantLabel pulse />}
             <div className="flex gap-1 px-1 py-1">
               <span className="w-1.5 h-1.5 bg-white/50 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
               <span className="w-1.5 h-1.5 bg-white/50 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />

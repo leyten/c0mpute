@@ -1,8 +1,11 @@
 'use client';
 
 // Chat page orchestrator. All state, effects, socket handlers, and API calls
-// live here; presentation is composed from app/chat/components/. Pure text
-// helpers and the plan catalog live in app/chat/lib.ts.
+// live here; presentation is delegated to one of three variant shells under
+// app/chat/variants/ (v1 Studio / v2 Gallery / v3 Network) through the single
+// ChatShellProps contract. Pure text helpers and the plan catalog live in
+// app/chat/lib.ts. Variant selection is preview-only chrome: ?v=1|2|3 wins,
+// then localStorage, default '1'.
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
@@ -20,10 +23,11 @@ import {
   ChatState, PLANS, PlanId, SourceRef,
   filterDisclaimers, loadChatsFromStorage, planWorkerCount, saveChatsToStorage,
 } from './lib';
-import Sidebar from './components/Sidebar';
-import HeaderBar from './components/HeaderBar';
-import MessageList from './components/MessageList';
-import Composer from './components/Composer';
+import { ChatShellProps } from './variants/types';
+import VariantSwitcher, { CHAT_VARIANT_KEY, ChatVariant } from './variants/VariantSwitcher';
+import StudioShell from './variants/v1/StudioShell';
+import GalleryShell from './variants/v2/GalleryShell';
+import NetworkShell from './variants/v3/NetworkShell';
 
 export default function UserPage() {
   const router = useRouter();
@@ -81,6 +85,7 @@ export default function UserPage() {
     isConnected,
     networkStats,
     queuePosition,
+    nativeStatus,
     submitJob,
     setOnJobToken,
     setOnJobComplete,
@@ -112,6 +117,24 @@ export default function UserPage() {
   // Runs once after mount so SSR/desktop hydration stays untouched.
   useEffect(() => {
     if (window.innerWidth < 768) setSidebarOpen(false);
+  }, []);
+  // Preview-only: which of the three chat shells renders. The URL param
+  // ?v=1|2|3 wins, then the stored choice, default '1'. The switcher pill
+  // (bottom right) writes both. Removed wholesale once a variant is picked.
+  const [variant, setVariant] = useState<ChatVariant>('1');
+  useEffect(() => {
+    const fromUrl = new URLSearchParams(window.location.search).get('v');
+    if (fromUrl === '1' || fromUrl === '2' || fromUrl === '3') {
+      setVariant(fromUrl);
+      localStorage.setItem(CHAT_VARIANT_KEY, fromUrl);
+      return;
+    }
+    const stored = localStorage.getItem(CHAT_VARIANT_KEY);
+    if (stored === '1' || stored === '2' || stored === '3') setVariant(stored);
+  }, []);
+  const switchVariant = useCallback((v: ChatVariant) => {
+    setVariant(v);
+    localStorage.setItem(CHAT_VARIANT_KEY, v);
   }, []);
   const [inputValue, setInputValue] = useState('');
   const [pendingImages, setPendingImages] = useState<string[]>([]);
@@ -946,142 +969,115 @@ export default function UserPage() {
     );
   }
 
+  // Everything the presentation consumes, assembled once. The shells are
+  // presentation-only; every value and handler here keeps the exact
+  // pre-refactor semantics.
+  const shellProps: ChatShellProps = {
+    // Connection / network
+    isConnected,
+    networkStats,
+    nativeStatus,
+    queuePosition,
+    // Auth / credits
+    isAuthenticated,
+    anonRemaining,
+    freePromptsRemaining,
+    stakeAllowanceLeft,
+    creditBalance,
+    onLogin: () => login(),
+    onOpenUsage: () => router.push('/settings#usage'),
+    onOpenStaking: () => router.push('/staking'),
+    // Chats + history
+    chats,
+    activeChat,
+    loadingChats,
+    editingChatId,
+    editingTitle,
+    onSelectChat: fetchChat,
+    onNewChat: createNewChat,
+    onDeleteChat: deleteChat,
+    onStartRename: (chatId, currentTitle) => { setEditingChatId(chatId); setEditingTitle(currentTitle); },
+    onEditingTitleChange: setEditingTitle,
+    onCommitRename: renameChat,
+    onCancelRename: () => { setEditingChatId(null); setEditingTitle(''); },
+    // Sidebar / drawer
+    sidebarOpen,
+    onToggleSidebar: () => setSidebarOpen(o => !o),
+    onCloseSidebar: () => setSidebarOpen(false),
+    // Conversation
+    chatState,
+    streamingContent,
+    pendingSources,
+    pendingGenImages,
+    isSearching,
+    isGeneratingImage,
+    thinkingElapsed,
+    error,
+    tierSwitch,
+    copiedId,
+    onCopy: copyMessage,
+    onEditUserMessage: editUserMessage,
+    onDismissError: () => { setError(null); setChatState('idle'); },
+    onAcceptTierSwitch: () => { if (tierSwitch) { savePlan(tierSwitch.to); setTierSwitch(null); } },
+    onDismissTierSwitch: () => setTierSwitch(null),
+    // Scrolling
+    messagesContainerRef,
+    messagesEndRef,
+    onMessagesScroll: handleMessagesScroll,
+    showScrollDown,
+    onScrollToBottom: scrollToBottom,
+    onBackgroundClick: () => inputRef.current?.focus(),
+    // Composer
+    inputRef,
+    inputValue,
+    onInputChange: setInputValue,
+    onSend: sendMessage,
+    selectedPlan,
+    selectedPlanObj,
+    onSelectPlan: savePlan,
+    deepThinking,
+    onToggleDeepThinking: () => setDeepThinking(v => !v),
+    pendingImages,
+    onRemoveImage: (idx) => setPendingImages(prev => prev.filter((_, i) => i !== idx)),
+    onImageFiles: handleImageFiles,
+  };
+
+  const Shell = variant === '2' ? GalleryShell : variant === '3' ? NetworkShell : StudioShell;
+
   return (
-    <div className="h-screen bg-black flex ui-readable chat-ui overflow-hidden">
-      {showOnboarding && (
-        <OnboardingModal
-          freePromptLimit={freePromptLimit}
-          onClose={dismissOnboarding}
-          onUseAI={() => { dismissOnboarding(); createNewChat(); }}
-          onChooseWorker={() => { dismissOnboarding(); router.push('/earn'); }}
-        />
-      )}
-      {anonModal && (
-        <AnonGateModal
-          mode={anonModal}
-          freePromptLimit={ANON_FREE_LIMIT}
-          onClose={() => setAnonModal(null)}
-          onSignIn={() => {
-            // 0-left flow lands the user on the top-up page after signing in.
-            if (anonModal === 'empty') sessionStorage.setItem('c0mpute_post_login_topup', '1');
-            setAnonModal(null);
-            login();
-          }}
-        />
-      )}
-
-      <Sidebar
-        open={sidebarOpen}
-        onClose={() => setSidebarOpen(false)}
-        chats={chats}
-        activeChatId={activeChat?.id ?? null}
-        loadingChats={loadingChats}
-        editingChatId={editingChatId}
-        editingTitle={editingTitle}
-        onSelectChat={fetchChat}
-        onNewChat={createNewChat}
-        onDeleteChat={deleteChat}
-        onStartRename={(chatId, currentTitle) => { setEditingChatId(chatId); setEditingTitle(currentTitle); }}
-        onEditingTitleChange={setEditingTitle}
-        onCommitRename={renameChat}
-        onCancelRename={() => { setEditingChatId(null); setEditingTitle(''); }}
-        networkStats={networkStats}
-        isConnected={isConnected}
-      />
-
-      <div className="flex-1 flex flex-col min-w-0">
-        <HeaderBar
-          sidebarOpen={sidebarOpen}
-          onToggleSidebar={() => setSidebarOpen(o => !o)}
-          activeChatTitle={activeChat && activeChat.title !== 'New Chat' ? activeChat.title : null}
-          isAuthenticated={isAuthenticated}
-          freePromptsRemaining={freePromptsRemaining}
-          stakeAllowanceLeft={stakeAllowanceLeft}
-          creditBalance={creditBalance}
-          anonRemaining={anonRemaining}
-          onLogin={() => login()}
-          onOpenUsage={() => router.push('/settings#usage')}
-          onOpenStaking={() => router.push('/staking')}
-        />
-
-        <main className="flex-1 flex flex-col min-w-0 relative overflow-hidden">
-          {!activeChat ? (
-            // Empty state: nothing selected yet
-            <div className="flex-1 flex items-center justify-center px-6">
-              <div className="text-center max-w-md">
-                <h1 className="pixel-serif text-white text-4xl mb-4">Ask the network</h1>
-                <p className="pixel-sans text-white/50 text-sm leading-relaxed mb-7">
-                  Your prompts run on GPUs contributed by people around the world.
-                  Pick a conversation from the sidebar or open a new one.
-                </p>
-                <button
-                  onClick={createNewChat}
-                  className="cursor-pointer pixel-sans font-medium px-7 py-3 bg-white text-black rounded-xl hover:bg-white/90 transition-colors"
-                >
-                  New chat
-                </button>
-              </div>
-            </div>
-          ) : (
-            <>
-              <MessageList
-                activeChat={activeChat}
-                chatState={chatState}
-                streamingContent={streamingContent}
-                pendingSources={pendingSources}
-                pendingGenImages={pendingGenImages}
-                isSearching={isSearching}
-                isGeneratingImage={isGeneratingImage}
-                queuePosition={queuePosition}
-                networkStats={networkStats}
-                thinkingElapsed={thinkingElapsed}
-                error={error}
-                tierSwitch={tierSwitch}
-                selectedPlanName={selectedPlanObj.name}
-                copiedId={copiedId}
-                onCopy={copyMessage}
-                onEditUserMessage={editUserMessage}
-                onDismissError={() => { setError(null); setChatState('idle'); }}
-                onAcceptTierSwitch={() => { if (tierSwitch) { savePlan(tierSwitch.to); setTierSwitch(null); } }}
-                onDismissTierSwitch={() => setTierSwitch(null)}
-                containerRef={messagesContainerRef}
-                endRef={messagesEndRef}
-                onScroll={handleMessagesScroll}
-                onBackgroundClick={() => inputRef.current?.focus()}
-              />
-
-              {/* Floating scroll-to-bottom button */}
-              {showScrollDown && (
-                <button
-                  onClick={scrollToBottom}
-                  aria-label="Scroll to bottom"
-                  className="absolute bottom-36 right-5 z-10 w-9 h-9 rounded-full bg-[#141210] border border-white/15 flex items-center justify-center hover:bg-white/10 transition-colors cursor-pointer"
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-white/80"><path d="M12 5v14M19 12l-7 7-7-7" /></svg>
-                </button>
-              )}
-
-              <Composer
-                inputRef={inputRef}
-                inputValue={inputValue}
-                onInputChange={setInputValue}
-                onSend={sendMessage}
-                chatState={chatState}
-                isConnected={isConnected}
-                selectedPlan={selectedPlan}
-                selectedPlanObj={selectedPlanObj}
-                onSelectPlan={savePlan}
-                deepThinking={deepThinking}
-                onToggleDeepThinking={() => setDeepThinking(v => !v)}
-                pendingImages={pendingImages}
-                onRemoveImage={(idx) => setPendingImages(prev => prev.filter((_, i) => i !== idx))}
-                onImageFiles={handleImageFiles}
-                networkStats={networkStats}
-              />
-            </>
+    <>
+      {/* Modals are fixed overlays; the zero-footprint ui-readable wrapper
+          keeps their pixel-sans antialiasing scope from the old layout. */}
+      {(showOnboarding || anonModal) && (
+        <div className="ui-readable">
+          {showOnboarding && (
+            <OnboardingModal
+              freePromptLimit={freePromptLimit}
+              onClose={dismissOnboarding}
+              onUseAI={() => { dismissOnboarding(); createNewChat(); }}
+              onChooseWorker={() => { dismissOnboarding(); router.push('/earn'); }}
+            />
           )}
-        </main>
-      </div>
-    </div>
+          {anonModal && (
+            <AnonGateModal
+              mode={anonModal}
+              freePromptLimit={ANON_FREE_LIMIT}
+              onClose={() => setAnonModal(null)}
+              onSignIn={() => {
+                // 0-left flow lands the user on the top-up page after signing in.
+                if (anonModal === 'empty') sessionStorage.setItem('c0mpute_post_login_topup', '1');
+                setAnonModal(null);
+                login();
+              }}
+            />
+          )}
+        </div>
+      )}
+
+      <Shell {...shellProps} />
+
+      {/* Preview-only variant switcher — deleted at pick time */}
+      <VariantSwitcher variant={variant} onChange={switchVariant} />
+    </>
   );
 }

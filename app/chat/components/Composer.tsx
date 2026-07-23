@@ -4,6 +4,11 @@
 // toggle, image attachments (vision models), character counter, send.
 // All state lives in the page; this component is presentation plus the
 // textarea's local autosize behavior.
+//
+// `appearance` switches the skin only — behavior is identical:
+//   'studio'  (default) — the panel composer used by V1/V3.
+//   'gallery' — the floating hero-style bar used by V2: narrower column,
+//               rounded-xl hairline border, quiet inline model picker.
 
 import { RefObject, useRef } from 'react';
 import { MAX_INPUT_CHARS, NetworkStats } from '@/lib/orchestrator/types';
@@ -26,6 +31,7 @@ interface ComposerProps {
   onRemoveImage: (index: number) => void;
   onImageFiles: (files: FileList) => void;
   networkStats: NetworkStats | null;
+  appearance?: 'studio' | 'gallery';
 }
 
 export default function Composer({
@@ -35,9 +41,11 @@ export default function Composer({
   deepThinking, onToggleDeepThinking,
   pendingImages, onRemoveImage, onImageFiles,
   networkStats,
+  appearance = 'studio',
 }: ComposerProps) {
   const imageInputRef = useRef<HTMLInputElement>(null);
   const disabled = chatState !== 'idle' || !isConnected;
+  const gallery = appearance === 'gallery';
 
   const hasWorkers = planWorkerCount(selectedPlanObj, networkStats) > 0;
   const otherCount = PLANS
@@ -45,9 +53,9 @@ export default function Composer({
     .reduce((n, p) => n + planWorkerCount(p, networkStats), 0);
 
   return (
-    <div className="relative px-4 pb-4 md:pb-5">
+    <div className={gallery ? 'relative px-5 pb-6 md:pb-8' : 'relative px-4 pb-4 md:pb-5'}>
       <div className="pointer-events-none absolute bottom-full left-0 right-0 h-14 bg-gradient-to-t from-[#0c0a09] to-transparent" />
-      <div className="max-w-3xl mx-auto">
+      <div className={gallery ? 'max-w-2xl mx-auto' : 'max-w-3xl mx-auto'}>
         {/* Only promise queueing when NO model can serve. If another model is
             online, sending shows a one-tap switch prompt instead of queueing. */}
         {!hasWorkers && otherCount === 0 && isConnected && (
@@ -75,7 +83,10 @@ export default function Composer({
         )}
 
         {/* Composer panel — textarea on top, controls inside */}
-        <div className="bg-white/[0.03] border border-white/10 rounded-2xl focus-within:border-white/25 transition-colors">
+        <div className={gallery
+          ? 'bg-[#0c0a09] border border-white/15 rounded-xl focus-within:border-white/30 transition-colors shadow-[0_12px_40px_rgba(0,0,0,0.45)]'
+          : 'bg-white/[0.03] border border-white/10 rounded-2xl focus-within:border-white/25 transition-colors'}
+        >
           <textarea
             ref={inputRef}
             rows={1}
@@ -103,17 +114,30 @@ export default function Composer({
               selectedPlan={selectedPlan}
               networkStats={networkStats}
               onSelect={onSelectPlan}
+              trigger={gallery ? 'inline' : 'boxed'}
             />
             {selectedPlanObj.thinking && (
-              <button
-                onClick={onToggleDeepThinking}
-                className={`cursor-pointer flex items-center gap-2 pixel-sans text-xs px-3 py-2 rounded-lg border transition-colors ${deepThinking ? 'border-[#80a0c1]/40 bg-[#80a0c1]/[0.12] text-[#80a0c1]' : 'border-white/10 bg-white/[0.03] text-white/50 hover:bg-white/[0.06]'}`}
-                title="Deep thinking: the model reasons step-by-step before answering. Slower, costs 20 cr/msg."
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2a7 7 0 0 0-4 12.7V17a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v-2.3A7 7 0 0 0 12 2z" /><path d="M9 21h6" /></svg>
-                <span className="hidden sm:inline">Deep thinking</span>
-                <span className="text-[10px]">{deepThinking ? 'ON · 20 cr' : 'OFF'}</span>
-              </button>
+              gallery ? (
+                <button
+                  onClick={onToggleDeepThinking}
+                  className={`cursor-pointer flex items-center gap-1.5 pixel-sans text-xs px-1.5 py-2 transition-colors ${deepThinking ? 'text-[#80a0c1]' : 'text-white/40 hover:text-white/75'}`}
+                  title="Deep thinking: the model reasons step-by-step before answering. Slower, costs 20 cr/msg."
+                >
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2a7 7 0 0 0-4 12.7V17a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v-2.3A7 7 0 0 0 12 2z" /><path d="M9 21h6" /></svg>
+                  <span className="hidden sm:inline">thinking</span>
+                  <span className="text-[10px]">{deepThinking ? 'on' : 'off'}</span>
+                </button>
+              ) : (
+                <button
+                  onClick={onToggleDeepThinking}
+                  className={`cursor-pointer flex items-center gap-2 pixel-sans text-xs px-3 py-2 rounded-lg border transition-colors ${deepThinking ? 'border-[#80a0c1]/40 bg-[#80a0c1]/[0.12] text-[#80a0c1]' : 'border-white/10 bg-white/[0.03] text-white/50 hover:bg-white/[0.06]'}`}
+                  title="Deep thinking: the model reasons step-by-step before answering. Slower, costs 20 cr/msg."
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2a7 7 0 0 0-4 12.7V17a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v-2.3A7 7 0 0 0 12 2z" /><path d="M9 21h6" /></svg>
+                  <span className="hidden sm:inline">Deep thinking</span>
+                  <span className="text-[10px]">{deepThinking ? 'ON · 20 cr' : 'OFF'}</span>
+                </button>
+              )
             )}
             <div className="flex-1" />
             {/* Hidden file input for image uploads — only on vision models */}

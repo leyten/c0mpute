@@ -25,6 +25,8 @@ interface SidebarProps {
   onCancelRename: () => void;
   networkStats: NetworkStats | null;
   isConnected: boolean;
+  /** Replaces the default network-status footer (V3 passes its network panel). */
+  footer?: React.ReactNode;
 }
 
 export default function Sidebar({
@@ -32,7 +34,7 @@ export default function Sidebar({
   editingChatId, editingTitle,
   onSelectChat, onNewChat, onDeleteChat,
   onStartRename, onEditingTitleChange, onCommitRename, onCancelRename,
-  networkStats, isConnected,
+  networkStats, isConnected, footer,
 }: SidebarProps) {
   return (
     <>
@@ -146,23 +148,25 @@ export default function Sidebar({
           )}
         </nav>
 
-        {/* Network status */}
-        <div className="shrink-0 border-t border-white/10 px-5 py-4">
-          <div className="flex items-center justify-between mb-1.5">
-            <span className="pixel-sans text-white/40 text-xs">Workers online</span>
-            <span className="pixel-sans text-white/80 text-xs tabular-nums">{networkStats?.workersOnline || 0}</span>
+        {/* Network status (or the variant's own footer when provided) */}
+        {footer !== undefined ? footer : (
+          <div className="shrink-0 border-t border-white/10 px-5 py-4">
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="pixel-sans text-white/40 text-xs">Workers online</span>
+              <span className="pixel-sans text-white/80 text-xs tabular-nums">{networkStats?.workersOnline || 0}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="pixel-sans text-white/40 text-xs">Jobs in queue</span>
+              <span className="pixel-sans text-white/80 text-xs tabular-nums">{networkStats?.jobsInQueue || 0}</span>
+            </div>
+            <div className="flex items-center gap-2 mt-3 pt-3 border-t border-white/5">
+              <span className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-emerald-400' : 'bg-white/25'}`} />
+              <span className={`pixel-sans text-xs ${isConnected ? 'text-emerald-300/80' : 'text-white/50'}`}>
+                {isConnected ? 'Connected to network' : 'Connecting...'}
+              </span>
+            </div>
           </div>
-          <div className="flex items-center justify-between">
-            <span className="pixel-sans text-white/40 text-xs">Jobs in queue</span>
-            <span className="pixel-sans text-white/80 text-xs tabular-nums">{networkStats?.jobsInQueue || 0}</span>
-          </div>
-          <div className="flex items-center gap-2 mt-3 pt-3 border-t border-white/5">
-            <span className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-emerald-400' : 'bg-white/25'}`} />
-            <span className={`pixel-sans text-xs ${isConnected ? 'text-emerald-300/80' : 'text-white/50'}`}>
-              {isConnected ? 'Connected to network' : 'Connecting...'}
-            </span>
-          </div>
-        </div>
+        )}
       </aside>
     </>
   );
