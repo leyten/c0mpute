@@ -7,12 +7,13 @@
 // app/chat/lib.ts. Variant selection is preview-only chrome: ?v=1|2|3 wins,
 // then localStorage, default '1'.
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 import 'katex/dist/katex.min.css';
 import { useSocket } from '@/hooks/useSocket';
+import { DEMO_MODE, DEMO_NETWORK_STATS, pickDemo, demoChunks, demoSleep, makeDemoImage } from './demo';
 import { ChatWithMessages, Message } from '@/lib/types';
 import { MAX_INPUT_CHARS } from '@/lib/orchestrator/types';
 import { scanOutput, BLOCKED_MESSAGE } from '@/lib/safety';
@@ -87,16 +88,29 @@ export default function UserPage() {
     queuePosition,
     nativeStatus,
     submitJob,
-    setOnJobToken,
-    setOnJobComplete,
+    setOnJobToken: rawSetOnJobToken,
+    setOnJobComplete: rawSetOnJobComplete,
     setOnJobError,
-    setOnJobAssigned,
-    setOnJobSearching,
-    setOnJobSources,
-    setOnJobGeneratingImage,
-    setOnJobImage,
+    setOnJobAssigned: rawSetOnJobAssigned,
+    setOnJobSearching: rawSetOnJobSearching,
+    setOnJobSources: rawSetOnJobSources,
+    setOnJobGeneratingImage: rawSetOnJobGeneratingImage,
+    setOnJobImage: rawSetOnJobImage,
     setOnJobImageError,
   } = useSocket(isAuthenticated ? socketAuthToken : anonToken);
+
+  // PREVIEW demo bus: capture the registered socket handlers so the offline
+  // demo can drive the identical pipeline with synthetic events.
+  const demoBusRef = useRef<Record<string, ((...a: never[]) => void) | null>>({});
+  /* eslint-disable react-hooks/exhaustive-deps */
+  const setOnJobToken = useMemo(() => (fn: Parameters<typeof rawSetOnJobToken>[0]) => { demoBusRef.current.token = fn as never; rawSetOnJobToken(fn); }, [rawSetOnJobToken]);
+  const setOnJobComplete = useMemo(() => (fn: Parameters<typeof rawSetOnJobComplete>[0]) => { demoBusRef.current.complete = fn as never; rawSetOnJobComplete(fn); }, [rawSetOnJobComplete]);
+  const setOnJobAssigned = useMemo(() => (fn: Parameters<typeof rawSetOnJobAssigned>[0]) => { demoBusRef.current.assigned = fn as never; rawSetOnJobAssigned(fn); }, [rawSetOnJobAssigned]);
+  const setOnJobSearching = useMemo(() => (fn: Parameters<typeof rawSetOnJobSearching>[0]) => { demoBusRef.current.searching = fn as never; rawSetOnJobSearching(fn); }, [rawSetOnJobSearching]);
+  const setOnJobSources = useMemo(() => (fn: Parameters<typeof rawSetOnJobSources>[0]) => { demoBusRef.current.sources = fn as never; rawSetOnJobSources(fn); }, [rawSetOnJobSources]);
+  const setOnJobGeneratingImage = useMemo(() => (fn: Parameters<typeof rawSetOnJobGeneratingImage>[0]) => { demoBusRef.current.generatingImage = fn as never; rawSetOnJobGeneratingImage(fn); }, [rawSetOnJobGeneratingImage]);
+  const setOnJobImage = useMemo(() => (fn: Parameters<typeof rawSetOnJobImage>[0]) => { demoBusRef.current.image = fn as never; rawSetOnJobImage(fn); }, [rawSetOnJobImage]);
+  /* eslint-enable react-hooks/exhaustive-deps */
 
   // Chat state - full chats with messages stored locally
   const [chats, setChats] = useState<ChatWithMessages[]>([]);
@@ -442,8 +456,38 @@ export default function UserPage() {
     });
   }, [pendingImages.length]);
 
+  // PREVIEW demo driver: synthesizes the socket event sequence.
+  const runDemoRef = useRef<((prompt: string) => void) | null>(null);
+  useEffect(() => {
+    runDemoRef.current = async (prompt: string) => {
+      const bus = demoBusRef.current as Record<string, ((...a: unknown[]) => void) | null>;
+      const jobId = `demo-${Date.now()}`;
+      currentJobIdRef.current = jobId;
+      setCurrentJobId(jobId);
+      const script = pickDemo(prompt);
+      await demoSleep(450);
+      bus.assigned?.(jobId, 'demo');
+      if (script.sources) {
+        bus.searching?.(jobId);
+        await demoSleep(1100);
+        bus.sources?.(jobId, script.sources);
+      }
+      if (script.image) bus.generatingImage?.(jobId);
+      for (const chunk of demoChunks(script.body)) {
+        if (currentJobIdRef.current !== jobId) return;
+        bus.token?.(jobId, chunk);
+        await demoSleep(22);
+      }
+      bus.complete?.(jobId, '');
+      if (script.image) {
+        await demoSleep(900);
+        bus.image?.(jobId, [makeDemoImage()]);
+      }
+    };
+  });
+
   const sendMessage = useCallback(async () => {
-    if ((!inputValue.trim() && pendingImages.length === 0) || !activeChat || chatState !== 'idle' || !isConnected) return;
+    if ((!inputValue.trim() && pendingImages.length === 0) || !activeChat || chatState !== 'idle' || (!isConnected && !DEMO_MODE)) return;
     if (inputValue.length > MAX_INPUT_CHARS) {
       setError(`Message too long. Maximum ${MAX_INPUT_CHARS} characters.`);
       return;
@@ -458,7 +502,7 @@ export default function UserPage() {
     // one-tap switch instead of silently queueing into a model nobody serves.
     // Per-model now: a supergemma job can't run on a qwen worker and vice versa.
     const stats = networkStatsRef.current;
-    if (planWorkerCount(selectedPlanObj, stats) === 0) {
+    if ((isConnected || !DEMO_MODE) && planWorkerCount(selectedPlanObj, stats) === 0) {
       const alt = PLANS
         .filter(p => p.id !== selectedPlan && planWorkerCount(p, stats) > 0)
         // prefer another model in the same tier (same price/quality) over a downgrade
@@ -510,6 +554,13 @@ export default function UserPage() {
     pendingGenImagesRef.current = [];
     awaitingImageRef.current = false;
     setIsGeneratingImage(false);
+
+    // PREVIEW demo: network offline, stream a scripted reply through the
+    // exact production pipeline so the UI can be judged end to end.
+    if (DEMO_MODE && !isConnected) {
+      runDemoRef.current?.(content);
+      return;
+    }
 
     try {
       // Get auth token — Privy when logged in, the anon token otherwise.
@@ -974,8 +1025,8 @@ export default function UserPage() {
   // pre-refactor semantics.
   const shellProps: ChatShellProps = {
     // Connection / network
-    isConnected,
-    networkStats,
+    isConnected: isConnected || DEMO_MODE,
+    networkStats: networkStats ?? (DEMO_MODE ? DEMO_NETWORK_STATS : null),
     nativeStatus,
     queuePosition,
     // Auth / credits
