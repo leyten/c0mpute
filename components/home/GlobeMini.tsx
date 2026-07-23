@@ -37,15 +37,16 @@ export default function GlobeMini() {
       const gv: GlobeView = {
         cx: W / 2, cy: H / 2, R: Math.min(W, H) * 0.42,
         yaw: -0.3 + (still ? 0 : t * 0.00004), tilt: 0.35, alpha: 1,
+        coarse: true, bodyAlpha: 0.05,
       };
       drawGlobe(ctx, gv);
-      arcs.forEach((a, ai) => drawArc(ctx, a, gv, green(0.5), 1, still ? -1 : (t * 0.00022 + ai * 0.37) % 1));
+      arcs.forEach((a, ai) => drawArc(ctx, a, gv, green(0.7), 1, still ? -1 : (t * 0.00022 + ai * 0.37) % 1));
       vs.forEach((v) => {
         const pr = project(v, gv);
         if (pr) {
           ctx.fillStyle = green(0.2);
           ctx.fillRect((pr.x | 0) - 4, (pr.y | 0) - 4, 8, 8);
-          ctx.fillStyle = green(Math.min(1, pr.z + 0.2));
+          ctx.fillStyle = green(Math.min(1, pr.z + 0.4));
           ctx.fillRect((pr.x | 0) - 2, (pr.y | 0) - 2, 4, 4);
         }
       });

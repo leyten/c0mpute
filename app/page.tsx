@@ -6,9 +6,7 @@ import { Inter, Newsreader } from 'next/font/google';
 import './homepage-variants.css';
 import AnonGateModal from '@/components/AnonGateModal';
 import LifecycleScroll from '@/components/home/LifecycleScroll';
-import Receipts from '@/components/home/Receipts';
 import Doors from '@/components/home/Doors';
-import RoadmapStrip from '@/components/home/RoadmapStrip';
 import { useAuth } from '@/hooks/useAuth';
 
 // Chosen theme: "Editorial" — Newsreader display, Inter body (leyten's pick).
@@ -424,29 +422,11 @@ export default function Home() {
         }
       />
 
-      {/* Receipts, not promises */}
-      <section id="verification" className="bg-black py-16 md:py-24 border-t border-white/5">
-        <div className="max-w-6xl mx-auto px-4 md:px-6">
-          <div className="text-center mb-10 md:mb-14">
-            <h2 className="pixel-serif text-white text-3xl md:text-4xl lg:text-5xl">
-              Receipts, not promises
-            </h2>
-          </div>
-          <Receipts />
-          <p className="pixel-sans text-white/60 text-sm text-center max-w-3xl mx-auto mt-10">
-            Every stage signs receipts, diverging outputs are caught in the act, and random blocks are
-            re-checked on trusted nodes.{' '}
-            <a href="https://docs.c0mpute.ai" target="_blank" rel="noopener noreferrer" className="cursor-pointer text-[#80a0c1]/50 hover:text-[#80a0c1] transition-colors">How verification works →</a>
-          </p>
-        </div>
-      </section>
 
 
       {/* Doors */}
       <Doors />
 
-      {/* The honest arc, one slim strip */}
-      <RoadmapStrip />
 
       {/* Footer — full sitemap so the header doesn't have to be one */}
       <footer className="border-t border-white/10 mt-8">

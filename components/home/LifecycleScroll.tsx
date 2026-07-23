@@ -123,34 +123,36 @@ export default function LifecycleScroll({ hero }: { hero: React.ReactNode }) {
         </div>
 
         {/* step text — left rail on desktop, bottom sheet on mobile */}
-        {step >= 1 && (
+        {step >= 1 && !finale && (
           <div className="absolute z-20 left-5 right-5 bottom-10 md:right-auto md:left-[26%] md:bottom-auto md:top-1/2 md:-translate-y-1/2 md:max-w-sm">
-            {!finale ? (
-              <div key={step} className="fade-step">
-                <div className="pixel-serif step-num text-white/40 text-lg md:text-2xl">{STEPS[railStep].n}</div>
-                <h3 className="pixel-serif text-white text-3xl md:text-5xl mt-1 md:mt-2">{STEPS[railStep].title}</h3>
-                <p className="pixel-sans text-white/60 text-sm md:text-base mt-2 md:mt-4 leading-relaxed max-w-xs md:max-w-sm">
-                  {STEPS[railStep].line}
-                </p>
-              </div>
-            ) : (
-              <div key="finale" className="fade-step">
-                <h3 className="pixel-serif text-white text-3xl md:text-5xl">One network.</h3>
-                <p className="pixel-sans text-white/60 text-sm md:text-base mt-2 md:mt-4 leading-relaxed max-w-xs md:max-w-sm">
-                  Too big for one machine, so it runs on all of them.
-                </p>
-                <div className="mt-4 md:mt-6 flex flex-col gap-2">
-                  <a href="https://shard.c0mpute.ai" target="_blank" rel="noopener noreferrer"
-                    className="cursor-pointer pixel-sans text-[#80a0c1]/50 hover:text-[#80a0c1] text-sm transition-colors">
-                    Network map (testbed preview) →
-                  </a>
-                  <a href="https://github.com/leyten/shard" target="_blank" rel="noopener noreferrer"
-                    className="cursor-pointer pixel-sans text-[#80a0c1]/50 hover:text-[#80a0c1] text-sm transition-colors">
-                    Engine source →
-                  </a>
-                </div>
-              </div>
-            )}
+            <div key={step} className="fade-step">
+              <div className="pixel-serif step-num text-white/40 text-lg md:text-2xl">{STEPS[railStep].n}</div>
+              <h3 className="pixel-serif text-white text-3xl md:text-5xl mt-1 md:mt-2">{STEPS[railStep].title}</h3>
+              <p className="pixel-sans text-white/60 text-sm md:text-base mt-2 md:mt-4 leading-relaxed max-w-xs md:max-w-sm">
+                {STEPS[railStep].line}
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* finale — sits UNDER the canvas like the hero: the shrinking globe
+            uncovers it (the hero swallow, in reverse) */}
+        {step >= CHAPTERS - 2 && (
+          <div className="absolute z-0 left-5 right-5 bottom-10 md:right-auto md:left-[26%] md:bottom-auto md:top-1/2 md:-translate-y-1/2 md:max-w-sm">
+            <h3 className="pixel-serif text-white text-3xl md:text-5xl">One network.</h3>
+            <p className="pixel-sans text-white/60 text-sm md:text-base mt-2 md:mt-4 leading-relaxed max-w-xs md:max-w-sm">
+              Too big for one machine, so it runs on all of them.
+            </p>
+            <div className="mt-4 md:mt-6 flex flex-col gap-2">
+              <a href="https://shard.c0mpute.ai" target="_blank" rel="noopener noreferrer"
+                className="cursor-pointer pixel-sans text-[#80a0c1]/50 hover:text-[#80a0c1] text-sm transition-colors">
+                Network map (testbed preview) →
+              </a>
+              <a href="https://github.com/leyten/shard" target="_blank" rel="noopener noreferrer"
+                className="cursor-pointer pixel-sans text-[#80a0c1]/50 hover:text-[#80a0c1] text-sm transition-colors">
+                Engine source →
+              </a>
+            </div>
           </div>
         )}
 

@@ -54,7 +54,6 @@ export default function Doors() {
     <section id="doors" className="bg-black py-16 md:py-24 border-t border-white/5">
       <div className="max-w-6xl mx-auto px-4 md:px-6">
         <div className="text-center mb-12 md:mb-16">
-          <div className="pixel-sans text-white/40 text-xs tracking-widest mb-3">THREE DOORS</div>
           <h2 className="pixel-serif text-white text-3xl md:text-4xl lg:text-5xl">Pick your door</h2>
         </div>
         <div className="flex flex-col gap-6 md:gap-8">
@@ -65,7 +64,7 @@ export default function Doors() {
             body="One API, served by a network instead of a data center. Every response is backed by the receipts underneath it. The v1 endpoint answers today, and the betanet API opens at launch."
             links={[
               { href: '/chat', text: 'Try it live →' },
-              { href: 'https://docs.c0mpute.ai/api', text: 'Betanet API — at launch →', external: true },
+              { href: 'https://docs.c0mpute.ai/api', text: 'Betanet API →', external: true },
             ]}
             cta={{ href: 'https://docs.c0mpute.ai', text: 'Read the docs', external: true }}
             art={<div className="w-full max-w-[360px] h-[200px]"><OrchestratorFlow /></div>}
@@ -77,7 +76,7 @@ export default function Doors() {
             body="Your idle hardware earns USDC for real work: from a browser tab today, a full node when the betanet opens. Leave whenever you want."
             links={[
               { href: '/earn', text: 'Earn in your browser →' },
-              { href: 'https://docs.c0mpute.ai', text: 'Run a full node — at launch →', external: true },
+              { href: 'https://docs.c0mpute.ai', text: 'Run a full node →', external: true },
             ]}
             cta={{ href: '/earn', text: 'Start earning' }}
             art={<div className="w-full max-w-[300px] h-[180px]"><EarningsVisual /></div>}

@@ -37,6 +37,28 @@ export function land(): Float32Array {
 // 0.5-degree densified grid (each land cell -> 4 sub-dots): same coastline,
 // 4x the texture, for close-up camera work where the 1-degree grid reads as
 // sparse noise. Built lazily from the same bitpack.
+// 2-degree coarse grid (every 2nd row and column): for small globes where
+// the 1-degree grid meshes into solid fill.
+let _coarse: Float32Array | null = null;
+export function landCoarse(): Float32Array {
+  if (!_coarse) {
+    const raw = atob(LAND_B64);
+    const by = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i++) by[i] = raw.charCodeAt(i);
+    const g = new Uint8Array(64800);
+    for (let i = 0; i < 64800; i++) g[i] = (by[i >> 3] >> (7 - (i & 7))) & 1;
+    const a: number[] = [];
+    for (let row = 0; row < 180; row += 2)
+      for (let col = 0; col < 360; col += 2)
+        if (g[row * 360 + col]) {
+          const p2 = sph(col - 180 + 0.5, 90 - row - 0.5);
+          a.push(p2[0], p2[1], p2[2]);
+        }
+    _coarse = new Float32Array(a);
+  }
+  return _coarse;
+}
+
 let _dense: Float32Array | null = null;
 export function landDense(): Float32Array {
   if (!_dense) {

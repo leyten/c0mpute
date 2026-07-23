@@ -1,7 +1,7 @@
 // Shared drawing vocabulary for the scroll stage — the bento-card art style
 // (blocky white-on-dark pixel icons, halftone dot fills, 1px strokes, 2-3px
 // square packets) reproduced on canvas, plus timeline + globe helpers.
-import { land, landDense, sph } from './land';
+import { land, landDense, landCoarse, sph } from './land';
 
 export const BG = '#0c0a09'; // the editorial theme's warm near-black
 
@@ -233,7 +233,7 @@ export function buildArc(a: V3, b: V3, N = 28, lift = 0.06): Float32Array {
 
 const _t: V3 = [0, 0, 0];
 
-export interface GlobeView { cx: number; cy: number; R: number; yaw: number; tilt: number; alpha: number; dense?: boolean; }
+export interface GlobeView { cx: number; cy: number; R: number; yaw: number; tilt: number; alpha: number; dense?: boolean; coarse?: boolean; stride?: number; bodyAlpha?: number; }
 
 // Land-dot globe, exactly the shard-map recipe: edge circle + depth-lit 2px
 // dots. dense switches to the 0.5-degree grid for close-up camera work, with
@@ -246,17 +246,23 @@ export function drawGlobe(ctx: CanvasRenderingContext2D, v: GlobeView) {
   ctx.arc(v.cx, v.cy, v.R, 0, Math.PI * 2);
   ctx.fillStyle = BG;
   ctx.fill();
+  if (v.bodyAlpha) {
+    // lift the ocean above the page bg (small-globe panels read too dark)
+    ctx.fillStyle = w(v.bodyAlpha);
+    ctx.fill();
+  }
   ctx.strokeStyle = w(0.09 * v.alpha);
   ctx.lineWidth = 1;
   ctx.beginPath();
   ctx.arc(v.cx, v.cy, v.R, 0, Math.PI * 2);
   ctx.stroke();
-  const L = v.dense ? landDense() : land();
+  const L = v.dense ? landDense() : v.coarse ? landCoarse() : land();
   const n = L.length / 3;
   const wpx = ctx.canvas.clientWidth || ctx.canvas.width;
   const hpx = ctx.canvas.clientHeight || ctx.canvas.height;
   const aScale = v.dense ? 0.7 : 1;
-  for (let i = 0; i < n; i++) {
+  const stride = v.stride ?? 1;
+  for (let i = 0; i < n; i += stride) {
     rotv(L, i * 3, v.yaw, v.tilt, _t);
     if (_t[2] <= 0.02) continue;
     const sx = v.cx + _t[0] * v.R, sy = v.cy - _t[1] * v.R;
