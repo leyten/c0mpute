@@ -73,9 +73,9 @@ export function drawJourney(ctx: CanvasRenderingContext2D, W: number, H: number,
   // ---------- 08 finale: globe under everything ----------
   if (q8 > 0) {
     const gv: GlobeView = {
-      cx: desktop ? W * 0.58 : W * 0.5,
+      cx: desktop ? W * 0.66 : W * 0.5,
       cy: H * 0.48,
-      R: minD * (0.30 + 0.06 * easeOut(q8)),
+      R: minD * (0.26 + 0.05 * easeOut(q8)),
       yaw: -0.45 + q8 * 0.3 + tMs * 0.000012,
       tilt: 0.30,
       alpha: easeIO(seg(q8, 0.1, 0.6)),
@@ -252,7 +252,7 @@ export function drawJourney(ctx: CanvasRenderingContext2D, W: number, H: number,
       const [rx0, ry0] = ringPt(i);
       const rx = lerp(rx0 + 20, lx + (i % 2) * 3 - 1.5, tt);
       const ry = lerp(ry0 - 26, ly - i * 8, tt);
-      receipt(ctx, rx, ry, 1.7, Math.max(ledgerA * 0.85, 0.05), tt >= 1 && seg(q6, 0.5 + i * 0.05, 0.62 + i * 0.05) >= 1);
+      receipt(ctx, rx, ry, 1.7, ledgerA * 0.85, tt >= 1 && seg(q6, 0.5 + i * 0.05, 0.62 + i * 0.05) >= 1);
     }
     label(ctx, 'receipts settle', lx, ly + 44, ledgerA * seg(q6, 0.5, 0.8), 13);
   }

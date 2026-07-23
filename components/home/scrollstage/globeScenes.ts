@@ -61,14 +61,14 @@ export function drawGlobeStory(ctx: CanvasRenderingContext2D, W: number, H: numb
   // becomes the story, then pulling back to the whole globe for the finale
   const zoomOut = easeIO(q8);
   const zoomIn = easeIO(seg(p, 2.2 * CH, 5 * CH));
-  const R = lerp(lerp(minD * 1.02, minD * 1.18, zoomIn), minD * 0.34, zoomOut);
+  const R = lerp(lerp(minD * 1.02, minD * 1.18, zoomIn), minD * 0.29, zoomOut);
   const yaw = lerp(-0.07, -0.35, zoomOut) + tMs * 0.000012 * zoomOut;
   const tilt = lerp(0.72, 0.36, zoomOut);
   rotv(centroid!, 0, yaw, tilt, _cv);
   const ax = desktop ? W * 0.6 : W * 0.5;
   const ay = H * 0.44;
   const gv: GlobeView = {
-    cx: lerp(ax - _cv[0] * R, desktop ? W * 0.58 : W * 0.5, zoomOut),
+    cx: lerp(ax - _cv[0] * R, desktop ? W * 0.66 : W * 0.5, zoomOut),
     cy: lerp(ay + _cv[1] * R, H * 0.5, zoomOut),
     R,
     yaw,
@@ -215,7 +215,7 @@ export function drawGlobeStory(ctx: CanvasRenderingContext2D, W: number, H: numb
       const c = scr[i];
       const sxx = c ? c.x + 20 : gv.cx, syy = c ? c.y - 24 : gv.cy;
       receipt(ctx, lerp(sxx, lx + (i % 2) * 4 - 2, tt), lerp(syy, ly + 8 - i * 8, tt), 1.8,
-        Math.max(a * 0.85, 0.03), tt >= 1 && seg(q6, 0.5 + i * 0.05, 0.62 + i * 0.05) >= 1);
+        a * 0.85, tt >= 1 && seg(q6, 0.5 + i * 0.05, 0.62 + i * 0.05) >= 1);
     }
     label(ctx, 'receipts settle', lx, ly + 52, a * seg(q6, 0.5, 0.8), 13);
   }
