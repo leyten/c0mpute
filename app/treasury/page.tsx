@@ -1,6 +1,11 @@
 'use client';
 
+// Public treasury dashboard. Every figure comes from /api/treasury (polled every
+// 30s) and /api/treasury/history; nothing on this page is estimated client-side.
+// Presentation: editorial money surface (Newsreader figures, Inter labels), with
+// the $ZERO flywheel expressed once as a diagram strip.
 import { useEffect, useState } from 'react';
+import StatusBadge from '@/components/StatusBadge';
 
 interface Treasury {
   launched: boolean;
@@ -34,7 +39,10 @@ function dayLabel(t: string): string {
   return new Date(t).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
-// Lightweight inline SVG area chart with hover tooltip — terminal aesthetic, no deps.
+const card = 'border border-white/10 bg-white/[0.02] rounded-2xl';
+const secLabel = 'pixel-sans text-white/40 text-[10px] tracking-widest uppercase';
+
+// Lightweight inline SVG area chart with hover tooltip. No deps.
 function AreaChart({ points, color, fmt, prefix, suffix }: {
   points: { t: string; v: number }[];
   color: string;
@@ -44,7 +52,12 @@ function AreaChart({ points, color, fmt, prefix, suffix }: {
 }) {
   const [hover, setHover] = useState<number | null>(null);
   if (!points || points.length < 2) {
-    return <div className="h-40 flex items-center justify-center pixel-sans text-white/30 text-xs">not enough data yet</div>;
+    return (
+      <div className="h-40 flex flex-col items-center justify-center gap-1">
+        <span className="pixel-sans text-white/35 text-xs">no data points yet</span>
+        <span className="pixel-sans text-white/20 text-[10px]">this chart fills in as events land on-chain</span>
+      </div>
+    );
   }
   // ground the series at 0 on the left so the climb reads from zero
   const series = [{ t: points[0].t, v: 0 }, ...points];
@@ -77,12 +90,12 @@ function AreaChart({ points, color, fmt, prefix, suffix }: {
       <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="w-full h-full block">
         <defs>
           <linearGradient id={gid} x1="0" x2="0" y1="0" y2="1">
-            <stop offset="0%" stopColor={color} stopOpacity="0.4" />
+            <stop offset="0%" stopColor={color} stopOpacity="0.28" />
             <stop offset="100%" stopColor={color} stopOpacity="0" />
           </linearGradient>
         </defs>
         <path d={area} fill={`url(#${gid})`} />
-        <path d={line} fill="none" stroke={color} strokeWidth={2} vectorEffect="non-scaling-stroke" strokeLinejoin="round" />
+        <path d={line} fill="none" stroke={color} strokeWidth={2} vectorEffect="non-scaling-stroke" strokeLinejoin="round" strokeLinecap="round" />
       </svg>
       {h && (
         <>
@@ -108,21 +121,55 @@ function ChartCard({ title, last, sub, points, color, fmt, prefix, suffix }: {
 }) {
   const range = points.length >= 2;
   return (
-    <div className="border border-white/10 bg-white/[0.02] rounded-2xl p-5">
+    <div className={`${card} p-5`}>
       <div className="flex items-end justify-between mb-3">
         <div>
-          <div className="pixel-sans text-white/60 text-xs">{title}</div>
-          <div className="pixel-serif text-white text-2xl mt-0.5">{last}</div>
+          <div className="pixel-sans text-white/50 text-xs">{title}</div>
+          <div className="pixel-serif text-white text-2xl mt-1">{last}</div>
           {sub && <div className="pixel-sans text-white/45 text-[11px] mt-0.5">{sub}</div>}
         </div>
       </div>
       <AreaChart points={points} color={color} fmt={fmt} prefix={prefix} suffix={suffix} />
       {range && (
         <div className="flex justify-between mt-2 pixel-sans text-white/30 text-[10px]">
-          <span>{points.length >= 2 ? dayLabel(points[0].t) : ''}</span>
-          <span>{points.length >= 2 ? dayLabel(points[points.length - 1].t) : ''}</span>
+          <span>{dayLabel(points[0].t)}</span>
+          <span>{dayLabel(points[points.length - 1].t)}</span>
         </div>
       )}
+    </div>
+  );
+}
+
+// The flywheel, drawn once: revenue funds the treasury, the treasury splits in
+// half between burns and staker payouts. Pure mechanics, no numbers.
+function FlywheelStrip() {
+  const node = 'flex-1 border border-white/10 bg-white/[0.02] rounded-xl px-4 py-4 text-center';
+  const arrow = <div className="self-center pixel-sans text-white/30 text-lg rotate-90 md:rotate-0" aria-hidden>→</div>;
+  return (
+    <div className={`${card} p-5 md:p-6 mb-10`}>
+      <div className={`${secLabel} mb-4 text-center`}>How value flows</div>
+      <div className="flex flex-col md:flex-row items-stretch gap-3">
+        <div className={node}>
+          <div className="pixel-serif text-white text-lg">Network revenue</div>
+          <div className="pixel-sans text-white/50 text-[11px] mt-1">compute margin + a share of <span className="dollar">$</span>ZERO trading fees</div>
+        </div>
+        {arrow}
+        <div className={node}>
+          <div className="pixel-serif text-white text-lg">Treasury</div>
+          <div className="pixel-sans text-white/50 text-[11px] mt-1">accumulates in <span className="dollar">$</span>USDC</div>
+        </div>
+        {arrow}
+        <div className="flex-1 flex flex-col gap-3">
+          <div className="border border-green-500/20 bg-green-500/[0.04] rounded-xl px-4 py-3 text-center">
+            <div className="pixel-serif text-white text-base">Half: buyback and burn</div>
+            <div className="pixel-sans text-white/50 text-[11px] mt-0.5"><span className="dollar">$</span>ZERO supply shrinks forever</div>
+          </div>
+          <div className="border border-[#80a0c1]/25 bg-[#80a0c1]/[0.05] rounded-xl px-4 py-3 text-center">
+            <div className="pixel-serif text-white text-base">Half: staker rewards</div>
+            <div className="pixel-sans text-white/50 text-[11px] mt-0.5">paid to stakers in <span className="dollar">$</span>USDC</div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -134,7 +181,7 @@ export default function TreasuryPage() {
 
   useEffect(() => {
     const load = () => {
-      fetch('/api/treasury').then((r) => r.json()).then(setData).catch(() => setError(true));
+      fetch('/api/treasury').then((r) => r.json()).then((d) => { setData(d); setError(false); }).catch(() => setError(true));
       fetch('/api/treasury/history').then((r) => r.json()).then(setHist).catch(() => {});
     };
     load();
@@ -144,7 +191,9 @@ export default function TreasuryPage() {
 
   const GREEN = '#4ade80';
   const BLUE = '#80a0c1';
+  const STONE = '#d6d3d1';
   const burnPts = (hist?.burn ?? []).map((p) => ({ t: p.t, v: p.zero }));
+  const returnPts = (hist?.returns ?? []).map((p) => ({ t: p.t, v: p.usd }));
   const stakedPts = (hist?.staked ?? []).map((p) => ({ t: p.t, v: p.zero }));
   const totalReturned = data ? data.totalUsdBuybackSpent + data.totalStakerRewardsPaid : 0;
   const pctBurned = data ? (data.totalZeroBurned / ZERO_SUPPLY) * 100 : 0;
@@ -154,28 +203,34 @@ export default function TreasuryPage() {
       <header className="fixed top-0 left-0 right-0 z-50 py-4">
         <div className="max-w-6xl mx-auto px-4 md:px-6">
           <nav className="bg-black/80 backdrop-blur-sm border border-white/10 rounded-2xl px-4 md:px-6 py-3 flex items-center justify-between">
-            <div className="flex-1">
-              <a href="/" className="cursor-pointer pixel-serif-logo text-white text-lg md:text-xl font-bold flex items-center">
-                c<span className="pixel-serif-logo" style={{ fontSize: '1.8em', display: 'inline-block', verticalAlign: 'baseline', lineHeight: '1', marginTop: '-0.3em' }}>0</span>mpute
-              </a>
-            </div>
-            <div className="flex items-center gap-4">
-              <a href="/" className="cursor-pointer pixel-sans text-sm text-white/70 hover:text-white transition-colors">← Back</a>
+            <a href="/" className="cursor-pointer pixel-serif-logo text-white text-lg md:text-xl font-bold flex items-center">
+              c<span className="pixel-serif-logo" style={{ fontSize: '1.8em', display: 'inline-block', verticalAlign: 'baseline', lineHeight: '1', marginTop: '-0.3em' }}>0</span>mpute
+            </a>
+            <div className="flex items-center gap-5">
+              <a href="/staking" className="pixel-sans text-sm text-white/50 hover:text-white transition-colors hidden sm:inline">staking</a>
+              <a href="/" className="pixel-sans text-sm text-white/70 hover:text-white transition-colors">← Back</a>
             </div>
           </nav>
         </div>
       </header>
 
-      <main className="pt-32 pb-16 px-4 md:px-6">
+      <main className="pt-32 pb-20 px-4 md:px-6">
         <div className="max-w-5xl mx-auto">
-          <h1 className="pixel-serif text-white text-4xl md:text-5xl mb-3">Treasury</h1>
-          <p className="pixel-sans text-white/70 text-sm mb-8 max-w-2xl">
-            100% of the compute margin and a share of <span className="dollar">$</span>ZERO trading fees flow into this treasury. Half buys back and
-            burns <span className="dollar">$</span>ZERO; half is paid to stakers in USDC. Everything below updates live.
-          </p>
+          {/* Page lede */}
+          <div className="mb-8">
+            <div className="pixel-sans text-white/40 text-xs tracking-widest mb-3 flex items-center gap-2">
+              <span>TREASURY</span>
+              <StatusBadge state="live" />
+            </div>
+            <h1 className="pixel-serif text-white text-4xl md:text-5xl mb-3">Treasury</h1>
+            <p className="pixel-sans text-white/70 text-sm max-w-2xl">
+              100% of the compute margin and a share of <span className="dollar">$</span>ZERO trading fees flow into this treasury.
+              Half buys back and burns <span className="dollar">$</span>ZERO; half is paid to stakers in <span className="dollar">$</span>USDC.
+              Everything below updates live.
+            </p>
+          </div>
 
-          {error && <p className="pixel-sans text-white/60 text-sm">Could not load treasury data.</p>}
-          {!error && !data && <p className="pixel-sans text-white/60 text-sm">Loading…</p>}
+          <FlywheelStrip />
 
           {data && !data.launched && (
             <div className="border border-[#80a0c1]/30 bg-[#80a0c1]/10 rounded-2xl p-6 mb-8">
@@ -185,29 +240,53 @@ export default function TreasuryPage() {
             </div>
           )}
 
+          {/* Labeled empty state: never fabricate figures when the feed is down. */}
+          {error && !data && (
+            <div className={`${card} p-10 text-center mb-8`}>
+              <div className="pixel-serif text-white/80 text-2xl mb-2">Treasury data unavailable</div>
+              <p className="pixel-sans text-white/50 text-sm max-w-md mx-auto">
+                Live figures could not be loaded. This page retries automatically every 30 seconds and fills in as soon as the feed responds.
+              </p>
+            </div>
+          )}
+
+          {!error && !data && (
+            <div className="mb-8">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4" aria-hidden>
+                {[0, 1, 2].map((i) => (
+                  <div key={i} className={`${card} p-6 animate-pulse`}>
+                    <div className="h-8 w-28 bg-white/10 rounded mb-3" />
+                    <div className="h-3 w-36 bg-white/5 rounded" />
+                  </div>
+                ))}
+              </div>
+              <p className="pixel-sans text-white/40 text-xs mt-4">Loading live treasury data</p>
+            </div>
+          )}
+
           {data && (
             <>
-              {/* Hero band */}
+              {/* Headline band: what has been burned, returned, and staked. */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
                 <div className="border border-green-500/20 bg-green-500/[0.04] rounded-2xl p-6">
-                  <div className="pixel-serif text-green-400 text-3xl">{zero(data.totalZeroBurned)}</div>
-                  <div className="pixel-sans text-white/70 text-xs mt-1"><span className="dollar">$</span>ZERO burned forever</div>
+                  <div className="pixel-serif text-green-400 text-3xl md:text-4xl">{zero(data.totalZeroBurned)}</div>
+                  <div className="pixel-sans text-white/70 text-xs mt-2"><span className="dollar">$</span>ZERO burned forever</div>
                   <div className="pixel-sans text-green-400/60 text-[11px] mt-1">{pctBurned.toFixed(2)}% of supply removed</div>
                 </div>
                 <div className="border border-[#80a0c1]/20 bg-[#80a0c1]/[0.05] rounded-2xl p-6">
-                  <div className="pixel-serif text-white text-3xl"><span className="dollar">$</span>{usd(totalReturned)}</div>
-                  <div className="pixel-sans text-white/70 text-xs mt-1">returned to holders + stakers</div>
-                  <div className="pixel-sans text-white/45 text-[11px] mt-1">buybacks + USDC rewards</div>
+                  <div className="pixel-serif text-white text-3xl md:text-4xl"><span className="dollar">$</span>{usd(totalReturned)}</div>
+                  <div className="pixel-sans text-white/70 text-xs mt-2">returned to holders + stakers</div>
+                  <div className="pixel-sans text-white/45 text-[11px] mt-1">buybacks + <span className="dollar">$</span>USDC rewards</div>
                 </div>
-                <div className="border border-white/10 bg-white/[0.02] rounded-2xl p-6">
-                  <div className="pixel-serif text-white text-3xl">{compact(data.totalStaked)}</div>
-                  <div className="pixel-sans text-white/70 text-xs mt-1"><span className="dollar">$</span>ZERO staked</div>
+                <div className={`${card} p-6`}>
+                  <div className="pixel-serif text-white text-3xl md:text-4xl">{compact(data.totalStaked)}</div>
+                  <div className="pixel-sans text-white/70 text-xs mt-2"><span className="dollar">$</span>ZERO staked</div>
                   <div className="pixel-sans text-white/45 text-[11px] mt-1">{((data.totalStaked / ZERO_SUPPLY) * 100).toFixed(1)}% of supply</div>
                 </div>
               </div>
 
-              {/* Charts */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+              {/* History: each series in its own chart, one color per entity. */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                 <ChartCard
                   title={<>Cumulative <span className="dollar">$</span>ZERO burned</>}
                   last={`${compact(data.totalZeroBurned)} ZERO`}
@@ -217,6 +296,17 @@ export default function TreasuryPage() {
                   fmt={(n) => zero(n)}
                   suffix=" ZERO"
                 />
+                <ChartCard
+                  title={<>Cumulative value returned</>}
+                  last={<><span className="dollar">$</span>{usd(totalReturned)}</>}
+                  sub="buybacks + staker payouts, in USD"
+                  points={returnPts}
+                  color={STONE}
+                  fmt={(n) => usd(n)}
+                  prefix={<span className="dollar">$</span>}
+                />
+              </div>
+              <div className="mb-6">
                 <ChartCard
                   title={<><span className="dollar">$</span>ZERO staked over time</>}
                   last={`${compact(data.totalStaked)} ZERO`}
@@ -228,7 +318,8 @@ export default function TreasuryPage() {
                 />
               </div>
 
-              {/* Detail stats */}
+              {/* Ledger detail */}
+              <div className={`${secLabel} mb-3`}>Ledger detail</div>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                 {[
                   { label: 'Total spent on buybacks', value: <><span className="dollar">$</span>{usd(data.totalUsdBuybackSpent)}</> },
@@ -247,6 +338,19 @@ export default function TreasuryPage() {
               </div>
             </>
           )}
+
+          {/* Cross-link: the staker half of the flywheel is one page away. */}
+          <div className={`${card} mt-10 p-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4`}>
+            <div>
+              <div className="pixel-serif text-white text-xl">Earn the staker half</div>
+              <p className="pixel-sans text-white/60 text-sm mt-1">
+                Stake <span className="dollar">$</span>ZERO from self-custody and receive <span className="dollar">$</span>USDC from every distribution.
+              </p>
+            </div>
+            <a href="/staking" className="pixel-sans text-sm font-medium px-6 py-2.5 rounded-xl bg-white text-black hover:bg-white/90 transition-colors whitespace-nowrap">
+              Stake <span className="dollar">$</span>ZERO
+            </a>
+          </div>
         </div>
       </main>
     </div>
