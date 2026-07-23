@@ -240,6 +240,12 @@ export interface GlobeView { cx: number; cy: number; R: number; yaw: number; til
 // screen culling so the extra points stay cheap.
 export function drawGlobe(ctx: CanvasRenderingContext2D, v: GlobeView) {
   if (v.alpha <= 0.01) return;
+  // solid sphere body: invisible against the page bg, but it occludes layers
+  // rendered beneath the canvas (the hero copy slides under the globe)
+  ctx.beginPath();
+  ctx.arc(v.cx, v.cy, v.R, 0, Math.PI * 2);
+  ctx.fillStyle = BG;
+  ctx.fill();
   ctx.strokeStyle = w(0.09 * v.alpha);
   ctx.lineWidth = 1;
   ctx.beginPath();

@@ -57,7 +57,7 @@ export default function LifecycleScroll({ hero }: { hero: React.ReactNode }) {
       const idx = Math.min(CHAPTERS - 1, Math.floor(p * CHAPTERS));
       if (idx !== cur) { cur = idx; setStep(idx); }
       // the hero copy rides the same scrub: fades and lifts as the story takes over
-      const heroA = clamp01(1 - (p * CHAPTERS - 0.4) / 0.6);
+      const heroA = clamp01(1 - (p * CHAPTERS - 0.7) / 0.5);
       const h = heroRef.current;
       if (h) {
         h.style.opacity = heroA.toFixed(3);
@@ -105,14 +105,14 @@ export default function LifecycleScroll({ hero }: { hero: React.ReactNode }) {
   return (
     <section id="network" ref={wrapRef} className="relative bg-black" style={{ height: '1000vh' }}>
       <div className="sticky top-0 h-screen overflow-hidden">
-        <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
+        <canvas ref={canvasRef} className="absolute inset-0 w-full h-full z-10 pointer-events-none" />
 
         {/* readability gradient behind the mobile text block */}
-        <div className="absolute inset-x-0 bottom-0 h-56 md:hidden pointer-events-none"
+        <div className="absolute inset-x-0 bottom-0 h-56 md:hidden pointer-events-none z-20"
           style={{ background: 'linear-gradient(to top, rgba(12,10,9,0.92), rgba(12,10,9,0))' }} />
 
         {/* hero overlay — chapter zero; fades into the story on scroll */}
-        <div ref={heroRef} className="absolute inset-0 z-10 flex items-center">
+        <div ref={heroRef} className="absolute inset-0 z-0 flex items-center">
           {hero}
           <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2">
             <span className="pixel-sans text-white/60 text-xs tracking-widest uppercase">Scroll</span>
@@ -124,7 +124,7 @@ export default function LifecycleScroll({ hero }: { hero: React.ReactNode }) {
 
         {/* step text — left rail on desktop, bottom sheet on mobile */}
         {step >= 1 && (
-          <div className="absolute left-5 right-5 bottom-10 md:right-auto md:left-[26%] md:bottom-auto md:top-1/2 md:-translate-y-1/2 md:max-w-sm">
+          <div className="absolute z-20 left-5 right-5 bottom-10 md:right-auto md:left-[26%] md:bottom-auto md:top-1/2 md:-translate-y-1/2 md:max-w-sm">
             {!finale ? (
               <div key={step} className="fade-step">
                 <div className="pixel-serif step-num text-white/40 text-lg md:text-2xl">{STEPS[railStep].n}</div>
@@ -156,7 +156,7 @@ export default function LifecycleScroll({ hero }: { hero: React.ReactNode }) {
 
         {/* progress ticks */}
         {step >= 1 && (
-          <div className="absolute right-5 md:right-10 top-1/2 -translate-y-1/2 flex flex-col gap-2.5">
+          <div className="absolute z-20 right-5 md:right-10 top-1/2 -translate-y-1/2 flex flex-col gap-2.5">
             {STEPS.map((s, i) => (
               <span key={s.n}
                 className={`w-1.5 h-1.5 rounded-full transition-colors duration-300 ${i <= railStep ? 'bg-white' : 'bg-white/20'}`} />

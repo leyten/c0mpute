@@ -62,7 +62,7 @@ export function drawGlobeStory(ctx: CanvasRenderingContext2D, W: number, H: numb
   // the finale pulls back to the whole globe
   const zoomOut = easeIO(q8);
   const zoomIn = easeIO(seg(p, 3.2 * CH, 6 * CH));
-  const heroT = 1 - easeIO(seg(p, 0.4 * CH, 1.1 * CH));
+  const heroT = 1 - easeIO(seg(p, 0.03 * CH, CH));
   const sR = lerp(lerp(minD * 1.02, minD * 1.18, zoomIn), minD * 0.29, zoomOut);
   const sYaw = lerp(-0.07, -0.35, zoomOut) + tMs * 0.000012 * zoomOut;
   const sTilt = lerp(0.72, 0.36, zoomOut);
@@ -72,7 +72,7 @@ export function drawGlobeStory(ctx: CanvasRenderingContext2D, W: number, H: numb
   const sCx = lerp(ax - _cv[0] * sR, desktop ? W * 0.66 : W * 0.5, zoomOut);
   const sCy = lerp(ay + _cv[1] * sR, H * 0.5, zoomOut);
   const hYaw = -0.6 + tMs * 0.000025;
-  const R = lerp(sR, minD * (desktop ? 0.46 : 0.55), heroT);
+  const R = lerp(sR, minD * (desktop ? 0.38 : 0.48), heroT);
   const gv: GlobeView = {
     cx: lerp(sCx, desktop ? W * 0.74 : W * 0.5, heroT),
     cy: lerp(sCy, desktop ? H * 0.5 : H * 0.42, heroT),
