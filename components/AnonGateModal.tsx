@@ -16,19 +16,19 @@ interface AnonGateModalProps {
 const COPY = {
   nudge: {
     title: '1 free prompt left',
-    body: 'Make a free account to keep going. Sign in with X — no card, no crypto — and top up only when you want more.',
+    body: 'Make a free account to keep going. Sign in with X and top up only when you want more.',
     primary: 'Make an account',
     secondary: 'Use my last one',
   },
   empty: {
     title: "You're out of free prompts",
-    body: 'Sign in with X to create your account and top up to keep chatting. No card or crypto needed to sign in.',
+    body: 'Sign in with X to create your account and top up to keep chatting. Signing in is free.',
     primary: 'Sign in & top up',
     secondary: 'Maybe later',
   },
   softlogin: {
     title: 'Try c0mpute free',
-    body: 'Sign in with X to get free prompts — no card, no crypto needed.',
+    body: 'Sign in with X to get your free prompts.',
     primary: 'Sign in with X',
     secondary: 'Not now',
   },
@@ -37,7 +37,7 @@ const COPY = {
 export default function AnonGateModal({ mode, freePromptLimit, onClose, onSignIn }: AnonGateModalProps) {
   const c = COPY[mode];
   const body = mode === 'softlogin'
-    ? `Sign in with X to get ${freePromptLimit} free prompts — no card, no crypto needed.`
+    ? `Sign in with X to get ${freePromptLimit} free prompts.`
     : c.body;
 
   return (

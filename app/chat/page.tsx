@@ -1253,10 +1253,9 @@ export default function UserPage() {
     return (
       <div className="h-screen bg-black flex items-center justify-center">
         <div className="text-center border border-white/10 bg-white/[0.02] rounded-2xl p-8 max-w-md mx-4">
-          <div className="pixel-serif text-white text-4xl mb-4">🔒</div>
-          <h1 className="pixel-serif text-white text-2xl mb-3">Sign in to c0mpute</h1>
+          <h1 className="pixel-serif text-white text-3xl mb-3">Sign in to c0mpute</h1>
           <p className="pixel-sans text-white/70 text-sm mb-6">
-            Sign in with your X account to start chatting. Free prompts included — no card or crypto needed.
+            Sign in with your X account to start chatting. Your first prompts are free.
           </p>
           <button
             onClick={() => login()}

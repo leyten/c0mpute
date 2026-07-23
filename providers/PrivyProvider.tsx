@@ -42,11 +42,11 @@ export default function PrivyProvider({ children }: { children: React.ReactNode 
 
         // Appearance - match c0mpute style
         appearance: {
-          theme: '#000000', // Pure black background
+          theme: '#0c0a09', // the editorial warm near-black
           accentColor: '#FFFFFF', // White accent
           // logo removed to prevent empty src warning
           landingHeader: 'Sign in to c0mpute',
-          loginMessage: 'Sign in with X to get your free prompts — no card, no crypto needed.',
+          loginMessage: 'Sign in with X to start. Your first prompts are free.',
           walletChainType: 'solana-only',
           // Show ONLY auto-detected installed Solana wallets first, then the
           // major Solana wallets as named options. Without an explicit
