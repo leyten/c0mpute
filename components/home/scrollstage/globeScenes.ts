@@ -74,7 +74,7 @@ export function drawGlobeStory(ctx: CanvasRenderingContext2D, W: number, H: numb
   const hYaw = -0.6 + tMs * 0.000025;
   const R = lerp(sR, minD * (desktop ? 0.38 : 0.48), heroT);
   const gv: GlobeView = {
-    cx: lerp(sCx, desktop ? W * 0.74 : W * 0.5, heroT),
+    cx: lerp(sCx, desktop ? W * 0.76 : W * 0.5, heroT),
     cy: lerp(sCy, desktop ? H * 0.5 : H * 0.42, heroT),
     R,
     yaw: lerp(sYaw, hYaw, heroT),

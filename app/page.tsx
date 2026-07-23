@@ -398,7 +398,7 @@ export default function Home() {
               <h1 className="pixel-serif text-white text-3xl md:text-5xl lg:text-6xl font-bold leading-tight tracking-tight">
                 The founding layer<br />of decentralized AI
               </h1>
-              <p className="pixel-sans text-white/90 text-sm md:text-lg max-w-xl mx-auto md:mx-0">
+              <p className="pixel-sans text-white/90 text-sm md:text-lg max-w-lg mx-auto md:mx-0">
                 A permissionless network of user-owned GPUs doing verifiable AI work.
               </p>
               <form onSubmit={handleSubmit} className="w-full max-w-xl mx-auto md:mx-0 pt-2">
