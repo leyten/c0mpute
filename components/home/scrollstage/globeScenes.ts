@@ -8,8 +8,8 @@ import {
   drawGlobe, drawArc, buildArc, project, rotv, sph, GlobeView, V3,
 } from './art';
 
-const CH = 1 / 9;
-const ch = (i: number, p: number) => seg(p, i * CH, (i + 1) * CH);
+const CH = 1 / 10; // chapter 0 = hero prologue
+const ch = (i: number, p: number) => seg(p, (i + 1) * CH, (i + 2) * CH);
 
 // A 6-city EU ring, Brussels as the protagonist.
 const RING: { name: string; lon: number; lat: number }[] = [
@@ -57,23 +57,29 @@ export function drawGlobeStory(ctx: CanvasRenderingContext2D, W: number, H: numb
   const q0 = ch(0, p), q1 = ch(1, p), q2 = ch(2, p), q3 = ch(3, p);
   const q4 = ch(4, p), q5 = ch(5, p), q6 = ch(6, p), q7 = ch(7, p), q8 = ch(8, p);
 
-  // camera: anchored on the EU ring's centroid, zooming in as the ring
-  // becomes the story, then pulling back to the whole globe for the finale
+  // camera: hero prologue shows a naked, slowly turning globe beside the
+  // copy; scrolling flies it into the centroid-anchored story framing, and
+  // the finale pulls back to the whole globe
   const zoomOut = easeIO(q8);
-  const zoomIn = easeIO(seg(p, 2.2 * CH, 5 * CH));
-  const R = lerp(lerp(minD * 1.02, minD * 1.18, zoomIn), minD * 0.29, zoomOut);
-  const yaw = lerp(-0.07, -0.35, zoomOut) + tMs * 0.000012 * zoomOut;
-  const tilt = lerp(0.72, 0.36, zoomOut);
-  rotv(centroid!, 0, yaw, tilt, _cv);
+  const zoomIn = easeIO(seg(p, 3.2 * CH, 6 * CH));
+  const heroT = 1 - easeIO(seg(p, 0.4 * CH, 1.1 * CH));
+  const sR = lerp(lerp(minD * 1.02, minD * 1.18, zoomIn), minD * 0.29, zoomOut);
+  const sYaw = lerp(-0.07, -0.35, zoomOut) + tMs * 0.000012 * zoomOut;
+  const sTilt = lerp(0.72, 0.36, zoomOut);
+  rotv(centroid!, 0, sYaw, sTilt, _cv);
   const ax = desktop ? W * 0.6 : W * 0.5;
   const ay = H * 0.44;
+  const sCx = lerp(ax - _cv[0] * sR, desktop ? W * 0.66 : W * 0.5, zoomOut);
+  const sCy = lerp(ay + _cv[1] * sR, H * 0.5, zoomOut);
+  const hYaw = -0.6 + tMs * 0.000025;
+  const R = lerp(sR, minD * (desktop ? 0.46 : 0.55), heroT);
   const gv: GlobeView = {
-    cx: lerp(ax - _cv[0] * R, desktop ? W * 0.66 : W * 0.5, zoomOut),
-    cy: lerp(ay + _cv[1] * R, H * 0.5, zoomOut),
+    cx: lerp(sCx, desktop ? W * 0.74 : W * 0.5, heroT),
+    cy: lerp(sCy, desktop ? H * 0.5 : H * 0.42, heroT),
     R,
-    yaw,
-    tilt,
-    alpha: easeOut(seg(q0, 0, 0.3)),
+    yaw: lerp(sYaw, hYaw, heroT),
+    tilt: lerp(sTilt, 0.32, heroT),
+    alpha: 1,
     dense: R > minD * 0.7,
   };
   drawGlobe(ctx, gv);
@@ -82,7 +88,7 @@ export function drawGlobeStory(ctx: CanvasRenderingContext2D, W: number, H: numb
   const home = scr[0];
 
   // ---------- 01 announce ----------
-  if (home && p < 2 * CH) {
+  if (home && p >= 0.9 * CH && p < 3 * CH) {
     const a = easeOut(seg(q0, 0.15, 0.5)) * (1 - easeIO(seg(q1, 0, 0.35)));
     for (let k = 0; k < 3; k++) {
       const phase = (tMs * 0.00045 + k / 3) % 1;
@@ -91,7 +97,7 @@ export function drawGlobeStory(ctx: CanvasRenderingContext2D, W: number, H: numb
   }
 
   // ---------- 02 admit ----------
-  if (home && p >= CH * 0.8 && p < 3 * CH) {
+  if (home && p >= CH * 1.8 && p < 4 * CH) {
     const a = easeIO(seg(q1, 0.05, 0.3)) * (1 - easeIO(seg(q2, 0.4, 0.8)));
     if (a > 0.01) {
       const hx = Math.min(home.x + 46, W - 205), hy = home.y - 66;
@@ -187,10 +193,10 @@ export function drawGlobeStory(ctx: CanvasRenderingContext2D, W: number, H: numb
   }
 
   // ---------- 06 serve: a token loops the ring; receipts pop ----------
-  if (q4 >= 1 && p < 8 * CH && ringArcs) {
+  if (q4 >= 1 && p < 9 * CH && ringArcs) {
     const sA = easeIO(seg(q5, 0, 0.2));
     ringArcs.forEach((arc) => drawArc(ctx, arc, gv, green(0.55), 1, -1));
-    const lapT = (q5 + (p > 5 * CH ? tMs * 0.00006 : 0)) % 1;
+    const lapT = (q5 + (p > 6 * CH ? tMs * 0.00006 : 0)) % 1;
     const pos = lapT * 6;
     const ai = Math.floor(pos) % 6;
     drawArc(ctx, ringArcs[ai], gv, 'rgba(0,0,0,0)', 1, pos - Math.floor(pos));
@@ -252,7 +258,7 @@ export function drawGlobeStory(ctx: CanvasRenderingContext2D, W: number, H: numb
     if (!c) return;
     const serving = q4 >= 1;
     const isHome = i === 0;
-    const a = (isHome ? 1 : p < CH ? 0.35 : 0.35 + 0.65 * easeIO(seg(ch(2, p), 0.3, 0.8))) * cityBase * Math.min(1, c.z + 0.25);
+    const a = (isHome ? 1 : p < 2 * CH ? 0.35 : 0.35 + 0.65 * easeIO(seg(ch(2, p), 0.3, 0.8))) * cityBase * Math.min(1, c.z + 0.25);
     if (serving) {
       ctx.fillStyle = green(0.2 * a);
       ctx.fillRect((c.x | 0) - 4, (c.y | 0) - 4, 8, 8);
@@ -262,7 +268,7 @@ export function drawGlobeStory(ctx: CanvasRenderingContext2D, W: number, H: numb
       ctx.fillStyle = w(a);
       ctx.fillRect((c.x | 0) - 2, (c.y | 0) - 2, 4, 4);
     }
-    if (isHome && p < 5 * CH) {
+    if (isHome && p < 6 * CH) {
       ctx.strokeStyle = w(0.5 * cityBase);
       ctx.lineWidth = 1;
       ctx.strokeRect((c.x | 0) - 6.5, (c.y | 0) - 6.5, 13, 13);

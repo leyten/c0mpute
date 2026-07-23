@@ -4,9 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Inter, Newsreader } from 'next/font/google';
 import './homepage-variants.css';
-import PixelBlast from '@/components/PixelBlast';
 import AnonGateModal from '@/components/AnonGateModal';
-import StatusBadge from '@/components/StatusBadge';
 import LifecycleScroll from '@/components/home/LifecycleScroll';
 import Receipts from '@/components/home/Receipts';
 import Doors from '@/components/home/Doors';
@@ -16,11 +14,6 @@ import { useAuth } from '@/hooks/useAuth';
 // Chosen theme: "Editorial" — Newsreader display, Inter body (leyten's pick).
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
 const newsreader = Newsreader({ subsets: ['latin'], style: ['normal', 'italic'], variable: '--font-newsreader' });
-
-// Preview: two scroll-story variants on the same theme.
-// 1 = "One GPU's journey" (pixel-card stage) · 2 = "The network view" (globe)
-type Layout = '1' | '2';
-const LAYOUT_KEY = 'c0mpute_preview_story';
 
 // Key for passing prompt to user page
 const PENDING_PROMPT_KEY = 'c0mpute_pending_prompt';
@@ -35,24 +28,7 @@ export default function Home() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
-  const [hasScrolled, setHasScrolled] = useState(false);
   const [anonModalOpen, setAnonModalOpen] = useState(false);
-  const [layout, setLayout] = useState<Layout>('1');
-
-  // Preview-only: pick the scroll-story variant via ?v=1|2 or the switcher
-  // (persisted). URL param wins so each variant is directly linkable.
-  useEffect(() => {
-    const fromUrl = new URLSearchParams(window.location.search).get('v');
-    const stored = localStorage.getItem(LAYOUT_KEY);
-    const pick = (v: string | null): v is Layout => v === '1' || v === '2';
-    if (pick(fromUrl)) { setLayout(fromUrl); localStorage.setItem(LAYOUT_KEY, fromUrl); }
-    else if (pick(stored)) setLayout(stored);
-  }, []);
-
-  const chooseLayout = (v: Layout) => {
-    setLayout(v);
-    localStorage.setItem(LAYOUT_KEY, v);
-  };
 
   // Capture referral code from /r/<code> redirects (?ref=...). Last click
   // wins; binding happens server-side at signup, new accounts only.
@@ -65,17 +41,6 @@ export default function Home() {
     }
   }, []);
 
-  // Hide scroll indicator after user scrolls
-  useEffect(() => {
-    const handleScroll = () => {
-      if (window.scrollY > 50) {
-        setHasScrolled(true);
-      }
-    };
-    window.addEventListener('scroll', handleScroll);
-    return () => window.removeEventListener('scroll', handleScroll);
-  }, []);
-  
   const { isLoading, isAuthenticated, login, logout, displayName, xUsername, walletAddress } = useAuth();
   
   // After the X OAuth round-trip, continue to chat — but only on the explicit
@@ -149,14 +114,6 @@ export default function Home() {
 
   return (
     <div className={`relative bg-black v-b ${inter.variable} ${newsreader.variable}`} style={{ overflow: 'visible' }}>
-      {/* Preview-only story-variant switcher */}
-      <div className="variant-switcher" title="Preview scroll-story variants">
-        {(['1', '2'] as Layout[]).map((v) => (
-          <button key={v} className={layout === v ? 'on' : ''} onClick={() => chooseLayout(v)}>
-            {v}
-          </button>
-        ))}
-      </div>
       {anonModalOpen && (
         <AnonGateModal
           mode="softlogin"
@@ -433,98 +390,39 @@ export default function Home() {
         </div>
       </header>
 
-      {/* Hero Section - contains PixelBlast background */}
-      <section className="relative h-screen overflow-hidden">
-        {/* PixelBlast Background - contained within hero only */}
-        <div className="absolute inset-0 z-0">
-          <PixelBlast
-            variant="circle"
-            pixelSize={5}
-            color="#ffffff"
-            patternScale={3}
-            patternDensity={1.0}
-            enableRipples={false}
-            speed={0.05}
-            transparent={true}
-            edgeFade={0.15}
-            centerSparsity={1.5}
-            className=""
-            style={{ 
-              width: '100%', 
-              height: '100%',
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              display: 'block'
-            }}
-          />
-        </div>
-        
-        {/* Hero Content */}
-        <div className="relative z-10 flex flex-col items-center justify-center px-4 md:px-6 h-full">
-          <div className="text-center space-y-6 md:space-y-8 max-w-5xl w-full -mt-24">
-            <div className="space-y-4">
-              <div className="pixel-serif-wrapper">
-                <h1 className="pixel-serif text-white text-3xl md:text-5xl lg:text-6xl font-bold leading-tight tracking-tight">
-                  The foundation layer<br />of decentralized AI
-                </h1>
-              </div>
-              <p className="pixel-sans text-white/90 text-sm md:text-lg lg:text-xl max-w-2xl mx-auto px-4">
+      {/* Hero + the scroll story: one continuous globe stage */}
+      <LifecycleScroll
+        hero={
+          <div className="w-full max-w-6xl mx-auto px-5 md:px-6">
+            <div className="max-w-2xl mx-auto md:mx-0 text-center md:text-left space-y-6">
+              <h1 className="pixel-serif text-white text-3xl md:text-5xl lg:text-6xl font-bold leading-tight tracking-tight">
+                The founding layer<br />of decentralized AI
+              </h1>
+              <p className="pixel-sans text-white/90 text-sm md:text-lg max-w-xl mx-auto md:mx-0">
                 A permissionless network of user-owned GPUs doing verifiable AI work.
               </p>
-              <p className="pixel-serif text-white/90 text-lg md:text-2xl italic leading-snug max-w-2xl mx-auto px-4">
-                We don&apos;t rent out GPUs. We deliver AI work that proves itself.
-              </p>
+              <form onSubmit={handleSubmit} className="w-full max-w-xl mx-auto md:mx-0 pt-2">
+                <div className="flex gap-2 md:gap-3 items-stretch">
+                  <input
+                    type="text"
+                    value={prompt}
+                    onChange={(e) => setPrompt(e.target.value)}
+                    placeholder="Ask anything..."
+                    className="flex-1 pixel-sans bg-black border border-[#2a2a2a] rounded-xl text-white placeholder:text-white/50 px-3 md:px-4 py-3 focus:outline-none focus:border-[#3a3a3a] transition-colors text-sm md:text-lg"
+                  />
+                  <button
+                    type="submit"
+                    className="cursor-pointer bg-black text-white border border-[#2a2a2a] rounded-xl px-3 md:px-4 py-3 flex items-center justify-center"
+                    aria-label="Send"
+                  >
+                    <img src="/PixelSendIcon.png" alt="Send" width={20} height={20} />
+                  </button>
+                </div>
+              </form>
             </div>
-
-            {/* Prompt Input */}
-            <form onSubmit={handleSubmit} className="mt-6 md:mt-8 max-w-3xl mx-auto w-full px-2">
-              <div className="flex gap-2 md:gap-3 items-stretch">
-                <input
-                  type="text"
-                  value={prompt}
-                  onChange={(e) => setPrompt(e.target.value)}
-                  placeholder="Ask anything..."
-                  className="flex-1 pixel-sans bg-black border border-[#2a2a2a] rounded-xl text-white placeholder:text-white/50 px-3 md:px-4 py-3 focus:outline-none focus:border-[#3a3a3a] transition-colors text-sm md:text-lg"
-                />
-                <button
-                  type="submit"
-                  className="cursor-pointer bg-black text-white border border-[#2a2a2a] rounded-xl px-3 md:px-4 py-3 flex items-center justify-center"
-                  aria-label="Send"
-                >
-                  <img src="/PixelSendIcon.png" alt="Send" width={20} height={20} />
-                </button>
-              </div>
-            </form>
-
-            <p className="pixel-sans text-white/60 text-xs md:text-sm max-w-xl mx-auto px-4 mt-6 flex items-center justify-center gap-2 flex-wrap">
-              <StatusBadge state="live" />
-              <span>The first product on the network answers today, no login needed.</span>
-            </p>
           </div>
-        </div>
-        {/* Scroll indicator */}
-        <div className={`absolute bottom-8 left-1/2 -translate-x-1/2 z-10 transition-opacity duration-500 ${hasScrolled ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
-          <div 
-            className="flex flex-col items-center gap-2 cursor-pointer group" 
-            onClick={() => window.scrollBy({ top: window.innerHeight * 0.8, behavior: 'smooth' })}
-          >
-            <span className="pixel-sans text-white/70 group-hover:text-white text-xs tracking-widest uppercase transition-colors">Scroll</span>
-            <svg 
-              width="16" 
-              height="16" 
-              viewBox="0 0 16 16" 
-              fill="none" 
-              className="text-white/70 group-hover:text-white transition-colors"
-            >
-              <path d="M8 2v12M3 9l5 5 5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="square" />
-            </svg>
-          </div>
-        </div>
-      </section>
-
-      {/* The scroll-locked lifecycle story */}
-      <LifecycleScroll variant={layout} />
+        }
+      />
 
       {/* Receipts, not promises */}
       <section id="verification" className="bg-black py-16 md:py-24 border-t border-white/5">
