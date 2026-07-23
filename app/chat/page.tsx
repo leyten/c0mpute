@@ -1,354 +1,34 @@
 'use client';
 
+// Chat page orchestrator. All state, effects, socket handlers, and API calls
+// live here; presentation is composed from app/chat/components/. Pure text
+// helpers and the plan catalog live in app/chat/lib.ts.
+
 import { useState, useEffect, useCallback, useRef } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
-import Markdown from 'markdown-to-jsx';
-import katex from 'katex';
 import 'katex/dist/katex.min.css';
 import { useSocket } from '@/hooks/useSocket';
-import { Chat, Message, ChatWithMessages } from '@/lib/types';
+import { ChatWithMessages, Message } from '@/lib/types';
 import { MAX_INPUT_CHARS } from '@/lib/orchestrator/types';
-// E2E encryption removed for now — keeping it simple
 import { scanOutput, BLOCKED_MESSAGE } from '@/lib/safety';
 import OnboardingModal from '@/components/OnboardingModal';
 import AnonGateModal from '@/components/AnonGateModal';
-// search utilities no longer needed — tool calling handles search via the model
-
-// Parse sources from response content (appended by worker as ---SOURCES---)
-function parseSourcesFromContent(content: string): { cleanContent: string; sources: { title: string; url: string; description: string }[] } {
-  const marker = '---SOURCES---';
-  const idx = content.indexOf(marker);
-  if (idx === -1) return { cleanContent: content, sources: [] };
-  const cleanContent = content.substring(0, idx).trimEnd();
-  try {
-    const sources = JSON.parse(content.substring(idx + marker.length).trim());
-    return { cleanContent, sources };
-  } catch {
-    return { cleanContent: content, sources: [] };
-  }
-}
-
-// Render inline citations [1], [2] etc. as superscript links
-function CitationText({ text, sources }: { text: string; sources: { title: string; url: string; description: string }[] }) {
-  if (sources.length === 0) return <>{text}</>;
-  const parts = text.split(/(\[\d+\])/g);
-  return (
-    <>
-      {parts.map((part, i) => {
-        const match = part.match(/^\[(\d+)\]$/);
-        if (match) {
-          const idx = parseInt(match[1], 10) - 1;
-          const source = sources[idx];
-          if (source) {
-            const domain = (() => { try { return new URL(source.url).hostname.replace('www.', ''); } catch { return ''; } })();
-            return (
-              <a key={i} href={source.url} target="_blank" rel="noopener noreferrer"
-                className="inline-flex items-center justify-center w-4 h-4 text-[10px] font-medium bg-white/10 hover:bg-white/20 text-white/60 hover:text-white rounded-full no-underline align-super ml-0.5 mr-0.5 transition-colors cursor-pointer"
-                title={`${source.title} — ${domain}`}>{match[1]}</a>
-            );
-          }
-        }
-        return <span key={i}>{part}</span>;
-      })}
-    </>
-  );
-}
-
-// Filter sources to only those cited in the content
-function getUsedSources(content: string, sources: { title: string; url: string; description: string }[]): { source: { title: string; url: string; description: string }; originalIndex: number }[] {
-  if (sources.length === 0) return [];
-  const used: { source: typeof sources[0]; originalIndex: number }[] = [];
-  sources.forEach((s, i) => {
-    if (content.includes(`[${i + 1}]`)) {
-      used.push({ source: s, originalIndex: i });
-    }
-  });
-  // If no inline citations found, show all (fallback for old messages)
-  if (used.length === 0) return sources.map((s, i) => ({ source: s, originalIndex: i }));
-  return used;
-}
-
-// Source strip shown above the response
-function SourceStrip({ sources, content }: { sources: { title: string; url: string; description: string }[]; content?: string }) {
-  if (sources.length === 0) return null;
-  const displayed = content ? getUsedSources(content, sources) : sources.map((s, i) => ({ source: s, originalIndex: i }));
-  if (displayed.length === 0) return null;
-  return (
-    <div className="mb-3 flex flex-wrap gap-1.5">
-      {displayed.map(({ source: s, originalIndex: i }) => {
-        const domain = (() => { try { return new URL(s.url).hostname.replace('www.', ''); } catch { return ''; } })();
-        return (
-          <a key={i} href={s.url} target="_blank" rel="noopener noreferrer"
-            className="cursor-pointer flex items-center gap-1.5 px-2 py-1 bg-white/[0.04] border border-white/[0.08] hover:border-white/15 hover:bg-white/[0.06] transition-all rounded-md group">
-            <span className="flex items-center justify-center w-3.5 h-3.5 text-[9px] font-medium bg-white/10 text-white/70 rounded-full flex-shrink-0">{i + 1}</span>
-            <img src={`https://www.google.com/s2/favicons?domain=${domain}&sz=16`} alt="" width={12} height={12} className="flex-shrink-0 opacity-50 group-hover:opacity-80" />
-            <span className="pixel-sans text-white/70 text-[11px] truncate max-w-[100px] group-hover:text-white/70">{s.title || domain}</span>
-          </a>
-        );
-      })}
-    </div>
-  );
-}
-
-// LaTeX is base64-encoded into a tag attribute so markdown-to-jsx passes it
-// through untouched — otherwise `_`, `^`, `{}` in formulas get parsed as markdown.
-function encodeTex(tex: string): string {
-  try { return btoa(encodeURIComponent(tex)); } catch { return ''; }
-}
-function decodeTex(enc: string): string {
-  try { return decodeURIComponent(atob(enc)); } catch { return ''; }
-}
-
-// Convert $...$ and $$...$$ into custom tags carrying the encoded LaTeX. Code
-// spans/fences are skipped so a literal $ inside code stays untouched.
-function mathToTags(text: string): string {
-  return text.split(/(```[\s\S]*?```|`[^`\n]*`)/g).map((seg, i) => {
-    if (i % 2 === 1) return seg; // code segment
-    seg = seg.replace(/\$\$([\s\S]+?)\$\$/g, (_m, tex) => `<mathblock data-tex="${encodeTex(tex.trim())}"></mathblock>`);
-    seg = seg.replace(/\$(?![\s$])([^\n$]*?)(?<!\s)\$/g, (_m, tex) => `<mathinline data-tex="${encodeTex(tex)}"></mathinline>`);
-    return seg;
-  }).join('');
-}
-
-function MathInline({ 'data-tex': enc }: any) {
-  const tex = decodeTex(enc || '');
-  try {
-    const html = katex.renderToString(tex, { throwOnError: false, displayMode: false });
-    return <span dangerouslySetInnerHTML={{ __html: html }} />;
-  } catch {
-    return <span>{tex}</span>;
-  }
-}
-
-function MathBlock({ 'data-tex': enc }: any) {
-  const tex = decodeTex(enc || '');
-  try {
-    const html = katex.renderToString(tex, { throwOnError: false, displayMode: true });
-    return <div className="my-3 overflow-x-auto" dangerouslySetInnerHTML={{ __html: html }} />;
-  } catch {
-    return <div>{tex}</div>;
-  }
-}
-
-// Build markdown components that inject KaTeX math and citation rendering
-function buildMarkdownOverrides(sources: { title: string; url: string; description: string }[]) {
-  const mathOverrides = {
-    mathinline: { component: MathInline },
-    mathblock: { component: MathBlock },
-  };
-  if (sources.length === 0) return { overrides: mathOverrides };
-  const proc = (child: React.ReactNode): React.ReactNode => typeof child === 'string' ? <CitationText text={child} sources={sources} /> : child;
-  return {
-    overrides: {
-      ...mathOverrides,
-      p: { component: ({ children, ...props }: any) => <p {...props}>{Array.isArray(children) ? children.map((c: any, i: number) => <span key={i}>{proc(c)}</span>) : proc(children)}</p> },
-      li: { component: ({ children, ...props }: any) => <li {...props}>{Array.isArray(children) ? children.map((c: any, i: number) => <span key={i}>{proc(c)}</span>) : proc(children)}</li> },
-    },
-  };
-}
-
-type ChatState = 'idle' | 'queued' | 'streaming' | 'error';
-
-// Plan definitions — maps user-facing models to internal model IDs.
-// `workerModel` matches the orchestrator MODEL_CATALOG so per-model worker
-// counts line up. `vision`/`thinking` gate the composer controls, since not
-// every model supports them (e.g. SuperGemma is text-only, no vision/thinking).
-const PLANS = [
-  { id: 'pro' as const, name: 'Pro', cost: 10, costLabel: '10 cr', modelId: 'Qwen3-8B-c0mpute-q4f16_1-MLC', tier: 'pro' as const, workerModel: null, vision: false, thinking: false, description: 'Higher quality, uncensored', features: ['Qwen3 8B model', 'Browser-powered', 'Uncensored'] },
-  { id: 'max' as const, name: 'Qwen3.5 27B', cost: 15, costLabel: '15 cr', modelId: 'native-max', tier: 'max' as const, workerModel: 'qwen3.5-27b-abliterated', vision: true, thinking: true, description: 'Best quality, tools, vision, thinking', features: ['Qwen3.5 27B model', 'Native inference', 'Uncensored', 'Web search (tool calling)', 'Vision (image input)', 'Thinking mode'] },
-  { id: 'max-sg' as const, name: 'SuperGemma4 26B', cost: 15, costLabel: '15 cr', modelId: 'native-supergemma', tier: 'max' as const, workerModel: 'supergemma4-26b', vision: false, thinking: true, description: 'Newer, faster, tools', features: ['SuperGemma4 26B (MoE)', 'Native inference', 'Uncensored', 'Web search (tool calling)', 'Thinking mode'] },
-] as const;
-type PlanId = typeof PLANS[number]['id'];
-
-// Online worker count for a given plan's model: per-model for native (max)
-// models so the indicator reflects the actual model, not the whole tier.
-function planWorkerCount(plan: typeof PLANS[number], stats: any): number {
-  if (plan.tier === 'max') return (stats?.nativeByModel?.[plan.workerModel ?? ''] as number) || 0;
-  return (stats?.browserWorkers as number) || 0;
-}
-
-// Local storage keys
-const CHATS_STORAGE_KEY = 'c0mpute_chats';
-const PENDING_PROMPT_KEY = 'c0mpute_pending_prompt';
-// Signed anonymous-visitor token (free prompts without login)
-const ANON_TOKEN_KEY = 'c0mpute_anon_token';
-const ANON_FREE_LIMIT = 5;
-
-// Helper to load chats from localStorage
-function loadChatsFromStorage(): ChatWithMessages[] {
-  if (typeof window === 'undefined') return [];
-  try {
-    const stored = localStorage.getItem(CHATS_STORAGE_KEY);
-    return stored ? JSON.parse(stored) : [];
-  } catch {
-    return [];
-  }
-}
-
-// Helper to save chats to localStorage. Generated images are large base64
-// PNGs that can blow the ~5MB localStorage quota — on quota failure, retry
-// with assistant images stripped (text history beats losing persistence).
-function saveChatsToStorage(chats: ChatWithMessages[]): void {
-  if (typeof window === 'undefined') return;
-  try {
-    localStorage.setItem(CHATS_STORAGE_KEY, JSON.stringify(chats));
-  } catch {
-    try {
-      const slim = chats.map(c => ({
-        ...c,
-        messages: c.messages.map(m => m.role === 'assistant' && m.images ? { ...m, images: undefined } : m),
-      }));
-      localStorage.setItem(CHATS_STORAGE_KEY, JSON.stringify(slim));
-    } catch (err) {
-      console.error('Error saving chats to localStorage:', err);
-    }
-  }
-}
-
-// Filter out common AI disclaimers from responses
-/** Normalize markdown for proper rendering */
-function normalizeMarkdown(text: string): string {
-  const lines = text.split('\n');
-  const result: string[] = [];
-  
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const prev = i > 0 ? lines[i - 1] : '';
-    const isHeading = /^#{1,6} /.test(line);
-    const isList = /^\s*(\d+\.|[*+-]) /.test(line);
-    const prevIsList = /^\s*(\d+\.|[*+-]) /.test(prev);
-    const prevIsHeading = /^#{1,6} /.test(prev);
-    const prevIsBlank = prev.trim() === '';
-    
-    // Blank line before headings
-    if (isHeading && !prevIsBlank && i > 0) {
-      result.push('');
-    }
-    // Blank line after headings (before non-list content)
-    if (prevIsHeading && !isList && !prevIsBlank && line.trim() !== '') {
-      result.push('');
-    }
-    // Blank line before first list item of a group
-    if (isList && !prevIsList && !prevIsBlank && !prevIsHeading && i > 0) {
-      result.push('');
-    }
-    // Blank line between non-list paragraphs (but NOT between list items)
-    if (!isList && !prevIsList && !isHeading && !prevIsHeading && !prevIsBlank && line.trim() !== '' && prev.trim() !== '' && i > 0) {
-      result.push('');
-    }
-    
-    result.push(line);
-  }
-  
-  return result.join('\n');
-}
-
-// Parse <think>...</think> tags from Qwen3 model output. Tool-calling produces
-// multiple thinking rounds (think → tool call → think → answer), so collect
-// every block into the dropdown and leave only the real answer in the response.
-function parseThinking(content: string): { thinking: string | null; response: string; thinkSeconds: number | null } {
-  const timeMatch = content.match(/<!--think_time:(\d+)-->/);
-  const thinkSeconds = timeMatch ? parseInt(timeMatch[1], 10) : null;
-  let response = content.replace(/<!--think_time:\d+-->/g, '');
-
-  const thoughts: string[] = [];
-  response = response.replace(/<think>([\s\S]*?)<\/think>/g, (_m, inner) => {
-    thoughts.push(inner.trim());
-    return '';
-  });
-
-  // An unclosed <think> at the tail means thinking is still streaming
-  const open = response.indexOf('<think>');
-  if (open !== -1) {
-    thoughts.push(response.slice(open + '<think>'.length).trim());
-    response = response.slice(0, open);
-  }
-
-  const thinking = thoughts.filter(Boolean).join('\n\n').trim();
-  return { thinking: thinking || null, response: response.trim(), thinkSeconds };
-}
-
-// Collapsible thinking dropdown component
-function ThinkingDropdown({ thinking, isStreaming, elapsedSeconds, defaultOpen }: { thinking: string; isStreaming?: boolean; elapsedSeconds?: number; defaultOpen?: boolean }) {
-  const [isOpen, setIsOpen] = useState(defaultOpen ?? false);
-  const seconds = elapsedSeconds ?? Math.max(1, Math.round(thinking.split(/\s+/).length / 5));
-  
-  return (
-    <div className="mt-2">
-      <button
-        onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-2 text-white/80 hover:text-white transition-colors text-sm pixel-sans"
-      >
-        <svg
-          width="12"
-          height="12"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          className={`transition-transform ${isOpen ? 'rotate-90' : ''}`}
-        >
-          <path d="M9 18l6-6-6-6" />
-        </svg>
-        {isStreaming ? (
-          <span className="inline-flex">
-            Thinking
-            <span className="thinking-dots">
-              <span className="dot">.</span>
-              <span className="dot">.</span>
-              <span className="dot">.</span>
-            </span>
-          </span>
-        ) : (
-          <span>Thought for {seconds}s</span>
-        )}
-      </button>
-      {isOpen && (
-        <div className="mt-2 ml-5 pl-3 border-l border-white/10 text-white/70 text-base leading-relaxed whitespace-pre-wrap pixel-sans">
-          {thinking}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function filterDisclaimers(text: string): string {
-  const disclaimerPatterns = [
-    /\n\n(?:Please note|Note:|Important:|Keep in mind|Be aware|However,|That said,|I should mention|It'?s important to|Remember that|Disclaimer:)[\s\S]*/i,
-    /\n(?:Please note|Note:|Important:|Keep in mind|Be aware|However,|That said,|I should mention|It'?s important to|Remember that|Disclaimer:)[\s\S]*/i,
-  ];
-  
-  const strip = (s: string) => {
-    let out = s;
-    for (const pattern of disclaimerPatterns) {
-      out = out.replace(pattern, '');
-    }
-    return out;
-  };
-
-  // Never filter inside the reasoning block — a "However,"/"Note:" in the
-  // model's thoughts would otherwise truncate the closing </think> and the
-  // whole answer with it, leaving only the thinking dropdown. Only strip
-  // disclaimers from the answer that follows </think>.
-  const close = text.lastIndexOf('</think>');
-  if (close !== -1) {
-    const head = text.slice(0, close + '</think>'.length);
-    const tail = strip(text.slice(close + '</think>'.length));
-    return (head + tail).trim();
-  }
-  // Still mid-thought (open <think>, no close yet) — leave it untouched.
-  if (text.indexOf('<think>') !== -1) {
-    return text;
-  }
-
-  return strip(text).trim();
-}
+import {
+  ANON_FREE_LIMIT, ANON_TOKEN_KEY, PENDING_PROMPT_KEY,
+  ChatState, PLANS, PlanId, SourceRef,
+  filterDisclaimers, loadChatsFromStorage, planWorkerCount, saveChatsToStorage,
+} from './lib';
+import Sidebar from './components/Sidebar';
+import HeaderBar from './components/HeaderBar';
+import MessageList from './components/MessageList';
+import Composer from './components/Composer';
 
 export default function UserPage() {
   const router = useRouter();
   const { isLoading: authLoading, isAuthenticated, user, login, getAccessToken } = useAuth();
-  
+
   // Fetch auth token for socket connection
   const [socketAuthToken, setSocketAuthToken] = useState<string | null>(null);
   useEffect(() => {
@@ -402,7 +82,6 @@ export default function UserPage() {
     networkStats,
     queuePosition,
     submitJob,
-    // sendEncryptedPayload removed
     setOnJobToken,
     setOnJobComplete,
     setOnJobError,
@@ -413,20 +92,20 @@ export default function UserPage() {
     setOnJobImage,
     setOnJobImageError,
   } = useSocket(isAuthenticated ? socketAuthToken : anonToken);
-  
-  // Chat state - now storing full chats with messages locally
+
+  // Chat state - full chats with messages stored locally
   const [chats, setChats] = useState<ChatWithMessages[]>([]);
   const chatsRef = useRef<ChatWithMessages[]>([]);
   useEffect(() => { chatsRef.current = chats; }, [chats]);
   const [activeChat, setActiveChat] = useState<ChatWithMessages | null>(null);
   const [chatState, setChatState] = useState<ChatState>('idle');
   const [streamingContent, setStreamingContent] = useState('');
-  const [currentJobId, setCurrentJobId] = useState<string | null>(null);
+  const [, setCurrentJobId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const thinkingStartRef = useRef<number | null>(null);
   const thinkingElapsedRef = useRef<number | null>(null);
   const [thinkingElapsed, setThinkingElapsed] = useState<number | null>(null);
-  
+
   // UI state
   const [sidebarOpen, setSidebarOpen] = useState(true);
   // Mobile: start with the sidebar closed (it overlays the chat there).
@@ -436,31 +115,28 @@ export default function UserPage() {
   }, []);
   const [inputValue, setInputValue] = useState('');
   const [pendingImages, setPendingImages] = useState<string[]>([]);
-  const imageInputRef = useRef<HTMLInputElement>(null);
   const [loadingChats, setLoadingChats] = useState(true);
   const [selectedPlan, setSelectedPlan] = useState<PlanId>('max');
   const [deepThinking, setDeepThinking] = useState(false);
   const [tierSwitch, setTierSwitch] = useState<{ to: PlanId; toLabel: string; toCount: number } | null>(null);
-  const [modelMenuOpen, setModelMenuOpen] = useState(false);
-  const modelMenuRef = useRef<HTMLDivElement>(null);
   const [editingChatId, setEditingChatId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState('');
   const [pendingPromptProcessed, setPendingPromptProcessed] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [pendingSources, setPendingSources] = useState<{ title: string; url: string; description: string }[]>([]);
-  const pendingSourcesRef = useRef<{ title: string; url: string; description: string }[]>([]);
+  const [pendingSources, setPendingSources] = useState<SourceRef[]>([]);
+  const pendingSourcesRef = useRef<SourceRef[]>([]);
   useEffect(() => { pendingSourcesRef.current = pendingSources; }, [pendingSources]);
   // Images produced by the generate_image tool during the current response
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   // True between job:generating_image and the image landing. The render is async
   // now, so the model's text turn (job:complete) finishes BEFORE the image — this
-  // keeps the "generating image…" skeleton up until job:image / job:image_error.
+  // keeps the "generating image..." skeleton up until job:image / job:image_error.
   const awaitingImageRef = useRef(false);
   const [pendingGenImages, setPendingGenImages] = useState<string[]>([]);
   const pendingGenImagesRef = useRef<string[]>([]);
   useEffect(() => { pendingGenImagesRef.current = pendingGenImages; }, [pendingGenImages]);
-  
+
   // Credit system state
   const [creditBalance, setCreditBalance] = useState<number>(0);
   const [freePromptsRemaining, setFreePromptsRemaining] = useState<number>(0);
@@ -520,12 +196,11 @@ export default function UserPage() {
   }, [isAuthenticated, socketAuthToken]);
 
   // Save plan to DB
-  const savePlan = async (plan: PlanId) => {
+  const savePlan = (plan: PlanId) => {
     setSelectedPlan(plan);
     const planObj = PLANS.find(p => p.id === plan);
     if (!planObj?.thinking) setDeepThinking(false);
     if (!planObj?.vision) setPendingImages([]);
-    setModelMenuOpen(false);
     setTierSwitch(null);
     if (!socketAuthToken) return;
     fetch('/api/plan', {
@@ -539,18 +214,6 @@ export default function UserPage() {
   const selectedModel = PLANS.find(p => p.id === selectedPlan)?.modelId ?? PLANS[0].modelId;
   const selectedPlanObj = PLANS.find(p => p.id === selectedPlan) ?? PLANS[0];
 
-  // Close the composer model menu on outside click
-  useEffect(() => {
-    if (!modelMenuOpen) return;
-    const handler = (e: MouseEvent) => {
-      if (modelMenuRef.current && !modelMenuRef.current.contains(e.target as Node)) {
-        setModelMenuOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [modelMenuOpen]);
-  
   // Refs
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -568,7 +231,6 @@ export default function UserPage() {
   useEffect(() => { networkStatsRef.current = networkStats; }, [networkStats]);
   // Whether the view is pinned to the bottom — drives auto-scroll during streaming
   const stickToBottomRef = useRef(true);
-  // No E2E refs needed
 
   // Explicit jump to bottom (send, switch chat) — also re-pins auto-scroll
   const scrollToBottom = useCallback(() => {
@@ -610,7 +272,7 @@ export default function UserPage() {
   const fetchChats = useCallback(() => {
     const storedChats = loadChatsFromStorage();
     setChats(storedChats);
-      setLoadingChats(false);
+    setLoadingChats(false);
   }, []);
 
   // Select a chat
@@ -618,11 +280,11 @@ export default function UserPage() {
     const chat = chats.find(c => c.id === chatId);
     if (chat) {
       setActiveChat(chat);
-        setTimeout(scrollToBottom, 100);
-        // Mobile: the sidebar overlays the chat — close it so the
-        // conversation is visible after picking one.
-        if (window.innerWidth < 768) setSidebarOpen(false);
-      }
+      setTimeout(scrollToBottom, 100);
+      // Mobile: the sidebar overlays the chat — close it so the
+      // conversation is visible after picking one.
+      if (window.innerWidth < 768) setSidebarOpen(false);
+    }
   }, [chats, scrollToBottom]);
 
   // Create new chat (locally)
@@ -636,15 +298,15 @@ export default function UserPage() {
       updated_at: now,
       messages: [],
     };
-    
+
     const updatedChats = [newChat, ...chats];
     setChats(updatedChats);
     saveChatsToStorage(updatedChats);
     setActiveChat(newChat);
-        if (window.innerWidth < 768) setSidebarOpen(false);
-        setInputValue('');
-        setChatState('idle');
-        setError(null);
+    if (window.innerWidth < 768) setSidebarOpen(false);
+    setInputValue('');
+    setChatState('idle');
+    setError(null);
   }, [user?.id, chats]);
 
   // Delete chat (locally)
@@ -652,16 +314,16 @@ export default function UserPage() {
     const updatedChats = chats.filter(c => c.id !== chatId);
     setChats(updatedChats);
     saveChatsToStorage(updatedChats);
-        if (activeChat?.id === chatId) {
-          setActiveChat(null);
-        }
+    if (activeChat?.id === chatId) {
+      setActiveChat(null);
+    }
   }, [chats, activeChat?.id]);
 
   // Rename chat (locally)
   const renameChat = useCallback((chatId: string, newTitle: string) => {
     if (!newTitle.trim()) return;
-    const updatedChats = chats.map(chat => 
-      chat.id === chatId 
+    const updatedChats = chats.map(chat =>
+      chat.id === chatId
         ? { ...chat, title: newTitle.trim(), updated_at: new Date().toISOString() }
         : chat
     );
@@ -685,7 +347,7 @@ export default function UserPage() {
       job_id: jobId || null,
       created_at: new Date().toISOString(),
     };
-    
+
     setChats(prevChats => {
       const updatedChats = prevChats.map(chat => {
         if (chat.id === chatId) {
@@ -694,24 +356,23 @@ export default function UserPage() {
             messages: [...chat.messages, message],
             updated_at: new Date().toISOString(),
             // Auto-generate title from first user message
-            title: chat.messages.length === 0 && role === 'user' 
+            title: chat.messages.length === 0 && role === 'user'
               ? (content.length > 50 ? content.substring(0, 47) + '...' : content)
               : chat.title,
           };
           // Update activeChat if it's the same chat
           setActiveChat(prev => prev?.id === chatId ? updatedChat : prev);
           return updatedChat;
-      }
+        }
         return chat;
       });
       saveChatsToStorage(updatedChats);
       return updatedChats;
     });
-    
+
     return message;
   }, []);
 
-  // Send message — with E2E encryption and auth
   // Copy message content
   const copyMessage = useCallback((messageId: string, content: string) => {
     const clean = content.replace(/---SOURCES---[\s\S]*$/, '').trim();
@@ -744,6 +405,20 @@ export default function UserPage() {
     inputRef.current?.focus();
   }, [activeChat, chatState]);
 
+  // Image attachments (vision models): read files to base64, max 4 pending
+  const handleImageFiles = useCallback((files: FileList) => {
+    Array.from(files).slice(0, 4 - pendingImages.length).forEach(file => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const base64 = (reader.result as string).split(',')[1];
+        if (base64) {
+          setPendingImages(prev => prev.length < 4 ? [...prev, base64] : prev);
+        }
+      };
+      reader.readAsDataURL(file);
+    });
+  }, [pendingImages.length]);
+
   const sendMessage = useCallback(async () => {
     if ((!inputValue.trim() && pendingImages.length === 0) || !activeChat || chatState !== 'idle' || !isConnected) return;
     if (inputValue.length > MAX_INPUT_CHARS) {
@@ -759,7 +434,7 @@ export default function UserPage() {
     // If the selected model has no workers but another model does, offer a
     // one-tap switch instead of silently queueing into a model nobody serves.
     // Per-model now: a supergemma job can't run on a qwen worker and vice versa.
-    const stats = networkStatsRef.current as any;
+    const stats = networkStatsRef.current;
     if (planWorkerCount(selectedPlanObj, stats) === 0) {
       const alt = PLANS
         .filter(p => p.id !== selectedPlan && planWorkerCount(p, stats) > 0)
@@ -777,12 +452,12 @@ export default function UserPage() {
     setInputValue('');
     if (inputRef.current) inputRef.current.style.height = 'auto';
     setError(null);
-    
+
     // Save user message to local storage (with images if any)
     const images = pendingImages.length > 0 ? [...pendingImages] : undefined;
     const userMessage = saveMessage(activeChat.id, 'user', content, undefined, images);
     setPendingImages([]);
-    
+
     // Build messages for context (last 10 messages) — include images only for
     // vision models. Text-only models (e.g. supergemma) reject any multimodal
     // data, so strip images from history when the selected model has no vision.
@@ -800,7 +475,7 @@ export default function UserPage() {
         }
         return msg;
       });
-    
+
     setChatState('queued');
     setStreamingContent('');
     streamBufferRef.current = '';
@@ -837,7 +512,7 @@ export default function UserPage() {
 
       currentJobIdRef.current = jobId;
       setCurrentJobId(jobId);
-      // prompts_sent is now tracked server-side by the orchestrator on job completion
+      // prompts_sent is tracked server-side by the orchestrator on job completion
 
       // Cold-start guard: if no worker picks up the job, surface an honest
       // "no workers online" state instead of spinning forever. Cleared as soon
@@ -846,7 +521,7 @@ export default function UserPage() {
       queueTimeoutRef.current = setTimeout(() => {
         // Only fail the job if it's still unassigned AND no worker for this tier
         // is online. If workers exist but are busy, leave it queued.
-        const stats = networkStatsRef.current as any;
+        const stats = networkStatsRef.current;
         const tierWorkers = planWorkerCount(selectedPlanObj, stats);
         if (currentJobIdRef.current === jobId && tierWorkers === 0) {
           currentJobIdRef.current = null;
@@ -877,16 +552,16 @@ export default function UserPage() {
     setTimeout(scrollToBottom, 100);
   }, [inputValue, activeChat, chatState, isConnected, submitJob, saveMessage, scrollToBottom, getAccessToken, selectedModel, deepThinking, isAuthenticated, anonToken]);
 
-  // Handle job token (streaming) — decrypt E2E + safety scan
+  // Handle job token (streaming) — accumulate, throttle-flush, safety scan
   useEffect(() => {
     const STOP_TOKENS = ['<|im_end|>', '<|im_end', '<|im_start|>', '<|endoftext|>'];
-    
+
     setOnJobToken(async (jobId, token) => {
       if (jobId === currentJobIdRef.current) {
         if (queueTimeoutRef.current) { clearTimeout(queueTimeoutRef.current); queueTimeoutRef.current = null; }
         setChatState('streaming');
         setIsSearching(false);
-        
+
         let cleanToken = token;
         // Filter stop tokens
         for (const stopToken of STOP_TOKENS) {
@@ -931,11 +606,11 @@ export default function UserPage() {
     return () => setOnJobAssigned(null);
   }, [setOnJobAssigned]);
 
-  // Handle job complete — use accumulated streaming content (already decrypted)
+  // Handle job complete — use accumulated streaming content
   useEffect(() => {
     setOnJobComplete((jobId, _response) => {
       if (jobId === currentJobIdRef.current && activeChat) {
-        
+
         // Finalize from the stream buffer (the authoritative full text), in case
         // the last throttled flush hasn't landed yet.
         if (streamFlushRef.current) { clearTimeout(streamFlushRef.current); streamFlushRef.current = null; }
@@ -972,7 +647,7 @@ export default function UserPage() {
         setPendingSources([]);
         setPendingGenImages([]);
         pendingGenImagesRef.current = [];
-        // Keep the "generating image…" skeleton up if the async render is still
+        // Keep the "generating image..." skeleton up if the async render is still
         // in flight (model text finishes before the image lands); job:image /
         // job:image_error clears it.
         if (!awaitingImageRef.current) setIsGeneratingImage(false);
@@ -997,7 +672,7 @@ export default function UserPage() {
 
   // Handle job:sources — store sources for the current response
   useEffect(() => {
-    setOnJobSources((_jobId: string, sources: { title: string; url: string; description: string }[]) => {
+    setOnJobSources((_jobId: string, sources: SourceRef[]) => {
       pendingSourcesRef.current = sources;
       setPendingSources(sources);
     });
@@ -1087,13 +762,13 @@ export default function UserPage() {
         }
       }
     });
-    
+
     return () => setOnJobError(null);
   }, [setOnJobError]);
 
   // Load chats from localStorage on mount
   useEffect(() => {
-      fetchChats();
+    fetchChats();
   }, [fetchChats]);
 
   // Handle pending prompt from homepage
@@ -1108,17 +783,17 @@ export default function UserPage() {
     ) {
       return;
     }
-    
+
     const pendingPrompt = localStorage.getItem(PENDING_PROMPT_KEY);
     if (!pendingPrompt) {
       setPendingPromptProcessed(true);
       return;
     }
-    
+
     // Clear the pending prompt immediately to prevent re-processing
     localStorage.removeItem(PENDING_PROMPT_KEY);
     setPendingPromptProcessed(true);
-    
+
     // Create a new chat with the pending prompt
     const now = new Date().toISOString();
     const newChat: ChatWithMessages = {
@@ -1129,16 +804,16 @@ export default function UserPage() {
       updated_at: now,
       messages: [],
     };
-    
+
     // Add the new chat to storage and state
     const updatedChats = [newChat, ...chats];
     setChats(updatedChats);
     saveChatsToStorage(updatedChats);
     setActiveChat(newChat);
-    
+
     // Set the input value and trigger send after a short delay
     setInputValue(pendingPrompt);
-    
+
     // Use a timeout to ensure state has settled before sending
     setTimeout(() => {
       // We need to manually trigger the send since inputValue won't be updated yet in sendMessage's closure
@@ -1147,7 +822,7 @@ export default function UserPage() {
         setError(`Message too long. Maximum ${MAX_INPUT_CHARS} characters.`);
         return;
       }
-      
+
       // Save user message
       const message: Message = {
         id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
@@ -1157,19 +832,19 @@ export default function UserPage() {
         job_id: null,
         created_at: new Date().toISOString(),
       };
-      
+
       // Update chat with the message
       const chatWithMessage: ChatWithMessages = {
         ...newChat,
         messages: [message],
         updated_at: new Date().toISOString(),
       };
-      
+
       const chatsWithMessage = [chatWithMessage, ...chats];
       setChats(chatsWithMessage);
       saveChatsToStorage(chatsWithMessage);
       setActiveChat(chatWithMessage);
-      
+
       // Clear input and submit job
       setInputValue('');
       setChatState('queued');
@@ -1237,57 +912,42 @@ export default function UserPage() {
     }
   }, [activeChat]);
 
-  // Enter-to-send lives on the composer textarea itself (Shift+Enter = newline)
-
   // Not logged in: let anonymous visitors through to the chat on their free
   // prompts (anonToken present). Only show the sign-in screen when an anon
   // session couldn't be created (daily free budget reached).
   if (!authLoading && !isAuthenticated && !anonToken) {
     if (anonLoading) {
       return (
-        <div className="h-screen bg-black flex items-center justify-center">
-          <div className="pixel-sans text-white/50 text-sm">Loading…</div>
+        <div className="h-screen bg-black flex items-center justify-center ui-readable">
+          <div className="pixel-sans text-white/50 text-sm">Loading...</div>
         </div>
       );
     }
     return (
-      <div className="h-screen bg-black flex items-center justify-center">
+      <div className="h-screen bg-black flex items-center justify-center ui-readable">
         <div className="text-center border border-white/10 bg-white/[0.02] rounded-2xl p-8 max-w-md mx-4">
-          <h1 className="pixel-serif text-white text-3xl mb-3">Sign in to c0mpute</h1>
-          <p className="pixel-sans text-white/70 text-sm mb-6">
+          <h1 className="pixel-serif text-white text-3xl mb-3">Sign in to c<span>0</span>mpute</h1>
+          <p className="pixel-sans text-white/60 text-sm mb-6">
             Sign in with your X account to start chatting. Your first prompts are free.
           </p>
           <button
             onClick={() => login()}
-            className="cursor-pointer pixel-serif text-sm px-8 py-3 bg-white text-black rounded-xl hover:bg-white/90 transition-colors"
+            className="cursor-pointer pixel-sans font-medium text-sm px-8 py-3 bg-white text-black rounded-xl hover:bg-white/90 transition-colors"
           >
             Sign in with X
           </button>
           <div className="mt-4">
-            <a href="/" className="cursor-pointer pixel-sans text-white/60 text-xs hover:text-white/50 transition-colors">
-              ← Back to home
-            </a>
+            <Link href="/" className="cursor-pointer pixel-sans text-white/50 text-xs hover:text-white transition-colors">
+              Back to home
+            </Link>
           </div>
         </div>
       </div>
     );
   }
 
-  // Format date for chat list
-  const formatDate = (dateStr: string) => {
-    const date = new Date(dateStr);
-    const now = new Date();
-    const diff = now.getTime() - date.getTime();
-    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-    
-    if (days === 0) return 'Today';
-    if (days === 1) return 'Yesterday';
-    if (days < 7) return `${days} days ago`;
-    return date.toLocaleDateString();
-  };
-
   return (
-    <div className="h-screen bg-black flex flex-col ui-readable chat-ui">
+    <div className="h-screen bg-black flex ui-readable chat-ui overflow-hidden">
       {showOnboarding && (
         <OnboardingModal
           freePromptLimit={freePromptLimit}
@@ -1309,619 +969,115 @@ export default function UserPage() {
           }}
         />
       )}
-      {/* Header */}
-      <header className="border-b border-white/10 bg-black/80 backdrop-blur-sm z-50">
-        <div className="px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <button
-              onClick={() => setSidebarOpen(!sidebarOpen)}
-              title="Toggle sidebar"
-              className="p-2 rounded-lg hover:bg-white/5 transition-colors cursor-pointer"
-            >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-white/70">
-                <rect x="3" y="4" width="18" height="16" rx="2" />
-                <path d="M9 4v16" />
-              </svg>
-            </button>
-            <a href="/" className="cursor-pointer pixel-serif-logo text-white text-lg font-bold flex items-center">
-              c<span className="pixel-serif-logo" style={{ fontSize: '1.8em', display: 'inline-block', verticalAlign: 'baseline', lineHeight: '1', marginTop: '-0.3em' }}>0</span>mpute
-            </a>
-          </div>
-          
-          <div className="flex items-center gap-2 md:gap-4">
-            {isAuthenticated ? (
-              <>
-                {/* Free prompts left — shown while the onboarding allowance lasts */}
-                {freePromptsRemaining > 0 && (
-                  <button
-                    onClick={() => router.push('/settings#usage')}
-                    className="pixel-sans text-xs px-2 md:px-3 py-2 rounded-lg border border-green-500/20 bg-green-500/[0.05] text-green-400/80 hover:bg-green-500/[0.08] transition-colors cursor-pointer whitespace-nowrap"
-                  >
-                    <span className="md:hidden">{freePromptsRemaining} free</span>
-                    <span className="hidden md:inline">{freePromptsRemaining} free {freePromptsRemaining === 1 ? 'prompt' : 'prompts'} left</span>
-                  </button>
-                )}
-                {/* Staker inference allowance — free credits from staked $ZERO, drawn before paid credits */}
-                {stakeAllowanceLeft > 0 && (
-                  <button
-                    onClick={() => router.push('/staking')}
-                    title="Free daily inference from your staked $ZERO — used before your paid credits. Refreshes 00:00 UTC."
-                    className="pixel-sans text-xs px-3 py-2 rounded-lg border border-[#80a0c1]/30 bg-[#80a0c1]/[0.06] text-[#80a0c1] hover:bg-[#80a0c1]/[0.1] transition-colors cursor-pointer"
-                  >
-                    <span className="md:hidden">{stakeAllowanceLeft.toFixed(0)} free</span>
-                    <span className="hidden md:inline">{stakeAllowanceLeft.toFixed(0)} free credits today</span>
-                  </button>
-                )}
-                {/* Credit balance — always visible */}
-                <button
-                  onClick={() => router.push('/settings#usage')}
-                  className={`cursor-pointer pixel-sans text-xs px-3 py-2 rounded-lg border transition-colors ${
-                    creditBalance === 0
-                      ? 'border-red-500/20 bg-red-500/[0.04] text-red-400/70'
-                      : 'border-white/10 bg-white/[0.03] text-white/50 hover:bg-white/[0.06]'
-                  }`}
-                >
-                  {creditBalance.toFixed(0)} credits
-                </button>
-              </>
-            ) : (
-              <>
-                {/* Anonymous visitor: free prompts left + a sign-in CTA */}
-                {anonRemaining !== null && (
-                  <span className="pixel-sans text-xs px-2 md:px-3 py-2 rounded-lg border border-green-500/20 bg-green-500/[0.05] text-green-400/80 whitespace-nowrap">
-                    <span className="md:hidden">{anonRemaining} free</span>
-                    <span className="hidden md:inline">{anonRemaining} free {anonRemaining === 1 ? 'prompt' : 'prompts'} left</span>
-                  </span>
-                )}
-                <button
-                  onClick={() => login()}
-                  className="cursor-pointer pixel-serif text-xs px-4 py-2 rounded-lg bg-white text-black hover:bg-white/90 transition-colors"
-                >
-                  Sign in
-                </button>
-              </>
-            )}
 
-            <button
-              onClick={() => router.push('/')}
-              className="cursor-pointer pixel-sans text-sm text-white/70 hover:text-white transition-colors whitespace-nowrap"
-            >
-              <span className="md:hidden">←</span>
-              <span className="hidden md:inline">← Back</span>
-            </button>
-          </div>
-        </div>
-      </header>
+      <Sidebar
+        open={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+        chats={chats}
+        activeChatId={activeChat?.id ?? null}
+        loadingChats={loadingChats}
+        editingChatId={editingChatId}
+        editingTitle={editingTitle}
+        onSelectChat={fetchChat}
+        onNewChat={createNewChat}
+        onDeleteChat={deleteChat}
+        onStartRename={(chatId, currentTitle) => { setEditingChatId(chatId); setEditingTitle(currentTitle); }}
+        onEditingTitleChange={setEditingTitle}
+        onCommitRename={renameChat}
+        onCancelRename={() => { setEditingChatId(null); setEditingTitle(''); }}
+        networkStats={networkStats}
+        isConnected={isConnected}
+      />
 
-      <div className="flex flex-1 overflow-hidden relative">
-        {/* Mobile backdrop while the sidebar overlays the chat */}
-        {sidebarOpen && (
-          <div className="md:hidden absolute inset-0 bg-black/60 z-20" onClick={() => setSidebarOpen(false)} />
-        )}
-        {/* Sidebar — in-flow on desktop, overlay drawer on mobile */}
-        <aside className={`${sidebarOpen ? 'w-72 max-md:translate-x-0' : 'w-0 max-md:-translate-x-full'} max-md:absolute max-md:inset-y-0 max-md:left-0 max-md:z-30 max-md:w-72 max-md:bg-black border-r border-white/10 bg-black/50 flex flex-col transition-all duration-300 overflow-hidden`}>
-          {/* New Chat Button */}
-          <div className="py-2">
-            <button
-              onClick={createNewChat}
-              className="w-full pixel-serif py-3 mx-2 px-3 border border-white/20 rounded-xl text-white hover:bg-white/5 transition-colors flex items-center justify-center gap-2 cursor-pointer"
-              style={{ width: 'calc(100% - 16px)' }}
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M12 5v14M5 12h14" />
-              </svg>
-              New Chat
-            </button>
-          </div>
-          
-          {/* Chat List */}
-          <div className="flex-1 overflow-y-auto">
-            {loadingChats ? (
-              <div className="p-4 text-center">
-                <span className="pixel-sans text-white/60 text-sm">Loading...</span>
-              </div>
-            ) : chats.length === 0 ? (
-              <div className="p-4 text-center">
-                <span className="pixel-sans text-white/60 text-sm">No chats yet</span>
-              </div>
-            ) : (
-              <div className="py-2">
-                {chats.map((chat) => (
-                  <div
-                    key={chat.id}
-                    className={`group px-3 py-2.5 mx-2 mb-0.5 cursor-pointer transition-colors rounded-lg ${
-                      activeChat?.id === chat.id
-                        ? 'bg-white/[0.09]'
-                        : 'hover:bg-white/[0.05]'
-                    }`}
-                    onClick={() => editingChatId !== chat.id && fetchChat(chat.id)}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex-1 min-w-0">
-                        {editingChatId === chat.id ? (
-                          <input
-                            type="text"
-                            value={editingTitle}
-                            onChange={(e) => setEditingTitle(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') renameChat(chat.id, editingTitle);
-                              if (e.key === 'Escape') { setEditingChatId(null); setEditingTitle(''); }
-                            }}
-                            onBlur={() => renameChat(chat.id, editingTitle)}
-                            autoFocus
-                            className="w-full bg-black/50 border border-white/20 rounded-md px-2 py-1 pixel-sans text-white text-sm focus:outline-none focus:border-white/40"
-                            onClick={(e) => e.stopPropagation()}
-                          />
-                        ) : (
-                          <p className="pixel-sans text-white text-sm truncate">{chat.title}</p>
-                        )}
-                        <p className="pixel-sans text-white/70 text-xs mt-1">{formatDate(chat.updated_at)}</p>
-                      </div>
-                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                        {/* Edit button */}
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setEditingChatId(chat.id);
-                            setEditingTitle(chat.title);
-                          }}
-                          className="p-1.5 cursor-pointer transition-colors"
-                        >
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-white/50 hover:text-[#80a0c1]">
-                            <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
-                            <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
-                          </svg>
-                        </button>
-                        {/* Delete button */}
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            deleteChat(chat.id);
-                          }}
-                          className="p-1.5 cursor-pointer transition-colors"
-                        >
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-white/50 hover:text-red-400">
-                            <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2" />
-                          </svg>
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-          
-          {/* Network Stats */}
-          <div className="p-4 border-t border-white/5 bg-white/[0.02]">
-            <div className="grid grid-cols-2 gap-3 text-center">
-              <div>
-                <div className="pixel-serif text-white text-xl">{networkStats?.workersOnline || 0}</div>
-                <div className="pixel-sans text-white/70 text-xs">Workers</div>
-              </div>
-              <div>
-                <div className="pixel-serif text-white text-xl">{networkStats?.jobsInQueue || 0}</div>
-                <div className="pixel-sans text-white/70 text-xs">In Queue</div>
-              </div>
-            </div>
-            <div className="flex items-center justify-center gap-1.5 mt-3 pt-3 border-t border-white/5">
-              <span className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-green-400' : 'bg-white/30'}`} />
-              <span className={`pixel-sans text-xs ${isConnected ? 'text-green-400/70' : 'text-white/60'}`}>
-                {isConnected ? 'Connected' : 'Connecting...'}
-              </span>
-            </div>
-          </div>
-        </aside>
+      <div className="flex-1 flex flex-col min-w-0">
+        <HeaderBar
+          sidebarOpen={sidebarOpen}
+          onToggleSidebar={() => setSidebarOpen(o => !o)}
+          activeChatTitle={activeChat && activeChat.title !== 'New Chat' ? activeChat.title : null}
+          isAuthenticated={isAuthenticated}
+          freePromptsRemaining={freePromptsRemaining}
+          stakeAllowanceLeft={stakeAllowanceLeft}
+          creditBalance={creditBalance}
+          anonRemaining={anonRemaining}
+          onLogin={() => login()}
+          onOpenUsage={() => router.push('/settings#usage')}
+          onOpenStaking={() => router.push('/staking')}
+        />
 
-        {/* Main Chat Area */}
-        <main className="flex-1 flex flex-col min-w-0 relative">
+        <main className="flex-1 flex flex-col min-w-0 relative overflow-hidden">
           {!activeChat ? (
-            // Empty state
-            <div className="flex-1 flex items-center justify-center">
-              <div className="text-center">
-                <div className="pixel-serif text-white/60 text-7xl mb-6">?</div>
-                <p className="pixel-sans text-white/60 text-base mb-6">Select a chat or start a new one</p>
+            // Empty state: nothing selected yet
+            <div className="flex-1 flex items-center justify-center px-6">
+              <div className="text-center max-w-md">
+                <h1 className="pixel-serif text-white text-4xl mb-4">Ask the network</h1>
+                <p className="pixel-sans text-white/50 text-sm leading-relaxed mb-7">
+                  Your prompts run on GPUs contributed by people around the world.
+                  Pick a conversation from the sidebar or open a new one.
+                </p>
                 <button
                   onClick={createNewChat}
-                  className="cursor-pointer pixel-serif px-8 py-3 bg-white/[0.08] border border-white/15 text-white rounded-xl hover:bg-white/[0.12] transition-colors"
+                  className="cursor-pointer pixel-sans font-medium px-7 py-3 bg-white text-black rounded-xl hover:bg-white/90 transition-colors"
                 >
-                  New Chat
+                  New chat
                 </button>
               </div>
             </div>
           ) : (
             <>
-              {/* Messages */}
-              <div
-                ref={messagesContainerRef}
+              <MessageList
+                activeChat={activeChat}
+                chatState={chatState}
+                streamingContent={streamingContent}
+                pendingSources={pendingSources}
+                pendingGenImages={pendingGenImages}
+                isSearching={isSearching}
+                isGeneratingImage={isGeneratingImage}
+                queuePosition={queuePosition}
+                networkStats={networkStats}
+                thinkingElapsed={thinkingElapsed}
+                error={error}
+                tierSwitch={tierSwitch}
+                selectedPlanName={selectedPlanObj.name}
+                copiedId={copiedId}
+                onCopy={copyMessage}
+                onEditUserMessage={editUserMessage}
+                onDismissError={() => { setError(null); setChatState('idle'); }}
+                onAcceptTierSwitch={() => { if (tierSwitch) { savePlan(tierSwitch.to); setTierSwitch(null); } }}
+                onDismissTierSwitch={() => setTierSwitch(null)}
+                containerRef={messagesContainerRef}
+                endRef={messagesEndRef}
                 onScroll={handleMessagesScroll}
-                className="flex-1 overflow-y-auto py-4"
-                onClick={() => inputRef.current?.focus()}
-              >
-              <div className="max-w-3xl mx-auto px-4 space-y-5">
-                {activeChat.messages.length === 0 && chatState === 'idle' && (
-                  <div className="flex items-center justify-center h-full">
-                    <p className="pixel-sans text-white/60 text-base">Send a message to start the conversation</p>
-                  </div>
-                )}
-                
-                {activeChat.messages.map((message) => {
-                  const { cleanContent: rawContent, sources } = message.role === 'assistant' 
-                    ? parseSourcesFromContent(message.content) 
-                    : { cleanContent: message.content, sources: [] };
-                  const { thinking, response: cleanContent, thinkSeconds } = message.role === 'assistant'
-                    ? parseThinking(rawContent)
-                    : { thinking: null, response: rawContent, thinkSeconds: null };
-                  return (
-                    <div
-                      key={message.id}
-                      className={`group/msg msg-in flex flex-col ${message.role === 'user' ? 'items-end' : 'items-start'}`}
-                    >
-                      {message.role === 'assistant' && (
-                        <div className="flex items-center gap-2 mb-1.5 px-1">
-                          <span className="w-2 h-2 bg-green-400/80" />
-                          <span className="pixel-serif text-white/90 text-sm">c0mpute</span>
-                        </div>
-                      )}
-                      <div
-                        className={`${
-                          message.role === 'user'
-                            ? 'max-w-[75%] px-4 py-2.5 bg-white/[0.08] rounded-2xl'
-                            : 'w-full px-1'
-                        }`}
-                      >
-                        {/* Display images: user uploads small, generated images large */}
-                        {message.images && message.images.length > 0 && (
-                          <div className="flex flex-wrap gap-2 mb-2">
-                            {message.images.map((img, imgIdx) => (
-                              message.role === 'assistant'
-                                ? <img key={imgIdx} src={`data:image/png;base64,${img}`} alt="Generated" className="max-w-[320px] max-h-[320px] rounded-xl border border-white/10" />
-                                : <img key={imgIdx} src={`data:image/jpeg;base64,${img}`} alt="Uploaded" className="max-w-[200px] max-h-[200px] rounded-lg object-cover" />
-                            ))}
-                          </div>
-                        )}
-                        <SourceStrip sources={sources} content={cleanContent} />
-                        <div className="chat-answer pixel-sans text-white/90 text-base leading-[1.75] prose prose-invert prose-base max-w-none prose-p:my-3 prose-li:my-1 prose-ol:my-3 prose-ul:my-3 prose-headings:mt-5 prose-headings:mb-2 prose-headings:text-white prose-headings:font-semibold prose-strong:text-white prose-strong:font-extrabold prose-code:text-white/80 prose-code:bg-white/[0.06] prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-a:text-blue-400 prose-a:no-underline hover:prose-a:underline prose-hr:my-5 prose-hr:border-white/10 [&_br]:block [&_br]:content-[''] [&_br]:mt-2.5">
-                          <Markdown options={buildMarkdownOverrides(sources)}>{mathToTags(cleanContent)}</Markdown>
-                        </div>
-                        {thinking && <ThinkingDropdown thinking={thinking} elapsedSeconds={thinkSeconds ?? undefined} />}
-                      </div>
-                      {/* Action buttons */}
-                      <div className="flex items-center gap-1 mt-1 opacity-0 group-hover/msg:opacity-100 transition-opacity">
-                        <button
-                          onClick={() => copyMessage(message.id, message.role === 'assistant' ? cleanContent : message.content)}
-                          className="p-1 rounded hover:bg-white/[0.06] transition-colors"
-                          title="Copy"
-                        >
-                          {copiedId === message.id ? (
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-green-400"><path d="M20 6L9 17l-5-5"/></svg>
-                          ) : (
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-white/60 hover:text-white/60"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
-                          )}
-                        </button>
-                        {message.role === 'user' && chatState === 'idle' && (
-                          <button
-                            onClick={() => editUserMessage(message.id)}
-                            className="p-1 rounded hover:bg-white/[0.06] transition-colors"
-                            title="Edit"
-                          >
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-white/60 hover:text-white/60"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-                
-                {/* Streaming message */}
-                {streamingContent && (() => {
-                  const { thinking: streamThinking, response: streamResponse } = parseThinking(filterDisclaimers(streamingContent));
-                  const isStillThinking = streamThinking !== null && !streamResponse;
-                  return (
-                    <div className="msg-in flex flex-col items-start">
-                      <div className="flex items-center gap-2 mb-1.5 px-1">
-                        <span className="w-2 h-2 bg-green-400/80 animate-pulse" />
-                        <span className="pixel-serif text-white/90 text-sm">c0mpute</span>
-                      </div>
-                      <div className="w-full px-1">
-                        <SourceStrip sources={pendingSources} />
-                        {pendingGenImages.length > 0 && (
-                          <div className="flex flex-wrap gap-2 mb-2">
-                            {pendingGenImages.map((img, i) => (
-                              <img key={i} src={`data:image/png;base64,${img}`} alt="Generated" className="max-w-[320px] max-h-[320px] rounded-xl border border-white/10" />
-                            ))}
-                          </div>
-                        )}
-                        {streamResponse && (
-                          <div className="chat-answer pixel-sans text-white/90 text-base leading-[1.75] prose prose-invert prose-base max-w-none prose-p:my-3 prose-li:my-1 prose-ol:my-3 prose-ul:my-3 prose-headings:mt-5 prose-headings:mb-2 prose-headings:text-white prose-headings:font-semibold prose-strong:text-white prose-strong:font-extrabold prose-code:text-white/80 prose-code:bg-white/[0.06] prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-a:text-blue-400 prose-a:no-underline hover:prose-a:underline prose-hr:my-5 prose-hr:border-white/10 [&_br]:block [&_br]:content-[''] [&_br]:mt-2.5">
-                            <Markdown options={buildMarkdownOverrides(pendingSources)}>{mathToTags(streamResponse)}</Markdown>
-                            <span className="inline-block w-2 h-5 bg-white/50 ml-1 animate-pulse" />
-                          </div>
-                        )}
-                        {streamThinking && <ThinkingDropdown thinking={streamThinking} isStreaming={isStillThinking} elapsedSeconds={thinkingElapsed ?? undefined} />}
-                      </div>
-                    </div>
-                  );
-                })()}
-                
-                {/* Search indicator */}
-                {isSearching && (
-                  <div className="flex justify-center">
-                    <div className="px-4 py-2 bg-white/[0.03] border border-white/10 rounded-lg">
-                      <p className="pixel-sans text-white/70 text-sm">
-                        Searching the web...
-                      </p>
-                    </div>
-                  </div>
-                )}
-
-                {/* Image generation placeholder — skeleton the size of the
-                    upcoming image with a scanning stripe */}
-                {isGeneratingImage && (
-                  <div className="msg-in flex flex-col items-start">
-                    <div className="w-full px-1">
-                      <div className="img-skeleton">
-                        <span className="img-skeleton-label pixel-sans">generating image…</span>
-                      </div>
-                    </div>
-                  </div>
-                )}
-                
-                {/* Queue position indicator with estimated wait time */}
-                {chatState === 'queued' && queuePosition !== null && queuePosition > 0 && (
-                  <div className="flex justify-center">
-                    <div className="px-5 py-3 bg-[#80a0c1]/10 border border-[#80a0c1]/20 rounded-lg">
-                      <p className="pixel-sans text-[#80a0c1] text-sm">
-                        You are #{queuePosition} in queue
-                        {(() => {
-                          const waitSec = networkStats?.avgJobDurationMs ? Math.ceil((queuePosition * networkStats.avgJobDurationMs) / 1000) : 0;
-                          return waitSec > 0 ? (
-                            <span className="text-[#80a0c1]/70 ml-2">· ~{waitSec}s wait</span>
-                          ) : null;
-                        })()}
-                      </p>
-                    </div>
-                  </div>
-                )}
-                
-                {/* Processing indicator */}
-                {chatState === 'streaming' && !streamingContent && (
-                  <div className="msg-in flex flex-col items-start">
-                    <div className="flex items-center gap-2 mb-1.5 px-1">
-                      <span className="w-2 h-2 bg-green-400/80 animate-pulse" />
-                      <span className="pixel-serif text-white/90 text-sm">c0mpute</span>
-                    </div>
-                    <div className="flex gap-1 px-1 py-1">
-                      <span className="w-1.5 h-1.5 bg-white/50 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                      <span className="w-1.5 h-1.5 bg-white/50 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                      <span className="w-1.5 h-1.5 bg-white/50 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
-                    </div>
-                  </div>
-                )}
-                
-                {/* Error message */}
-                {error && (
-                  <div className="flex justify-center">
-                    <div className="px-5 py-3 bg-red-500/10 border border-red-500/20 rounded-lg">
-                      <p className="pixel-sans text-red-400 text-sm">
-                        {error.includes('Top up in Settings') ? (
-                          <>Not enough credits. Top up in <a href="/settings#usage" className="cursor-pointer underline hover:text-red-300">Settings</a>.</>
-                        ) : error}
-                      </p>
-                      <button
-                        onClick={() => {
-                          setError(null);
-                          setChatState('idle');
-                        }}
-                        className="pixel-sans text-red-400/70 text-sm underline mt-1"
-                      >
-                        Dismiss
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {/* No workers for this tier, but another tier is online → offer switch */}
-                {tierSwitch && (
-                  <div className="flex justify-center">
-                    <div className="px-5 py-3 bg-[#80a0c1]/10 border border-[#80a0c1]/20 rounded-lg text-center">
-                      <p className="pixel-sans text-[#80a0c1] text-sm mb-2">
-                        No workers online for {selectedPlanObj.name} right now. {tierSwitch.toCount} {tierSwitch.toCount === 1 ? 'worker' : 'workers'} online for {tierSwitch.toLabel}.
-                      </p>
-                      <div className="flex items-center justify-center gap-3">
-                        <button
-                          onClick={() => { savePlan(tierSwitch.to); setTierSwitch(null); }}
-                          className="cursor-pointer pixel-serif text-black bg-[#80a0c1] hover:bg-[#80a0c1]/90 text-sm px-4 py-1.5 rounded-lg"
-                        >
-                          Switch to {tierSwitch.toLabel}
-                        </button>
-                        <button
-                          onClick={() => setTierSwitch(null)}
-                          className="cursor-pointer pixel-sans text-[#80a0c1]/70 text-sm underline"
-                        >
-                          Dismiss
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                <div ref={messagesEndRef} />
-              </div>
-              </div>
+                onBackgroundClick={() => inputRef.current?.focus()}
+              />
 
               {/* Floating scroll-to-bottom button */}
               {showScrollDown && (
                 <button
                   onClick={scrollToBottom}
                   aria-label="Scroll to bottom"
-                  className="absolute bottom-36 right-5 z-10 w-9 h-9 rounded-full bg-[#0a0a0a] border border-white/15 flex items-center justify-center hover:bg-white/10 transition-colors cursor-pointer"
+                  className="absolute bottom-36 right-5 z-10 w-9 h-9 rounded-full bg-[#141210] border border-white/15 flex items-center justify-center hover:bg-white/10 transition-colors cursor-pointer"
                 >
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-white/80"><path d="M12 5v14M19 12l-7 7-7-7" /></svg>
                 </button>
               )}
 
-              {/* Input Area — floating composer */}
-              <div className="relative px-4 pb-4">
-                <div className="pointer-events-none absolute bottom-full left-0 right-0 h-14 bg-gradient-to-t from-black to-transparent" />
-                <div className="max-w-3xl mx-auto">
-                  {(() => {
-                    const hasWorkers = planWorkerCount(selectedPlanObj, networkStats) > 0;
-                    const otherCount = PLANS
-                      .filter(p => p.id !== selectedPlan)
-                      .reduce((n, p) => n + planWorkerCount(p, networkStats), 0);
-                    // Only promise queueing when NO model can serve. If another model is
-                    // online, sending shows a one-tap switch prompt instead of queueing.
-                    if (!hasWorkers && otherCount === 0 && isConnected) {
-                      return (
-                        <div className="pixel-sans text-white/70 text-xs text-center mb-2">
-                          No workers are online for {selectedPlanObj.name} — your message will queue until one connects
-                        </div>
-                      );
-                    }
-                    return null;
-                  })()}
-                  {/* Image preview */}
-                  {pendingImages.length > 0 && (
-                    <div className="flex flex-wrap gap-2 mb-2">
-                      {pendingImages.map((img, idx) => (
-                        <div key={idx} className="relative group">
-                          <img src={`data:image/jpeg;base64,${img}`} alt="Upload preview" className="w-16 h-16 rounded-lg object-cover border border-white/10" />
-                          <button
-                            onClick={() => setPendingImages(prev => prev.filter((_, i) => i !== idx))}
-                            className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-500 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                          >
-                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3"><path d="M18 6L6 18M6 6l12 12" /></svg>
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  {/* Composer panel — textarea on top, controls inside */}
-                  <div className="bg-[#0a0a0a] border border-white/10 rounded-2xl focus-within:border-white/25 transition-colors">
-                    <textarea
-                      ref={inputRef}
-                      rows={1}
-                      value={inputValue}
-                      onChange={(e) => {
-                        if (e.target.value.length <= MAX_INPUT_CHARS) {
-                          setInputValue(e.target.value);
-                        }
-                        const el = e.target;
-                        el.style.height = 'auto';
-                        el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' && !e.shiftKey) {
-                          e.preventDefault();
-                          sendMessage();
-                        }
-                      }}
-                      placeholder={isConnected ? (pendingImages.length > 0 ? 'Describe the image...' : 'Ask anything...') : 'Connecting to network...'}
-                      disabled={chatState !== 'idle' || !isConnected}
-                      className="w-full bg-transparent px-4 pt-3.5 pb-1.5 pixel-sans text-white text-base placeholder:text-white/40 focus:outline-none resize-none overflow-y-auto disabled:opacity-50"
-                    />
-                  <div className="flex items-center gap-1.5 px-2.5 pb-2.5">
-                    <div className="relative" ref={modelMenuRef}>
-                      <button
-                        onClick={() => setModelMenuOpen(o => !o)}
-                        className="cursor-pointer flex items-center gap-2 pixel-sans text-xs px-3 py-2 rounded-lg border border-white/10 bg-white/[0.03] text-white/70 hover:bg-white/[0.06] transition-colors"
-                      >
-                        <span className="text-white/90">{selectedPlanObj.name}</span>
-                        <span className="text-white/60">{selectedPlanObj.cost > 0 ? `${selectedPlanObj.cost} cr/msg` : 'Free'}</span>
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={`transition-transform ${modelMenuOpen ? 'rotate-180' : ''}`}><path d="M6 9l6 6 6-6" /></svg>
-                      </button>
-                      {modelMenuOpen && (
-                        <div className="absolute bottom-full left-0 mb-2 w-60 bg-[#0a0a0a] border border-white/10 rounded-xl p-1 z-50 shadow-xl">
-                          {PLANS.map((plan) => {
-                            const isSel = plan.id === selectedPlan;
-                            return (
-                              <button
-                                key={plan.id}
-                                onClick={() => savePlan(plan.id)}
-                                className={`cursor-pointer w-full text-left px-3 py-2.5 rounded-lg transition-colors ${isSel ? 'bg-[#80a0c1]/15' : 'hover:bg-white/5'}`}
-                              >
-                                <div className="flex items-center justify-between">
-                                  <span className={`pixel-sans text-sm ${isSel ? 'text-[#80a0c1]' : 'text-white/80'}`}>{plan.name}</span>
-                                  <span className={`pixel-sans text-xs ${isSel ? 'text-[#80a0c1]/60' : 'text-white/60'}`}>{plan.cost > 0 ? `${plan.cost} cr/msg` : 'Free'}</span>
-                                </div>
-                                <div className="pixel-sans text-white/60 text-xs mt-0.5">{plan.description}</div>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                    {selectedPlanObj.thinking && (
-                      <button
-                        onClick={() => setDeepThinking(v => !v)}
-                        className={`cursor-pointer flex items-center gap-2 pixel-sans text-xs px-3 py-2 rounded-lg border transition-colors ${deepThinking ? 'border-[#80a0c1]/40 bg-[#80a0c1]/15 text-[#80a0c1]' : 'border-white/10 bg-white/[0.03] text-white/50 hover:bg-white/[0.06]'}`}
-                        title="Deep thinking: the model reasons step-by-step before answering. Slower, costs 20 cr/msg."
-                      >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2a7 7 0 0 0-4 12.7V17a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v-2.3A7 7 0 0 0 12 2z" /><path d="M9 21h6" /></svg>
-                        Deep thinking
-                        <span className="text-[10px]">{deepThinking ? 'ON · 20 cr' : 'OFF'}</span>
-                      </button>
-                    )}
-                    <div className="flex-1" />
-                    {/* Hidden file input for image uploads — only on vision models */}
-                    {selectedPlanObj.vision && (
-                      <input
-                        ref={imageInputRef}
-                        type="file"
-                        accept="image/*"
-                        multiple
-                        className="hidden"
-                        onChange={(e) => {
-                          const files = e.target.files;
-                          if (!files) return;
-                          Array.from(files).slice(0, 4 - pendingImages.length).forEach(file => {
-                            const reader = new FileReader();
-                            reader.onload = () => {
-                              const base64 = (reader.result as string).split(',')[1];
-                              if (base64) {
-                                setPendingImages(prev => prev.length < 4 ? [...prev, base64] : prev);
-                              }
-                            };
-                            reader.readAsDataURL(file);
-                          });
-                          e.target.value = '';
-                        }}
-                      />
-                    )}
-                    {selectedPlanObj.vision && (
-                      <button
-                        onClick={() => imageInputRef.current?.click()}
-                        disabled={chatState !== 'idle' || !isConnected || pendingImages.length >= 4}
-                        className="cursor-pointer p-2 rounded-lg text-white/60 hover:text-white hover:bg-white/[0.06] transition-colors disabled:opacity-20 disabled:cursor-not-allowed"
-                        title="Upload image (Max tier)"
-                        aria-label="Upload image"
-                      >
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <rect x="3" y="3" width="18" height="18" rx="2" />
-                          <circle cx="8.5" cy="8.5" r="1.5" />
-                          <path d="M21 15l-5-5L5 21" />
-                        </svg>
-                      </button>
-                    )}
-                    {/* Character counter — only when approaching the limit */}
-                    {inputValue.length > MAX_INPUT_CHARS * 0.75 && (
-                      <span className={`pixel-sans text-xs mr-1 ${inputValue.length > MAX_INPUT_CHARS * 0.9 ? 'text-red-400' : 'text-white/50'}`}>
-                        {inputValue.length}/{MAX_INPUT_CHARS}
-                      </span>
-                    )}
-                    <button
-                      onClick={sendMessage}
-                      disabled={(!inputValue.trim() && pendingImages.length === 0) || inputValue.length > MAX_INPUT_CHARS || chatState !== 'idle' || !isConnected}
-                      className="cursor-pointer w-9 h-9 rounded-full bg-white hover:bg-white/90 flex items-center justify-center transition-all disabled:opacity-25 disabled:cursor-not-allowed"
-                      aria-label="Send"
-                    >
-                      <img src="/PixelSendIcon.png" alt="Send" width={18} height={18} className="invert" />
-                    </button>
-                  </div>
-                  </div>
-                </div>
-              </div>
+              <Composer
+                inputRef={inputRef}
+                inputValue={inputValue}
+                onInputChange={setInputValue}
+                onSend={sendMessage}
+                chatState={chatState}
+                isConnected={isConnected}
+                selectedPlan={selectedPlan}
+                selectedPlanObj={selectedPlanObj}
+                onSelectPlan={savePlan}
+                deepThinking={deepThinking}
+                onToggleDeepThinking={() => setDeepThinking(v => !v)}
+                pendingImages={pendingImages}
+                onRemoveImage={(idx) => setPendingImages(prev => prev.filter((_, i) => i !== idx))}
+                onImageFiles={handleImageFiles}
+                networkStats={networkStats}
+              />
             </>
           )}
         </main>

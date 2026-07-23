@@ -14,26 +14,26 @@ export default function OnboardingModal({ freePromptLimit, onClose, onUseAI, onC
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-      <div className="w-full max-w-md rounded-2xl border border-white/10 bg-[#0a0a0a] p-7 shadow-2xl">
+      <div className="w-full max-w-md rounded-2xl border border-white/10 bg-[#141210] p-7 shadow-2xl">
         {step === 1 ? (
           <>
-            <div className="pixel-sans text-white text-xl font-bold mb-3">Welcome to c0mpute</div>
+            <div className="pixel-serif text-white text-2xl mb-3">Welcome to c<span>0</span>mpute</div>
             <p className="pixel-sans text-white/70 text-sm leading-relaxed mb-5">
               c0mpute is a decentralized AI network. You run prompts on real models served by
               people sharing their compute. To get you started, your account comes with{' '}
-              <span className="text-green-400 font-semibold">{freePromptLimit} free prompts</span>.
+              <span className="text-emerald-300 font-semibold">{freePromptLimit} free prompts</span>.
             </p>
             <div className="space-y-3 mb-6">
               <div className="flex items-start gap-3">
-                <span className="pixel-sans text-green-400/80 text-sm font-bold mt-0.5">1.</span>
+                <span className="pixel-sans text-white/40 text-sm font-bold mt-0.5">1.</span>
                 <span className="pixel-sans text-white/60 text-sm">Type a prompt and pick a model. Your free prompts work on every tier.</span>
               </div>
               <div className="flex items-start gap-3">
-                <span className="pixel-sans text-green-400/80 text-sm font-bold mt-0.5">2.</span>
+                <span className="pixel-sans text-white/40 text-sm font-bold mt-0.5">2.</span>
                 <span className="pixel-sans text-white/60 text-sm">When they run out, top up with USDC. Credits never expire.</span>
               </div>
               <div className="flex items-start gap-3">
-                <span className="pixel-sans text-green-400/80 text-sm font-bold mt-0.5">3.</span>
+                <span className="pixel-sans text-white/40 text-sm font-bold mt-0.5">3.</span>
                 <span className="pixel-sans text-white/60 text-sm">Got a GPU? You can earn by serving prompts for the network.</span>
               </div>
             </div>
@@ -46,7 +46,7 @@ export default function OnboardingModal({ freePromptLimit, onClose, onUseAI, onC
           </>
         ) : (
           <>
-            <div className="pixel-sans text-white text-xl font-bold mb-3">How do you want to start?</div>
+            <div className="pixel-serif text-white text-2xl mb-3">How do you want to start?</div>
             <p className="pixel-sans text-white/60 text-sm mb-5">You can do both — pick where to go first.</p>
             <div className="space-y-3 mb-6">
               <button

@@ -42,8 +42,8 @@ export default function AnonGateModal({ mode, freePromptLimit, onClose, onSignIn
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-      <div className="w-full max-w-sm rounded-2xl border border-white/10 bg-[#0a0a0a] p-7 shadow-2xl">
-        <div className="pixel-sans text-white text-xl font-bold mb-3">{c.title}</div>
+      <div className="w-full max-w-sm rounded-2xl border border-white/10 bg-[#141210] p-7 shadow-2xl">
+        <div className="pixel-serif text-white text-2xl mb-3">{c.title}</div>
         <p className="pixel-sans text-white/70 text-sm leading-relaxed mb-6">{body}</p>
         <button
           onClick={onSignIn}
