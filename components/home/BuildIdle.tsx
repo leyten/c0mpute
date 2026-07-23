@@ -100,6 +100,9 @@ export default function BuildIdle() {
       ctx.roundRect(wx + 0.5, wy + 0.5, wwd, wht, 8);
       ctx.fillStyle = BG;
       ctx.fill();
+      // lift the window off the page black (same trick as the globe ocean)
+      ctx.fillStyle = w(0.05);
+      ctx.fill();
       ctx.strokeStyle = w(0.4);
       ctx.lineWidth = 1;
       ctx.stroke();
