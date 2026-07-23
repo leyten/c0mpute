@@ -21,7 +21,7 @@ export default function OnboardingModal({ freePromptLimit, onClose, onUseAI, onC
             <p className="pixel-sans text-white/70 text-sm leading-relaxed mb-5">
               c0mpute is a decentralized AI network. You run prompts on real models served by
               people sharing their compute. To get you started, your account comes with{' '}
-              <span className="text-green-400 font-semibold">{freePromptLimit} free prompts</span> — no card, no deposit.
+              <span className="text-green-400 font-semibold">{freePromptLimit} free prompts</span>.
             </p>
             <div className="space-y-3 mb-6">
               <div className="flex items-start gap-3">
