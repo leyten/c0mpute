@@ -1,7 +1,7 @@
 // Three audience doors, rebuilt as full-width editorial panels: big serif
 // heading + the living card art, alternating sides. Every CTA lands on an
 // existing surface.
-import ApiIdle from './ApiIdle';
+import LayersIdle from './LayersIdle';
 import CoinsIdle from './CoinsIdle';
 import GlobeMini from './GlobeMini';
 
@@ -67,7 +67,7 @@ export default function Doors() {
               { href: 'https://docs.c0mpute.ai/api', text: 'Betanet API →', external: true },
             ]}
             cta={{ href: 'https://docs.c0mpute.ai', text: 'Read the docs', external: true }}
-            art={<div className="w-full h-[210px] md:h-[250px]"><ApiIdle /></div>}
+            art={<div className="w-full h-[210px] md:h-[250px]"><LayersIdle /></div>}
           />
           <Panel
             id="gpu-owners"

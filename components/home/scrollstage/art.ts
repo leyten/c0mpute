@@ -87,44 +87,80 @@ export function halftone(ctx: CanvasRenderingContext2D, x: number, y: number, wd
     }
 }
 
-// Coin stack in the EarningsVisual style: ellipse coins, halftone sides, $ on top.
+// Coin stack, faithful to EarningsVisual's SVG geometry: each coin is a side
+// band with an elliptical bottom bulge (halftone-patterned) plus a stroked
+// top ellipse; lower faces carry the fine surface pattern, the top coin is
+// dark with a $. Patterns are cached per-context tile canvases.
+const _coinPats = new WeakMap<CanvasRenderingContext2D, { side: CanvasPattern | null; surface: CanvasPattern | null }>();
+function coinPatterns(ctx: CanvasRenderingContext2D) {
+  let p = _coinPats.get(ctx);
+  if (!p) {
+    const mk = (size: number, r: number) => {
+      const c = document.createElement('canvas');
+      c.width = size;
+      c.height = size;
+      const g = c.getContext('2d')!;
+      g.fillStyle = '#ffffff';
+      g.beginPath();
+      g.arc(size / 2, size / 2, r, 0, Math.PI * 2);
+      g.fill();
+      return ctx.createPattern(c, 'repeat');
+    };
+    p = { surface: mk(3, 0.7), side: mk(4, 1.2) };
+    _coinPats.set(ctx, p);
+  }
+  return p;
+}
+
 export function coinStack(ctx: CanvasRenderingContext2D, cx: number, yBottom: number, coins: number, s: number, alpha: number) {
   if (alpha <= 0.01 || coins <= 0) return;
-  const rx = 26 * s, ry = 8 * s, step = 9 * s;
+  const rx = 28 * s, ry = 9 * s, step = 10 * s, band = 8 * s;
+  const pats = coinPatterns(ctx);
   const full = Math.floor(coins);
-  const part = coins - full;
-  for (let i = 0; i < full + (part > 0 ? 1 : 0); i++) {
-    const a = i < full ? alpha : alpha * part;
-    const y = yBottom - i * step;
-    // side band
-    ctx.save();
+  const frac = coins - full;
+  const total = full + (frac > 0 ? 1 : 0);
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.lineWidth = 1;
+  // the very bottom ellipse of the stack
+  ctx.beginPath();
+  ctx.ellipse(cx, yBottom, rx, ry, 0, 0, Math.PI * 2);
+  ctx.fillStyle = (pats.side as CanvasPattern) ?? w(0.3);
+  ctx.fill();
+  ctx.strokeStyle = w(1);
+  ctx.stroke();
+  for (let i = 0; i < total; i++) {
+    const isTop = i === total - 1;
+    if (isTop && frac > 0) ctx.globalAlpha = alpha * frac;
+    const y = yBottom - i * step;   // bottom plane of this coin
+    const yT = y - band;            // top plane of this coin
+    // side band with the elliptical bottom bulge
     ctx.beginPath();
-    ctx.rect(cx - rx, y - ry - step * 0.85, rx * 2, step * 0.85 + ry);
-    ctx.clip();
-    halftone(ctx, cx - rx, y - ry - step, rx * 2, step + ry, a * 0.75, 4 * Math.max(1, s), 1.1 * Math.max(1, s * 0.8));
-    ctx.restore();
-    ctx.strokeStyle = w(a);
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(cx - rx, y - step * 0.85);
+    ctx.moveTo(cx - rx, yT);
     ctx.lineTo(cx - rx, y);
-    ctx.moveTo(cx + rx, y - step * 0.85);
-    ctx.lineTo(cx + rx, y);
+    ctx.ellipse(cx, y, rx, ry, 0, Math.PI, 0, true);
+    ctx.lineTo(cx + rx, yT);
+    ctx.fillStyle = isTop ? 'rgba(255,255,255,0.12)' : ((pats.side as CanvasPattern) ?? w(0.3));
+    ctx.fill();
+    ctx.strokeStyle = w(1);
     ctx.stroke();
     // top face
     ctx.beginPath();
-    ctx.ellipse(cx, y - step * 0.85, rx, ry, 0, 0, Math.PI * 2);
-    ctx.fillStyle = BG;
+    ctx.ellipse(cx, yT, rx, ry, 0, 0, Math.PI * 2);
+    ctx.fillStyle = i >= total - 2 ? BG : ((pats.surface as CanvasPattern) ?? BG);
     ctx.fill();
+    ctx.lineWidth = isTop ? 1.5 : 1;
     ctx.stroke();
+    ctx.lineWidth = 1;
+    if (isTop) {
+      ctx.font = `${Math.max(10, Math.round(11 * s))}px monospace`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = w(1);
+      ctx.fillText('$', cx, yT + 3.5 * s);
+    }
   }
-  // $ on the top coin
-  const topY = yBottom - (full + (part > 0 ? 1 : 0) - 1) * step - step * 0.85;
-  ctx.font = `${Math.round(11 * s * 1.4)}px ${'monospace'}`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillStyle = w(alpha);
-  ctx.fillText('$', cx, topY + 1);
+  ctx.restore();
 }
 
 // Small receipt stub: doc rect + lines + check when settled.
