@@ -597,11 +597,6 @@ export default function Chat() {
                   onPick={index => pickVersion(m.id, index)}
                   // follow-ups belong to the answer you are looking at, so only
                   // the last one carries them
-                  trailing={
-                    m.role === 'assistant' && i === messages.length - 1 && !busy && !error
-                      ? <FollowUps content={m.content} truncated={m.truncated} onPick={followUp} />
-                      : undefined
-                  }
                 />
               ))}
               {busy && regenFor === null && (
@@ -636,6 +631,17 @@ export default function Chat() {
             style={{ background: 'rgba(23,20,15,0.9)' }}
             aria-label="Scroll to latest"
           ><Down /></button>
+        )}
+
+        {/* The follow-ups belong to the composer: they are things you are about
+            to say. Pinned to the top right of the box, always there, and read
+            from the answer above. */}
+        {!busy && lastAnswer && (
+          <div className="mx-auto w-full max-w-[46rem] px-4">
+            <div className="flex flex-wrap items-center justify-end gap-1.5 pb-2">
+              <FollowUps content={lastAnswer.content} truncated={lastAnswer.truncated} onPick={followUp} />
+            </div>
+          </div>
         )}
 
         {composer}

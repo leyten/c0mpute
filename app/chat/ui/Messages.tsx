@@ -484,7 +484,7 @@ function AssistantTurn({
   }, [menu]);
 
   return (
-    <div className="cu-fade group relative">
+    <div className="cu-fade group relative pb-7">
       {live
         ? <Live text={live.text} state={live.state} queue={live.queue} searching={live.searching} generatingImage={live.generatingImage} sources={live.sources} />
         : compare && many
@@ -492,62 +492,57 @@ function AssistantTurn({
           : <VersionBody v={current} />}
 
       {!live && (
-        // The follow-ups hold the row and are always there. The controls float
-        // at its right end and only appear when the answer is hovered, so they
-        // reserve no space and can never cover what the pointer is reaching
-        // for. Below sm there is no hover to wait for, so they simply wrap in.
-        <div className="relative -ml-2 mt-2 flex flex-wrap items-center gap-x-1.5 gap-y-1 pr-2">
-          {trailing && <div className="flex flex-wrap items-center gap-1.5 pl-2">{trailing}</div>}
-          <div className={`flex flex-wrap items-center gap-x-1.5 gap-y-1 sm:absolute sm:right-0 sm:top-1/2 sm:-translate-y-1/2 ${
-            trailing ? 'sm:opacity-0 sm:transition-opacity sm:duration-150 sm:group-hover:opacity-100' : ''
-          }`}>
-            {many && <Pager index={index} count={versions.length} onPick={onPick} />}
+        // Bottom left of the answer, floating: the controls reserve no space
+        // and appear only while the answer is hovered. The follow-ups do not
+        // live here at all — they belong to the composer, above the box you
+        // would type the follow-up into.
+        <div className="pointer-events-none absolute left-0 top-full -ml-2 -mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 opacity-0 transition-opacity duration-150 [&>*]:pointer-events-auto group-hover:opacity-100 group-focus-within:opacity-100">
+          {many && <Pager index={index} count={versions.length} onPick={onPick} />}
 
-            <CopyButton text={current.content} always={!!trailing} />
+          <CopyButton text={current.content} always />
 
+          <Action
+            icon={<Refresh />}
+            label="Regenerate"
+            disabled={busy}
+            always
+            onClick={() => onRegenerate()}
+          />
+
+          <div className="relative" data-answer-menu>
             <Action
-              icon={<Refresh />}
-              label="Regenerate"
+              icon={<Swap />}
+              label="Another model"
               disabled={busy}
-              always={!!trailing}
-              onClick={() => onRegenerate()}
+              always
+              held={menu}
+              onClick={e => {
+                const box = e.currentTarget.getBoundingClientRect();
+                setPlacement(box.top < window.innerHeight / 2 ? 'down' : 'up');
+                setMenu(v => !v);
+              }}
             />
-
-            <div className="relative" data-answer-menu>
-              <Action
-                icon={<Swap />}
-                label="Another model"
-                disabled={busy}
-                always={!!trailing}
-                held={menu}
-                onClick={e => {
-                  const box = e.currentTarget.getBoundingClientRect();
-                  setPlacement(box.top < window.innerHeight / 2 ? 'down' : 'up');
-                  setMenu(v => !v);
-                }}
-              />
-              {menu && (
-                <ModelMenu
-                  engine={engine}
-                  selectedId={current.model?.id ?? null}
-                  placement={placement}
-                  onPick={m => { setMenu(false); onRegenerate(m); }}
-                />
-              )}
-            </div>
-
-            {many && (
-              <Action
-                icon={<Split />}
-                label={compare ? 'One at a time' : 'Compare'}
-                always={!!trailing}
-                held={compare}
-                onClick={() => setCompare(v => !v)}
+            {menu && (
+              <ModelMenu
+                engine={engine}
+                selectedId={current.model?.id ?? null}
+                placement={placement}
+                onPick={m => { setMenu(false); onRegenerate(m); }}
               />
             )}
-
-            <Provenance version={current} always={many} />
           </div>
+
+          {many && (
+            <Action
+              icon={<Split />}
+              label={compare ? 'One at a time' : 'Compare'}
+              always
+              held={compare}
+              onClick={() => setCompare(v => !v)}
+            />
+          )}
+
+          <Provenance version={current} always />
         </div>
       )}
     </div>
