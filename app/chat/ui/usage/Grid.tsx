@@ -1,12 +1,13 @@
 'use client';
 
-// Variant 1 — the contribution grid, read literally: 53 columns of 7 days,
-// four steps of the one emerald the interface already uses, month labels above
-// and weekday labels beside. The squares carry the year; the four figures
-// around them carry today.
+// The year, as 53 columns of 7 days: four steps of the one emerald the
+// interface already uses, month labels above, weekday labels beside. The
+// balance and the free prompts sit above this in the panel, so nothing here
+// repeats them — the squares carry the year and the line under them carries
+// the month.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { MONTHS_SHORT, currentStreak, dayKey, fmt, longDate, type UsageData, type UsageDay } from './data';
-import { Empty, Stat, credits as creditFigure } from './parts';
+import { Empty } from './parts';
 
 const CELL = 9;
 const PITCH = 12; // cell + 3px gap
@@ -38,8 +39,8 @@ export default function Grid({ data }: { data: UsageData }) {
 
   if (!data.days) {
     return (
-      <div className="space-y-4">
-        <Figures data={data} />
+      <div className="space-y-3">
+        <Head data={data} />
         <Empty title="There is no daily history to draw yet." note="Prompts show up here once the account has credit activity to read." />
       </div>
     );
@@ -50,8 +51,8 @@ export default function Grid({ data }: { data: UsageData }) {
   const streak = currentStreak(data.days);
 
   return (
-    <div className="space-y-5">
-      <Figures data={data} />
+    <div className="space-y-3">
+      <Head data={data} />
 
       {/* the rail stays put while the year scrolls under it on a phone */}
       <div className="flex gap-2">
@@ -144,23 +145,20 @@ export default function Grid({ data }: { data: UsageData }) {
   );
 }
 
-function Figures({ data }: { data: UsageData }) {
+/** Names the period the squares cover, and carries the month's spend — the one
+ *  figure the header row used to hold that nothing above the grid states. */
+function Head({ data }: { data: UsageData }) {
   const month = (data.days ?? []).filter(d => d.day.slice(0, 7) === dayKey(new Date()).slice(0, 7));
   const spent = month.reduce((n, d) => n + d.credits, 0);
   const prompts = month.reduce((n, d) => n + d.prompts, 0);
   return (
-    <div className="flex flex-wrap gap-x-10 gap-y-4">
-      <Stat label="Balance" value={creditFigure(data.balance)} sub="credits" />
-      <Stat
-        label="Free prompts left"
-        value={data.freePrompts === null ? '—' : String(data.freePrompts)}
-        sub={data.freeLimit === null ? undefined : `of ${data.freeLimit} today`}
-      />
-      <Stat
-        label="Spent this month"
-        value={data.days ? fmt(spent) : '—'}
-        sub={data.days ? `${prompts} ${prompts === 1 ? 'prompt' : 'prompts'}` : undefined}
-      />
+    <div className="flex items-baseline justify-between gap-3 text-[12px]">
+      <span style={{ color: 'var(--cu-dim)' }}>Last 12 months</span>
+      {data.days && (
+        <span className="tabular-nums" style={{ color: 'var(--cu-faint)' }}>
+          {fmt(spent)} credits this month, {prompts} {prompts === 1 ? 'prompt' : 'prompts'}
+        </span>
+      )}
     </div>
   );
 }
