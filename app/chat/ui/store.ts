@@ -23,6 +23,9 @@ export interface Version {
   model?: VersionModel;
   /** Cut short by the stop button, so the turn can offer to continue it. */
   truncated?: boolean;
+  /** An image was announced for this answer and has not arrived yet. The
+   *  placeholder stays on the committed turn so it never blinks out and back. */
+  pendingImage?: boolean;
   createdAt: number;
 }
 
@@ -66,8 +69,8 @@ export function titleFrom(text: string): string {
 
 /** The id is chosen by the caller: a job knows which version it is writing
  *  before it has any text, and late images need that id to find it again. */
-export function makeVersion(id: string, content: string, model?: VersionModel, truncated?: boolean): Version {
-  return { id, content, model, truncated: truncated || undefined, createdAt: Date.now() };
+export function makeVersion(id: string, content: string, model?: VersionModel, truncated?: boolean, pendingImage?: boolean): Version {
+  return { id, content, model, truncated: truncated || undefined, pendingImage: pendingImage || undefined, createdAt: Date.now() };
 }
 
 export function assistantMsg(id: string, version: Version): Msg {
@@ -124,7 +127,7 @@ export function addImagesTo(msg: Msg, versionId: string, images: string[]): Msg 
   const versions = versionsOf(msg);
   const at = versions.findIndex(v => v.id === versionId);
   if (at === -1) return msg;
-  const next = versions.map((v, i) => (i === at ? { ...v, images: [...(v.images ?? []), ...images] } : v));
+  const next = versions.map((v, i) => (i === at ? { ...v, images: [...(v.images ?? []), ...images], pendingImage: undefined } : v));
   return mirror(msg, next, activeIndex(msg));
 }
 

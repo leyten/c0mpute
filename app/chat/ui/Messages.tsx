@@ -11,7 +11,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { AnswerBody, SourceStrip } from './Answer';
 import ThinkingDropdown from '../components/ThinkingDropdown';
-import { parseSourcesFromContent, parseThinking, type Plan } from '../lib';
+import { parseSourcesFromContent, parseThinking, type Plan, type SourceRef } from '../lib';
 import type { ChatEngine } from '../engine/useChatEngine';
 import { activeIndex, versionsOf, type Msg, type Version } from './store';
 import ModelMenu from './ModelMenu';
@@ -22,6 +22,13 @@ import { Copy, Check, Pencil, Refresh, Swap, Split, Left, Right } from './Icons'
  *  in ui.css). */
 const QUIET = 'cu-quiet opacity-0 transition-all duration-150 focus-visible:opacity-100 group-hover:opacity-100';
 
+/** Three ways to seat the controls under an answer, so the follow-ups never
+ *  float below an empty hover-only row.
+ *   swap    — one row: follow-ups at rest, actions take their place on hover
+ *   overlay — follow-ups sit under the answer; actions float, reserving nothing
+ *   inline  — one row holding both, actions as icons to keep it short */
+export type RowStyle = 'swap' | 'overlay' | 'inline';
+
 /** What the running job looks like from a turn's point of view. */
 export interface LiveState {
   text: string;
@@ -29,10 +36,16 @@ export interface LiveState {
   queue: number | null;
   searching: boolean;
   generatingImage: boolean;
+  /** Reported by the job before the text carries them. */
+  sources?: SourceRef[];
 }
 
-function Answer({ content, streaming }: { content: string; streaming?: boolean }) {
-  const { cleanContent, sources } = parseSourcesFromContent(content);
+function Answer({ content, streaming, liveSources }: { content: string; streaming?: boolean; liveSources?: SourceRef[] }) {
+  const parsed = parseSourcesFromContent(content);
+  const cleanContent = parsed.cleanContent;
+  // while streaming the ---SOURCES--- tail has not been written yet, so take
+  // what the job has already reported
+  const sources = parsed.sources.length ? parsed.sources : (liveSources ?? []);
   const { thinking, response, thinkSeconds } = parseThinking(cleanContent);
   const stillThinking = streaming && thinking !== null && !response.trim();
 
@@ -62,6 +75,9 @@ function VersionBody({ v }: { v: Version }) {
   return (
     <>
       <Answer content={v.content} />
+      {v.pendingImage && (
+        <div className="mt-3 h-64 w-full max-w-sm animate-pulse rounded-2xl" style={{ background: 'var(--cu-surface)' }} />
+      )}
       {v.images && v.images.length > 0 && (
         <div className="mt-3 flex flex-wrap gap-2">
           {v.images.map((src, i) => (
@@ -131,7 +147,13 @@ function Action({
       onClick={onClick}
       disabled={disabled}
       title={label}
-      className={`flex items-center gap-1.5 rounded-lg px-2 py-1 text-[12px] transition-all duration-150 hover:bg-white/[0.06] disabled:opacity-30 ${held || always ? 'opacity-100' : QUIET}`}
+      className={`flex items-center gap-1.5 rounded-lg px-2 py-1 text-[12px] transition-all duration-150 hover:bg-white/[0.06] ${
+        held || always
+          ? 'opacity-100 disabled:opacity-30'
+          // hidden means hidden: a disabled button must not ghost at 30% while
+          // the turn is unhovered
+          : `${QUIET} disabled:opacity-0 group-hover:disabled:opacity-30`
+      }`}
       style={{ color: held ? 'var(--cu-dim)' : 'var(--cu-faint)' }}
     >
       {icon}
@@ -292,7 +314,7 @@ function EditBubble({
 }
 
 export function Turn({
-  msg, engine, busy, live, editable, editing, onEdit, onCancelEdit, onResend, onRegenerate, onPick, trailing,
+  msg, engine, busy, live, editable, editing, onEdit, onCancelEdit, onResend, onRegenerate, onPick, trailing, rowStyle,
 }: {
   msg: Msg;
   engine: ChatEngine;
@@ -310,6 +332,7 @@ export function Turn({
   onPick: (index: number) => void;
   /** Assistant turns only: extra controls beside Copy. */
   trailing?: ReactNode;
+  rowStyle: RowStyle;
 }) {
   return msg.role === 'user'
     ? (
@@ -331,6 +354,7 @@ export function Turn({
         onRegenerate={onRegenerate}
         onPick={onPick}
         trailing={trailing}
+        rowStyle={rowStyle}
       />
     );
 }
@@ -403,7 +427,7 @@ function UserTurn({
 }
 
 function AssistantTurn({
-  msg, engine, busy, live, onRegenerate, onPick, trailing,
+  msg, engine, busy, live, onRegenerate, onPick, trailing, rowStyle,
 }: {
   msg: Msg;
   engine: ChatEngine;
@@ -412,6 +436,7 @@ function AssistantTurn({
   onRegenerate: (plan?: Plan) => void;
   onPick: (index: number) => void;
   trailing?: ReactNode;
+  rowStyle: RowStyle;
 }) {
   // the last answer carries the follow-ups, and keeps its actions on screen:
   // a hover-only row sitting above always-visible chips left a gap that reads
@@ -438,82 +463,120 @@ function AssistantTurn({
   }, [menu]);
 
   return (
-    <div className="cu-fade group">
+    <div className="cu-fade group relative">
       {live
-        ? <Live text={live.text} state={live.state} queue={live.queue} searching={live.searching} generatingImage={live.generatingImage} />
+        ? <Live text={live.text} state={live.state} queue={live.queue} searching={live.searching} generatingImage={live.generatingImage} sources={live.sources} />
         : compare && many
           ? <CompareView versions={versions} index={index} onPick={onPick} />
           : <VersionBody v={current} />}
 
-      {!live && (
-        <div className="-ml-2 mt-1.5 flex flex-wrap items-center gap-x-1.5 gap-y-1">
-          {many && <Pager index={index} count={versions.length} onPick={onPick} />}
-
-          <CopyButton text={current.content} always={live0} />
-
-          <Action
-            icon={<Refresh />}
-            label="Regenerate"
-            disabled={busy}
-            always={live0}
-            onClick={() => onRegenerate()}
-          />
-
-          <div className="relative" data-answer-menu>
+      {!live && (() => {
+        const actions = (
+          <>
+            {many && <Pager index={index} count={versions.length} onPick={onPick} />}
+  
+            <CopyButton text={current.content} always={live0} />
+  
             <Action
-              icon={<Swap />}
-              label="Another model"
+              icon={<Refresh />}
+              label="Regenerate"
               disabled={busy}
               always={live0}
-              held={menu}
-              onClick={e => {
-                const box = e.currentTarget.getBoundingClientRect();
-                setPlacement(box.top < window.innerHeight / 2 ? 'down' : 'up');
-                setMenu(v => !v);
-              }}
+              onClick={() => onRegenerate()}
             />
-            {menu && (
-              <ModelMenu
-                engine={engine}
-                selectedId={current.model?.id ?? null}
-                placement={placement}
-                onPick={m => { setMenu(false); onRegenerate(m); }}
+  
+            <div className="relative" data-answer-menu>
+              <Action
+                icon={<Swap />}
+                label="Another model"
+                disabled={busy}
+                always={live0}
+                held={menu}
+                onClick={e => {
+                  const box = e.currentTarget.getBoundingClientRect();
+                  setPlacement(box.top < window.innerHeight / 2 ? 'down' : 'up');
+                  setMenu(v => !v);
+                }}
+              />
+              {menu && (
+                <ModelMenu
+                  engine={engine}
+                  selectedId={current.model?.id ?? null}
+                  placement={placement}
+                  onPick={m => { setMenu(false); onRegenerate(m); }}
+                />
+              )}
+            </div>
+  
+            {many && (
+              <Action
+                icon={<Split />}
+                label={compare ? 'One at a time' : 'Compare'}
+                always={live0}
+                held={compare}
+                onClick={() => setCompare(v => !v)}
               />
             )}
+  
+            <Provenance version={current} always={many} />
+          </>
+        );
+        const chips = trailing ? <>{trailing}</> : null;
+
+        // swap: one row, one height. Follow-ups at rest; hovering the turn
+        // trades them for the controls, so nothing moves and nothing stacks.
+        if (rowStyle === 'swap') {
+          return (
+            <div className="relative -ml-2 mt-1.5 min-h-[28px]">
+              {chips && (
+                <div className="flex flex-wrap items-center gap-1.5 pl-2 transition-opacity duration-150 group-hover:pointer-events-none group-hover:opacity-0">
+                  {chips}
+                </div>
+              )}
+              <div className={`flex flex-wrap items-center gap-x-1.5 gap-y-1 ${chips ? 'absolute inset-0 opacity-0 transition-opacity duration-150 group-hover:opacity-100' : ''}`}>
+                {actions}
+              </div>
+            </div>
+          );
+        }
+
+        // overlay: the follow-ups own the flow; the controls float above the
+        // answer's bottom-right corner and reserve no space at all.
+        if (rowStyle === 'overlay') {
+          return (
+            <>
+              <div className="pointer-events-none absolute right-0 top-full -mt-1 flex flex-wrap items-center justify-end gap-x-1.5 opacity-0 transition-opacity duration-150 [&>*]:pointer-events-auto group-hover:opacity-100">
+                {actions}
+              </div>
+              {chips && <div className="mt-2 flex flex-wrap items-center gap-1.5">{chips}</div>}
+            </>
+          );
+        }
+
+        // inline: everything in one row, controls reduced to icons so it fits
+        return (
+          <div className="-ml-2 mt-1.5 flex flex-wrap items-center gap-x-1 gap-y-1 [&_span.hidden]:hidden">
+            {actions}
+            {chips}
           </div>
+        );
+      })()}
 
-          {many && (
-            <Action
-              icon={<Split />}
-              label={compare ? 'One at a time' : 'Compare'}
-              always={live0}
-              held={compare}
-              onClick={() => setCompare(v => !v)}
-            />
-          )}
-
-          <Provenance version={current} always={many} />
-        </div>
-      )}
-
-      {/* Follow-ups are always visible, so they get their own line: crowded
-          into the hover row they wrapped it into two lines and pushed the
-          last answer against the composer. */}
-      {!live && trailing && (
-        <div className="mt-2 flex flex-wrap items-center gap-1.5">{trailing}</div>
-      )}
     </div>
   );
 }
 
 export function Live({
-  text, state, queue, searching, generatingImage,
+  text, state, queue, searching, generatingImage, sources,
 }: {
   text: string;
   state: 'queued' | 'streaming';
   queue: number | null;
   searching: boolean;
   generatingImage: boolean;
+  /** Arrive before the text; shown as they land so the strip does not appear
+   *  all at once when the answer completes. */
+  sources?: SourceRef[];
 }) {
   const waiting = state === 'queued' || (!text && !searching);
 
@@ -533,7 +596,9 @@ export function Live({
         </div>
       )}
 
-      {text && <Answer content={text} streaming />}
+      {(sources?.length ?? 0) > 0 && !text && <SourceStrip sources={sources!} />}
+
+      {text && <Answer content={text} streaming liveSources={sources} />}
 
       {generatingImage && (
         <div className="mt-3 h-64 w-full max-w-sm animate-pulse rounded-2xl" style={{ background: 'var(--cu-surface)' }} />

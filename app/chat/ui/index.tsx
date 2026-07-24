@@ -22,10 +22,10 @@ import {
 } from './store';
 import { isMac } from './search';
 import Sidebar from './Sidebar';
-import Composer, { type SendStyle } from './Composer';
+import Composer from './Composer';
 import Palette from './Palette';
 import AskSelection from './Selection';
-import { Turn, Live, FollowUps } from './Messages';
+import { Turn, Live, FollowUps, type RowStyle } from './Messages';
 import { Panel, Plus, Down } from './Icons';
 
 const FLUSH_MS = 90;
@@ -93,13 +93,11 @@ export default function Chat() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [instrOpen, setInstrOpen] = useState(false);
-  // preview only: try the send control four ways, ?send=circle|squircle|ghost|labelled
-  const [sendStyle, setSendStyle] = useState<SendStyle>('labelled');
-  const [elapsed, setElapsed] = useState(0);
+  // preview only: three ways to seat the controls under an answer
+  const [rowStyle, setRowStyle] = useState<RowStyle>('swap');
   useEffect(() => {
-    const v = new URLSearchParams(window.location.search).get('send') ?? localStorage.getItem('cu_send');
-    const ok = ['labelled', 'cost', 'network', 'stateful', 'split', 'ghost'];
-    if (v && ok.includes(v)) setSendStyle(v as SendStyle);
+    const v = new URLSearchParams(window.location.search).get('rows') ?? localStorage.getItem('cu_rows');
+    if (v === 'swap' || v === 'overlay' || v === 'inline') setRowStyle(v);
   }, []);
 
 
@@ -109,14 +107,10 @@ export default function Chat() {
   const [queue, setQueue] = useState<number | null>(null);
   const [searching, setSearching] = useState(false);
   const [genImage, setGenImage] = useState(false);
+  /** Sources arrive before the text does; show them while it streams rather
+   *  than letting the whole strip appear at once on completion. */
+  const [liveSources, setLiveSources] = useState<SourceRef[]>([]);
   const [error, setError] = useState<string | null>(null);
-  // a running clock, only while a job runs, for the send control that narrates
-  useEffect(() => {
-    if (state === 'idle') { setElapsed(0); return; }
-    const at = Date.now();
-    const t = setInterval(() => setElapsed(Date.now() - at), 100);
-    return () => clearInterval(t);
-  }, [state]);
   /** Answer being rewritten, so the stream shows in its place. */
   const [regenFor, setRegenFor] = useState<string | null>(null);
   /** The job "Try again" would repeat. State, because the error block reads it. */
@@ -130,6 +124,8 @@ export default function Chat() {
   const landing = useRef<Landing | null>(null);
   /** Generated images that arrived before their answer had landed. */
   const earlyImages = useRef<string[]>([]);
+  /** An image was announced and has not landed yet. */
+  const awaitingImage = useRef(false);
   const composerInput = useRef<HTMLTextAreaElement>(null);
 
   // hydrate — localStorage can only be read after mount, so this one-shot
@@ -237,10 +233,11 @@ export default function Chat() {
 
   // ---- the answer a job produces ----
   const commit = useCallback((to: Landing, content: string, truncated?: boolean) => {
-    const version = makeVersion(to.versionId, content, to.model, truncated);
+    const version = makeVersion(to.versionId, content, to.model, truncated, awaitingImage.current);
     if (earlyImages.current.length) {
       version.images = earlyImages.current;
       earlyImages.current = [];
+      version.pendingImage = undefined;
     }
     setConvos(prev => {
       const next = prev.map(c => {
@@ -309,9 +306,10 @@ export default function Chat() {
         },
         onQueue: pos => setQueue(pos),
         onSearching: () => setSearching(true),
-        onSources: s => { gathered = s; },
-        onGeneratingImage: () => setGenImage(true),
+        onSources: s => { gathered = s; setLiveSources(s); },
+        onGeneratingImage: () => { awaitingImage.current = true; setGenImage(true); },
         onImage: imgList => {
+          awaitingImage.current = false;
           setGenImage(false);
           if (!imgList.length) return;
           // this job's answer has not landed yet, so there is no version to
@@ -530,9 +528,6 @@ export default function Chat() {
       onStop={stop}
       busy={busy}
       centered={empty}
-      sendStyle={sendStyle}
-      queue={queue}
-      elapsed={elapsed}
       inputRef={composerInput}
       convoId={activeId}
       instructions={instructions}
@@ -597,6 +592,7 @@ export default function Chat() {
                     queue,
                     searching,
                     generatingImage: genImage,
+                    sources: liveSources,
                   } : undefined}
                   editable={m.role === 'user' && !busy}
                   editing={editingId === m.id}
@@ -607,6 +603,7 @@ export default function Chat() {
                   onPick={index => pickVersion(m.id, index)}
                   // follow-ups belong to the answer you are looking at, so only
                   // the last one carries them
+                  rowStyle={rowStyle}
                   trailing={
                     m.role === 'assistant' && i === messages.length - 1 && !busy && !error
                       ? <FollowUps truncated={m.truncated} onPick={followUp} />
@@ -621,6 +618,7 @@ export default function Chat() {
                   queue={queue}
                   searching={searching}
                   generatingImage={genImage}
+                  sources={liveSources}
                 />
               )}
               {error && (
@@ -656,10 +654,10 @@ export default function Chat() {
         <AskSelection onAsk={askAbout} />
       </main>
 
-      <div className="variant-switcher" title="send: labelled · cost · network · stateful · split · ghost">
-        {(['labelled', 'cost', 'network', 'stateful', 'split', 'ghost'] as SendStyle[]).map((v, i) => (
-          <button key={v} className={sendStyle === v ? 'on' : ''}
-            onClick={() => { setSendStyle(v); localStorage.setItem('cu_send', v); }}>{i + 1}</button>
+      <div className="variant-switcher" title="controls under an answer: swap · overlay · inline">
+        {(['swap', 'overlay', 'inline'] as RowStyle[]).map((v, i) => (
+          <button key={v} className={rowStyle === v ? 'on' : ''}
+            onClick={() => { setRowStyle(v); localStorage.setItem('cu_rows', v); }}>{i + 1}</button>
         ))}
       </div>
 

@@ -13,7 +13,7 @@ const MAX_CHARS = 2000;
 
 export default function Composer({
   engine, plan, onPlan, think, onThink, images, onImages, value, onValue, onSend, onStop, busy, centered,
-  inputRef, convoId, instructions, onInstructions, instrOpen, onInstrOpen, sendStyle, queue, elapsed,
+  inputRef, convoId, instructions, onInstructions, instrOpen, onInstrOpen,
 }: {
   engine: ChatEngine;
   plan: Plan;
@@ -28,11 +28,6 @@ export default function Composer({
   onStop: () => void;
   busy: boolean;
   centered: boolean;
-  /** Live job facts the send control can narrate. */
-  queue: number | null;
-  elapsed: number;
-  /** Preview only: which treatment of the send control to render. */
-  sendStyle: SendStyle;
   /** Lets the page focus the field after dropping text in, e.g. a quote. */
   inputRef?: RefObject<HTMLTextAreaElement | null>;
   /** The conversation on screen. The instructions editor is keyed by it, so a
@@ -198,18 +193,7 @@ export default function Composer({
                   {value.length}/{MAX_CHARS}
                 </span>
               )}
-              <SendControl
-                style={sendStyle}
-                busy={busy}
-                canSend={canSend}
-                onSend={onSend}
-                onStop={onStop}
-                plan={plan}
-                engine={engine}
-                onPlan={onPlan}
-                queue={queue}
-                elapsed={elapsed}
-              />
+              <SendControl busy={busy} canSend={canSend} onSend={onSend} onStop={onStop} />
             </div>
           </div>
         </div>
@@ -221,142 +205,25 @@ export default function Composer({
 }
 
 
-/** Four treatments of the one control that matters most. Preview only: pick
- *  one and this collapses to it. */
-export type SendStyle = 'labelled' | 'cost' | 'network' | 'stateful' | 'split' | 'ghost';
-
+/** No chrome at rest. The arrow brightens only when there is something to
+ *  send, and becomes a stop while the network is working. */
 function SendControl({
-  style, busy, canSend, onSend, onStop, plan, engine, onPlan, queue, elapsed,
+  busy, canSend, onSend, onStop,
 }: {
-  style: SendStyle;
   busy: boolean;
   canSend: boolean;
   onSend: () => void;
   onStop: () => void;
-  plan: Plan;
-  engine: ChatEngine;
-  onPlan: (p: Plan) => void;
-  queue: number | null;
-  elapsed: number;
 }) {
-  const [menu, setMenu] = useState(false);
-  const press = 'transition-all duration-150 active:scale-95';
-  const solid = (on: boolean) => (on ? 'bg-white text-black' : 'bg-white/[0.09] text-white/30');
   const live = busy || canSend;
-
-  useEffect(() => {
-    if (!menu) return;
-    const close = (e: MouseEvent) => { if (!(e.target as HTMLElement).closest('[data-send-menu]')) setMenu(false); };
-    document.addEventListener('mousedown', close);
-    return () => document.removeEventListener('mousedown', close);
-  }, [menu]);
-
-  // no chrome at rest: the arrow brightens only when there is something to send
-  if (style === 'ghost') {
-    return (
-      <button
-        onClick={busy ? onStop : onSend}
-        disabled={!live}
-        aria-label={busy ? 'Stop' : 'Send'}
-        className={`grid h-9 w-9 place-items-center rounded-lg hover:bg-white/[0.06] disabled:hover:bg-transparent ${press}`}
-        style={{ color: live ? 'var(--cu-text)' : 'var(--cu-faint)' }}
-      >{busy ? <Stop /> : <Arrow />}</button>
-    );
-  }
-
-  // what this prompt will cost, on the button that spends it
-  if (style === 'cost') {
-    return (
-      <button
-        onClick={busy ? onStop : onSend}
-        disabled={!live}
-        aria-label={busy ? 'Stop' : 'Send'}
-        className={`flex h-9 items-center gap-2 rounded-xl px-3.5 text-[13px] font-medium ${press} ${solid(live)}`}
-      >
-        {busy ? <><Stop /> Stop</> : <>Send <span className="opacity-45">·</span> <span className="tabular-nums">{plan.costLabel}</span></>}
-      </button>
-    );
-  }
-
-  // the machines that will answer, counted live — omitted when none are up,
-  // never guessed
-  if (style === 'network') {
-    const n = engine.workerCount(plan);
-    return (
-      <button
-        onClick={busy ? onStop : onSend}
-        disabled={!live}
-        aria-label={busy ? 'Stop' : 'Send'}
-        className={`flex h-9 items-center gap-2 rounded-xl px-3.5 text-[13px] font-medium ${press} ${solid(live)}`}
-      >
-        {busy ? <><Stop /> Stop</> : (
-          <>Send{n > 0 && <span className="opacity-45">to {n} {n === 1 ? 'machine' : 'machines'}</span>}</>
-        )}
-      </button>
-    );
-  }
-
-  // one control that narrates the job: send, then where it is, then how long
-  // it has been running. Clicking it while it works stops it.
-  if (style === 'stateful') {
-    const label = !busy
-      ? <>Send <span className="opacity-45">↵</span></>
-      : queue !== null && queue > 0
-        ? <><span className="cu-dots"><span /></span> Queued <span className="opacity-45 tabular-nums">{queue} ahead</span></>
-        : <><Stop /> <span className="tabular-nums">{(elapsed / 1000).toFixed(1)}s</span></>;
-    return (
-      <button
-        onClick={busy ? onStop : onSend}
-        disabled={!live}
-        aria-label={busy ? 'Stop' : 'Send'}
-        className={`flex h-9 items-center gap-2 rounded-xl px-3.5 text-[13px] font-medium ${press} ${solid(live)}`}
-      >{label}</button>
-    );
-  }
-
-  // send, or send this one to a different model without changing the default
-  if (style === 'split') {
-    return (
-      <div className="relative flex items-stretch" data-send-menu>
-        <button
-          onClick={busy ? onStop : onSend}
-          disabled={!live}
-          aria-label={busy ? 'Stop' : 'Send'}
-          className={`flex h-9 items-center gap-2 rounded-l-xl pl-3.5 pr-2.5 text-[13px] font-medium ${press} ${solid(live)}`}
-        >{busy ? <><Stop /> Stop</> : <>Send <span className="opacity-45">↵</span></>}</button>
-        <button
-          onClick={() => setMenu(v => !v)}
-          disabled={busy}
-          aria-label="Send with another model"
-          className={`grid h-9 w-7 place-items-center rounded-r-xl border-l border-black/15 ${press} ${solid(live)}`}
-        ><Chevron className="rotate-180" /></button>
-        {menu && (
-          <div className="cu-fade absolute bottom-[calc(100%+8px)] right-0 z-40 w-[300px] overflow-hidden rounded-2xl p-1.5 shadow-[0_20px_60px_-15px_rgba(0,0,0,0.8)]" style={{ background: 'var(--cu-pop)' }}>
-            {engine.models.map(m => (
-              <button
-                key={m.id}
-                onClick={() => { onPlan(m); setMenu(false); onSend(); }}
-                className="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left text-[13.5px] hover:bg-white/[0.06]"
-                style={{ color: 'var(--cu-text)' }}
-              >
-                {m.name}
-                <span className="text-[12px]" style={{ color: 'var(--cu-faint)' }}>{m.costLabel}</span>
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  // labelled: says what it does, and what Enter does
   return (
     <button
       onClick={busy ? onStop : onSend}
       disabled={!live}
       aria-label={busy ? 'Stop' : 'Send'}
-      className={`flex h-9 items-center gap-2 rounded-xl px-3.5 text-[13px] font-medium ${press} ${solid(live)}`}
-    >{busy ? <><Stop /> Stop</> : <>Send <span className="opacity-45">↵</span></>}</button>
+      className="grid h-9 w-9 place-items-center rounded-lg transition-all duration-150 hover:bg-white/[0.06] active:scale-95 disabled:hover:bg-transparent"
+      style={{ color: live ? 'var(--cu-text)' : 'var(--cu-faint)' }}
+    >{busy ? <Stop /> : <Arrow />}</button>
   );
 }
 
