@@ -94,11 +94,14 @@ export default function Chat() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [instrOpen, setInstrOpen] = useState(false);
   // preview only: try the send control four ways, ?send=circle|squircle|ghost|labelled
-  const [sendStyle, setSendStyle] = useState<SendStyle>('circle');
+  const [sendStyle, setSendStyle] = useState<SendStyle>('labelled');
+  const [elapsed, setElapsed] = useState(0);
   useEffect(() => {
     const v = new URLSearchParams(window.location.search).get('send') ?? localStorage.getItem('cu_send');
-    if (v === 'circle' || v === 'squircle' || v === 'ghost' || v === 'labelled') setSendStyle(v);
+    const ok = ['labelled', 'cost', 'network', 'stateful', 'split', 'ghost'];
+    if (v && ok.includes(v)) setSendStyle(v as SendStyle);
   }, []);
+
 
   // live job
   const [streamText, setStreamText] = useState('');
@@ -107,6 +110,13 @@ export default function Chat() {
   const [searching, setSearching] = useState(false);
   const [genImage, setGenImage] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // a running clock, only while a job runs, for the send control that narrates
+  useEffect(() => {
+    if (state === 'idle') { setElapsed(0); return; }
+    const at = Date.now();
+    const t = setInterval(() => setElapsed(Date.now() - at), 100);
+    return () => clearInterval(t);
+  }, [state]);
   /** Answer being rewritten, so the stream shows in its place. */
   const [regenFor, setRegenFor] = useState<string | null>(null);
   /** The job "Try again" would repeat. State, because the error block reads it. */
@@ -521,6 +531,8 @@ export default function Chat() {
       busy={busy}
       centered={empty}
       sendStyle={sendStyle}
+      queue={queue}
+      elapsed={elapsed}
       inputRef={composerInput}
       convoId={activeId}
       instructions={instructions}
@@ -644,8 +656,8 @@ export default function Chat() {
         <AskSelection onAsk={askAbout} />
       </main>
 
-      <div className="variant-switcher" title="send button: circle · squircle · ghost · labelled">
-        {(['circle', 'squircle', 'ghost', 'labelled'] as SendStyle[]).map((v, i) => (
+      <div className="variant-switcher" title="send: labelled · cost · network · stateful · split · ghost">
+        {(['labelled', 'cost', 'network', 'stateful', 'split', 'ghost'] as SendStyle[]).map((v, i) => (
           <button key={v} className={sendStyle === v ? 'on' : ''}
             onClick={() => { setSendStyle(v); localStorage.setItem('cu_send', v); }}>{i + 1}</button>
         ))}

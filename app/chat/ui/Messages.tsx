@@ -74,7 +74,7 @@ function VersionBody({ v }: { v: Version }) {
   );
 }
 
-function CopyButton({ text }: { text: string }) {
+function CopyButton({ text, always }: { text: string; always?: boolean }) {
   const [done, setDone] = useState(false);
   return (
     <button
@@ -85,7 +85,7 @@ function CopyButton({ text }: { text: string }) {
         setDone(true);
         setTimeout(() => setDone(false), 1600);
       }}
-      className={`flex items-center gap-1.5 rounded-lg px-2 py-1 text-[12px] hover:bg-white/[0.06] ${QUIET}`}
+      className={`flex items-center gap-1.5 rounded-lg px-2 py-1 text-[12px] transition-all duration-150 hover:bg-white/[0.06] ${always ? '' : QUIET}`}
       style={{ color: 'var(--cu-faint)' }}
     >
       {done ? <Check /> : <Copy />}
@@ -117,20 +117,21 @@ function PlainCopy({ text }: { text: string }) {
 
 /** Same weight as Copy: silent until the turn is hovered, 12px, faint. */
 function Action({
-  icon, label, onClick, disabled, held,
+  icon, label, onClick, disabled, held, always,
 }: {
   icon: ReactNode;
   label: string;
   onClick: (e: React.MouseEvent<HTMLButtonElement>) => void;
   disabled?: boolean;
   held?: boolean;
+  always?: boolean;
 }) {
   return (
     <button
       onClick={onClick}
       disabled={disabled}
       title={label}
-      className={`flex items-center gap-1.5 rounded-lg px-2 py-1 text-[12px] transition-all duration-150 hover:bg-white/[0.06] disabled:opacity-30 ${held ? 'opacity-100' : QUIET}`}
+      className={`flex items-center gap-1.5 rounded-lg px-2 py-1 text-[12px] transition-all duration-150 hover:bg-white/[0.06] disabled:opacity-30 ${held || always ? 'opacity-100' : QUIET}`}
       style={{ color: held ? 'var(--cu-dim)' : 'var(--cu-faint)' }}
     >
       {icon}
@@ -412,6 +413,10 @@ function AssistantTurn({
   onPick: (index: number) => void;
   trailing?: ReactNode;
 }) {
+  // the last answer carries the follow-ups, and keeps its actions on screen:
+  // a hover-only row sitting above always-visible chips left a gap that reads
+  // as a mistake when the cursor is elsewhere
+  const live0 = !!trailing;
   const [menu, setMenu] = useState(false);
   const [placement, setPlacement] = useState<'up' | 'down'>('up');
   const [compare, setCompare] = useState(false);
@@ -444,12 +449,13 @@ function AssistantTurn({
         <div className="-ml-2 mt-1.5 flex flex-wrap items-center gap-x-1.5 gap-y-1">
           {many && <Pager index={index} count={versions.length} onPick={onPick} />}
 
-          <CopyButton text={current.content} />
+          <CopyButton text={current.content} always={live0} />
 
           <Action
             icon={<Refresh />}
             label="Regenerate"
             disabled={busy}
+            always={live0}
             onClick={() => onRegenerate()}
           />
 
@@ -458,6 +464,7 @@ function AssistantTurn({
               icon={<Swap />}
               label="Another model"
               disabled={busy}
+              always={live0}
               held={menu}
               onClick={e => {
                 const box = e.currentTarget.getBoundingClientRect();
@@ -479,6 +486,7 @@ function AssistantTurn({
             <Action
               icon={<Split />}
               label={compare ? 'One at a time' : 'Compare'}
+              always={live0}
               held={compare}
               onClick={() => setCompare(v => !v)}
             />
