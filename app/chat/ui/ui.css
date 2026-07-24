@@ -262,6 +262,13 @@
   .cu-quiet { opacity: 1; }
 }
 
+/* Preview only. The usage panel reuses .variant-switcher from
+   homepage-variants.css; on a phone the panel is a bottom sheet, so the pill
+   moves to the top edge instead of sitting on the content. */
+@media (max-width: 767px) {
+  .cu-usage-switch { top: 16px; bottom: auto; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .cu-fade, .cu-caret, .cu-dots span { animation: none !important; }
 }

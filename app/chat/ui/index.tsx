@@ -24,6 +24,7 @@ import { isMac } from './search';
 import Sidebar from './Sidebar';
 import Composer from './Composer';
 import Palette from './Palette';
+import UsagePanel from './usage/UsagePanel';
 import AskSelection from './Selection';
 import { Turn, Live, FollowUps } from './Messages';
 import { Panel, Plus, Down } from './Icons';
@@ -93,6 +94,7 @@ export default function Chat() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [instrOpen, setInstrOpen] = useState(false);
+  const [usageOpen, setUsageOpen] = useState(false);
 
 
   // live job
@@ -528,6 +530,7 @@ export default function Chat() {
       onInstructions={commitInstructions}
       instrOpen={instrOpen}
       onInstrOpen={v => (v ? openInstructions() : setInstrOpen(false))}
+      onUsage={() => setUsageOpen(true)}
     />
   );
 
@@ -544,6 +547,7 @@ export default function Chat() {
         open={railOpen}
         onClose={() => setRailOpen(false)}
         onSearch={() => setPaletteOpen(true)}
+        onUsage={() => setUsageOpen(true)}
       />
 
       <main className="relative flex min-w-0 flex-1 flex-col">
@@ -677,6 +681,9 @@ export default function Chat() {
           onDelete={deleteConvo}
         />
       )}
+
+      {/* mounted only while open, so each opening reads the account fresh */}
+      {usageOpen && <UsagePanel engine={engine} onClose={() => setUsageOpen(false)} />}
     </div>
   );
 }

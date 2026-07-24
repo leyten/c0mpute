@@ -13,7 +13,7 @@ const MAX_CHARS = 2000;
 
 export default function Composer({
   engine, plan, onPlan, think, onThink, images, onImages, value, onValue, onSend, onStop, busy, centered,
-  inputRef, convoId, instructions, onInstructions, instrOpen, onInstrOpen,
+  inputRef, convoId, instructions, onInstructions, instrOpen, onInstrOpen, onUsage,
 }: {
   engine: ChatEngine;
   plan: Plan;
@@ -37,6 +37,8 @@ export default function Composer({
   onInstructions: (v: string) => void;
   instrOpen: boolean;
   onInstrOpen: (v: boolean) => void;
+  /** Opens the usage panel from the credit line under the slab. */
+  onUsage: () => void;
 }) {
   const own = useRef<HTMLTextAreaElement>(null);
   const ta = inputRef ?? own;
@@ -198,7 +200,7 @@ export default function Composer({
           </div>
         </div>
 
-        <FootNote engine={engine} />
+        <FootNote engine={engine} onUsage={onUsage} />
       </div>
     </div>
   );
@@ -227,18 +229,23 @@ function SendControl({
   );
 }
 
-function FootNote({ engine }: { engine: ChatEngine }) {
+/** The credit line is also the way in to usage: everything it states has a
+ *  panel behind it, so the whole cluster opens rather than linking away. */
+function FootNote({ engine, onUsage }: { engine: ChatEngine; onUsage: () => void }) {
   const { credits, isAuthenticated, anonRemaining } = engine;
   return (
     <div className="mt-2.5 flex items-center justify-center gap-3 text-[12px]" style={{ color: 'var(--cu-faint)' }}>
       {!isAuthenticated ? (
-        <span>{anonRemaining !== null ? `${anonRemaining} free prompts left` : 'Free to try'}</span>
+        <button onClick={onUsage} className="transition-colors hover:text-white/70">
+          {anonRemaining !== null ? `${anonRemaining} free prompts left` : 'Free to try'}
+        </button>
       ) : (
         <>
-          {credits.freePrompts !== null && credits.freePrompts > 0 && <span>{credits.freePrompts} free prompts</span>}
-          {credits.balance !== null && (
-            <a href="/settings#usage" className="transition-colors hover:text-white/70">{credits.balance} credits</a>
-          )}
+          <button onClick={onUsage} className="flex items-center gap-3 transition-colors hover:text-white/70">
+            {credits.freePrompts !== null && credits.freePrompts > 0 && <span>{credits.freePrompts} free prompts</span>}
+            {credits.balance !== null && <span className="tabular-nums">{credits.balance} credits</span>}
+            {credits.freePrompts === null && credits.balance === null && <span>Usage</span>}
+          </button>
           <a href="/staking" className="transition-colors hover:text-white/70">Stake for daily prompts</a>
         </>
       )}

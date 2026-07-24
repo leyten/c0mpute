@@ -15,7 +15,7 @@ const shortcutOnClient = () => (isMac() ? '⌘K' : 'ctrl+K');
 const shortcutOnServer = () => null;
 
 export default function Sidebar({
-  convos, activeId, onSelect, onNew, onRename, onDelete, engine, open, onClose, onSearch,
+  convos, activeId, onSelect, onNew, onRename, onDelete, engine, open, onClose, onSearch, onUsage,
 }: {
   convos: Convo[];
   activeId: string | null;
@@ -27,6 +27,8 @@ export default function Sidebar({
   open: boolean;
   onClose: () => void;
   onSearch: () => void;
+  /** Opens the usage panel from the account line at the foot of the rail. */
+  onUsage: () => void;
 }) {
   const [menuFor, setMenuFor] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
@@ -149,12 +151,18 @@ export default function Sidebar({
 
         <div className="px-4 py-3 text-[12.5px]" style={{ color: 'var(--cu-faint)' }}>
           {engine.isAuthenticated ? (
-            <div className="flex items-center justify-between">
-              <span style={{ color: 'var(--cu-dim)' }}>{engine.displayName ?? 'Signed in'}</span>
-              <button onClick={() => void engine.logout()} className="transition-colors hover:text-white/70">Sign out</button>
+            <div className="flex items-center justify-between gap-3">
+              <span className="truncate" style={{ color: 'var(--cu-dim)' }}>{engine.displayName ?? 'Signed in'}</span>
+              <div className="flex shrink-0 items-center gap-3">
+                <button onClick={() => { onUsage(); onClose(); }} className="transition-colors hover:text-white/70">Usage</button>
+                <button onClick={() => void engine.logout()} className="transition-colors hover:text-white/70">Sign out</button>
+              </div>
             </div>
           ) : (
-            <button onClick={engine.login} className="transition-colors hover:text-white/70">Sign in</button>
+            <div className="flex items-center justify-between gap-3">
+              <button onClick={() => { onUsage(); onClose(); }} className="transition-colors hover:text-white/70">Usage</button>
+              <button onClick={engine.login} className="transition-colors hover:text-white/70">Sign in</button>
+            </div>
           )}
         </div>
       </aside>
