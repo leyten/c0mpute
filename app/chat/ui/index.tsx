@@ -573,7 +573,7 @@ export default function Chat() {
               </p>
             </div>
           ) : (
-            <div className="mx-auto w-full max-w-[46rem] space-y-7 px-4 pb-6 pt-16 md:pt-10">
+            <div className="mx-auto w-full max-w-[46rem] space-y-7 px-4 pb-12 pt-16 md:pt-10">
               {messages.map((m, i) => (
                 <Turn
                   key={m.id}
