@@ -13,7 +13,7 @@ const MAX_CHARS = 2000;
 
 export default function Composer({
   engine, plan, onPlan, think, onThink, images, onImages, value, onValue, onSend, onStop, busy, centered,
-  inputRef, convoId, instructions, onInstructions, instrOpen, onInstrOpen,
+  inputRef, convoId, instructions, onInstructions, instrOpen, onInstrOpen, sendStyle,
 }: {
   engine: ChatEngine;
   plan: Plan;
@@ -28,6 +28,8 @@ export default function Composer({
   onStop: () => void;
   busy: boolean;
   centered: boolean;
+  /** Preview only: which treatment of the send control to render. */
+  sendStyle: SendStyle;
   /** Lets the page focus the field after dropping text in, e.g. a quote. */
   inputRef?: RefObject<HTMLTextAreaElement | null>;
   /** The conversation on screen. The instructions editor is keyed by it, so a
@@ -193,20 +195,7 @@ export default function Composer({
                   {value.length}/{MAX_CHARS}
                 </span>
               )}
-              {busy ? (
-                <button
-                  onClick={onStop}
-                  className="grid h-9 w-9 place-items-center rounded-full bg-white text-black transition-transform active:scale-95"
-                  aria-label="Stop"
-                ><Stop /></button>
-              ) : (
-                <button
-                  onClick={onSend}
-                  disabled={!canSend}
-                  className="grid h-9 w-9 place-items-center rounded-full bg-white text-black transition-all active:scale-95 disabled:bg-white/[0.09] disabled:text-white/30"
-                  aria-label="Send"
-                ><Arrow /></button>
-              )}
+              <SendControl style={sendStyle} busy={busy} canSend={canSend} onSend={onSend} onStop={onStop} />
             </div>
           </div>
         </div>
@@ -214,6 +203,64 @@ export default function Composer({
         <FootNote engine={engine} />
       </div>
     </div>
+  );
+}
+
+
+/** Four treatments of the one control that matters most. Preview only: pick
+ *  one and this collapses to it. */
+export type SendStyle = 'circle' | 'squircle' | 'ghost' | 'labelled';
+
+function SendControl({
+  style, busy, canSend, onSend, onStop,
+}: {
+  style: SendStyle;
+  busy: boolean;
+  canSend: boolean;
+  onSend: () => void;
+  onStop: () => void;
+}) {
+  const press = 'transition-all duration-150 active:scale-95';
+
+  if (style === 'ghost') {
+    // no chrome at rest: the arrow itself brightens when there is something
+    // to send, and becomes a stop square while the network is working
+    return (
+      <button
+        onClick={busy ? onStop : onSend}
+        disabled={!busy && !canSend}
+        aria-label={busy ? 'Stop' : 'Send'}
+        className={`grid h-9 w-9 place-items-center rounded-lg hover:bg-white/[0.06] disabled:hover:bg-transparent ${press}`}
+        style={{ color: busy || canSend ? 'var(--cu-text)' : 'var(--cu-faint)' }}
+      >{busy ? <Stop /> : <Arrow />}</button>
+    );
+  }
+
+  if (style === 'labelled') {
+    // says what it does, and what Enter does
+    return (
+      <button
+        onClick={busy ? onStop : onSend}
+        disabled={!busy && !canSend}
+        aria-label={busy ? 'Stop' : 'Send'}
+        className={`flex h-9 items-center gap-2 rounded-xl px-3.5 text-[13px] font-medium ${press} ${
+          busy || canSend ? 'bg-white text-black' : 'bg-white/[0.09] text-white/30'
+        }`}
+      >
+        {busy ? <><Stop /> Stop</> : <>Send <span className="opacity-45">↵</span></>}
+      </button>
+    );
+  }
+
+  // circle (the current one) and squircle differ only in radius
+  const radius = style === 'squircle' ? 'rounded-xl' : 'rounded-full';
+  return (
+    <button
+      onClick={busy ? onStop : onSend}
+      disabled={!busy && !canSend}
+      aria-label={busy ? 'Stop' : 'Send'}
+      className={`grid h-9 w-9 place-items-center ${radius} bg-white text-black ${press} disabled:bg-white/[0.09] disabled:text-white/30`}
+    >{busy ? <Stop /> : <Arrow />}</button>
   );
 }
 

@@ -22,7 +22,7 @@ import {
 } from './store';
 import { isMac } from './search';
 import Sidebar from './Sidebar';
-import Composer from './Composer';
+import Composer, { type SendStyle } from './Composer';
 import Palette from './Palette';
 import AskSelection from './Selection';
 import { Turn, Live, FollowUps } from './Messages';
@@ -93,6 +93,12 @@ export default function Chat() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [instrOpen, setInstrOpen] = useState(false);
+  // preview only: try the send control four ways, ?send=circle|squircle|ghost|labelled
+  const [sendStyle, setSendStyle] = useState<SendStyle>('circle');
+  useEffect(() => {
+    const v = new URLSearchParams(window.location.search).get('send') ?? localStorage.getItem('cu_send');
+    if (v === 'circle' || v === 'squircle' || v === 'ghost' || v === 'labelled') setSendStyle(v);
+  }, []);
 
   // live job
   const [streamText, setStreamText] = useState('');
@@ -514,6 +520,7 @@ export default function Chat() {
       onStop={stop}
       busy={busy}
       centered={empty}
+      sendStyle={sendStyle}
       inputRef={composerInput}
       convoId={activeId}
       instructions={instructions}
@@ -636,6 +643,13 @@ export default function Chat() {
         {/* out of flow entirely: appears over a selection inside an answer */}
         <AskSelection onAsk={askAbout} />
       </main>
+
+      <div className="variant-switcher" title="send button: circle · squircle · ghost · labelled">
+        {(['circle', 'squircle', 'ghost', 'labelled'] as SendStyle[]).map((v, i) => (
+          <button key={v} className={sendStyle === v ? 'on' : ''}
+            onClick={() => { setSendStyle(v); localStorage.setItem('cu_send', v); }}>{i + 1}</button>
+        ))}
+      </div>
 
       {/* inside the .cu root: the scope owns the font stack and the tokens,
           and a palette mounted outside it renders in the browser default */}

@@ -94,6 +94,27 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
+/** Your own prompt, copied verbatim. */
+function PlainCopy({ text }: { text: string }) {
+  const [done, setDone] = useState(false);
+  if (!text) return null;
+  return (
+    <button
+      onClick={() => {
+        void navigator.clipboard.writeText(text);
+        setDone(true);
+        setTimeout(() => setDone(false), 1600);
+      }}
+      title="Copy"
+      className={`flex items-center gap-1.5 rounded-lg px-2 py-1 text-[12px] hover:bg-white/[0.06] ${QUIET}`}
+      style={{ color: 'var(--cu-faint)' }}
+    >
+      {done ? <Check /> : <Copy />}
+      <span className="hidden sm:inline">{done ? 'Copied' : 'Copy'}</span>
+    </button>
+  );
+}
+
 /** Same weight as Copy: silent until the turn is hovered, 12px, faint. */
 function Action({
   icon, label, onClick, disabled, held,
@@ -357,19 +378,22 @@ function UserTurn({
                 {msg.content}
               </div>
             )}
-            {editable && onEdit && (
-              // parked outside the bubble: revealed on hover, and it costs
-              // the thread no vertical space in either state
-              <button
-                onClick={onEdit}
-                title="Edit"
-                className={`absolute right-full top-1/2 mr-1 flex -translate-y-1/2 items-center gap-1.5 rounded-lg px-2 py-1 text-[12px] hover:bg-white/[0.06] ${QUIET}`}
-                style={{ color: 'var(--cu-faint)' }}
-              >
-                <Pencil />
-                <span className="hidden sm:inline">Edit</span>
-              </button>
-            )}
+            {/* parked outside the bubble: revealed on hover, and they cost
+                the thread no vertical space in either state */}
+            <div className="absolute right-full top-1/2 mr-1 flex -translate-y-1/2 items-center gap-0.5">
+              <PlainCopy text={msg.content} />
+              {editable && onEdit && (
+                <button
+                  onClick={onEdit}
+                  title="Edit"
+                  className={`flex items-center gap-1.5 rounded-lg px-2 py-1 text-[12px] hover:bg-white/[0.06] ${QUIET}`}
+                  style={{ color: 'var(--cu-faint)' }}
+                >
+                  <Pencil />
+                  <span className="hidden sm:inline">Edit</span>
+                </button>
+              )}
+            </div>
           </>
         )}
       </div>
