@@ -523,19 +523,16 @@ function AssistantTurn({
         );
         const chips = trailing ? <>{trailing}</> : null;
 
-        // swap: one row, one height. Follow-ups at rest; hovering the turn
-        // trades them for the controls, so nothing moves and nothing stacks.
+        // swap: one row, never two, and nothing overlaps. The follow-ups sit
+        // at the left and stay put; the controls occupy their own space to the
+        // right of them and only fade in on hover. Because the two never share
+        // a box, hovering a chip cannot hide it — an earlier version stacked
+        // them and made the chips unclickable.
         if (rowStyle === 'swap') {
           return (
-            <div className="relative -ml-2 mt-1.5 min-h-[28px]">
-              {chips && (
-                <div className="flex flex-wrap items-center gap-1.5 pl-2 transition-opacity duration-150 group-hover:pointer-events-none group-hover:opacity-0">
-                  {chips}
-                </div>
-              )}
-              <div className={`flex flex-wrap items-center gap-x-1.5 gap-y-1 ${chips ? 'absolute inset-0 opacity-0 transition-opacity duration-150 group-hover:opacity-100' : ''}`}>
-                {actions}
-              </div>
+            <div className="-ml-2 mt-1.5 flex flex-wrap items-center gap-x-1.5 gap-y-1">
+              {chips && <div className="flex flex-wrap items-center gap-1.5 pl-2">{chips}</div>}
+              <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1">{actions}</div>
             </div>
           );
         }
