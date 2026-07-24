@@ -22,13 +22,6 @@ import { Copy, Check, Pencil, Refresh, Swap, Split, Left, Right } from './Icons'
  *  in ui.css). */
 const QUIET = 'cu-quiet opacity-0 transition-all duration-150 focus-visible:opacity-100 group-hover:opacity-100';
 
-/** Three ways to seat the controls under an answer, so the follow-ups never
- *  float below an empty hover-only row.
- *   swap    — one row: follow-ups at rest, actions take their place on hover
- *   overlay — follow-ups sit under the answer; actions float, reserving nothing
- *   inline  — one row holding both, actions as icons to keep it short */
-export type RowStyle = 'swap' | 'overlay' | 'inline';
-
 /** What the running job looks like from a turn's point of view. */
 export interface LiveState {
   text: string;
@@ -162,18 +155,49 @@ function Action({
   );
 }
 
-// Static templates, never generated: three ways to steer the answer you just
-// got. Rendered into the last answer's action row only.
-const FOLLOW_UPS = [
+// Follow-ups read the answer and offer the three moves that make sense for it.
+// Derived, never generated: no model call, no guessing, same answer every time.
+type FollowUp = { label: string; text: string };
+
+const GENERIC: FollowUp[] = [
   { label: 'Explain simply', text: 'Explain that more simply.' },
   { label: 'Go deeper', text: 'Go deeper on that.' },
-  { label: 'Show me code', text: 'Show me the code for that.' },
+  { label: 'Give an example', text: 'Give me a concrete example.' },
 ];
+
+export function followUpsFor(content: string): FollowUp[] {
+  const out: FollowUp[] = [];
+  const add = (f: FollowUp) => { if (!out.some(x => x.label === f.label) && out.length < 3) out.push(f); };
+
+  const hasCode = /```/.test(content);
+  const hasMath = /<mathblock|<mathinline|\$\$/.test(content);
+  const hasTable = /\n\s*\|.+\|/.test(content);
+  const hasSteps = /\n\s*\d+\.\s/.test(content);
+  const hasCites = /\[\d+\]/.test(content);
+  const long = content.length > 1400;
+
+  if (hasCode) {
+    add({ label: 'Explain the code', text: 'Walk me through that code line by line.' });
+    add({ label: 'Handle errors', text: 'Add error handling to that code.' });
+    add({ label: 'Write a test', text: 'Write a test for that code.' });
+  }
+  if (hasMath) {
+    add({ label: 'Show the derivation', text: 'Show the derivation step by step.' });
+    add({ label: 'Work an example', text: 'Work through a concrete numeric example.' });
+  }
+  if (hasTable) add({ label: 'Sum it up', text: 'Summarise what that table shows.' });
+  if (hasSteps) add({ label: 'Expand step one', text: 'Expand on the first step in detail.' });
+  if (hasCites) add({ label: 'Check the sources', text: 'What do the sources actually say, and how strong are they?' });
+  if (long) add({ label: 'Shorter', text: 'Give me the short version.' });
+
+  for (const g of GENERIC) add(g);
+  return out.slice(0, 3);
+}
 
 const CONTINUE = 'Continue from where you stopped.';
 
-export function FollowUps({ truncated, onPick }: { truncated?: boolean; onPick: (text: string) => void }) {
-  const chip = 'cu-fade cu-chip px-2.5 py-1 text-[12px]';
+export function FollowUps({ content, truncated, onPick }: { content: string; truncated?: boolean; onPick: (text: string) => void }) {
+  const chip = 'cu-chip px-2.5 py-1 text-[12px]';
   return (
     <>
       {truncated && (
@@ -181,7 +205,7 @@ export function FollowUps({ truncated, onPick }: { truncated?: boolean; onPick: 
           Continue
         </button>
       )}
-      {FOLLOW_UPS.map(f => (
+      {followUpsFor(content).map(f => (
         <button key={f.label} onClick={() => onPick(f.text)} className={chip} style={{ color: 'var(--cu-faint)' }}>
           {f.label}
         </button>
@@ -314,7 +338,7 @@ function EditBubble({
 }
 
 export function Turn({
-  msg, engine, busy, live, editable, editing, onEdit, onCancelEdit, onResend, onRegenerate, onPick, trailing, rowStyle,
+  msg, engine, busy, live, editable, editing, onEdit, onCancelEdit, onResend, onRegenerate, onPick, trailing,
 }: {
   msg: Msg;
   engine: ChatEngine;
@@ -332,7 +356,6 @@ export function Turn({
   onPick: (index: number) => void;
   /** Assistant turns only: extra controls beside Copy. */
   trailing?: ReactNode;
-  rowStyle: RowStyle;
 }) {
   return msg.role === 'user'
     ? (
@@ -354,7 +377,6 @@ export function Turn({
         onRegenerate={onRegenerate}
         onPick={onPick}
         trailing={trailing}
-        rowStyle={rowStyle}
       />
     );
 }
@@ -427,7 +449,7 @@ function UserTurn({
 }
 
 function AssistantTurn({
-  msg, engine, busy, live, onRegenerate, onPick, trailing, rowStyle,
+  msg, engine, busy, live, onRegenerate, onPick, trailing,
 }: {
   msg: Msg;
   engine: ChatEngine;
@@ -436,7 +458,6 @@ function AssistantTurn({
   onRegenerate: (plan?: Plan) => void;
   onPick: (index: number) => void;
   trailing?: ReactNode;
-  rowStyle: RowStyle;
 }) {
   // the last answer carries the follow-ups, and keeps its actions on screen:
   // a hover-only row sitting above always-visible chips left a gap that reads
@@ -470,27 +491,34 @@ function AssistantTurn({
           ? <CompareView versions={versions} index={index} onPick={onPick} />
           : <VersionBody v={current} />}
 
-      {!live && (() => {
-        const actions = (
-          <>
+      {!live && (
+        // The follow-ups hold the row and are always there. The controls float
+        // at its right end and only appear when the answer is hovered, so they
+        // reserve no space and can never cover what the pointer is reaching
+        // for. Below sm there is no hover to wait for, so they simply wrap in.
+        <div className="relative -ml-2 mt-2 flex flex-wrap items-center gap-x-1.5 gap-y-1 pr-2">
+          {trailing && <div className="flex flex-wrap items-center gap-1.5 pl-2">{trailing}</div>}
+          <div className={`flex flex-wrap items-center gap-x-1.5 gap-y-1 sm:absolute sm:right-0 sm:top-1/2 sm:-translate-y-1/2 ${
+            trailing ? 'sm:opacity-0 sm:transition-opacity sm:duration-150 sm:group-hover:opacity-100' : ''
+          }`}>
             {many && <Pager index={index} count={versions.length} onPick={onPick} />}
-  
-            <CopyButton text={current.content} always={live0} />
-  
+
+            <CopyButton text={current.content} always={!!trailing} />
+
             <Action
               icon={<Refresh />}
               label="Regenerate"
               disabled={busy}
-              always={live0}
+              always={!!trailing}
               onClick={() => onRegenerate()}
             />
-  
+
             <div className="relative" data-answer-menu>
               <Action
                 icon={<Swap />}
                 label="Another model"
                 disabled={busy}
-                always={live0}
+                always={!!trailing}
                 held={menu}
                 onClick={e => {
                   const box = e.currentTarget.getBoundingClientRect();
@@ -507,58 +535,21 @@ function AssistantTurn({
                 />
               )}
             </div>
-  
+
             {many && (
               <Action
                 icon={<Split />}
                 label={compare ? 'One at a time' : 'Compare'}
-                always={live0}
+                always={!!trailing}
                 held={compare}
                 onClick={() => setCompare(v => !v)}
               />
             )}
-  
+
             <Provenance version={current} always={many} />
-          </>
-        );
-        const chips = trailing ? <>{trailing}</> : null;
-
-        // swap: one row, never two, and nothing overlaps. The follow-ups sit
-        // at the left and stay put; the controls occupy their own space to the
-        // right of them and only fade in on hover. Because the two never share
-        // a box, hovering a chip cannot hide it — an earlier version stacked
-        // them and made the chips unclickable.
-        if (rowStyle === 'swap') {
-          return (
-            <div className="-ml-2 mt-1.5 flex flex-wrap items-center gap-x-1.5 gap-y-1">
-              {chips && <div className="flex flex-wrap items-center gap-1.5 pl-2">{chips}</div>}
-              <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1">{actions}</div>
-            </div>
-          );
-        }
-
-        // overlay: the follow-ups own the flow; the controls float above the
-        // answer's bottom-right corner and reserve no space at all.
-        if (rowStyle === 'overlay') {
-          return (
-            <>
-              <div className="pointer-events-none absolute right-0 top-full -mt-1 flex flex-wrap items-center justify-end gap-x-1.5 opacity-0 transition-opacity duration-150 [&>*]:pointer-events-auto group-hover:opacity-100">
-                {actions}
-              </div>
-              {chips && <div className="mt-2 flex flex-wrap items-center gap-1.5">{chips}</div>}
-            </>
-          );
-        }
-
-        // inline: everything in one row, controls reduced to icons so it fits
-        return (
-          <div className="-ml-2 mt-1.5 flex flex-wrap items-center gap-x-1 gap-y-1 [&_span.hidden]:hidden">
-            {actions}
-            {chips}
           </div>
-        );
-      })()}
-
+        </div>
+      )}
     </div>
   );
 }

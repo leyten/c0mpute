@@ -25,7 +25,7 @@ import Sidebar from './Sidebar';
 import Composer from './Composer';
 import Palette from './Palette';
 import AskSelection from './Selection';
-import { Turn, Live, FollowUps, type RowStyle } from './Messages';
+import { Turn, Live, FollowUps } from './Messages';
 import { Panel, Plus, Down } from './Icons';
 
 const FLUSH_MS = 90;
@@ -93,12 +93,6 @@ export default function Chat() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [instrOpen, setInstrOpen] = useState(false);
-  // preview only: three ways to seat the controls under an answer
-  const [rowStyle, setRowStyle] = useState<RowStyle>('swap');
-  useEffect(() => {
-    const v = new URLSearchParams(window.location.search).get('rows') ?? localStorage.getItem('cu_rows');
-    if (v === 'swap' || v === 'overlay' || v === 'inline') setRowStyle(v);
-  }, []);
 
 
   // live job
@@ -603,10 +597,9 @@ export default function Chat() {
                   onPick={index => pickVersion(m.id, index)}
                   // follow-ups belong to the answer you are looking at, so only
                   // the last one carries them
-                  rowStyle={rowStyle}
                   trailing={
                     m.role === 'assistant' && i === messages.length - 1 && !busy && !error
-                      ? <FollowUps truncated={m.truncated} onPick={followUp} />
+                      ? <FollowUps content={m.content} truncated={m.truncated} onPick={followUp} />
                       : undefined
                   }
                 />
@@ -653,13 +646,6 @@ export default function Chat() {
         {/* out of flow entirely: appears over a selection inside an answer */}
         <AskSelection onAsk={askAbout} />
       </main>
-
-      <div className="variant-switcher" title="controls under an answer: swap · overlay · inline">
-        {(['swap', 'overlay', 'inline'] as RowStyle[]).map((v, i) => (
-          <button key={v} className={rowStyle === v ? 'on' : ''}
-            onClick={() => { setRowStyle(v); localStorage.setItem('cu_rows', v); }}>{i + 1}</button>
-        ))}
-      </div>
 
       {/* inside the .cu root: the scope owns the font stack and the tokens,
           and a palette mounted outside it renders in the browser default */}
