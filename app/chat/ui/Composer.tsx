@@ -2,16 +2,18 @@
 
 // One slab. Text on top, controls inside the bottom edge, send at the right.
 // This is the 2026 shape: nothing floats outside it, nothing is bordered off.
-import { useEffect, useRef, useState } from 'react';
-import StatusBadge from '@/components/StatusBadge';
+import { useEffect, useRef, useState, type RefObject } from 'react';
 import type { Plan } from '../lib';
 import type { ChatEngine } from '../engine/useChatEngine';
-import { Clip, Arrow, Stop, Chevron, Check, X, Spark } from './Icons';
+import Instructions from './Instructions';
+import ModelMenu from './ModelMenu';
+import { Clip, Arrow, Stop, Chevron, X, Spark, Tune } from './Icons';
 
 const MAX_CHARS = 2000;
 
 export default function Composer({
   engine, plan, onPlan, think, onThink, images, onImages, value, onValue, onSend, onStop, busy, centered,
+  inputRef, convoId, instructions, onInstructions, instrOpen, onInstrOpen,
 }: {
   engine: ChatEngine;
   plan: Plan;
@@ -26,8 +28,18 @@ export default function Composer({
   onStop: () => void;
   busy: boolean;
   centered: boolean;
+  /** Lets the page focus the field after dropping text in, e.g. a quote. */
+  inputRef?: RefObject<HTMLTextAreaElement | null>;
+  /** The conversation on screen. The instructions editor is keyed by it, so a
+   *  draft can never straddle two conversations. */
+  convoId: string | null;
+  instructions: string;
+  onInstructions: (v: string) => void;
+  instrOpen: boolean;
+  onInstrOpen: (v: boolean) => void;
 }) {
-  const ta = useRef<HTMLTextAreaElement>(null);
+  const own = useRef<HTMLTextAreaElement>(null);
+  const ta = inputRef ?? own;
   const file = useRef<HTMLInputElement>(null);
   const [menu, setMenu] = useState(false);
 
@@ -36,7 +48,7 @@ export default function Composer({
     if (!el) return;
     el.style.height = 'auto';
     el.style.height = Math.min(el.scrollHeight, 224) + 'px';
-  }, [value]);
+  }, [value, ta]);
 
   useEffect(() => {
     if (!menu) return;
@@ -63,10 +75,20 @@ export default function Composer({
 
   const canSend = (value.trim().length > 0 || images.length > 0) && !busy && value.length <= MAX_CHARS;
   const over = value.length > MAX_CHARS;
+  const hasInstructions = instructions.trim().length > 0;
 
   return (
     <div className={centered ? '' : 'pb-5 pt-2'}>
-      <div className="mx-auto w-full max-w-[46rem] px-4">
+      <div className="relative mx-auto w-full max-w-[46rem] px-4">
+        {instrOpen && (
+          <Instructions
+            key={convoId ?? 'new'}
+            value={instructions}
+            onCommit={onInstructions}
+            onClose={() => onInstrOpen(false)}
+          />
+        )}
+
         {/* the slab */}
         <div
           className="rounded-[26px] transition-colors duration-200"
@@ -135,46 +157,12 @@ export default function Composer({
               </button>
 
               {menu && (
-                <div
-                  className="cu-fade absolute bottom-[calc(100%+8px)] left-0 z-40 w-[300px] overflow-hidden rounded-2xl p-1.5 shadow-[0_20px_60px_-15px_rgba(0,0,0,0.8)]"
-                  style={{ background: 'var(--cu-pop)' }}
-                >
-                  {engine.models.map(m => {
-                    const n = engine.workerCount(m);
-                    const on = m.id === plan.id;
-                    return (
-                      <button
-                        key={m.id}
-                        onClick={() => { onPlan(m); setMenu(false); }}
-                        className="flex w-full items-start gap-2.5 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-white/[0.06]"
-                      >
-                        <span className="mt-[3px] w-4 shrink-0" style={{ color: 'var(--cu-steel)' }}>{on && <Check />}</span>
-                        <span className="min-w-0 flex-1">
-                          <span className="flex items-center gap-2 text-[13.5px]" style={{ color: 'var(--cu-text)' }}>
-                            {m.name}
-                            <span className="text-[12px]" style={{ color: 'var(--cu-faint)' }}>{m.costLabel}</span>
-                          </span>
-                          <span className="mt-0.5 block text-[12px]" style={{ color: 'var(--cu-faint)' }}>
-                            {n > 0 ? `${n} ${n === 1 ? 'worker' : 'workers'} online` : 'no workers right now'}
-                          </span>
-                        </span>
-                      </button>
-                    );
-                  })}
-                  <div className="mx-3 my-1 h-px" style={{ background: 'var(--cu-line)' }} />
-                  <div className="flex items-start gap-2.5 rounded-xl px-3 py-2.5 opacity-55">
-                    <span className="mt-[3px] w-4 shrink-0" />
-                    <span className="min-w-0 flex-1">
-                      <span className="flex items-center gap-2 text-[13.5px]" style={{ color: 'var(--cu-text)' }}>
-                        {engine.swarmModel.name}
-                        <StatusBadge state="launching" />
-                      </span>
-                      <span className="mt-0.5 block text-[12px]" style={{ color: 'var(--cu-faint)' }}>
-                        {engine.swarmModel.description}
-                      </span>
-                    </span>
-                  </div>
-                </div>
+                <ModelMenu
+                  engine={engine}
+                  selectedId={plan.id}
+                  onPick={m => { onPlan(m); setMenu(false); }}
+                  placement="up"
+                />
               )}
             </div>
 
@@ -188,6 +176,16 @@ export default function Composer({
                 Thinking
               </button>
             )}
+
+            {/* standing instructions: quiet while unset, steel once written */}
+            <button
+              data-instr
+              onClick={() => onInstrOpen(!instrOpen)}
+              title="Instructions for this conversation"
+              aria-label="Instructions for this conversation"
+              className={`grid h-9 w-9 place-items-center rounded-full transition-colors ${hasInstructions ? 'hover:bg-white/[0.06]' : 'text-white/45 hover:text-white/85'}`}
+              style={hasInstructions ? { color: 'var(--cu-steel)' } : undefined}
+            ><Tune /></button>
 
             <div className="ml-auto flex items-center gap-2.5">
               {value.length > MAX_CHARS - 200 && (

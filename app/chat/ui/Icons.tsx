@@ -49,3 +49,26 @@ export const Image = (p: { className?: string }) => (
 export const X = (p: { className?: string }) => (
   <svg {...base} width={14} height={14} {...p}><path d="M18 6 6 18M6 6l12 12" /></svg>
 );
+export const Search = (p: { className?: string }) => (
+  <svg {...base} {...p}><circle cx="11" cy="11" r="6.5" /><path d="m16 16 4 4" /></svg>
+);
+export const Tune = (p: { className?: string }) => (
+  <svg {...base} {...p}><path d="M4 8h8M17.4 8H20M4 16h3M12.6 16h7.4" /><circle cx="14.7" cy="8" r="2.3" /><circle cx="9.8" cy="16" r="2.3" /></svg>
+);
+
+// ---- answer versions ----
+export const Refresh = (p: { className?: string }) => (
+  <svg {...base} width={15} height={15} {...p}><path d="M20 12a8 8 0 1 1-2.3-5.6L20 8.5" /><path d="M20 4v4.5h-4.5" /></svg>
+);
+export const Swap = (p: { className?: string }) => (
+  <svg {...base} width={15} height={15} {...p}><path d="M4 9h13l-3.6-3.6" /><path d="M20 15H7l3.6 3.6" /></svg>
+);
+export const Split = (p: { className?: string }) => (
+  <svg {...base} width={15} height={15} {...p}><rect x="3" y="4.5" width="18" height="15" rx="2.5" /><path d="M12 4.5v15" /></svg>
+);
+export const Left = (p: { className?: string }) => (
+  <svg {...base} width={14} height={14} {...p}><path d="m14 6-6 6 6 6" /></svg>
+);
+export const Right = (p: { className?: string }) => (
+  <svg {...base} width={14} height={14} {...p}><path d="m10 6 6 6-6 6" /></svg>
+);

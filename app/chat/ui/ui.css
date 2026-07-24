@@ -27,6 +27,19 @@
 
 .cu ::selection { background: rgba(128, 160, 193, 0.28); }
 
+/* globals.css skins the Privy modal with `div[role="dialog"] { font-family:
+   argent-pixel-cf … !important }`. That selector catches any accessible
+   dialog, so our command palette inherited the retired pixel font. Take it
+   back — and keep `role="dialog"` rather than dropping it for the styling. */
+.cu [role="dialog"],
+.cu [role="dialog"] button,
+.cu [role="dialog"] input {
+  font-family: var(--font-inter), system-ui, sans-serif !important;
+  letter-spacing: 0 !important;
+  -webkit-font-smoothing: antialiased !important;
+  text-rendering: optimizeLegibility !important;
+}
+
 .cu-fade { animation: cuFade 200ms var(--cu-ease) both; }
 @keyframes cuFade { from { opacity: 0 } to { opacity: 1 } }
 
@@ -139,6 +152,22 @@
 
 /* the thinking dropdown + source strip come from shared components; re-ink them */
 .cu-answer-wrap details, .cu-answer-wrap summary { color: var(--cu-dim); }
+
+/* quiet pill: the follow-ups under an answer, the presets in the instructions
+   panel. Same fill as the composer and the user bubble, one step up on hover. */
+.cu-chip {
+  background: var(--cu-surface);
+  border-radius: 99px;
+  transition: background-color 150ms var(--cu-ease);
+}
+.cu-chip:hover { background: var(--cu-surface-hi); }
+
+/* Quiet controls hide until the turn is hovered. Where the device has no hover
+   to give they stay visible, or copy, edit and the answer actions would be
+   unreachable on a phone. */
+@media (hover: none) {
+  .cu-quiet { opacity: 1; }
+}
 
 @media (prefers-reduced-motion: reduce) {
   .cu-fade, .cu-caret, .cu-dots span { animation: none !important; }

@@ -2,13 +2,20 @@
 
 // No border against the thread — the rail is half a step darker and that is
 // the whole separation. Items are fills, not rows in a table.
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { ChatEngine } from '../engine/useChatEngine';
 import { groupByDay, type Convo } from './store';
-import { Plus, Dots, Pencil, Trash, X } from './Icons';
+import { isMac } from './search';
+import { Plus, Dots, Pencil, Trash, X, Search } from './Icons';
+
+// The shortcut label is a client-only fact, so the server renders nothing for
+// it and the client fills it in without a hydration mismatch.
+const noSubscribe = () => () => {};
+const shortcutOnClient = () => (isMac() ? '⌘K' : 'ctrl+K');
+const shortcutOnServer = () => null;
 
 export default function Sidebar({
-  convos, activeId, onSelect, onNew, onRename, onDelete, engine, open, onClose,
+  convos, activeId, onSelect, onNew, onRename, onDelete, engine, open, onClose, onSearch,
 }: {
   convos: Convo[];
   activeId: string | null;
@@ -19,12 +26,14 @@ export default function Sidebar({
   engine: ChatEngine;
   open: boolean;
   onClose: () => void;
+  onSearch: () => void;
 }) {
   const [menuFor, setMenuFor] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
   const [confirming, setConfirming] = useState<string | null>(null);
   const input = useRef<HTMLInputElement>(null);
+  const shortcut = useSyncExternalStore(noSubscribe, shortcutOnClient, shortcutOnServer);
 
   useEffect(() => { if (editing) input.current?.focus(); }, [editing]);
   useEffect(() => {
@@ -58,6 +67,14 @@ export default function Sidebar({
             style={{ color: 'var(--cu-text)' }}
           >
             <Plus /> New chat
+          </button>
+          <button
+            onClick={() => { onSearch(); onClose(); }}
+            className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-[14px] transition-colors hover:bg-white/[0.06]"
+            style={{ color: 'var(--cu-dim)' }}
+          >
+            <Search /> Search
+            <span className="ml-auto text-[12px]" style={{ color: 'var(--cu-faint)' }}>{shortcut}</span>
           </button>
         </div>
 
