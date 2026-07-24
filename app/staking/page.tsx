@@ -150,14 +150,17 @@ export default function StakingPage() {
       if (w && ZERO_MINT) {
         const ownerPk = new PublicKey(w.address);
         setVaultAddr(stakeVault(ownerPk, new PublicKey(ZERO_MINT)).toBase58());
-        try {
-          const [ch, wz, cl, sol] = await Promise.all([readStakeChunks(ownerPk), readWalletZero(ownerPk), readClaimable(ownerPk), readSol(ownerPk)]);
-          setWalletZero(wz);
-          setWalletSol(sol);
-          // Trust the live read for the position when the server doesn't have it
-          // (un-synced wallet). When it does, keep the server's maturity dates.
-          if (serverStaked <= 0) { setChunks(ch); setClaimable(cl); }
-        } catch {}
+        // Each read stands alone — one flaky RPC call must not blank the others
+        // (a rejected Promise.all used to drop the balance + position together).
+        const [ch, wz, cl, sol] = await Promise.allSettled([readStakeChunks(ownerPk), readWalletZero(ownerPk), readClaimable(ownerPk), readSol(ownerPk)]);
+        if (wz.status === 'fulfilled') setWalletZero(wz.value);
+        if (sol.status === 'fulfilled') setWalletSol(sol.value);
+        // Trust the live read for the position when the server doesn't have it
+        // (un-synced wallet). When it does, keep the server's maturity dates.
+        if (serverStaked <= 0) {
+          if (ch.status === 'fulfilled') setChunks(ch.value);
+          if (cl.status === 'fulfilled') setClaimable(cl.value);
+        }
       }
       const rc = await fetch('/api/staking/status', { headers: { Authorization: `Bearer ${t}` } });
       if (rc.ok) { const dc = await rc.json(); setCustodial(dc.stakedAmount ?? 0); setCustodialRewards(dc.claimableUsd ?? 0); }
