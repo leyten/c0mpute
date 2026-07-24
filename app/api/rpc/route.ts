@@ -10,6 +10,10 @@ const ALLOWED = new Set([
   'getAccountInfo', 'getMultipleAccounts', 'getBalance', 'getTokenAccountBalance',
   'getSignatureStatuses', 'getMinimumBalanceForRentExemption', 'getFeeForMessage',
   'getBlockHeight', 'getSlot', 'getEpochInfo', 'getVersion', 'getGenesisHash',
+  // Read-only history + simulation: the staking page replays the stake vault's
+  // deposit history (maturity chunks) and pre-simulates txs before wallet handoff.
+  // getParsedTransactions batches as 'getTransaction' with jsonParsed encoding.
+  'getSignaturesForAddress', 'getTransaction', 'simulateTransaction',
 ]);
 
 export async function POST(req: NextRequest) {
