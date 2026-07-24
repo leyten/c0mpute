@@ -5,6 +5,9 @@
 
 import Markdown from 'markdown-to-jsx';
 import katex from 'katex';
+// KaTeX positions every glyph from its own stylesheet. Without this import
+// the math renders as invisible, absurdly wide, horizontally scrolling spans.
+import 'katex/dist/katex.min.css';
 import { SourceRef, decodeTex, getUsedSources, mathToTags } from '../lib';
 
 // Render inline citations [1], [2] etc. as superscript links

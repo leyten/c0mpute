@@ -50,14 +50,19 @@
 .cu-scroll::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); background-clip: content-box; }
 
 /* ---------- answer typography ----------
-   The @tailwindcss/typography plugin is NOT registered in this app, so the
-   renderer's prose-* classes do nothing. Answers are styled here. */
+   Owned outright: no typography plugin is registered in this app, and the
+   legacy chat-answer/pixel-sans classes are gone from the renderer. Rhythm is
+   one rule — every block gets the same space from the one before it — with
+   only headings and the heavy blocks (code, tables, math) deviating. */
 .cu-answer {
   color: var(--cu-text);
   font-size: 16px;
   line-height: 1.7;
 }
-.cu-answer > * + * { margin-top: 1.1em; }
+.cu-answer > * + * { margin-top: 1.05em; }
+.cu-answer > :first-child { margin-top: 0; }
+.cu-answer > :last-child { margin-bottom: 0; }
+
 .cu-answer strong { font-weight: 600; color: #fff; }
 .cu-answer em { font-style: italic; }
 .cu-answer a { color: var(--cu-steel); text-decoration: none; border-bottom: 1px solid rgba(128,160,193,0.35); }
@@ -67,20 +72,22 @@
   font-weight: 600;
   color: #fff;
   line-height: 1.35;
-  margin-top: 1.9em;
   letter-spacing: -0.01em;
 }
+.cu-answer > h1 + *, .cu-answer > h2 + *, .cu-answer > h3 + *, .cu-answer > h4 + * { margin-top: 0.5em; }
+.cu-answer > * + h1, .cu-answer > * + h2, .cu-answer > * + h3, .cu-answer > * + h4 { margin-top: 1.7em; }
 .cu-answer h1 { font-size: 1.3em; }
-.cu-answer h2 { font-size: 1.18em; }
+.cu-answer h2 { font-size: 1.17em; }
 .cu-answer h3 { font-size: 1.06em; }
-.cu-answer > :first-child { margin-top: 0; }
+.cu-answer h4 { font-size: 1em; }
 
-.cu-answer ul, .cu-answer ol { padding-left: 1.35em; }
-.cu-answer li { margin-top: 0.4em; }
+.cu-answer ul, .cu-answer ol { padding-left: 1.3em; }
+.cu-answer li + li { margin-top: 0.35em; }
 .cu-answer li::marker { color: var(--cu-faint); }
 .cu-answer ul > li { list-style: disc; }
 .cu-answer ol > li { list-style: decimal; }
-.cu-answer li > ul, .cu-answer li > ol { margin-top: 0.4em; }
+.cu-answer li > ul, .cu-answer li > ol { margin-top: 0.35em; }
+.cu-answer li > p { margin: 0; }
 
 .cu-answer blockquote {
   padding-left: 1em;
@@ -88,45 +95,131 @@
   color: var(--cu-dim);
 }
 
-.cu-answer code {
+/* inline code only — block code is styled by .cu-code below */
+.cu-answer :not(pre) > code {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.875em;
   background: rgba(255, 255, 255, 0.07);
   padding: 0.15em 0.4em;
   border-radius: 5px;
 }
-.cu-answer pre {
-  background: rgba(255, 255, 255, 0.035);
+
+/* ---------- code blocks ---------- */
+.cu-code {
+  margin-top: 1.3em;
+  margin-bottom: 1.3em;
   border-radius: 14px;
-  padding: 16px 18px;
+  background: rgba(255, 255, 255, 0.035);
+  overflow: hidden;
+}
+.cu-code-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 10px 7px 16px;
+  font-size: 12px;
+  color: var(--cu-faint);
+}
+.cu-code-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  color: var(--cu-faint);
+  opacity: 0;
+  transition: opacity 150ms var(--cu-ease), color 150ms var(--cu-ease), background 150ms var(--cu-ease);
+}
+.cu-code:hover .cu-code-copy,
+.cu-code-copy:focus-visible { opacity: 1; }
+.cu-code-copy:hover { color: var(--cu-text); background: rgba(255, 255, 255, 0.06); }
+@media (hover: none) { .cu-code-copy { opacity: 1; } }
+.cu-code pre {
+  margin: 0;
+  padding: 2px 16px 16px;
   overflow-x: auto;
   line-height: 1.6;
 }
-.cu-answer pre code {
-  background: none;
-  padding: 0;
-  border-radius: 0;
+.cu-code pre code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 13.5px;
   color: rgba(255, 255, 255, 0.88);
 }
 
+/* ---------- tables ----------
+   The wrapper scrolls, never the table: a table set to display:block to make
+   it scrollable is what clipped its last row's border. */
+.cu-tablewrap {
+  margin-top: 1.3em;
+  margin-bottom: 1.3em;
+  overflow-x: auto;
+  border-radius: 12px;
+  border: 1px solid var(--cu-line);
+}
 .cu-answer table {
   width: 100%;
   border-collapse: collapse;
   font-size: 14.5px;
-  display: block;
-  overflow-x: auto;
 }
 .cu-answer th, .cu-answer td {
   text-align: left;
-  padding: 9px 14px;
+  padding: 10px 14px;
   border-bottom: 1px solid var(--cu-line);
 }
-.cu-answer th { font-weight: 600; color: #fff; }
+.cu-answer th {
+  font-weight: 600;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.025);
+  white-space: nowrap;
+}
 .cu-answer tbody tr:last-child td { border-bottom: 0; }
+
+/* ---------- math ---------- */
+.cu-math {
+  margin-top: 1.2em;
+  margin-bottom: 1.2em;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 2px 0;
+}
+.cu-math .katex-display { margin: 0; }
+.cu-answer .katex { font-size: 1.05em; }
 
 .cu-answer hr { border: 0; border-top: 1px solid var(--cu-line); margin: 1.8em 0; }
 .cu-answer img { border-radius: 14px; max-width: 100%; }
+
+/* ---------- citations + sources ---------- */
+.cu-cite {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  margin: 0 2px;
+  border: 0;
+  border-radius: 99px;
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--cu-dim);
+  font-size: 10px;
+  vertical-align: super;
+  transition: background 150ms var(--cu-ease), color 150ms var(--cu-ease);
+}
+.cu-cite:hover { background: rgba(255, 255, 255, 0.18); color: #fff; }
+.cu-src {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 200px;
+  padding: 4px 9px;
+  border-radius: 99px;
+  background: var(--cu-surface);
+  color: var(--cu-dim);
+  font-size: 12px;
+  transition: background 150ms var(--cu-ease), color 150ms var(--cu-ease);
+}
+.cu-src:hover { background: var(--cu-surface-hi); color: var(--cu-text); }
+.cu-src-n { color: var(--cu-faint); font-size: 11px; }
 
 /* streaming: a soft block that pulses at the end of the text */
 .cu-caret {

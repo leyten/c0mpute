@@ -9,7 +9,7 @@
 // answer. Your own bubble reveals Edit on hover, parked outside the bubble so
 // the thread's rhythm never moves in either state.
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { MessageMarkdown, SourceStrip } from '../components/MarkdownContent';
+import { AnswerBody, SourceStrip } from './Answer';
 import ThinkingDropdown from '../components/ThinkingDropdown';
 import { parseSourcesFromContent, parseThinking, type Plan } from '../lib';
 import type { ChatEngine } from '../engine/useChatEngine';
@@ -47,13 +47,11 @@ function Answer({ content, streaming }: { content: string; streaming?: boolean }
       {(response.trim() || !thinking) && (
         // data-answer marks the answer itself: a quote comes from what was
         // said, never from the reasoning or the source strip around it
-        <div className="cu-answer" data-answer>
-          <MessageMarkdown
-            content={response}
-            sources={sources}
-            trailing={streaming ? <span className="cu-caret" /> : undefined}
-          />
-        </div>
+        <AnswerBody
+          content={response}
+          sources={sources}
+          trailing={streaming ? <span className="cu-caret" /> : undefined}
+        />
       )}
     </div>
   );
