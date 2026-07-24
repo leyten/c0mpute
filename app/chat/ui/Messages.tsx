@@ -484,7 +484,7 @@ function AssistantTurn({
   }, [menu]);
 
   return (
-    <div className="cu-fade group relative pb-7">
+    <div className="cu-fade group relative">
       {live
         ? <Live text={live.text} state={live.state} queue={live.queue} searching={live.searching} generatingImage={live.generatingImage} sources={live.sources} />
         : compare && many
@@ -496,7 +496,7 @@ function AssistantTurn({
         // and appear only while the answer is hovered. The follow-ups do not
         // live here at all — they belong to the composer, above the box you
         // would type the follow-up into.
-        <div className="pointer-events-none absolute left-0 top-full -ml-2 -mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 opacity-0 transition-opacity duration-150 [&>*]:pointer-events-auto group-hover:opacity-100 group-focus-within:opacity-100">
+        <div className="pointer-events-none absolute left-0 top-full -ml-2 -mt-1.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 opacity-0 transition-opacity duration-150 [&>*]:pointer-events-auto group-hover:opacity-100 group-focus-within:opacity-100">
           {many && <Pager index={index} count={versions.length} onPick={onPick} />}
 
           <CopyButton text={current.content} always />
