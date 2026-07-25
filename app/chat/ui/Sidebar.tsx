@@ -154,13 +154,13 @@ export default function Sidebar({
             <div className="flex items-center justify-between gap-3">
               <span className="truncate" style={{ color: 'var(--cu-dim)' }}>{engine.displayName ?? 'Signed in'}</span>
               <div className="flex shrink-0 items-center gap-3">
-                <button onClick={() => { onUsage(); onClose(); }} className="transition-colors hover:text-white/70">Usage</button>
+                <button onClick={() => { onUsage(); onClose(); }} className="tabular-nums transition-colors hover:text-white/70">{balanceLabel(engine)}</button>
                 <button onClick={() => void engine.logout()} className="transition-colors hover:text-white/70">Sign out</button>
               </div>
             </div>
           ) : (
             <div className="flex items-center justify-between gap-3">
-              <button onClick={() => { onUsage(); onClose(); }} className="transition-colors hover:text-white/70">Usage</button>
+              <button onClick={() => { onUsage(); onClose(); }} className="tabular-nums transition-colors hover:text-white/70">{balanceLabel(engine)}</button>
               <button onClick={engine.login} className="transition-colors hover:text-white/70">Sign in</button>
             </div>
           )}
@@ -168,4 +168,16 @@ export default function Sidebar({
       </aside>
     </>
   );
+}
+
+/** What is left to spend, doubling as the way in to the usage panel. It used
+ *  to sit under the composer; the composer wants nothing beneath it. */
+function balanceLabel(engine: ChatEngine): string {
+  if (!engine.isAuthenticated) {
+    return engine.anonRemaining !== null ? `${engine.anonRemaining} free prompts` : 'Usage';
+  }
+  const { credits } = engine;
+  if (credits.balance !== null) return `${credits.balance} credits`;
+  if (credits.freePrompts !== null && credits.freePrompts > 0) return `${credits.freePrompts} free prompts`;
+  return 'Usage';
 }

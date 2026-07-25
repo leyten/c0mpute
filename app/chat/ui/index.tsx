@@ -530,7 +530,6 @@ export default function Chat() {
       onInstructions={commitInstructions}
       instrOpen={instrOpen}
       onInstrOpen={v => (v ? openInstructions() : setInstrOpen(false))}
-      onUsage={() => setUsageOpen(true)}
     />
   );
 
@@ -557,16 +556,23 @@ export default function Chat() {
           <button onClick={startNew} className="grid h-9 w-9 place-items-center rounded-xl text-white/55 hover:bg-white/[0.06]"><Plus /></button>
         </div>
 
-        {/* Three stable slots: content, composer, balance. The composer keeps
+        {/* One scroller for the whole column. Everything lives inside it, so
+            its bar runs the full height of the page instead of stopping where
+            the composer begins.
+
+            Three stable slots: content, composer, balance. The composer keeps
             its DOM position in every state, so it never remounts and never
             drops focus when the first message turns an empty thread into a
             conversation. */}
         <div
-          key="content"
-          className={empty ? 'flex flex-1 flex-col justify-end' : 'cu-scroll min-h-0 flex-1 overflow-y-auto'}
-          ref={empty ? undefined : scroller}
-          onScroll={empty ? undefined : onScroll}
+          ref={scroller}
+          onScroll={onScroll}
+          className="cu-scroll flex min-h-0 flex-1 flex-col overflow-y-auto"
         >
+        {/* `grow` holds the composer at the bottom of the page while a thread
+            is still short; `shrink-0` keeps a long one at its full height so
+            the scroller scrolls instead of squeezing it */}
+        <div key="content" className={empty ? 'flex flex-1 flex-col justify-end' : 'grow shrink-0'}>
           {empty ? (
             <div className="cu-fade mx-auto mb-7 w-full max-w-[46rem] px-4">
               <h1 className="pixel-serif text-[34px] leading-[1.15] tracking-[-0.01em] md:text-[42px]" style={{ color: 'var(--cu-text)' }}>
@@ -628,30 +634,38 @@ export default function Chat() {
           )}
         </div>
 
-        {showJump && !empty && (
-          <button
-            onClick={() => { pinned.current = true; setShowJump(false); scrollToEnd(); }}
-            className="absolute bottom-[148px] left-1/2 z-20 grid h-9 w-9 -translate-x-1/2 place-items-center rounded-full text-white/70 shadow-lg backdrop-blur transition-colors hover:text-white"
-            style={{ background: 'rgba(23,20,15,0.9)' }}
-            aria-label="Scroll to latest"
-          ><Down /></button>
-        )}
+        {/* The composer is the last thing in the scroller: at rest it sits at
+            the very bottom of the page, and it pins there while the thread
+            scrolls behind it. */}
+        <div key="composer" className="sticky bottom-0 z-10" style={{ background: 'var(--cu-bg)' }}>
+          {/* rides on the composer rather than on a fixed offset, so it clears
+              the box whatever height it has grown to */}
+          {showJump && !empty && (
+            <button
+              onClick={() => { pinned.current = true; setShowJump(false); scrollToEnd(); }}
+              className="absolute -top-11 left-1/2 z-20 grid h-9 w-9 -translate-x-1/2 place-items-center rounded-full text-white/70 shadow-lg backdrop-blur transition-colors hover:text-white"
+              style={{ background: 'rgba(23,20,15,0.9)' }}
+              aria-label="Scroll to latest"
+            ><Down /></button>
+          )}
 
-        {/* The follow-ups belong to the composer: they are things you are about
-            to say. Pinned to the top right of the box, always there, and read
-            from the answer above. */}
-        {!busy && lastAnswer && (
-          <div className="mx-auto w-full max-w-[46rem] px-4">
-            <div className="flex flex-wrap items-center justify-end gap-1.5 pb-2">
-              <FollowUps content={lastAnswer.content} truncated={lastAnswer.truncated} onPick={followUp} />
+          {/* The follow-ups belong to the composer: they are things you are
+              about to say. Pinned to the top right of the box, always there,
+              and read from the answer above. */}
+          {!busy && lastAnswer && (
+            <div className="mx-auto w-full max-w-[46rem] px-4">
+              <div className="flex flex-wrap items-center justify-end gap-1.5 pb-2">
+                <FollowUps content={lastAnswer.content} truncated={lastAnswer.truncated} onPick={followUp} />
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {composer}
+          {composer}
+        </div>
 
         {/* balances the empty state so the cluster reads as centred */}
         <div key="balance" className={empty ? 'flex-1' : 'hidden'} />
+        </div>
 
         {/* out of flow entirely: appears over a selection inside an answer */}
         <AskSelection onAsk={askAbout} />

@@ -5,7 +5,7 @@
 // balance and the free prompts sit above this in the panel, so nothing here
 // repeats them — the squares carry the year and the line under them carries
 // the month.
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { MONTHS_SHORT, currentStreak, dayKey, fmt, longDate, type UsageData, type UsageDay } from './data';
 import { Empty } from './parts';
 
@@ -26,8 +26,19 @@ interface Cell { key: string; date: Date; prompts: number; credits: number; futu
 
 export default function Grid({ data }: { data: UsageData }) {
   const scroller = useRef<HTMLDivElement>(null);
-  // `below` keeps the tooltip inside the scroller, which clips what leaves it
+  const tipEl = useRef<HTMLDivElement>(null);
+  // `below` flips the tooltip under the cell for the top rows, where there is
+  // no room above it inside the panel
   const [tip, setTip] = useState<{ x: number; y: number; below: boolean; text: string } | null>(null);
+
+  // a long label on an edge cell would run off the screen; nudge it back once
+  // it has a measured width
+  useLayoutEffect(() => {
+    const el = tipEl.current;
+    if (!el || !tip) return;
+    const half = el.offsetWidth / 2;
+    el.style.left = `${Math.min(Math.max(tip.x, half + 8), window.innerWidth - half - 8)}px`;
+  }, [tip]);
 
   const built = useMemo(() => build(data.days ?? []), [data.days]);
 
@@ -84,9 +95,13 @@ export default function Grid({ data }: { data: UsageData }) {
                   {col.map((cell, ri) => (
                     <div
                       key={cell.key}
-                      onMouseEnter={() => setTip(cell.future ? null : {
-                        x: ci * PITCH + CELL / 2,
-                        y: ri <= 3 ? 16 + ri * PITCH + CELL + 6 : 16 + ri * PITCH - 6,
+                      onMouseEnter={e => setTip(cell.future ? null : {
+                        // viewport coordinates: the tooltip is fixed, so it
+                        // never counts toward the year strip's scroll width
+                        x: e.currentTarget.getBoundingClientRect().left + CELL / 2,
+                        y: ri <= 3
+                          ? e.currentTarget.getBoundingClientRect().bottom + 6
+                          : e.currentTarget.getBoundingClientRect().top - 6,
                         below: ri <= 3,
                         text: cell.prompts === 0
                           ? `No prompts · ${longDate(cell.date)}`
@@ -106,9 +121,10 @@ export default function Grid({ data }: { data: UsageData }) {
 
             {tip && (
               <div
-                className={`cu-fade pointer-events-none absolute z-10 -translate-x-1/2 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-[11.5px] tabular-nums shadow-[0_20px_60px_-15px_rgba(0,0,0,0.8)] ${tip.below ? '' : '-translate-y-full'}`}
+                ref={tipEl}
+                className={`cu-fade pointer-events-none fixed z-50 -translate-x-1/2 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-[11.5px] tabular-nums shadow-[0_20px_60px_-15px_rgba(0,0,0,0.8)] ${tip.below ? '' : '-translate-y-full'}`}
                 style={{
-                  left: Math.min(Math.max(tip.x, 68), width - 68),
+                  left: tip.x,
                   top: tip.y,
                   // the panel is already --cu-pop, so the hairline is what
                   // separates the tooltip from it
