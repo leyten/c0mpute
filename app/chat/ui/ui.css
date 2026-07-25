@@ -255,6 +255,18 @@
 }
 .cu-chip:hover { background: var(--cu-surface-hi); }
 
+/* The follow-ups float over the thread with nothing behind them, so the pills
+   have to be opaque or the answer reads straight through them. The solid page
+   colour goes underneath the same translucent fill, which lands on exactly the
+   colour they have everywhere else. */
+.cu-followups .cu-chip {
+  background-color: var(--cu-bg);
+  background-image: linear-gradient(var(--cu-surface), var(--cu-surface));
+}
+.cu-followups .cu-chip:hover {
+  background-image: linear-gradient(var(--cu-surface-hi), var(--cu-surface-hi));
+}
+
 /* Quiet controls hide until the turn is hovered. Where the device has no hover
    to give they stay visible, or copy, edit and the answer actions would be
    unreachable on a phone. */

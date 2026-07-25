@@ -637,13 +637,16 @@ export default function Chat() {
         {/* The composer is the last thing in the scroller: at rest it sits at
             the very bottom of the page, and it pins there while the thread
             scrolls behind it. */}
-        <div key="composer" className="sticky bottom-0 z-10" style={{ background: 'var(--cu-bg)' }}>
+        {/* transparent above the composer, and it lets the pointer through:
+            everything but the chips and the box itself belongs to the thread
+            scrolling behind it */}
+        <div key="composer" className="pointer-events-none sticky bottom-0 z-10">
           {/* rides on the composer rather than on a fixed offset, so it clears
               the box whatever height it has grown to */}
           {showJump && !empty && (
             <button
               onClick={() => { pinned.current = true; setShowJump(false); scrollToEnd(); }}
-              className="absolute -top-11 left-1/2 z-20 grid h-9 w-9 -translate-x-1/2 place-items-center rounded-full text-white/70 shadow-lg backdrop-blur transition-colors hover:text-white"
+              className="pointer-events-auto absolute -top-11 left-1/2 z-20 grid h-9 w-9 -translate-x-1/2 place-items-center rounded-full text-white/70 shadow-lg backdrop-blur transition-colors hover:text-white"
               style={{ background: 'rgba(23,20,15,0.9)' }}
               aria-label="Scroll to latest"
             ><Down /></button>
@@ -651,16 +654,26 @@ export default function Chat() {
 
           {/* The follow-ups belong to the composer: they are things you are
               about to say. Pinned to the top right of the box, always there,
-              and read from the answer above. */}
+              and read from the answer above. Nothing sits behind them but the
+              thread, so they never cut a band across it. */}
           {!busy && lastAnswer && (
-            <div className="mx-auto w-full max-w-[46rem] px-4">
-              <div className="flex flex-wrap items-center justify-end gap-1.5 pb-2">
+            <div className="mx-auto w-full max-w-[46rem] px-4 [&_.cu-chip]:pointer-events-auto">
+              <div className="cu-followups flex flex-wrap items-center justify-end gap-1.5 pb-2">
                 <FollowUps content={lastAnswer.content} truncated={lastAnswer.truncated} onPick={followUp} />
               </div>
             </div>
           )}
 
-          {composer}
+          {/* only the composer itself is opaque, and the thread fades into it
+              rather than meeting a hard edge */}
+          <div className="pointer-events-auto relative">
+            <div
+              aria-hidden
+              className="pointer-events-none absolute inset-x-0 -top-8 h-8"
+              style={{ background: 'linear-gradient(to bottom, transparent, var(--cu-bg))' }}
+            />
+            <div style={{ background: 'var(--cu-bg)' }}>{composer}</div>
+          </div>
         </div>
 
         {/* balances the empty state so the cluster reads as centred */}
