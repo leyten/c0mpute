@@ -655,9 +655,10 @@ export default function Chat() {
           {/* The follow-ups belong to the composer: they are things you are
               about to say. Pinned to the top right of the box, always there,
               and read from the answer above. Nothing sits behind them but the
-              thread, so they never cut a band across it. */}
+              thread, so they never cut a band across it. `z-10` puts them over
+              the fade below, which would otherwise wash across them. */}
           {!busy && lastAnswer && (
-            <div className="mx-auto w-full max-w-[46rem] px-4 [&_.cu-chip]:pointer-events-auto">
+            <div className="relative z-10 mx-auto w-full max-w-[46rem] px-4 [&_.cu-chip]:pointer-events-auto">
               <div className="cu-followups flex flex-wrap items-center justify-end gap-1.5 pb-2">
                 <FollowUps content={lastAnswer.content} truncated={lastAnswer.truncated} onPick={followUp} />
               </div>
