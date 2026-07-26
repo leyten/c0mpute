@@ -1,0 +1,207 @@
+/* c0mpute earn, variant 3: "the membership".
+   Same materials as the chat: surfaces separated by value rather than
+   hairlines, no header bar, large radii, motion only as fade. Everything is
+   scoped to .m3 and prefixed m3- so it cannot leak into the other variants. */
+
+.m3 {
+  --m3-bg: #0c0a09;
+  --m3-slab: rgba(255, 255, 255, 0.035);
+  --m3-slab-hi: rgba(255, 255, 255, 0.06);
+  --m3-surface: rgba(255, 255, 255, 0.045);
+  --m3-surface-hi: rgba(255, 255, 255, 0.075);
+  --m3-text: rgba(255, 255, 255, 0.92);
+  --m3-dim: rgba(255, 255, 255, 0.58);
+  --m3-faint: rgba(255, 255, 255, 0.38);
+  --m3-line: rgba(255, 255, 255, 0.07);
+  --m3-steel: #80a0c1;
+  --m3-live: rgba(52, 211, 153, 0.9);
+  --m3-warn: rgba(248, 113, 113, 0.9);
+  --m3-ease: cubic-bezier(0.2, 0, 0, 1);
+
+  min-height: 100vh;
+  background: var(--m3-bg);
+  color: var(--m3-text);
+}
+
+.m3,
+.m3 button,
+.m3 input {
+  font-family: var(--font-inter), system-ui, sans-serif;
+  letter-spacing: 0;
+  -webkit-font-smoothing: antialiased;
+}
+
+.m3 ::selection { background: rgba(128, 160, 193, 0.28); }
+
+.m3-wrap {
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 28px 20px 96px;
+}
+@media (min-width: 768px) {
+  .m3-wrap { padding: 36px 32px 120px; }
+}
+
+/* ---------- type ---------- */
+.m3-mark {
+  font-family: var(--font-newsreader), Georgia, serif;
+  font-size: 17px;
+  color: var(--m3-text);
+}
+.m3-eyebrow {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--m3-faint);
+}
+.m3-display {
+  font-family: var(--font-newsreader), Georgia, serif;
+  font-size: 32px;
+  line-height: 1.12;
+  letter-spacing: -0.01em;
+  color: #fff;
+}
+@media (min-width: 768px) {
+  .m3-display { font-size: 42px; }
+}
+.m3-lede {
+  font-size: 15px;
+  line-height: 1.62;
+  color: var(--m3-dim);
+  max-width: 54ch;
+}
+.m3-note {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--m3-faint);
+}
+.m3-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- slabs ---------- */
+.m3-slab {
+  background: var(--m3-slab);
+  border-radius: 24px;
+  padding: 26px 22px;
+}
+@media (min-width: 768px) {
+  .m3-slab { padding: 34px 34px; }
+}
+
+.m3-inset {
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 16px;
+  padding: 16px 18px;
+}
+
+/* ---------- membership id ---------- */
+.m3-id {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 15px;
+  line-height: 1.3;
+  color: #fff;
+  word-break: break-all;
+}
+.m3-id-pending {
+  height: 1px;
+  width: 88px;
+  background: repeating-linear-gradient(90deg, var(--m3-line) 0 6px, transparent 6px 11px);
+}
+
+/* ---------- roster ---------- */
+.m3-roster {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 9px;
+}
+.m3-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 99px;
+  flex: none;
+}
+.m3-dot--browser { background: rgba(255, 255, 255, 0.26); }
+.m3-dot--native { background: rgba(128, 160, 193, 0.55); }
+.m3-dot--mine {
+  width: 9px;
+  height: 9px;
+  background: var(--m3-live);
+  box-shadow: 0 0 0 4px rgba(52, 211, 153, 0.14);
+}
+.m3-dot--empty { background: rgba(255, 255, 255, 0.1); }
+
+.m3-live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 99px;
+  flex: none;
+  background: currentColor;
+}
+.m3-pulse { animation: m3Pulse 1.9s var(--m3-ease) infinite; }
+@keyframes m3Pulse { 0%, 100% { opacity: 0.35 } 50% { opacity: 1 } }
+
+/* ---------- progress ---------- */
+.m3-bar {
+  height: 2px;
+  border-radius: 99px;
+  background: rgba(255, 255, 255, 0.09);
+  overflow: hidden;
+}
+.m3-bar span {
+  display: block;
+  height: 100%;
+  border-radius: 99px;
+  background: var(--m3-steel);
+  transition: width 320ms var(--m3-ease);
+}
+
+/* ---------- controls ---------- */
+.m3-btn {
+  width: 100%;
+  padding: 13px 18px;
+  border-radius: 14px;
+  font-size: 14.5px;
+  background: #fff;
+  color: #0c0a09;
+  transition: background-color 150ms var(--m3-ease), opacity 150ms var(--m3-ease);
+  cursor: pointer;
+}
+.m3-btn:hover { background: rgba(255, 255, 255, 0.88); }
+.m3-btn:disabled { background: rgba(255, 255, 255, 0.12); color: var(--m3-dim); cursor: not-allowed; }
+.m3-btn--quiet {
+  background: var(--m3-surface);
+  color: var(--m3-text);
+}
+.m3-btn--quiet:hover { background: var(--m3-surface-hi); }
+
+.m3-link {
+  color: var(--m3-faint);
+  font-size: 12.5px;
+  transition: color 150ms var(--m3-ease);
+}
+.m3-link:hover { color: var(--m3-text); }
+
+/* ---------- register ---------- */
+.m3-row {
+  display: grid;
+  grid-template-columns: 62px 1fr auto;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 0;
+  border-top: 1px solid var(--m3-line);
+  font-size: 13px;
+}
+.m3-row:first-child { border-top: 0; }
+
+/* ---------- motion ---------- */
+.m3-fade { animation: m3Fade 220ms var(--m3-ease) both; }
+@keyframes m3Fade { from { opacity: 0 } to { opacity: 1 } }
+
+@media (prefers-reduced-motion: reduce) {
+  .m3-fade,
+  .m3-pulse { animation: none !important; }
+  .m3-bar span { transition: none !important; }
+}
