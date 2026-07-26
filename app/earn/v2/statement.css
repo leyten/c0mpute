@@ -1,0 +1,479 @@
+/* /earn/v2 — "the statement".
+   An earnings statement, not a dashboard: one sheet, hairline rules instead of
+   cards, money at the top and the machine in the particulars at the bottom.
+   Same token vocabulary as the chat UI (app/chat/ui/ui.css) so it reads as the
+   same product. Everything is scoped under .st2 and prefixed st2- so nothing
+   leaks into the other variants or the shared pages. */
+
+.st2 {
+  --cu-bg: #0c0a09;
+  --cu-rail: #0a0908;
+  --cu-surface: rgba(255, 255, 255, 0.045);
+  --cu-surface-hi: rgba(255, 255, 255, 0.075);
+  --cu-pop: #17140f;
+  --cu-text: rgba(255, 255, 255, 0.92);
+  --cu-dim: rgba(255, 255, 255, 0.58);
+  --cu-faint: rgba(255, 255, 255, 0.38);
+  --cu-line: rgba(255, 255, 255, 0.08);
+  --cu-steel: #80a0c1;
+  --cu-live: rgba(52, 211, 153, 0.9);
+  --cu-warn: rgba(226, 178, 116, 0.92);
+  --cu-bad: rgba(248, 113, 113, 0.86);
+  --cu-ease: cubic-bezier(0.2, 0, 0, 1);
+
+  min-height: 100vh;
+  background: var(--cu-bg);
+  color: var(--cu-text);
+  font-family: var(--font-inter), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  letter-spacing: 0;
+}
+
+.st2 *,
+.st2 *::before,
+.st2 *::after { box-sizing: border-box; }
+
+.st2 ::selection { background: rgba(128, 160, 193, 0.28); }
+
+/* Every numeral on the sheet is tabular so a figure that ticks cannot move
+   anything around it. */
+.st2 { font-variant-numeric: tabular-nums; font-feature-settings: 'tnum' 1; }
+
+.st2-fade { animation: st2Fade 220ms var(--cu-ease) both; }
+@keyframes st2Fade { from { opacity: 0 } to { opacity: 1 } }
+
+/* ---------------------------------------------------------------- the sheet */
+
+.st2-sheet {
+  max-width: 940px;
+  margin: 0 auto;
+  padding: 72px 32px 96px;
+}
+
+.st2-rule {
+  height: 1px;
+  background: var(--cu-line);
+  border: 0;
+  margin: 0;
+}
+.st2-rule-strong { background: rgba(255, 255, 255, 0.16); }
+
+.st2-block { padding: 34px 0; }
+.st2-block-tight { padding: 24px 0; }
+
+/* -------------------------------------------------------------- letterhead */
+
+.st2-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  padding-bottom: 26px;
+}
+
+.st2-mark {
+  font-family: var(--font-newsreader), Georgia, serif;
+  font-weight: 500;
+  font-size: 21px;
+  line-height: 1.1;
+  letter-spacing: -0.01em;
+  color: var(--cu-text);
+  text-decoration: none;
+  display: inline-block;
+}
+.st2-mark:hover { color: #fff; }
+
+.st2-kicker {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--cu-faint);
+  margin-top: 9px;
+}
+
+.st2-head-right {
+  text-align: right;
+  min-width: 0;
+}
+
+.st2-date {
+  font-size: 12px;
+  color: var(--cu-dim);
+  line-height: 1.5;
+  min-height: 18px;
+}
+
+/* ------------------------------------------------------------- status mark */
+
+.st2-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--cu-faint);
+  margin-top: 9px;
+  white-space: nowrap;
+}
+.st2-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 99px;
+  background: currentColor;
+  flex: none;
+}
+.st2-status-live { color: var(--cu-live); }
+.st2-status-prep { color: var(--cu-steel); }
+.st2-status-bad { color: var(--cu-bad); }
+.st2-pulse { animation: st2Pulse 1.8s var(--cu-ease) infinite; }
+@keyframes st2Pulse { 0%, 100% { opacity: 0.35 } 50% { opacity: 1 } }
+
+/* ------------------------------------------------------------- the amount */
+
+.st2-amount-row {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 32px;
+  flex-wrap: wrap;
+}
+
+.st2-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--cu-faint);
+}
+
+.st2-lead-box { min-width: 0; }
+
+.st2-lead {
+  font-family: var(--font-newsreader), Georgia, serif;
+  font-weight: 500;
+  font-size: 68px;
+  line-height: 1.02;
+  letter-spacing: -0.02em;
+  color: #fff;
+  margin-top: 14px;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+  white-space: nowrap;
+}
+.st2-cur { color: rgba(255, 255, 255, 0.42); margin-right: 2px; }
+.st2-lead-empty { color: rgba(255, 255, 255, 0.22); }
+
+/* Signed out and while auth resolves there is no amount to lead with, so a
+   line of type takes the headline slot at a size that can wrap. */
+.st2-lead-text {
+  font-size: 40px;
+  line-height: 1.14;
+  white-space: normal;
+  max-width: 18ch;
+  color: var(--cu-text);
+}
+
+.st2-lead-note {
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--cu-dim);
+  margin-top: 14px;
+  max-width: 46ch;
+}
+
+/* ---------------------------------------------------------------- controls */
+
+.st2-action {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+  min-width: 0;
+}
+
+.st2-btn {
+  appearance: none;
+  border: 0;
+  cursor: pointer;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1;
+  padding: 14px 26px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.93);
+  color: #0c0a09;
+  transition: background 160ms var(--cu-ease), color 160ms var(--cu-ease), opacity 160ms var(--cu-ease);
+  white-space: nowrap;
+}
+.st2-btn:hover { background: #fff; }
+.st2-btn:disabled { cursor: not-allowed; background: rgba(255, 255, 255, 0.1); color: var(--cu-faint); }
+
+.st2-btn-quiet {
+  background: transparent;
+  color: var(--cu-dim);
+  box-shadow: inset 0 0 0 1px var(--cu-line);
+}
+.st2-btn-quiet:hover { background: var(--cu-surface); color: var(--cu-text); }
+
+.st2-hint {
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--cu-faint);
+  text-align: right;
+  max-width: 30ch;
+}
+
+/* ------------------------------------------------------------ figure strip */
+
+.st2-figures {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 28px 24px;
+  margin-top: 40px;
+}
+
+.st2-fig-value {
+  font-family: var(--font-newsreader), Georgia, serif;
+  font-weight: 500;
+  font-size: 26px;
+  line-height: 1.1;
+  letter-spacing: -0.01em;
+  color: var(--cu-text);
+  margin-top: 11px;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.st2-fig-value-dim { color: rgba(255, 255, 255, 0.28); }
+
+/* ---------------------------------------------------------------- progress */
+
+.st2-progress-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 20px;
+}
+/* The loader text is whatever WebLLM reports, so it has no length bound. It
+   wraps rather than truncates: a narrow screen must not eat the megabytes and
+   the elapsed seconds off the end of it. */
+.st2-progress-text {
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--cu-dim);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.st2-progress-pct {
+  font-size: 12px;
+  color: var(--cu-steel);
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+.st2-track {
+  height: 2px;
+  border-radius: 99px;
+  background: rgba(255, 255, 255, 0.07);
+  margin-top: 12px;
+  overflow: hidden;
+}
+.st2-fill {
+  height: 100%;
+  background: var(--cu-steel);
+  border-radius: 99px;
+  transition: width 320ms var(--cu-ease);
+}
+
+/* ------------------------------------------------------------------ notice */
+
+.st2-notice {
+  padding-left: 16px;
+  border-left: 2px solid var(--cu-line);
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--cu-dim);
+  max-width: 70ch;
+}
+.st2-notice-bad { border-left-color: var(--cu-bad); }
+.st2-notice-warn { border-left-color: var(--cu-warn); }
+.st2-notice-title {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--cu-faint);
+  margin-bottom: 8px;
+}
+.st2-notice-body { overflow-wrap: anywhere; }
+
+.st2-link {
+  appearance: none;
+  border: 0;
+  background: none;
+  padding: 0;
+  margin-top: 10px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--cu-steel);
+  border-bottom: 1px solid rgba(128, 160, 193, 0.35);
+  transition: border-color 150ms var(--cu-ease);
+}
+.st2-link:hover { border-bottom-color: var(--cu-steel); }
+
+/* ------------------------------------------------------------------ ledger */
+
+.st2-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+.st2-section-title {
+  font-family: var(--font-newsreader), Georgia, serif;
+  font-weight: 500;
+  font-size: 19px;
+  line-height: 1.2;
+  color: var(--cu-text);
+}
+.st2-section-note {
+  font-size: 11.5px;
+  color: var(--cu-faint);
+}
+
+.st2-scroll { overflow-x: auto; scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.14) transparent; }
+.st2-scroll::-webkit-scrollbar { height: 8px; }
+.st2-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 99px; border: 2px solid transparent; background-clip: content-box; }
+
+.st2-ledger {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+.st2-ledger th {
+  font-weight: 400;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--cu-faint);
+  text-align: left;
+  padding: 0 12px 10px 0;
+}
+.st2-ledger td {
+  padding: 11px 12px 11px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  color: var(--cu-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.st2-ledger th:last-child, .st2-ledger td:last-child { padding-right: 0; }
+.st2-num { text-align: right; font-variant-numeric: tabular-nums; }
+.st2-ref { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: rgba(255,255,255,0.7); }
+.st2-tok { color: var(--cu-text); }
+
+.st2-col-time { width: 96px; }
+.st2-col-tok { width: 88px; }
+.st2-col-dur { width: 92px; }
+.st2-col-status { width: 118px; }
+
+.st2-mark-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11.5px;
+  color: var(--cu-live);
+  white-space: nowrap;
+}
+.st2-mark-failed { color: var(--cu-bad); }
+.st2-mark-pending { color: var(--cu-steel); }
+
+.st2-empty {
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--cu-faint);
+  padding: 4px 0 6px;
+  max-width: 62ch;
+}
+
+/* ------------------------------------------------------------- particulars */
+
+.st2-particulars {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 56px;
+}
+.st2-prow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 11px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  font-size: 12.5px;
+  min-width: 0;
+}
+.st2-prow-key { color: var(--cu-faint); flex: none; }
+.st2-prow-val {
+  color: var(--cu-text);
+  text-align: right;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.st2-prow-val-mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+
+.st2-foot-note {
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--cu-faint);
+  max-width: 68ch;
+  margin-top: 18px;
+}
+
+/* --------------------------------------------------------------- closing */
+
+.st2-closing {
+  font-size: 13.5px;
+  line-height: 1.75;
+  color: var(--cu-dim);
+  max-width: 62ch;
+}
+.st2-closing p + p { margin-top: 12px; }
+.st2-closing-stat { color: var(--cu-text); }
+
+/* ------------------------------------------------------------- responsive */
+
+@media (max-width: 720px) {
+  .st2-sheet { padding: 44px 20px 72px; }
+  .st2-head { flex-direction: column; align-items: flex-start; gap: 18px; }
+  .st2-head-right { text-align: left; }
+  .st2-lead { font-size: 46px; margin-top: 12px; }
+  .st2-lead-text { font-size: 30px; max-width: none; }
+  .st2-amount-row { flex-direction: column; align-items: stretch; gap: 26px; }
+  .st2-action { align-items: stretch; }
+  .st2-btn { width: 100%; padding: 15px 20px; }
+  .st2-hint { text-align: left; max-width: none; }
+  .st2-figures { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px 20px; margin-top: 32px; }
+  .st2-fig-value { font-size: 22px; }
+  .st2-particulars { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  /* A GPU string can be long. In one column it wraps instead of ellipsing. */
+  .st2-prow-val { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; }
+  .st2-col-dur, .st2-cell-dur { display: none; }
+  .st2-col-time { width: 74px; }
+  .st2-col-tok { width: 66px; }
+  .st2-col-status { width: 96px; }
+  .st2-ledger { font-size: 12px; }
+  .st2-block { padding: 28px 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .st2-fade, .st2-pulse { animation: none !important; }
+  .st2-fill { transition: none; }
+}
