@@ -407,6 +407,10 @@
   min-width: 0;
 }
 
+/* The id field keeps its width whether or not it holds an id, so registering
+   does not re-wrap the strip and walk the panels below it down a row. */
+.iv1-tag--id i { min-width: 16ch; }
+
 .iv1-tag--live { background: rgba(52, 211, 153, 0.1); color: var(--cu-live); }
 .iv1-tag--live b { color: rgba(52, 211, 153, 0.6); }
 
@@ -547,6 +551,15 @@
   color: #fff;
 }
 
+/* Values with no bound on their length, such as the GPU string the driver
+   reports. A title attribute is no help on a touch device, so these wrap. */
+.iv1-v--wrap {
+  white-space: normal;
+  overflow: visible;
+  overflow-wrap: anywhere;
+  line-height: 1.45;
+}
+
 .iv1-sect {
   margin-top: 16px;
   padding-top: 14px;
@@ -633,6 +646,12 @@
    without the uptime clock truncating, so the page goes to one column first. */
 @media (max-width: 1150px) {
   .iv1-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* Four channels need about 660px of face to hold the uptime clock without
+   truncating it, which is wider than the phone breakpoint below. */
+@media (max-width: 700px) {
+  .iv1-channels { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 640px) {

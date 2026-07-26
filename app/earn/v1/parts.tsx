@@ -29,13 +29,16 @@ export function Pill({ tone, label, pulse }: { tone: Tone; label: string; pulse?
 
 /* --------------------------------------------------------------- channels */
 
-export function Channel({ value, unit, label }: { value: string; unit?: string; label: string }) {
+/** `pad` reserves a fixed numeral field, in `ch` units. Tabular figures equalise
+ *  digit width but not string width, so without it the unit beside the number
+ *  slides sideways every time the reading crosses a power of ten. */
+export function Channel({ value, unit, label, pad }: { value: string; unit?: string; label: string; pad?: number }) {
   const blank = value === DASH;
   return (
     <div className="iv1-ch">
       <div className={`iv1-chval${blank ? ' iv1-chval--muted' : ''}`}>
-        <span className="iv1-chnum">{value}</span>
-        {unit && !blank && <span className="iv1-chunit">{unit}</span>}
+        <span className="iv1-chnum" style={pad ? { minWidth: `${pad}ch` } : undefined}>{value}</span>
+        {unit && <span className="iv1-chunit">{unit}</span>}
       </div>
       <div className="iv1-chlabel">{label}</div>
     </div>
@@ -47,15 +50,35 @@ export function Channel({ value, unit, label }: { value: string; unit?: string; 
 const W = 600;
 const H = 120;
 
-/** Throughput against time: one point per sample, newest at the right edge. */
-export function Plot({ samples, ceiling, live }: { samples: number[]; ceiling: number; live: boolean }) {
+/** Throughput against time: one point per sample, newest at the right edge.
+ *  Only the `filled` measured samples are drawn, so the display never shows a
+ *  history it did not record. */
+export function Plot({
+  samples,
+  filled,
+  ceiling,
+  live,
+}: {
+  samples: number[];
+  filled: number;
+  ceiling: number;
+  live: boolean;
+}) {
   const n = samples.length;
+  const first = n - Math.max(0, Math.min(n, filled));
   const x = (i: number) => (i / Math.max(1, n - 1)) * W;
   const y = (v: number) => H - 3 - (Math.min(v, ceiling) / ceiling) * (H - 6);
-  const line = samples.map((v, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
-  const area = `${line} L${W.toFixed(1)},${H} L0,${H} Z`;
+  const points = samples.slice(first);
+  const line = points
+    .map((v, k) => `${k === 0 ? 'M' : 'L'}${x(first + k).toFixed(1)},${y(v).toFixed(1)}`)
+    .join(' ');
+  const area = points.length > 1
+    ? `${line} L${W.toFixed(1)},${H} L${x(first).toFixed(1)},${H} Z`
+    : '';
   const stroke = live ? 'rgba(52,211,153,0.9)' : 'rgba(128,160,193,0.5)';
-  const head = { cx: x(n - 1), cy: y(samples[n - 1] ?? 0) };
+  const head = points.length > 0
+    ? { cx: x(n - 1), cy: y(points[points.length - 1]) }
+    : null;
 
   return (
     <svg className="iv1-plot" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" aria-hidden="true">
@@ -91,9 +114,9 @@ export function Plot({ samples, ceiling, live }: { samples: number[]; ceiling: n
         />
       ))}
 
-      <path d={area} fill="url(#iv1-under)" />
-      <path d={line} fill="none" stroke={stroke} strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
-      <circle cx={head.cx} cy={head.cy} r="4" fill={stroke} />
+      {area && <path d={area} fill="url(#iv1-under)" />}
+      {line && <path d={line} fill="none" stroke={stroke} strokeWidth="1.5" vectorEffect="non-scaling-stroke" />}
+      {head && <circle cx={head.cx} cy={head.cy} r="4" fill={stroke} />}
     </svg>
   );
 }
@@ -159,11 +182,20 @@ export function Ledger({ jobs }: { jobs: SessionJob[] }) {
 
 /* -------------------------------------------------------------- key/value */
 
-export function KV({ k, v, tone, big, title }: { k: string; v: ReactNode; tone?: Tone; big?: boolean; title?: string }) {
+/** `wrap` is for values with no bound on their length, such as the GPU string a
+ *  driver reports. A title attribute is no help on a touch device, so those
+ *  wrap onto a second line instead of truncating. */
+export function KV({ k, v, tone, big, wrap }: {
+  k: string;
+  v: ReactNode;
+  tone?: Tone;
+  big?: boolean;
+  wrap?: boolean;
+}) {
   return (
     <div className="iv1-kv">
       <span className="iv1-k">{k}</span>
-      <span className={`iv1-v${big ? ' iv1-v--big' : ''}${tone ? ` ${TONE[tone]}` : ''}`} title={title}>
+      <span className={`iv1-v${big ? ' iv1-v--big' : ''}${wrap ? ' iv1-v--wrap' : ''}${tone ? ` ${TONE[tone]}` : ''}`}>
         {v}
       </span>
     </div>
@@ -201,7 +233,7 @@ export function PeerArray({
         {online > shown && <span className="iv1-peermore">+{online - shown}</span>}
       </div>
       <div className="iv1-legend">
-        {you && (
+        {you && shown > 0 && (
           <span className="iv1-legitem"><span className="iv1-swatch iv1-peer--you" />This machine</span>
         )}
         <span className="iv1-legitem"><span className="iv1-swatch iv1-peer--native" />Native</span>
