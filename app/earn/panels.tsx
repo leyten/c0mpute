@@ -1,10 +1,13 @@
 'use client';
 
 // Presentational panels for the /earn worker dashboard. Pure props in, markup
-// out. All worker logic (engine, socket, API calls) lives in page.tsx.
+// out. All worker logic (engine, socket, API calls) lives in engine/useWorkerEngine.
 
 import { Fragment, type CSSProperties, type ReactNode } from 'react';
 import type { NetworkStats } from '@/lib/orchestrator/types';
+import type { SessionJob } from './engine/useWorkerEngine';
+
+export type { SessionJob };
 
 export const ACCENT = '#80a0c1';
 export const GREEN = 'rgba(52, 211, 153, 1)';
@@ -69,14 +72,6 @@ export function MetricTile({ label, value, mono }: { label: string; value: React
 }
 
 /* ------------------------------------------------------------------ earnings */
-
-export interface SessionJob {
-  id: string;
-  at: number;
-  tokens: number;
-  ms: number;
-  status: 'completed' | 'failed';
-}
 
 const fmtTime = (at: number) =>
   new Date(at).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
