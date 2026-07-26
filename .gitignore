@@ -91,3 +91,6 @@ COMPUTE_CODE_SPEC.md
 /worker-restore.ts
 /scripts/goodwill-jbrukh.ts
 /scripts/backfill-cap-victims.ts
+
+# dev server build dir (runs beside the served build)
+.next-dev/
