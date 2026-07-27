@@ -1,320 +1,138 @@
 'use client';
 
-// /earn/v2 — "the statement".
+// /earn/v2 — "the figure".
 //
-// The premise: this page is an earnings statement, not an instrument panel.
-// Money leads, the machine is the particulars at the bottom. One sheet, hairline
-// rules instead of cards, and no figure on it that the engine did not supply.
-// All state comes from useWorkerEngine; nothing here touches the socket, WebLLM
-// or an API directly.
-
-import Link from 'next/link';
+// The premise: the money is the page. What this machine has earned, set as one
+// enormous serif number, with a label above it and a single line under it. The
+// machine itself, the model, the speed, the per-job list: those are particulars,
+// and they stay off screen until the reader asks for them.
+//
+// Before the reader starts there are four things on the page and nothing else.
+// While it runs, the line under the figure carries the whole state of the
+// worker: loading, registering, ready, serving, stopped. All of it comes from
+// useWorkerEngine; nothing here touches the socket, WebLLM or an API.
 
 import { useWorkerEngine } from '../engine/useWorkerEngine';
-import './statement.css';
-import { Figure, Label, Ledger, Money, Notice, ParticularRow, Rule, StatusMark, type Tone } from './sheet';
+import './figure.css';
 
-const DASH = '–';
+const money = (n: number) =>
+  `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-const fmtDuration = (seconds: number) => {
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const s = seconds % 60;
-  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-};
-
-export default function StatementPage() {
+export default function FigurePage() {
   const engine = useWorkerEngine();
   const {
     authLoading, isAuthenticated, login,
-    connected, networkStats, nativeStatus,
-    device, model, modelFits,
-    status, error, loadProgress, loadingText, workerId, currentJobId, benchmarkTokPerSec,
-    sessionJobs, uptimeSeconds, lifetime, todayEarnings, lifetimeEarned,
+    connected, nativeStatus, device, model,
+    status, error, loadProgress,
+    sessionJobs, lifetimeEarned,
     start, stop, reset,
   } = engine;
 
-  // The server and the reader can sit in different timezones, so the issue date
-  // is allowed to differ between the two renders rather than throwing hydration.
-  const issuedOn = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
-
-  // A job in flight gets a pending line. It carries no time or token reading:
-  // those are settlement facts and the engine only reports them once the job
-  // completes, so the statement leaves them blank rather than guessing.
-  const activeJobId = currentJobId ?? nativeStatus?.currentJob ?? null;
+  // Nothing is true yet, so nothing is claimed.
+  if (authLoading) return <div className="fg" />;
 
   const nativeOnline = !!nativeStatus?.online;
   const preparing = status === 'initializing' || status === 'downloading' || status === 'connecting';
-  const serving = status === 'working' || (nativeOnline && !!nativeStatus?.currentJob);
   const registered = nativeOnline || status === 'ready' || status === 'working';
   const webGPUMissing = device.webGPUSupported === false;
+  const pct = Math.round(loadProgress * 100);
 
-  const statusLabel = nativeOnline
-    ? (nativeStatus?.currentJob ? 'Serving' : 'Ready')
-    : status === 'offline' ? 'Not serving'
-    : status === 'initializing' ? 'Starting'
-    : status === 'downloading' ? 'Downloading model'
-    : status === 'connecting' ? 'Registering'
-    : status === 'ready' ? 'Ready'
-    : status === 'working' ? 'Serving'
-    : 'Stopped';
-
-  const tone: Tone = registered ? 'live' : preparing ? 'prep' : status === 'error' ? 'bad' : 'idle';
-
-  // The ledger caption describes the rows actually listed. The engine clears
-  // session counters on stop but keeps the job list, so reading the caption off
-  // `session` would leave it claiming zero above a table full of entries.
-  const listedTokens = sessionJobs.reduce((sum, j) => sum + j.tokens, 0);
-
-  const emptyLedgerText = !isAuthenticated
-    ? 'Line items appear here once you sign in and this machine starts serving.'
-    : status === 'offline'
-      ? 'Start this machine to take jobs. Each one is entered here as it settles.'
-      : preparing
-        ? 'The model is loading. Entries begin once this machine registers with the network.'
-        : registered
-          ? 'This machine is registered and waiting for its first job of the session.'
-          : 'Entries appear here as jobs settle.';
-
-  /* ----------------------------------------------------------- the control */
-
-  let button: { label: string; onClick?: () => void; quiet?: boolean; disabled?: boolean };
-  let hint: string;
-
-  if (!isAuthenticated) {
-    button = { label: 'Sign in with X', onClick: () => login() };
-    hint = 'Payouts settle to your account. A Solana wallet can be connected later in Settings.';
+  /* --------------------------------------------------- the one line under it */
+  // At rest it says where the figure came from and what starting costs. Once
+  // the machine is doing something, it says what.
+  let line: string;
+  if (status === 'error') {
+    line = error ?? 'This machine stopped before it could register.';
   } else if (nativeOnline) {
-    button = { label: 'Native worker serving', disabled: true };
-    hint = 'Browser serving is paused while the native worker runs.';
-  } else if (status === 'error') {
-    button = { label: 'Reset', onClick: reset, quiet: true };
-    hint = 'Resetting returns this machine to idle so it can start again.';
-  } else if (status === 'offline') {
-    button = { label: 'Start this machine', onClick: start, disabled: webGPUMissing || !connected };
-    hint = webGPUMissing
-      ? 'WebGPU is required. Chrome or Edge can run the browser worker.'
-      : !connected
-        ? 'Waiting for the network before this machine can register.'
-        : `One-time download of ${model.size}. Browser jobs pay ${model.payout}.`;
-  } else if (registered) {
-    button = { label: 'Stop this machine', onClick: stop, quiet: true };
-    hint = 'Stopping unloads the model and frees the GPU.';
+    line = 'A native worker is serving on this account, so browser serving is paused.';
+  } else if (status === 'initializing') {
+    line = 'Starting the model.';
+  } else if (status === 'downloading') {
+    line = `Downloading the model, ${pct}%.`;
+  } else if (status === 'connecting') {
+    line = 'Registering with the network.';
+  } else if (status === 'working') {
+    line = 'Serving a job right now.';
+  } else if (status === 'ready') {
+    line = 'Ready, waiting for the next job.';
+  } else if (webGPUMissing) {
+    line = 'Earned for completed jobs, in USDC. This browser has no WebGPU, so it cannot run the model. Chrome or Edge on this machine can.';
+  } else if (!connected) {
+    line = 'Earned for completed jobs, in USDC. Waiting for the network before this machine can register.';
   } else {
-    button = { label: statusLabel, disabled: true };
-    hint = 'Keep this tab open while the model loads.';
+    line = `Earned for completed jobs, in USDC. ${device.gpuInfo ? `Your ${device.gpuInfo}` : 'This machine'} can run the model; it downloads once at ${model.size}, then jobs arrive on their own.`;
   }
 
-  /* --------------------------------------------------------------- markup */
+  /* ------------------------------------------------------------ the control */
+  let control: { label: string; onClick?: () => void; disabled?: boolean; quiet?: boolean };
+  if (!isAuthenticated) {
+    control = { label: 'Sign in with X', onClick: () => login() };
+  } else if (nativeOnline) {
+    control = { label: 'Native worker serving', disabled: true };
+  } else if (status === 'error') {
+    control = { label: 'Try again', onClick: reset, quiet: true };
+  } else if (registered || preparing) {
+    control = { label: 'Stop earning', onClick: stop, quiet: true };
+  } else {
+    control = { label: 'Start earning', onClick: start, disabled: webGPUMissing || !connected };
+  }
 
   return (
-    <div className="st2">
-      <div className="st2-sheet">
-
-        {/* letterhead */}
-        <header className="st2-head">
-          <div>
-            <Link className="st2-mark" href="/">c0mpute</Link>
-            <div className="st2-kicker">Statement of earnings</div>
-          </div>
-          <div className="st2-head-right">
-            <div className="st2-date" suppressHydrationWarning>Issued {issuedOn}</div>
-            <StatusMark tone={tone} label={statusLabel} pulse={serving || preparing} />
-          </div>
-        </header>
-
-        <Rule strong />
-
-        {/* the amount */}
-        <section className="st2-block">
-          <div className="st2-amount-row">
-            <div className="st2-lead-box" data-testid="st2-lead-box">
-              {authLoading ? (
-                <>
-                  <Label>Earned to date</Label>
-                  <div className="st2-lead st2-lead-empty">{DASH}</div>
-                  <p className="st2-lead-note">Opening your account.</p>
-                </>
-              ) : !isAuthenticated ? (
-                <>
-                  <Label>Statement</Label>
-                  <h1 className="st2-lead st2-lead-text">Sign in to open your statement.</h1>
-                  <p className="st2-lead-note">
-                    Your account records every job this machine serves and the amount owed for it, paid in USDC.
-                  </p>
-                </>
-              ) : (
-                <>
-                  <Label>Earned to date</Label>
-                  <div className="st2-lead" data-testid="st2-lead">
-                    <Money amount={lifetimeEarned} />
-                  </div>
-                  <p className="st2-lead-note">
-                    Paid in USDC. Each job this machine completes settles to the account at the rate below.
-                  </p>
-                </>
-              )}
-            </div>
-
-            <div className="st2-action">
-              <button
-                type="button"
-                className={`st2-btn${button.quiet ? ' st2-btn-quiet' : ''}`}
-                onClick={button.onClick}
-                disabled={button.disabled}
-                data-testid="st2-action"
-              >
-                {button.label}
-              </button>
-              <p className="st2-hint">{hint}</p>
-            </div>
-          </div>
-
-          {isAuthenticated && !authLoading && (
-            <div className="st2-figures">
-              <Figure
-                label="Today"
-                value={todayEarnings !== null ? `$${todayEarnings.toFixed(2)}` : DASH}
-                muted={todayEarnings === null}
-              />
-              <Figure
-                label="Jobs paid"
-                value={lifetime ? lifetime.paidJobs.toLocaleString('en-US') : DASH}
-                muted={!lifetime}
-              />
-              <Figure
-                label="Tokens generated"
-                value={lifetime ? lifetime.totalTokens.toLocaleString('en-US') : DASH}
-                muted={!lifetime}
-              />
-              <Figure label="Rate" value={model.payout} />
-            </div>
-          )}
-        </section>
-
-        {/* in-flight conditions: loading, failure, capacity */}
-        {(preparing || status === 'error' || (webGPUMissing && !nativeOnline)) && (
+    <div className="fg">
+      <main className="fg-fade fg-column mx-auto w-full max-w-[46rem] px-6">
+        {isAuthenticated ? (
           <>
-            <Rule />
-            <section className="st2-block-tight">
-              {preparing && (
-                <>
-                  <div className="st2-progress-head">
-                    <span className="st2-progress-text">{loadingText || 'Preparing this machine.'}</span>
-                    <span className="st2-progress-pct">{Math.round(loadProgress * 100)}%</span>
-                  </div>
-                  <div className="st2-track">
-                    <div className="st2-fill" style={{ width: `${Math.round(loadProgress * 100)}%` }} />
-                  </div>
-                </>
-              )}
-              {status === 'error' && (
-                <Notice title="This machine stopped" tone="bad" action={{ label: 'Reset and try again', onClick: reset }}>
-                  {error ?? 'The worker stopped before it could register.'}
-                </Notice>
-              )}
-              {webGPUMissing && !nativeOnline && status !== 'error' && (
-                <Notice title="Browser cannot serve" tone="warn">
-                  This browser does not support WebGPU, so it cannot run the model. Chrome or Edge can run the browser
-                  worker on this machine.
-                </Notice>
-              )}
-            </section>
+            <div className="fg-eyebrow">Total earned</div>
+            <div className="pixel-serif fg-figure" data-testid="fg-figure">{money(lifetimeEarned)}</div>
           </>
+        ) : (
+          <h1 className="pixel-serif fg-display">Earn from the GPU you already own.</h1>
         )}
 
-        <Rule />
-
-        {/* the line items */}
-        <section className="st2-block">
-          <div className="st2-section-head">
-            <h2 className="st2-section-title">Line items</h2>
-            <div className="st2-section-note" data-testid="st2-session-note">
-              {sessionJobs.length === 0
-                ? 'This session'
-                : `This session · ${sessionJobs.length} ${sessionJobs.length === 1 ? 'entry' : 'entries'} · ${listedTokens.toLocaleString('en-US')} tokens`}
-            </div>
-          </div>
-          <Ledger jobs={sessionJobs} pendingId={activeJobId} emptyText={emptyLedgerText} />
-        </section>
-
-        <Rule />
-
-        {/* the machine, demoted to particulars */}
-        <section className="st2-block">
-          <div className="st2-section-head">
-            <h2 className="st2-section-title">Particulars</h2>
-            <div className="st2-section-note">The machine behind the figures above</div>
-          </div>
-
-          <div className="st2-particulars">
-            <ParticularRow
-              label="Machine"
-              value={nativeOnline ? 'Native worker' : device.gpuInfo ?? 'Not detected'}
-            />
-            <ParticularRow label="Model" value={model.name} />
-            <ParticularRow
-              label="Memory"
-              value={device.detectedVRAM !== null ? `${device.detectedVRAM} GB estimated` : 'Unknown'}
-            />
-            <ParticularRow label="Download" value={model.size} />
-            <ParticularRow
-              label="Acceleration"
-              value={
-                device.webGPUSupported === null ? 'Checking' : device.webGPUSupported ? 'WebGPU available' : 'WebGPU unavailable'
-              }
-            />
-            <ParticularRow
-              label="Measured speed"
-              value={
-                nativeOnline && nativeStatus
-                  ? `${nativeStatus.tokPerSec.toFixed(1)} tokens per second`
-                  : benchmarkTokPerSec > 0
-                    ? `${benchmarkTokPerSec.toFixed(1)} tokens per second`
-                    : 'Not measured yet'
-              }
-            />
-            <ParticularRow
-              label="Worker reference"
-              value={(nativeOnline ? nativeStatus?.workerId : workerId)?.slice(0, 14) ?? 'Not registered'}
-              mono
-            />
-            <ParticularRow label="Time served" value={fmtDuration(uptimeSeconds)} mono />
-          </div>
-
-          {!modelFits && (
-            <p className="st2-foot-note">
-              Detected memory is below the {model.vram} this model asks for. The download can still be attempted, and the
-              statement will show whatever this machine manages to serve.
-            </p>
+        <p className={`fg-line${status === 'error' ? ' fg-line-bad' : ''}`} data-testid="fg-line">
+          {(registered || preparing) && (
+            <span className={`fg-dot${registered ? ' fg-dot-live' : ''}`} aria-hidden />
           )}
-        </section>
+          {isAuthenticated
+            ? line
+            : 'This works today. Your browser answers questions for the c0mpute network, and every job it completes earns USDC.'}
+        </p>
 
-        <Rule />
-
-        {/* what the account is part of */}
-        <section className="st2-block">
-          <div className="st2-closing">
-            {connected && networkStats && (
-              <p>
-                <span className="st2-closing-stat">{networkStats.workersOnline.toLocaleString('en-US')}</span> machines
-                are serving c0mpute right now, with{' '}
-                <span className="st2-closing-stat">{networkStats.jobsInQueue.toLocaleString('en-US')}</span> jobs in the
-                queue.
-              </p>
-            )}
-            <p>
-              The browser worker is live today. The model runs on your own GPU, jobs arrive from the network
-              automatically, and every completed job is paid in USDC.
-            </p>
-            <p>
-              betanet, the wider c0mpute network, is launching. Every figure on this statement comes from work already
-              served.
-            </p>
+        {preparing && (
+          <div className="fg-track" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
+            <div className="fg-fill" style={{ width: `${pct}%` }} />
           </div>
-        </section>
+        )}
 
-      </div>
+        {/* the only per-job detail on the page, and it is closed */}
+        {isAuthenticated && sessionJobs.length > 0 && (
+          <details className="fg-details">
+            <summary>
+              {sessionJobs.length} {sessionJobs.length === 1 ? 'job' : 'jobs'} this session
+            </summary>
+            <ul className="fg-jobs">
+              {sessionJobs.map(job => (
+                <li key={job.id}>
+                  <span>{job.status === 'failed' ? 'Failed' : `${job.tokens.toLocaleString('en-US')} tokens`}</span>
+                  <span>{(job.ms / 1000).toFixed(1)}s</span>
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
+
+        <div>
+          <button
+            type="button"
+            className={`fg-btn${control.quiet ? ' fg-btn-quiet' : ''}`}
+            onClick={control.onClick}
+            disabled={control.disabled}
+            data-testid="fg-action"
+          >
+            {control.label}
+          </button>
+        </div>
+      </main>
     </div>
   );
 }

@@ -1,0 +1,153 @@
+/* /earn/v2 — "the figure". The chat's token vocabulary, nothing added: warm
+   near-black, surfaces separated by value, large radii, motion only as a fade.
+   The whole page is one centred column. */
+
+.fg {
+  --fg-bg: #0c0a09;
+  --fg-text: rgba(255, 255, 255, 0.92);
+  --fg-dim: rgba(255, 255, 255, 0.58);
+  --fg-faint: rgba(255, 255, 255, 0.38);
+  --fg-line: rgba(255, 255, 255, 0.08);
+  --fg-surface: rgba(255, 255, 255, 0.045);
+  --fg-surface-hi: rgba(255, 255, 255, 0.075);
+  --fg-live: rgba(52, 211, 153, 0.9);
+  --fg-bad: #fca5a5;
+  --fg-ease: cubic-bezier(0.2, 0, 0, 1);
+
+  /* Anchored, not centred: the figure has to hold still while the page fills in
+     underneath it, and a centred column would nudge it up on every addition. */
+  display: flex;
+  align-items: flex-start;
+  min-height: 100dvh;
+  background: var(--fg-bg);
+  color: var(--fg-text);
+  font-family: var(--font-inter), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  letter-spacing: 0;
+}
+
+.fg-column {
+  padding-top: clamp(96px, 20vh, 220px);
+  padding-bottom: 96px;
+}
+
+.fg button { font-family: inherit; }
+
+.fg-fade { animation: fgFade 220ms var(--fg-ease) both; }
+@keyframes fgFade { from { opacity: 0 } to { opacity: 1 } }
+
+.fg-eyebrow {
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--fg-faint);
+}
+
+/* The money. Tabular figures so a settling job changes the digits and not the
+   layout. The `.v-b` prefix outranks the app-wide .pixel-serif re-skin, which
+   would otherwise hand this its own line-height and tracking. */
+.v-b .fg .fg-figure {
+  margin-top: 14px;
+  font-size: clamp(60px, 13vw, 128px);
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums lining-nums;
+  font-feature-settings: "tnum" 1, "lnum" 1;
+  color: #fff;
+}
+
+/* The signed-out display line sits where the figure would, at the chat's size. */
+.v-b .fg .fg-display {
+  font-size: 34px;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+  color: var(--fg-text);
+}
+@media (min-width: 768px) {
+  .v-b .fg .fg-display { font-size: 42px; }
+}
+
+.fg-line {
+  margin-top: 18px;
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--fg-dim);
+  max-width: 34rem;
+}
+.fg-line-bad { color: var(--fg-bad); }
+
+.fg-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 9px;
+  margin-bottom: 2px;
+  border-radius: 99px;
+  vertical-align: middle;
+  background: var(--fg-faint);
+}
+.fg-dot-live { background: var(--fg-live); animation: fgBreathe 2s var(--fg-ease) infinite; }
+
+@keyframes fgBreathe { 0%, 100% { opacity: 0.35 } 50% { opacity: 1 } }
+
+.fg-track {
+  margin-top: 16px;
+  max-width: 22rem;
+  height: 2px;
+  border-radius: 99px;
+  background: var(--fg-line);
+  overflow: hidden;
+}
+.fg-fill {
+  height: 100%;
+  border-radius: 99px;
+  background: var(--fg-dim);
+  transition: width 300ms var(--fg-ease);
+}
+
+/* The particulars, off screen until asked for. */
+.fg-details { margin-top: 26px; }
+.fg-details summary {
+  display: inline-block;
+  list-style: none;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--fg-faint);
+  transition: color 150ms var(--fg-ease);
+}
+.fg-details summary::-webkit-details-marker { display: none; }
+.fg-details summary:hover { color: var(--fg-dim); }
+.fg-jobs {
+  margin-top: 12px;
+  max-width: 22rem;
+  font-size: 13px;
+  color: var(--fg-dim);
+  font-variant-numeric: tabular-nums;
+}
+.fg-jobs li {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 7px 0;
+}
+.fg-jobs li + li { border-top: 1px solid var(--fg-line); }
+.fg-jobs span:last-child { color: var(--fg-faint); }
+
+.fg-btn {
+  margin-top: 34px;
+  padding: 11px 22px;
+  border-radius: 14px;
+  background: var(--fg-surface);
+  color: var(--fg-text);
+  font-size: 14px;
+  transition: background-color 150ms var(--fg-ease), color 150ms var(--fg-ease);
+}
+.fg-btn:hover:not(:disabled) { background: var(--fg-surface-hi); }
+.fg-btn:disabled { color: var(--fg-faint); cursor: default; }
+.fg-btn-quiet { background: transparent; color: var(--fg-faint); padding-left: 0; padding-right: 0; }
+.fg-btn-quiet:hover:not(:disabled) { background: transparent; color: var(--fg-text); }
+
+@media (prefers-reduced-motion: reduce) {
+  .fg-fade, .fg-dot-live { animation: none !important; }
+  .fg-fill { transition: none; }
+}
