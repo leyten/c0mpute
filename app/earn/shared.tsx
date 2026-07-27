@@ -141,3 +141,9 @@ export function usePlatform() {
   }, []);
   return os;
 }
+
+export const NODE_INSTALL = {
+  macos: 'brew install node',
+  windows: 'winget install OpenJS.NodeJS',
+  linux: 'sudo apt install -y nodejs npm',
+} as const;

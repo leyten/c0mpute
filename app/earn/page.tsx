@@ -2,16 +2,16 @@
 
 // Preview-only chrome: the 1-2-3 pill picks the layout. Goes once one is chosen.
 import { useEffect, useState, type ComponentType } from 'react';
-import Split from './v1/page';
-import OneAtATime from './v2/page';
-import Bands from './v3/page';
+import Panel from './v1/page';
+import Readout from './v2/page';
+import ChoiceList from './v3/page';
 
 type Variant = '1' | '2' | '3';
 
 const KEY = 'c0mpute_preview_earnvariant';
 
-const PAGES: Record<Variant, ComponentType> = { '1': Split, '2': OneAtATime, '3': Bands };
-const NAMES: Record<Variant, string> = { '1': 'Split', '2': 'One at a time', '3': 'Bands' };
+const PAGES: Record<Variant, ComponentType> = { '1': Panel, '2': Readout, '3': ChoiceList };
+const NAMES: Record<Variant, string> = { '1': 'Panel', '2': 'Readout', '3': 'Choice list' };
 
 export default function EarnPreview() {
   const [variant, setVariant] = useState<Variant>('1');
