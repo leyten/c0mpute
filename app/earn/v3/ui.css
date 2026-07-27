@@ -1,207 +1,156 @@
-/* c0mpute earn, variant 3: "the membership".
-   Same materials as the chat: surfaces separated by value rather than
-   hairlines, no header bar, large radii, motion only as fade. Everything is
-   scoped to .m3 and prefixed m3- so it cannot leak into the other variants. */
+/* c0mpute earn, variant 3: "the door".
+   One card on an empty field. Same materials as the chat and the homepage
+   doors: surfaces separated by value with one hairline, large radius, Newsreader
+   for the single display line and Inter for everything else, motion only as a
+   fade. Scoped to .d3 so it cannot leak into the other variants. */
 
-.m3 {
-  --m3-bg: #0c0a09;
-  --m3-slab: rgba(255, 255, 255, 0.035);
-  --m3-slab-hi: rgba(255, 255, 255, 0.06);
-  --m3-surface: rgba(255, 255, 255, 0.045);
-  --m3-surface-hi: rgba(255, 255, 255, 0.075);
-  --m3-text: rgba(255, 255, 255, 0.92);
-  --m3-dim: rgba(255, 255, 255, 0.58);
-  --m3-faint: rgba(255, 255, 255, 0.38);
-  --m3-line: rgba(255, 255, 255, 0.07);
-  --m3-steel: #80a0c1;
-  --m3-live: rgba(52, 211, 153, 0.9);
-  --m3-warn: rgba(248, 113, 113, 0.9);
-  --m3-ease: cubic-bezier(0.2, 0, 0, 1);
+.d3 {
+  --d3-bg: #0c0a09;
+  --d3-card: rgba(255, 255, 255, 0.03);
+  --d3-line: rgba(255, 255, 255, 0.07);
+  --d3-text: rgba(255, 255, 255, 0.92);
+  --d3-dim: rgba(255, 255, 255, 0.58);
+  --d3-faint: rgba(255, 255, 255, 0.38);
+  --d3-steel: #80a0c1;
+  --d3-live: rgba(52, 211, 153, 0.9);
+  --d3-warn: rgba(248, 113, 113, 0.9);
+  --d3-ease: cubic-bezier(0.2, 0, 0, 1);
 
   min-height: 100vh;
-  background: var(--m3-bg);
-  color: var(--m3-text);
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 24px 16px;
+  background: var(--d3-bg);
+  color: var(--d3-text);
 }
 
-.m3,
-.m3 button,
-.m3 input {
+.d3,
+.d3 button {
   font-family: var(--font-inter), system-ui, sans-serif;
   letter-spacing: 0;
   -webkit-font-smoothing: antialiased;
 }
 
-.m3 ::selection { background: rgba(128, 160, 193, 0.28); }
+.d3 ::selection { background: rgba(128, 160, 193, 0.28); }
 
-.m3-wrap {
-  max-width: 880px;
-  margin: 0 auto;
-  padding: 28px 20px 96px;
+/* ---------- the card ---------- */
+.d3-card {
+  width: 100%;
+  max-width: 520px;
+  background: var(--d3-card);
+  border: 1px solid var(--d3-line);
+  border-radius: 28px;
+  padding: 30px 26px 28px;
 }
 @media (min-width: 768px) {
-  .m3-wrap { padding: 36px 32px 120px; }
+  .d3-card { padding: 40px 40px 36px; }
 }
 
 /* ---------- type ---------- */
-.m3-mark {
-  font-family: var(--font-newsreader), Georgia, serif;
-  font-size: 17px;
-  color: var(--m3-text);
-}
-.m3-eyebrow {
+.d3-eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 9px;
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.16em;
-  color: var(--m3-faint);
+  color: var(--d3-faint);
 }
-.m3-display {
-  font-family: var(--font-newsreader), Georgia, serif;
+.d3-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 99px;
+  background: currentColor;
+  flex: none;
+}
+.d3-pulse { animation: d3Pulse 1.9s var(--d3-ease) infinite; }
+@keyframes d3Pulse { 0%, 100% { opacity: 0.35 } 50% { opacity: 1 } }
+
+/* the one display line; .pixel-serif supplies Newsreader */
+.d3-line {
+  margin-top: 22px;
   font-size: 32px;
-  line-height: 1.12;
+  line-height: 1.14;
   letter-spacing: -0.01em;
   color: #fff;
 }
 @media (min-width: 768px) {
-  .m3-display { font-size: 42px; }
+  .d3-line { font-size: 40px; }
 }
-.m3-lede {
+
+.d3-under {
+  margin-top: 14px;
   font-size: 15px;
   line-height: 1.62;
-  color: var(--m3-dim);
-  max-width: 54ch;
+  color: var(--d3-dim);
 }
-.m3-note {
-  font-size: 12px;
-  line-height: 1.6;
-  color: var(--m3-faint);
-}
-.m3-mono {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+
+.d3-figures {
+  margin-top: 20px;
+  font-size: 15px;
+  line-height: 1.62;
+  color: var(--d3-dim);
   font-variant-numeric: tabular-nums;
 }
-
-/* ---------- slabs ---------- */
-.m3-slab {
-  background: var(--m3-slab);
-  border-radius: 24px;
-  padding: 26px 22px;
-}
-@media (min-width: 768px) {
-  .m3-slab { padding: 34px 34px; }
-}
-
-.m3-inset {
-  background: rgba(255, 255, 255, 0.03);
-  border-radius: 16px;
-  padding: 16px 18px;
-}
-
-/* ---------- membership id ---------- */
-.m3-id {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 15px;
-  line-height: 1.3;
+.d3-figures b {
   color: #fff;
-  word-break: break-all;
+  font-weight: 500;
 }
-.m3-id-pending {
-  height: 1px;
-  width: 88px;
-  background: repeating-linear-gradient(90deg, var(--m3-line) 0 6px, transparent 6px 11px);
-}
-
-/* ---------- roster ---------- */
-.m3-roster {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 9px;
-}
-.m3-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 99px;
-  flex: none;
-}
-.m3-dot--browser { background: rgba(255, 255, 255, 0.26); }
-.m3-dot--native { background: rgba(128, 160, 193, 0.55); }
-.m3-dot--mine {
-  width: 9px;
-  height: 9px;
-  background: var(--m3-live);
-  box-shadow: 0 0 0 4px rgba(52, 211, 153, 0.14);
-}
-.m3-dot--empty { background: rgba(255, 255, 255, 0.1); }
-
-.m3-live-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 99px;
-  flex: none;
-  background: currentColor;
-}
-.m3-pulse { animation: m3Pulse 1.9s var(--m3-ease) infinite; }
-@keyframes m3Pulse { 0%, 100% { opacity: 0.35 } 50% { opacity: 1 } }
 
 /* ---------- progress ---------- */
-.m3-bar {
+.d3-progress {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 22px;
+}
+.d3-bar {
+  flex: 1;
   height: 2px;
   border-radius: 99px;
   background: rgba(255, 255, 255, 0.09);
   overflow: hidden;
 }
-.m3-bar span {
+.d3-bar span {
   display: block;
   height: 100%;
   border-radius: 99px;
-  background: var(--m3-steel);
-  transition: width 320ms var(--m3-ease);
+  background: var(--d3-steel);
+  transition: width 320ms var(--d3-ease);
+}
+.d3-pct {
+  flex: none;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--d3-steel);
 }
 
-/* ---------- controls ---------- */
-.m3-btn {
-  width: 100%;
-  padding: 13px 18px;
-  border-radius: 14px;
+/* ---------- the control ---------- */
+.d3-btn {
+  margin-top: 26px;
+  padding: 12px 20px;
+  border-radius: 13px;
   font-size: 14.5px;
   background: #fff;
   color: #0c0a09;
-  transition: background-color 150ms var(--m3-ease), opacity 150ms var(--m3-ease);
+  transition: background-color 150ms var(--d3-ease);
   cursor: pointer;
 }
-.m3-btn:hover { background: rgba(255, 255, 255, 0.88); }
-.m3-btn:disabled { background: rgba(255, 255, 255, 0.12); color: var(--m3-dim); cursor: not-allowed; }
-.m3-btn--quiet {
-  background: var(--m3-surface);
-  color: var(--m3-text);
+.d3-btn:hover { background: rgba(255, 255, 255, 0.88); }
+.d3-btn:disabled { background: rgba(255, 255, 255, 0.1); color: var(--d3-dim); cursor: not-allowed; }
+.d3-btn--quiet {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--d3-text);
 }
-.m3-btn--quiet:hover { background: var(--m3-surface-hi); }
-
-.m3-link {
-  color: var(--m3-faint);
-  font-size: 12.5px;
-  transition: color 150ms var(--m3-ease);
-}
-.m3-link:hover { color: var(--m3-text); }
-
-/* ---------- register ---------- */
-.m3-row {
-  display: grid;
-  grid-template-columns: 62px 1fr auto;
-  align-items: center;
-  gap: 12px;
-  padding: 11px 0;
-  border-top: 1px solid var(--m3-line);
-  font-size: 13px;
-}
-.m3-row:first-child { border-top: 0; }
+.d3-btn--quiet:hover { background: rgba(255, 255, 255, 0.09); }
 
 /* ---------- motion ---------- */
-.m3-fade { animation: m3Fade 220ms var(--m3-ease) both; }
-@keyframes m3Fade { from { opacity: 0 } to { opacity: 1 } }
+.d3-fade { animation: d3Fade 220ms var(--d3-ease) both; }
+@keyframes d3Fade { from { opacity: 0 } to { opacity: 1 } }
 
 @media (prefers-reduced-motion: reduce) {
-  .m3-fade,
-  .m3-pulse { animation: none !important; }
-  .m3-bar span { transition: none !important; }
+  .d3-fade,
+  .d3-pulse { animation: none !important; }
+  .d3-bar span { transition: none !important; }
 }
