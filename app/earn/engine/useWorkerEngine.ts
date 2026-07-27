@@ -698,11 +698,9 @@ export function useWorkerEngine(): WorkerEngine {
     demoStop.current = runWorkerDemo(demoSink);
   }, [demoSink]);
 
-  useEffect(() => {
-    if (!demo) return;
-    startDemo();
-    return () => { demoStop.current?.(); demoStop.current = null; };
-  }, [demo, startDemo]);
+  // The demo waits to be started, exactly as the real worker does. Running it
+  // on mount showed the page in a state a visitor never actually lands on.
+  useEffect(() => () => { demoStop.current?.(); demoStop.current = null; }, []);
 
   const stop = useCallback(() => {
     demoStop.current?.();
