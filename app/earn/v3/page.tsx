@@ -1,8 +1,9 @@
 'use client';
 
-// Variation C — no pill. The two ways are two serif lines, and the one you
-// choose opens beneath it while the other stays a line. Same one-at-a-time
-// behaviour, but the choice is the page rather than a control on it.
+// Version 3 — SPINE. Both ways are always on screen, but only one is open. The
+// closed one collapses to a narrow vertical spine on the right with its label
+// turned on its side; clicking it slides the pane across. The switch is the
+// layout itself moving, so you never lose sight of the other option.
 import { useState } from 'react';
 import Link from 'next/link';
 import { useWorkerEngine } from '../engine/useWorkerEngine';
@@ -13,25 +14,23 @@ import {
 
 type Tab = 'browser' | 'machine';
 
-function Choice({ open, title, meta, live, onOpen, children }: {
-  open: boolean; title: string; meta: string; live?: React.ReactNode;
-  onOpen: () => void; children: React.ReactNode;
-}) {
+function Spine({ label, on, onClick }: { label: string; on: boolean; onClick: () => void }) {
   return (
-    <section className={`border-t border-white/[0.07] transition-colors ${open ? '' : 'hover:bg-white/[0.015]'}`}>
-      <button onClick={onOpen} disabled={open}
-        className={`flex w-full items-baseline justify-between gap-4 py-5 text-left ${open ? '' : 'cursor-pointer'}`}>
-        <span className="pixel-serif text-[24px] leading-tight md:text-[28px]" style={{ color: open ? '#fff' : 'rgba(255,255,255,0.5)' }}>
-          {title}
-        </span>
-        <span className="shrink-0 text-[12.5px] text-white/40">{live ?? meta}</span>
-      </button>
-      {open && <div className="pb-7">{children}</div>}
-    </section>
+    <button
+      onClick={onClick}
+      className="group flex w-full cursor-pointer items-center justify-center gap-4 border-t border-white/[0.07] py-5 transition-colors hover:bg-white/[0.03] md:w-[74px] md:flex-col md:border-l md:border-t-0 md:py-0"
+    >
+      <Dot on={on} />
+      <span
+        className="text-[12.5px] uppercase tracking-[0.16em] text-white/40 transition-colors group-hover:text-white/75 md:[writing-mode:vertical-rl]"
+      >
+        {label}
+      </span>
+    </button>
   );
 }
 
-export default function EarnChoice() {
+export default function EarnSpine() {
   const engine = useWorkerEngine();
   const { running, blocked } = useEarnControls(engine);
   const cmd = useNativeCommand(engine);
@@ -39,91 +38,100 @@ export default function EarnChoice() {
   const [tab, setTab] = useState<Tab>('browser');
   const native = engine.nativeStatus;
   const online = native?.online === true;
-  const liveNow = engine.status === 'ready' || engine.status === 'working';
+  const live = engine.status === 'ready' || engine.status === 'working';
 
   if (engine.authLoading) return <Screen><div /></Screen>;
 
   return (
     <Screen>
-      <div className="mx-auto flex w-full max-w-[40rem] flex-1 flex-col justify-center px-6 py-12">
-        <h1 className="pixel-serif text-[30px] leading-tight text-white md:text-[38px]">Two ways to serve.</h1>
-        <p className="mb-8 mt-3 text-[14.5px] text-white/55">
-          Paid in USDC for every job your machine finishes. Pick one.
-        </p>
+      <div className="flex flex-1 flex-col md:flex-row">
+        <div className="flex flex-1 items-center px-8 py-12 md:px-16">
+          <div className="w-full max-w-[36rem]">
+            {tab === 'browser' ? (
+              <>
+                <span className="text-[10px] uppercase tracking-[0.14em] text-white/35">In this browser</span>
+                <h1 className="pixel-serif mt-4 text-[32px] leading-tight text-white md:text-[42px]">Start in a tab.</h1>
+                <p className="mt-4 max-w-[42ch] text-[14.5px] leading-relaxed text-white/55">{browserNote(engine)}</p>
 
-        <Choice
-          open={tab === 'browser'}
-          onOpen={() => setTab('browser')}
-          title="In this browser"
-          meta={engine.model.payout.split('/')[0] + ' per job'}
-          live={running ? <span><Dot on={liveNow} /> {PHASE[engine.status]}</span> : undefined}
-        >
-          {liveNow ? (
-            <div className="flex flex-wrap gap-x-8 gap-y-3">
-              <Stat label="Jobs this session" value={String(engine.session.jobsCompleted)} />
-              <Stat label="Tokens" value={engine.session.tokensGenerated.toLocaleString()} />
-              <Stat label="Earned today" value={engine.todayEarnings === null ? '—' : `$${engine.todayEarnings.toFixed(2)}`} />
-            </div>
-          ) : (
-            <p className="text-[14.5px] leading-relaxed text-white/55">{browserNote(engine)}</p>
-          )}
+                <div className="mt-6 flex items-baseline gap-2">
+                  <span className="pixel-serif text-[26px] text-white">{engine.model.payout.split('/')[0]}</span>
+                  <span className="text-[13px] text-white/45">per job</span>
+                  {running && <span className="ml-3 text-[12.5px] text-white/45"><Dot on={live} /> {PHASE[engine.status]}</span>}
+                </div>
 
-          {engine.status === 'downloading' && (
-            <div className="mt-5">
-              <div className="h-[2px] w-full overflow-hidden rounded-full bg-white/10">
-                <div className="h-full transition-[width] duration-300" style={{ width: `${Math.round(engine.loadProgress * 100)}%`, background: '#80a0c1' }} />
-              </div>
-              <div className="mt-2 text-[12px] tabular-nums text-white/40">{Math.round(engine.loadProgress * 100)}%</div>
-            </div>
-          )}
+                {engine.status === 'downloading' && (
+                  <div className="mt-6 max-w-[24rem]">
+                    <div className="h-[2px] w-full overflow-hidden rounded-full bg-white/10">
+                      <div className="h-full transition-[width] duration-300" style={{ width: `${Math.round(engine.loadProgress * 100)}%`, background: '#80a0c1' }} />
+                    </div>
+                    <div className="mt-2 text-[12px] tabular-nums text-white/40">{Math.round(engine.loadProgress * 100)}%</div>
+                  </div>
+                )}
 
-          {engine.error && <p className="mt-4 text-[13px]" style={{ color: '#fca5a5' }}>{engine.error}</p>}
+                {live && (
+                  <div className="mt-7 flex flex-wrap gap-x-10 gap-y-3">
+                    <Stat label="Jobs this session" value={String(engine.session.jobsCompleted)} />
+                    <Stat label="Tokens" value={engine.session.tokensGenerated.toLocaleString()} />
+                    <Stat label="Earned today" value={engine.todayEarnings === null ? '—' : `$${engine.todayEarnings.toFixed(2)}`} />
+                  </div>
+                )}
 
-          <div className="mt-6">
-            {!engine.isAuthenticated ? <Button onClick={engine.login}>Sign in to start</Button>
-              : running ? <Button kind="quiet" onClick={engine.stop}>Stop</Button>
-              : <Button onClick={engine.start} disabled={blocked}>Start earning</Button>}
+                {engine.error && <p className="mt-5 text-[13px]" style={{ color: '#fca5a5' }}>{engine.error}</p>}
+
+                <div className="mt-8">
+                  {!engine.isAuthenticated ? <Button onClick={engine.login}>Sign in to start</Button>
+                    : running ? <Button kind="quiet" onClick={engine.stop}>Stop</Button>
+                    : <Button onClick={engine.start} disabled={blocked}>Start earning</Button>}
+                </div>
+              </>
+            ) : (
+              <>
+                <span className="text-[10px] uppercase tracking-[0.14em]" style={{ color: '#80a0c1' }}>On my machine</span>
+                <h1 className="pixel-serif mt-4 text-[32px] leading-tight text-white md:text-[42px]">Run a node.</h1>
+                <p className="mt-4 max-w-[44ch] text-[14.5px] leading-relaxed text-white/55">
+                  A 27B model on your own GPU, in the background. Needs Node.js 18 and an NVIDIA,
+                  AMD or Apple Silicon GPU.
+                </p>
+
+                <div className="mt-6 flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                  <span className="pixel-serif text-[26px] text-white">{NATIVE_RATE}</span>
+                  <span className="text-[13px] text-white/45">per job, up to 10x a browser worker</span>
+                  {online && <span className="ml-3 text-[12.5px] text-white/45"><Dot on /> Connected</span>}
+                </div>
+
+                {online && native && (
+                  <div className="mt-7 flex flex-wrap gap-x-10 gap-y-3">
+                    <Stat label="Jobs completed" value={native.jobsCompleted.toLocaleString()} />
+                    <Stat label="Tokens" value={native.tokensGenerated.toLocaleString()} />
+                    <Stat label="Speed" value={`${native.tokPerSec.toFixed(1)} tok/s`} />
+                  </div>
+                )}
+
+                {cmd.failed && <p className="mt-5 text-[13px]" style={{ color: '#fca5a5' }}>{cmd.failed}</p>}
+
+                <div className="mt-8 max-w-[30rem]">
+                  {!engine.isAuthenticated ? <Button onClick={engine.login}>Sign in to get a command</Button>
+                    : cmd.token ? <CommandBox command={cmd.command} copied={cmd.copied} onCopy={cmd.copy} />
+                    : <Button onClick={() => void cmd.issue()} disabled={cmd.busy}>{cmd.busy ? 'Issuing…' : 'Get my command'}</Button>}
+                </div>
+
+                <div className="mt-4 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-white/35">
+                  <span>No Node.js?</span>
+                  <code className="font-mono text-white/45">{NODE_INSTALL[os]}</code>
+                  {cmd.token && <Link href="/settings#worker" className="underline underline-offset-2 hover:text-white/60">Manage tokens</Link>}
+                </div>
+
+                <p className="mt-5 text-[12.5px] text-white/35">{SWARM_NOTE}</p>
+              </>
+            )}
           </div>
-        </Choice>
+        </div>
 
-        <Choice
-          open={tab === 'machine'}
-          onOpen={() => setTab('machine')}
-          title="On my machine"
-          meta={`${NATIVE_RATE} per job`}
-          live={online ? <span><Dot on /> Connected</span> : undefined}
-        >
-          {online && native ? (
-            <div className="flex flex-wrap gap-x-8 gap-y-3">
-              <Stat label="Jobs completed" value={native.jobsCompleted.toLocaleString()} />
-              <Stat label="Tokens" value={native.tokensGenerated.toLocaleString()} />
-              <Stat label="Speed" value={`${native.tokPerSec.toFixed(1)} tok/s`} />
-            </div>
-          ) : (
-            <p className="text-[14.5px] leading-relaxed text-white/55">
-              A 27B model on your own GPU, in the background. Up to 10x a browser worker.
-              Needs Node.js 18 and an NVIDIA, AMD or Apple Silicon GPU.
-            </p>
-          )}
-
-          {cmd.failed && <p className="mt-4 text-[13px]" style={{ color: '#fca5a5' }}>{cmd.failed}</p>}
-
-          <div className="mt-6">
-            {!engine.isAuthenticated ? <Button onClick={engine.login}>Sign in to get a command</Button>
-              : cmd.token ? <CommandBox command={cmd.command} copied={cmd.copied} onCopy={cmd.copy} />
-              : <Button onClick={() => void cmd.issue()} disabled={cmd.busy}>{cmd.busy ? 'Issuing…' : 'Get my command'}</Button>}
-          </div>
-
-          <div className="mt-4 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-white/35">
-            <span>No Node.js?</span>
-            <code className="font-mono text-white/45">{NODE_INSTALL[os]}</code>
-            {cmd.token && <Link href="/settings#worker" className="underline underline-offset-2 hover:text-white/60">Manage tokens</Link>}
-          </div>
-
-          <p className="mt-4 text-[12.5px] text-white/35">{SWARM_NOTE}</p>
-        </Choice>
-
-        <div className="border-t border-white/[0.07]" />
+        <Spine
+          label={tab === 'browser' ? 'On my machine' : 'In this browser'}
+          on={tab === 'browser' ? online : running}
+          onClick={() => setTab(tab === 'browser' ? 'machine' : 'browser')}
+        />
       </div>
     </Screen>
   );
