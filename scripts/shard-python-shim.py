@@ -46,6 +46,15 @@ if argv[:2] == ["-m", "shard.stage"] and "--check" not in argv:
     port = int(arg("--port", 29610))
     nxt = arg("--next", None)
 
+    # SHIM_STAGE_READY_DELAY_S models a stage still PULLING its 25-30 GB range: no engine listener
+    # and no SHARD_STAGE_READY for that long, while the rest of the ring is already up. Applied
+    # before the bind, because a listening port would let the coordinator's return probe succeed
+    # against a stage that is not actually serving yet (slow-tail-test.sh).
+    _delay = float(os.environ.get("SHIM_STAGE_READY_DELAY_S") or 0)
+    if _delay > 0:
+        print(f"SHIM_STAGE_PULLING stage={stage} for {_delay:.0f}s", flush=True)
+        time.sleep(_delay)
+
     srv = socket.socket()
     srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     srv.bind(("127.0.0.1", port))
@@ -63,6 +72,19 @@ if argv[:2] == ["-m", "shard.stage"] and "--check" not in argv:
             except OSError:
                 pass
     threading.Thread(target=accept_loop, daemon=True).start()
+
+    # READY before the forward ROUNDTRIP. The real engine does dial forward first
+    # (m25_pipe.py:2139, strict) — but it dials the LOCAL SIDECAR's forward port, which is up
+    # regardless of whether the downstream STAGE is, so a real stage reports READY while the rest
+    # of the ring is still pulling. The shim's roundtrip needs the peer's echo, so leaving READY
+    # behind it made every stage look like it became ready at the same instant and no harness could
+    # ever see a head running ahead of a still-pulling tail (bug S2). The roundtrip stays below as
+    # the ring-leg receipt; only the READY line moves.
+    time.sleep(0.5)
+    print("SHARD_STAGE_READY " + json.dumps({
+        "stage": stage, "nstages": int(arg("--nstages", 1)),
+        "lo": int(arg("--lo", 0)), "hi": int(arg("--hi", 62)),
+        "port": port, "pid": os.getpid(), "tail": nxt is None}), flush=True)
 
     if nxt:                                          # forward leg: dial the successor THROUGH
         host, p = nxt.rsplit(":", 1)                 # the local sidecar's -forward tunnel
@@ -86,11 +108,6 @@ if argv[:2] == ["-m", "shard.stage"] and "--check" not in argv:
                 {"error": f"shim: forward roundtrip via {nxt} never completed"}), flush=True)
             sys.exit(1)
 
-    time.sleep(0.5)
-    print("SHARD_STAGE_READY " + json.dumps({
-        "stage": stage, "nstages": int(arg("--nstages", 1)),
-        "lo": int(arg("--lo", 0)), "hi": int(arg("--hi", 62)),
-        "port": port, "pid": os.getpid(), "tail": nxt is None}), flush=True)
     while True:                                      # park like a warm stage; SIGTERM ends us
         time.sleep(60)
 
@@ -117,7 +134,10 @@ if argv[:2] == ["-m", "shard.coordinate"]:
     # sidecar -> libp2p -> the TAIL's sidecar -> the tail shim stage, which echoes it. Only the
     # echo proves the tunnel (a local connect alone proves nothing — same rule as the forward leg).
     probe = b"SHIM_RETURN_PROBE from coordinator"
-    for attempt in range(60):
+    # SHIM_COORD_DIAL_ATTEMPTS shortens the ~120s dial window so a harness can watch a head's
+    # coordinator give up against a tail that is not there YET, without paying two minutes per
+    # attempt (slow-tail-test.sh). Default = the real CLI's patience.
+    for attempt in range(int(os.environ.get("SHIM_COORD_DIAL_ATTEMPTS") or 60)):
         try:
             s = socket.create_connection((host, int(p)), timeout=5)
             s.settimeout(5)

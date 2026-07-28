@@ -11,7 +11,7 @@ import { io, Socket } from 'socket.io-client';
 import { existsSync } from 'fs';
 import { hostname } from 'os';
 import {
-  proveIdentity, receiptPubkey, detectGpuName, detectFreeVramMB, probeMeasure, measureRttMs,
+  proveIdentity, receiptPubkey, detectGpuName, detectFreeVramMB, probeMeasure, probePeers, measureRttMs,
   pullRange, startSidecar, pickDialAddrs, answerChallenge, StageProcess, CoordinatorProcess,
   FORWARD_PORT, RETURN_PORT, LIBP2P_PORT, MANIFEST_DEV_FILE, MANIFEST_FILE, MANIFEST_REF, MODEL_DIR,
   MODEL_REPO, SHARD_REPO,
@@ -21,6 +21,19 @@ import { ensureShardSetup, resolveManifest, resolveRelays } from './shard-setup.
 
 const MODEL = process.env.C0MPUTE_SHARD_MODEL || 'minimax-m2.5';
 const MAX_STAGE_RESTARTS = 5;
+// The coordinator's budgets, kept apart from the stage's (S2). A DIAL is "the ring isn't up yet";
+// a RESTART is a coordinator that connected and then died, which is a real fault.
+// Dial arithmetic, because this decides how long a doomed swarm holds a node's slot:
+// `python -m shard.coordinate` retries internally for --connect-retry (300s) before it exits, so
+// 10 dials is up to ~52min of patience for a genuinely slow tail (the 07-28 ring had one >25min
+// behind). A coordinator that instead fails FAST and pre-READY — a bad model dir, an engine import
+// error — burns the same 10 dials in ~2.5min before release(), against ~1min on the old shared
+// budget. Deliberate trade: the alternative is a classifier guessing "the ring isn't up" from "I am
+// broken", and guessing wrong there is the bug this exists to fix. The swarm is unservable either
+// way, and the orchestrator re-forms around it.
+const MAX_COORD_DIALS = 10;
+const MAX_COORD_RESTARTS = 5;
+const COORD_DIAL_RETRY_MS = 15_000;
 
 interface ShardWorkerOptions {
   token: string;
@@ -127,9 +140,24 @@ async function bindIdentity(opts: ShardWorkerOptions, cap: Record<string, unknow
  *  pipes it verbatim into the server-driven role probe — snake_case keys), `announceCap` = the
  *  NodeCapabilities shape `node:announce`/formSwarm read (camelCase). Probe unavailable (engine
  *  or slice not on disk yet) degrades to basic detection; the server re-decides role either way. */
-async function buildCapabilities(): Promise<{ measured: Record<string, unknown>; announceCap: Record<string, unknown> }> {
+async function buildCapabilities(orchestratorUrl: string):
+Promise<{ measured: Record<string, unknown>; announceCap: Record<string, unknown> }> {
   const pubkey = receiptPubkey();
-  const measured = probeMeasure() ?? {};
+  const peers = probePeers(orchestratorUrl);
+  if (!peers.length) log('no probe peers — announcing WITHOUT an uplink vector (every role gate that reads it will fail)');
+  const measured = probeMeasure(peers) ?? {};
+  if (peers.length) {
+    log(`network vector: uplink_mbps=${measured.uplink_mbps ?? 'n/a'} `
+      + `rtt_to_pool_ms=${measured.rtt_to_pool_ms ?? 'n/a'} nat_dialable=${measured.nat_dialable ?? 'n/a'}`
+      + (measured.uplink_mbps ? '' : ` — no receiver answered at ${peers.join(',')}`));
+  }
+  // measure_net returns uplink_mbps: 0.0 when NO receiver answered, which is a failed measurement,
+  // not a measurement of zero. Announcing it would be worse than announcing nothing: swarm.ts
+  // switches the planner to upload-aware placement only when EVERY candidate reports upMbps, and a
+  // pool of honest zeros flips that on, whereupon topology.py floors them all at 0.5 Mbps and
+  // plans the ring off a number nobody measured. Absent keeps the pool upload-blind, as today.
+  const upMbps = typeof measured.uplink_mbps === 'number' && measured.uplink_mbps > 0
+    ? measured.uplink_mbps : undefined;
   const announceCap = {
     pubkey,
     gpu: detectGpuName(),
@@ -139,6 +167,7 @@ async function buildCapabilities(): Promise<{ measured: Record<string, unknown>;
     ...(measured.total_vram_mb !== undefined && { totalVramMb: measured.total_vram_mb }),
     ...(measured.load_peak_extra_mb !== undefined && { loadPeakExtraMb: measured.load_peak_extra_mb }),
     ...(measured.layer_ms !== undefined && { layerMs: measured.layer_ms }),
+    ...(upMbps !== undefined && { upMbps }),
   };
   return { measured, announceCap };
 }
@@ -194,7 +223,7 @@ export async function startShardWorker(opts: ShardWorkerOptions): Promise<void> 
   // ── ENROLL ──
   const myAddrs = await bootSidecar().addrs;
   log(`dialable addrs: ${myAddrs.length ? myAddrs.join(' ') : 'NONE (NAT without relays? set C0MPUTE_SHARD_RELAYS)'}`);
-  const { measured, announceCap } = await buildCapabilities();
+  const { measured, announceCap } = await buildCapabilities(opts.orchestratorUrl);
   announceCap.addrs = myAddrs;              // ring peers dial these for their forward legs
   await bindIdentity(opts, measured);
 
@@ -215,6 +244,14 @@ export async function startShardWorker(opts: ShardWorkerOptions): Promise<void> 
     retryTimer: ReturnType<typeof setTimeout> | null;
     coord: CoordinatorProcess | null;       // HEAD only: the serving half (leg 8)
     coordDegraded: boolean;                 // P11: relaunch the coordinator EAGLE-off after a stall-kill
+    // S2: the coordinator gets its OWN budget. Sharing `restarts` with stage crashes meant a tail
+    // legitimately >25min behind the head degraded the coordinator at 2 failed dials and made the
+    // head LEAVE the swarm at 6 — collapsing a ring that was minutes from ready.
+    coordRestarts: number;                  // deaths AFTER a successful connect (a real crash)
+    coordDials: number;                     // deaths BEFORE one (the ring simply isn't up yet)
+    coordReady: boolean;                    // this coordinator reported SHARD_COORD_READY
+    ringReady: boolean;                     // the server said ALL stages are ready (swarm:ring_ready)
+    coordRetryTimer: ReturnType<typeof setTimeout> | null;   // NOT retryTimer: that one is the stage's
     jobs: Map<string, { swarmId: string; nonce: string }>;  // in-flight swarm:job bookkeeping
   } | null = null;
 
@@ -222,6 +259,7 @@ export async function startShardWorker(opts: ShardWorkerOptions): Promise<void> 
     if (!current) return;
     log(`leaving swarm ${current.assignment.swarmId}: ${reason} (ranges stay on disk for the warm re-join)`);
     if (current.retryTimer) clearTimeout(current.retryTimer);
+    if (current.coordRetryTimer) clearTimeout(current.coordRetryTimer);
     current.abort.abort();
     current.coord?.stop();
     current.stage.stop();
@@ -250,15 +288,26 @@ export async function startShardWorker(opts: ShardWorkerOptions): Promise<void> 
   }
 
   /** HEAD only: the long-lived `python -m shard.coordinate` beside the head stage (leg 8's
-   *  serving half). Started on stage READY; its death fails in-flight jobs closed and
-   *  restarts with the stage's own restart budget (a dead coordinator = an unservable swarm). */
+   *  serving half). Gated on RING readiness, not our own stage's: the coordinator's return leg
+   *  dials the TAIL, so it can only connect once every stage is up. Its death fails in-flight jobs
+   *  closed and relaunches against its OWN budget (never the stage's). */
   function launchCoordinator(): void {
     if (!current || !current.assignment.isHead) return;
     const a = current.assignment;
+    if (current.coordRetryTimer) { clearTimeout(current.coordRetryTimer); current.coordRetryTimer = null; }
     current.coord?.stop();
+    current.coordReady = false;
     const coord = new CoordinatorProcess();
     current.coord = coord;
-    coord.onReady = () => log('coordinator READY (head-engine pipe + tail return tunnel up) — swarm can serve');
+    coord.onReady = () => {
+      if (current?.coord !== coord) return;
+      // A successful connect ENDS the previous failure story: the dials that happened while the
+      // ring was still forming are not evidence that this coordinator is unhealthy.
+      current.coordReady = true;
+      current.coordDials = 0;
+      current.coordRestarts = 0;
+      log('coordinator READY (head-engine pipe + tail return tunnel up) — swarm can serve');
+    };
     coord.onToken = (jobId, delta) => socket.emit('swarm:job_token', { jobId, delta });
     coord.onDone = (done) => {
       const j = current?.jobs.get(done.jobId);
@@ -281,24 +330,47 @@ export async function startShardWorker(opts: ShardWorkerOptions): Promise<void> 
       if (current?.assignment.swarmId !== a.swarmId || current.coord !== coord) return;
       for (const [jobId, j] of current.jobs) failJob(j.swarmId, jobId, j.nonce, 'coordinator died mid-job');
       current.jobs.clear();
-      current.restarts += 1;
+      const wasReady = current.coordReady;
+      current.coordReady = false;
+      if (!wasReady) {
+        // It never reached the ring. `python -m shard.coordinate` exits like this when connect_ring
+        // times out because a peer stage is still pulling weights — a statement about the RING's
+        // progress, not about this process's health. Retrying it is the whole design; degrading
+        // EAGLE or leaving the swarm over it is how a 6-box ring killed itself minutes before it
+        // would have served.
+        current.coordDials += 1;
+        if (current.coordDials > MAX_COORD_DIALS) {
+          release(`coordinator could not reach the ring in ${MAX_COORD_DIALS} attempts `
+            + `(last: ${fatal || `exit ${code}`})`);
+          return;
+        }
+        const delay = COORD_DIAL_RETRY_MS;
+        log(`coordinator could not connect the ring yet (${fatal || `code ${code}`}) — `
+          + `dial ${current.coordDials}/${MAX_COORD_DIALS} again in ${delay / 1000}s `
+          + '(peer stages may still be pulling)');
+        current.coordRetryTimer = setTimeout(() => {
+          if (current?.assignment.swarmId === a.swarmId) launchCoordinator();
+        }, delay);
+        return;
+      }
+      current.coordRestarts += 1;
       // P11 restart-degraded: a stall-watchdog kill (P0-#5 L3) is an EAGLE-implicated wedge — the
       // relaunch must drop the speculative levers or it walks straight back into the same stall.
       // Belt-and-braces: any 2nd+ coordinator death also degrades (a coordinator that keeps dying
       // is better slow-but-serving than fast-but-dead). Sticky for the swarm session.
       if (!current.coordDegraded
-          && (/stall-watchdog/.test(fatal ?? '') || current.restarts >= 2)) {
+          && (/stall-watchdog/.test(fatal ?? '') || current.coordRestarts >= 2)) {
         current.coordDegraded = true;
         log('coordinator: relaunching EAGLE-off (degraded) after a stall/repeat death — plain ring, reliable serve');
       }
-      if (current.restarts > MAX_STAGE_RESTARTS) {
+      if (current.coordRestarts > MAX_COORD_RESTARTS) {
         release(`coordinator kept dying (last: ${fatal || `exit ${code}`})`);
         return;
       }
-      const delay = 2000 * 2 ** (current.restarts - 1);
+      const delay = 2000 * 2 ** (current.coordRestarts - 1);
       log(`coordinator exited (${fatal || `code ${code}`}) — restart in ${delay / 1000}s`
         + (current.coordDegraded ? ' (EAGLE-off)' : ''));
-      current.retryTimer = setTimeout(() => {
+      current.coordRetryTimer = setTimeout(() => {
         if (current?.assignment.swarmId === a.swarmId) launchCoordinator();
       }, delay);
     };
@@ -313,8 +385,11 @@ export async function startShardWorker(opts: ShardWorkerOptions): Promise<void> 
     stage.onReady = (info) => {
       log(`stage ${a.stageIndex} READY (layers [${info.lo}:${info.hi}), port ${info.port}) -> swarm:ready`);
       socket.emit('swarm:ready', { swarmId: a.swarmId });
-      // the serving half rides the head: coordinator up only once the local engine listens
-      // (its pipe socket dials the head stage loopback; a stage restart re-runs this)
+      // The serving half rides the head. Launched HERE, unconditionally, so a job dispatched
+      // the instant the swarm goes ready always finds a coordinator object to submit to, and so a
+      // stage restart always replaces a coordinator whose pipe is dialed at the dead engine.
+      // Connecting the ring is the coordinator's own problem: it retries internally, and its dials
+      // are budgeted apart from stage crashes (below), which is what actually fixes S2.
       if (a.isHead) launchCoordinator();
     };
     stage.onExit = (code, fatal) => {
@@ -473,9 +548,26 @@ export async function startShardWorker(opts: ShardWorkerOptions): Promise<void> 
     current = {
       assignment: a, stage: new StageProcess(), restarts: 0,
       abort: new AbortController(), retryTimer: null,
-      coord: null, coordDegraded: false, jobs: new Map(),
+      coord: null, coordDegraded: false,
+      coordRestarts: 0, coordDials: 0, coordReady: false, ringReady: false, coordRetryTimer: null,
+      jobs: new Map(),
     };
     void serve(a);
+  });
+
+  // The server saw every stage report ready — the one moment anybody knows the whole ring is up,
+  // and the first moment the head's coordinator can actually reach the tail. It does not GATE the
+  // launch (that would open a window where a job arrives before any coordinator exists); it cuts
+  // short the dial backoff, so a head that has been failing to connect retries NOW instead of
+  // waiting out its timer. `running`, not `!= null`: a coordinator sitting between dial retries is
+  // a live object wrapping a dead process, and treating that as "already started" made ring_ready
+  // a silent no-op right when it mattered.
+  socket.on('swarm:ring_ready', (p: { swarmId: string }) => {
+    if (!current || current.assignment.swarmId !== p.swarmId) return;
+    current.ringReady = true;
+    if (!current.assignment.isHead || current.coord?.running) return;
+    log('ring READY (all stages) — (re)starting the coordinator now');
+    launchCoordinator();
   });
 
   // leg 8, the serving half: the server dispatches a job to the swarm's coordinator (us,
@@ -490,8 +582,14 @@ export async function startShardWorker(opts: ShardWorkerOptions): Promise<void> 
       failJob(job.swarmId, job.jobId, job.nonce, 'not the serving head');
       return;
     }
-    if (!current.coord) {
+    if (!current.coord?.running) {
+      // A job is the strongest possible evidence that the ring is up: the server only dispatches to
+      // a READY swarm. If we are sitting out a dial backoff, stop waiting — this job is still lost
+      // (fail-closed beats a hung client stream), but the next one finds a coordinator instead of
+      // the rest of the backoff. Testing `coord != null` used to miss this entirely: between a
+      // death and the relaunch the object outlives its process, so submit() threw instead.
       failJob(job.swarmId, job.jobId, job.nonce, 'coordinator not running');
+      if (current.coord && !current.coord.running) launchCoordinator();
       return;
     }
     log(`swarm:job ${job.jobId} accepted (${job.maxNew ?? 512} max tokens)`);

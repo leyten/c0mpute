@@ -391,6 +391,15 @@ export class SwarmManager {
     if (st) st.ready = true;
     if (swarm.status === 'pulling' && swarm.stages.every((s) => s.ready)) {
       swarm.status = 'ready';
+      // Tell the ring it IS a ring, BEFORE announcing readiness to anyone else. The head's
+      // coordinator dials the TAIL's engine through the return tunnel, so it cannot connect until
+      // every stage is up — but the head only ever knew about its OWN stage, so it launched a
+      // coordinator into a dead tunnel and burned its restart budget while the tail was still
+      // legitimately pulling 30 GB (receipt stranger-serve-20260728, bug S2). This is the one
+      // moment the server knows the whole ring is up, and until now it kept that to itself.
+      // Order matters: log() is a synchronous callback and a listener may dispatch a job from it,
+      // which would reach the head before it had been told to start serving.
+      for (const st of swarm.stages) this.d.emit(st.nodeId, 'swarm:ring_ready', { swarmId });
       this.log(`${swarmId} READY — all ${swarm.stages.length} stages pulled + connected; serving ${swarm.model}`);
     }
     return swarm;
