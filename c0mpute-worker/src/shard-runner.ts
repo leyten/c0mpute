@@ -568,6 +568,13 @@ export class CoordinatorProcess {
   private exited = false;
   private fatal: string | null = null;
   ready = false;
+
+  /** Is there a LIVE process behind this object? Between a death and the next relaunch the object
+   *  outlives its process, so a caller testing `coord != null` mistakes a corpse for a coordinator. */
+  get running(): boolean {
+    return this.proc !== null && !this.exited && this.proc.exitCode === null;
+  }
+
   onReady?: () => void;
   onToken?: (jobId: string, delta: string) => void;
   onDone?: (done: CoordJobDone) => void;
