@@ -11,7 +11,7 @@ import { io, Socket } from 'socket.io-client';
 import { existsSync } from 'fs';
 import { hostname } from 'os';
 import {
-  proveIdentity, receiptPubkey, detectGpuName, detectFreeVramMB, probeMeasure, measureRttMs,
+  proveIdentity, receiptPubkey, detectGpuName, detectFreeVramMB, probeMeasure, probePeers, measureRttMs,
   pullRange, startSidecar, pickDialAddrs, answerChallenge, StageProcess, CoordinatorProcess,
   FORWARD_PORT, RETURN_PORT, LIBP2P_PORT, MANIFEST_DEV_FILE, MANIFEST_FILE, MANIFEST_REF, MODEL_DIR,
   MODEL_REPO, SHARD_REPO,
@@ -140,9 +140,24 @@ async function bindIdentity(opts: ShardWorkerOptions, cap: Record<string, unknow
  *  pipes it verbatim into the server-driven role probe — snake_case keys), `announceCap` = the
  *  NodeCapabilities shape `node:announce`/formSwarm read (camelCase). Probe unavailable (engine
  *  or slice not on disk yet) degrades to basic detection; the server re-decides role either way. */
-async function buildCapabilities(): Promise<{ measured: Record<string, unknown>; announceCap: Record<string, unknown> }> {
+async function buildCapabilities(orchestratorUrl: string):
+Promise<{ measured: Record<string, unknown>; announceCap: Record<string, unknown> }> {
   const pubkey = receiptPubkey();
-  const measured = probeMeasure() ?? {};
+  const peers = probePeers(orchestratorUrl);
+  if (!peers.length) log('no probe peers — announcing WITHOUT an uplink vector (every role gate that reads it will fail)');
+  const measured = probeMeasure(peers) ?? {};
+  if (peers.length) {
+    log(`network vector: uplink_mbps=${measured.uplink_mbps ?? 'n/a'} `
+      + `rtt_to_pool_ms=${measured.rtt_to_pool_ms ?? 'n/a'} nat_dialable=${measured.nat_dialable ?? 'n/a'}`
+      + (measured.uplink_mbps ? '' : ` — no receiver answered at ${peers.join(',')}`));
+  }
+  // measure_net returns uplink_mbps: 0.0 when NO receiver answered, which is a failed measurement,
+  // not a measurement of zero. Announcing it would be worse than announcing nothing: swarm.ts
+  // switches the planner to upload-aware placement only when EVERY candidate reports upMbps, and a
+  // pool of honest zeros flips that on, whereupon topology.py floors them all at 0.5 Mbps and
+  // plans the ring off a number nobody measured. Absent keeps the pool upload-blind, as today.
+  const upMbps = typeof measured.uplink_mbps === 'number' && measured.uplink_mbps > 0
+    ? measured.uplink_mbps : undefined;
   const announceCap = {
     pubkey,
     gpu: detectGpuName(),
@@ -152,6 +167,7 @@ async function buildCapabilities(): Promise<{ measured: Record<string, unknown>;
     ...(measured.total_vram_mb !== undefined && { totalVramMb: measured.total_vram_mb }),
     ...(measured.load_peak_extra_mb !== undefined && { loadPeakExtraMb: measured.load_peak_extra_mb }),
     ...(measured.layer_ms !== undefined && { layerMs: measured.layer_ms }),
+    ...(upMbps !== undefined && { upMbps }),
   };
   return { measured, announceCap };
 }
@@ -207,7 +223,7 @@ export async function startShardWorker(opts: ShardWorkerOptions): Promise<void> 
   // ── ENROLL ──
   const myAddrs = await bootSidecar().addrs;
   log(`dialable addrs: ${myAddrs.length ? myAddrs.join(' ') : 'NONE (NAT without relays? set C0MPUTE_SHARD_RELAYS)'}`);
-  const { measured, announceCap } = await buildCapabilities();
+  const { measured, announceCap } = await buildCapabilities(opts.orchestratorUrl);
   announceCap.addrs = myAddrs;              // ring peers dial these for their forward legs
   await bindIdentity(opts, measured);
 
