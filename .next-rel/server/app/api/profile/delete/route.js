@@ -1,0 +1,12 @@
+var R=require("../../../../chunks/[turbopack]_runtime.js")("server/app/api/profile/delete/route.js")
+R.c("server/chunks/[root-of-the-server]__b884b519._.js")
+R.c("server/chunks/lib_db_ts_033a32e3._.js")
+R.c("server/chunks/[root-of-the-server]__98d6514a._.js")
+R.c("server/chunks/node_modules_@noble_curves_8b603fa7._.js")
+R.c("server/chunks/node_modules_node-fetch-native_dist_node_mjs_558d0a9c._.js")
+R.c("server/chunks/[root-of-the-server]__f408c708._.js")
+R.c("server/chunks/node_modules_eb70c2c4._.js")
+R.c("server/chunks/_d08b9ff6._.js")
+R.c("server/chunks/_next-internal_server_app_api_profile_delete_route_actions_3c72a29a.js")
+R.m(602862)
+module.exports=R.m(602862).exports

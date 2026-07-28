@@ -211,12 +211,6 @@ export default function SettingsPage() {
   const [depositResult, setDepositResult] = useState<string | null>(null);
   const [topUpUsd, setTopUpUsd] = useState('');
 
-  // Redirect to home if not authenticated
-  if (!isLoading && !isAuthenticated) {
-    router.push('/');
-    return null;
-  }
-
   // Fetch worker tokens
   const fetchTokens = async () => {
     setLoadingTokens(true);
@@ -302,6 +296,16 @@ export default function SettingsPage() {
       });
     }
   }, [activeTab, isAuthenticated]);
+
+  // Signed-out visitors go home. This has to be an effect placed after every
+  // other hook: it used to redirect during render and return early, which
+  // skipped the hook above and crashed the page with a hook-count mismatch
+  // (React #300/#310) for anyone who opened /settings without a session.
+  useEffect(() => {
+    if (!isLoading && !isAuthenticated) router.push('/');
+  }, [isLoading, isAuthenticated, router]);
+
+  const signedOut = !isLoading && !isAuthenticated;
 
   const switchPlan = async (plan: PlanId) => {
     setPlanSwitching(true);
@@ -521,6 +525,9 @@ export default function SettingsPage() {
   const e = earnings ?? { pendingBalance: 0, todayEarnings: 0, totalEarnings: 0, wallet: null };
   const CREDITS_PER_USD = credits?.config?.creditsPerUsd ?? 100; // 1 credit = $0.01
   const topUpCredits = Math.round(Math.max(0, parseFloat(topUpUsd) || 0) * CREDITS_PER_USD);
+
+  // every hook above has run by now, so bailing here is safe
+  if (signedOut) return null;
 
   return (
     <div className="min-h-screen bg-black">

@@ -1,0 +1,3 @@
+{
+  "/api/worker-stats/route": "app/api/worker-stats/route.js"
+}

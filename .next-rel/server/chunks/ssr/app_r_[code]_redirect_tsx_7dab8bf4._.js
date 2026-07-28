@@ -1,0 +1,3 @@
+module.exports=[951991,a=>{"use strict";var b=a.i(187924),c=a.i(572131);function d({target:a}){return(0,c.useEffect)(()=>{window.location.replace(a)},[a]),(0,b.jsx)("div",{className:"min-h-screen bg-black flex items-center justify-center",children:(0,b.jsx)("a",{href:a,className:"pixel-sans text-white/70",children:"entering c0mpute..."})})}a.s(["default",()=>d])}];
+
+//# sourceMappingURL=app_r_%5Bcode%5D_redirect_tsx_7dab8bf4._.js.map

@@ -1,0 +1,3 @@
+{
+  "/api/worker-token/route": "app/api/worker-token/route.js"
+}

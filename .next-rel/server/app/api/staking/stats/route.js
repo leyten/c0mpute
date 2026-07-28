@@ -1,0 +1,12 @@
+var R=require("../../../../chunks/[turbopack]_runtime.js")("server/app/api/staking/stats/route.js")
+R.c("server/chunks/[root-of-the-server]__67fbf852._.js")
+R.c("server/chunks/lib_keeper_onchain-rewards_ts_0caa3d6c._.js")
+R.c("server/chunks/_38ee8dd5._.js")
+R.c("server/chunks/node_modules_f88cfa12._.js")
+R.c("server/chunks/node_modules_@noble_curves_8b603fa7._.js")
+R.c("server/chunks/[root-of-the-server]__f408c708._.js")
+R.c("server/chunks/[root-of-the-server]__98d6514a._.js")
+R.c("server/chunks/node_modules_eb70c2c4._.js")
+R.c("server/chunks/_next-internal_server_app_api_staking_stats_route_actions_821497d9.js")
+R.m(814523)
+module.exports=R.m(814523).exports

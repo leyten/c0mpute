@@ -1,0 +1,17 @@
+{
+  "status": 307,
+  "headers": {
+    "location": "/staking",
+    "x-nextjs-stale-time": "300",
+    "x-nextjs-prerender": "1",
+    "x-next-cache-tags": "_N_T_/layout,_N_T_/staking-onchain/layout,_N_T_/staking-onchain/page,_N_T_/staking-onchain"
+  },
+  "segmentPaths": [
+    "/_tree",
+    "/_full",
+    "/staking-onchain/__PAGE__",
+    "/staking-onchain",
+    "/_index",
+    "/_head"
+  ]
+}

@@ -1,0 +1,10 @@
+var R=require("../../../chunks/[turbopack]_runtime.js")("server/app/api/anon/route.js")
+R.c("server/chunks/[root-of-the-server]__7f1ce447._.js")
+R.c("server/chunks/[root-of-the-server]__98d6514a._.js")
+R.c("server/chunks/lib_db_ts_033a32e3._.js")
+R.c("server/chunks/[root-of-the-server]__f408c708._.js")
+R.c("server/chunks/node_modules_eb70c2c4._.js")
+R.c("server/chunks/node_modules_@noble_curves_8b603fa7._.js")
+R.c("server/chunks/_next-internal_server_app_api_anon_route_actions_93d9acb5.js")
+R.m(729853)
+module.exports=R.m(729853).exports
