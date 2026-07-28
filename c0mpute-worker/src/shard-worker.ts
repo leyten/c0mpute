@@ -11,7 +11,7 @@ import { io, Socket } from 'socket.io-client';
 import { existsSync } from 'fs';
 import { hostname } from 'os';
 import {
-  proveIdentity, receiptPubkey, detectGpuName, detectFreeVramMB, probeMeasure,
+  proveIdentity, receiptPubkey, detectGpuName, detectFreeVramMB, probeMeasure, measureRttMs,
   pullRange, startSidecar, pickDialAddrs, answerChallenge, StageProcess, CoordinatorProcess,
   FORWARD_PORT, RETURN_PORT, LIBP2P_PORT, MANIFEST_DEV_FILE, MANIFEST_FILE, MANIFEST_REF, MODEL_DIR,
   MODEL_REPO, SHARD_REPO,
@@ -438,6 +438,27 @@ export async function startShardWorker(opts: ShardWorkerOptions): Promise<void> 
   });
 
   socket.on('connect_error', (err: Error) => log(`connect error: ${err.message}`));
+
+  // ── LATENCY REPORT: the control plane hands us a rotating slice of other candidates; we time a
+  // TCP connect to each and report back. This is what makes placement latency-aware — without it
+  // the orchestrator plans on a constant matrix and the ring order is announce arrival order.
+  // Best-effort throughout: one round at a time, failures are omitted rather than guessed, and a
+  // node that never answers is simply never measured (the server fills those pairs itself).
+  let rttRoundBusy = false;
+  socket.on('swarm:probe_peers', (p: { model?: string; peers?: { nodeId: string; addrs: string[] }[] }) => {
+    if (rttRoundBusy || !p?.peers?.length) return;
+    rttRoundBusy = true;
+    measureRttMs(p.peers)
+      .then((rttMs) => {
+        const n = Object.keys(rttMs).length;
+        if (n) {
+          log(`measured RTT to ${n}/${p.peers!.length} peer(s) — reporting`);
+          socket.emit('node:rtt', { model: p.model, rttMs });
+        }
+      })
+      .catch((e: Error) => log(`rtt round failed: ${e.message}`))
+      .finally(() => { rttRoundBusy = false; });
+  });
 
   socket.on('swarm:assign', (a: StageAssignment) => {
     if (current) {

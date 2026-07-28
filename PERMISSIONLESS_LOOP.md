@@ -172,10 +172,15 @@ off the stage pool. Headless unit coverage in `scripts/rails-test.ts` (18 assert
 
 ## Remaining integration
 
-- **RTT collection + auto-form trigger.** `formSwarm` needs a measured RTT matrix over the candidate pool
-  (a short probe round the nodes run and report) and a trigger (a model's pool reaching a coverable set, or
-  demand for that model). The manager exposes `formSwarm(model, manifestRef, profile, rtt)`; the probe +
-  trigger is the next step.
+- **RTT collection — landed; the co-signed upgrade has not.** The orchestrator hands each candidate a
+  rotating slice of peers (`swarm:probe_peers`), the node times a TCP connect to their announced sidecar
+  addrs and reports back (`node:rtt`), and `lib/orchestrator/rtt-cache.ts` hands `autoForm` a pool-aligned
+  matrix synchronously. Before this, `formSwarm` got a constant 30 ms matrix, which made the planner's
+  objective identical across every permutation — ring order, head election and the `_TRIM` cull were all
+  announce arrival order. Pairs nobody has measured still fall back to the 30 ms placeholder, so a pool
+  that never reports forms rings exactly as it did. The samples remain SELF-ATTESTED: a two-sided pair
+  takes `max()` of the two claims per PLACEMENT_AS_PROTOCOL.md §3, but receiver-signed observations and
+  disinterested-prober assignment are the level-2 work in that document.
 - **Pay wiring.** `recordSwarmStageEarning` logs the verified per-shard split today; mapping it onto
   `recordEarning()` (tier / creditsCharged / payout basis) is decision **B**. The split is already correct —
   only the $ mapping waits.

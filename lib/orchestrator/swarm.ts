@@ -198,6 +198,17 @@ export class SwarmManager {
   }
 
   candidateCount(model: string) { return (this.candidates.get(model) ?? []).length; }
+  /** The candidate ids for `model` in POOL ORDER — the exact indexing an `rtt` matrix passed to
+   *  formSwarm must use (it slices against this same list). Without it a caller can only learn the
+   *  pool's SIZE, which is why the latency matrix used to be a constant. */
+  candidateIds(model: string) { return (this.candidates.get(model) ?? []).map((c) => c.nodeId); }
+  /** Candidates for `model` that published dialable addrs — the probe targets the loop hands out
+   *  so nodes can measure each other before there is a ring to measure across. */
+  probeTargets(model: string) {
+    return (this.candidates.get(model) ?? [])
+      .filter((c) => (c.cap.addrs?.length ?? 0) > 0)
+      .map((c) => ({ nodeId: c.nodeId, addrs: c.cap.addrs! }));
+  }
   getSwarm(id: string) { return this.swarms.get(id); }
   swarmForModel(model: string) {
     return [...this.swarms.values()].find((s) => s.model === model && s.status === 'ready');
