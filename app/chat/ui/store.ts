@@ -144,11 +144,83 @@ export function truncateAt(msgs: Msg[], id: string | undefined): Msg[] {
 
 // ---- storage ----
 
+/** Conversations written by the interface this one replaces, under
+ *  `c0mpute_chats`: `ChatWithMessages[]` from lib/types.ts, with snake_case
+ *  timestamps and a system role this schema does not carry. Read once, on the
+ *  first load that finds no v2 data, then written forward under the new key so
+ *  it never runs again. The old key is left in place, so rolling back to the
+ *  previous build still finds its history. */
+const LEGACY_KEY = 'c0mpute_chats';
+
+interface LegacyMessage { id?: string; role?: string; content?: string; images?: string[]; created_at?: string }
+interface LegacyChat { id?: string; title?: string; updated_at?: string; created_at?: string; messages?: LegacyMessage[] }
+
+function adoptLegacy(): Convo[] {
+  let raw: string | null = null;
+  try {
+    raw = localStorage.getItem(LEGACY_KEY);
+  } catch {
+    return [];
+  }
+  if (!raw) return [];
+
+  let chats: LegacyChat[];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    chats = parsed as LegacyChat[];
+  } catch {
+    return [];
+  }
+
+  const convos: Convo[] = [];
+  for (const c of chats) {
+    if (!c || !Array.isArray(c.messages)) continue;
+
+    const messages: Msg[] = [];
+    for (const m of c.messages) {
+      // the old store kept system turns; this schema has no place for them
+      if (!m || (m.role !== 'user' && m.role !== 'assistant')) continue;
+      const content = typeof m.content === 'string' ? m.content : '';
+      const id = typeof m.id === 'string' && m.id ? m.id : uid();
+      const images = Array.isArray(m.images) && m.images.length ? m.images : undefined;
+      if (m.role === 'user') {
+        messages.push({ id, role: 'user', content, images });
+      } else {
+        // one version, so regenerating an adopted answer behaves exactly as it
+        // does on one written by this build
+        const at = Date.parse(m.created_at ?? '') || Date.now();
+        messages.push({
+          id,
+          role: 'assistant',
+          content,
+          images,
+          versions: [{ id: uid(), content, images, createdAt: at }],
+          active: 0,
+        });
+      }
+    }
+    if (messages.length === 0) continue;
+
+    const stamp = Date.parse(c.updated_at ?? c.created_at ?? '');
+    convos.push({
+      id: typeof c.id === 'string' && c.id ? c.id : uid(),
+      title: typeof c.title === 'string' && c.title.trim() ? c.title : titleFrom(messages[0].content),
+      updatedAt: Number.isFinite(stamp) ? stamp : Date.now(),
+      model: 'pro',
+      messages,
+    });
+  }
+
+  if (convos.length > 0) save(convos);
+  return convos.sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
 export function load(): Convo[] {
   if (typeof window === 'undefined') return [];
   try {
     const raw = localStorage.getItem(KEY);
-    if (!raw) return [];
+    if (!raw) return adoptLegacy();
     const parsed = JSON.parse(raw);
     const list: Convo[] = Array.isArray(parsed) ? parsed : parsed?.convos ?? [];
     return list
