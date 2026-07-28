@@ -22,6 +22,7 @@
 import { randomUUID, randomBytes } from 'crypto';
 import type { Server } from 'socket.io';
 import { SwarmManager, type Seam, type SwarmConfig, type TrustOracle, DEFAULT_SWARM_CONFIG, type ModelProfile } from './swarm';
+import { RttCache } from './rtt-cache';
 import type { JobRevenue, JobSettleSnapshot } from './swarm-types';
 import { SubprocessSeam } from './swarm-seam';
 import type { ModelSpec } from './model-profiles';
@@ -47,10 +48,15 @@ export interface SwarmLoopOptions {
   resolveModel?: (model: string) => ModelSpec | undefined;
   /** how long to wait after an announce before trying to form (batch a burst of joins into one ring). */
   autoFormDebounceMs?: number;
+  /** how often each candidate is handed a fresh slice of peers to measure. 0 disables the rounds
+   *  (a node still gets one list when it announces). */
+  rttProbePeriodMs?: number;
 }
 
 interface AnnouncePayload { cap: NodeCapabilities; model: string; manifestRef: string }
 interface ReadyPayload { swarmId: string }
+/** one node's round of measurements to the peers it was handed (`swarm:probe_peers`) */
+interface RttPayload { model?: string; rttMs: Record<string, number> }
 // job_complete carries BOTH the settlement inputs (nonce/tokens/receipts) and the client-facing
 // `response` — one event settles the job AND finishes the client stream.
 interface CompletePayload { swarmId: string; jobId: string; nonce: string; tokensGenerated: number; receipts: unknown[]; response?: string }
@@ -87,6 +93,24 @@ export function attachSwarmLoop(io: Server, opts: SwarmLoopOptions) {
     opts.config ?? DEFAULT_SWARM_CONFIG,
   );
 
+  // ── MEASURED RTT: nodes probe the peers we hand them and report back; placement plans on what
+  //    they measured instead of a constant. Empty until the first report lands, and an empty cache
+  //    yields exactly the old constant matrix, so this is inert until nodes actually measure. ──
+  const rttCache = new RttCache();
+  /** peers handed to one node per round. The matrix only needs pairs, not a full mesh — every
+   *  reported pair replaces a fill, and a big pool is covered over successive rounds by rotating. */
+  const PROBE_FANOUT = 16;
+  const probeCursor = new Map<string, number>();          // nodeId → where its last slice ended
+  function sendProbePeers(nodeId: string, model: string): string[] {
+    const pool = mgr.probeTargets(model).filter((t) => t.nodeId !== nodeId);
+    if (!pool.length) return [];
+    const off = (probeCursor.get(nodeId) ?? 0) % pool.length;
+    probeCursor.set(nodeId, off + PROBE_FANOUT);
+    const peers = [...pool.slice(off), ...pool.slice(0, off)].slice(0, PROBE_FANOUT);
+    io.to(nodeId).emit('swarm:probe_peers' as never, { model, peers } as never);
+    return peers.map((p) => p.nodeId);
+  }
+
   // ── AUTO-FORM: the trigger the running server was missing. On announce, debounce per model, then
   //    ask the manager to form a ring from the free candidates. Forms repeatedly as supply grows
   //    (each call consumes free candidates; the fleet-multiswarm behavior), stops when it can't. ──
@@ -112,13 +136,15 @@ export function attachSwarmLoop(io: Server, opts: SwarmLoopOptions) {
       scheduleAutoForm(model);
       return;
     }
-    const n = mgr.candidateCount(model);
-    if (n < spec.minStages) return;
-    // Uniform placeholder RTT until the probe round lands (PLACEMENT_AS_PROTOCOL: re-measure at
-    // formation). Built RIGHT before formSwarm — the manager slices it against the same candidate
-    // list synchronously (no await between), so the sizes can't drift. A real N×N latency matrix
-    // (nodes probe assigned peers + report) is the next refinement; uniform still forms a working ring.
-    const rtt = Array.from({ length: n }, (_, i) => Array.from({ length: n }, (_, j) => (i === j ? 0 : 30)));
+    const ids = mgr.candidateIds(model);
+    if (ids.length < spec.minStages) return;
+    // The MEASURED latency matrix (what the nodes reported), aligned to the candidate pool order the
+    // manager slices against. Built RIGHT before formSwarm and SYNCHRONOUSLY — no await between, or
+    // an announce/disconnect mid-flight changes the pool and the form silently bails on the length
+    // check. Pairs nobody has measured fall back to the old placeholder, so a silent pool plans
+    // exactly as it did before; a pool that measured gets its ring order, its head and its trim
+    // decided by latency instead of by announce arrival order (E0, 2026-07-28).
+    const rtt = rttCache.matrix(ids);
     try {
       const swarm = await mgr.formSwarm(model, spec.manifestRef, spec.profile, rtt);
       if (swarm) { log(`auto-formed ${swarm.id} for ${model} (${swarm.stages.length} stages)`); scheduleAutoForm(model); }
@@ -170,7 +196,21 @@ export function attachSwarmLoop(io: Server, opts: SwarmLoopOptions) {
       if (!acct) { cb?.({ error: 'authentication required' }); return; }
       const res = mgr.announce(socket.id, data.cap, data.model, data.manifestRef, acct);
       cb?.(res);
-      if (res.ok) scheduleAutoForm(data.model);
+      if (res.ok) {
+        scheduleAutoForm(data.model);
+        // give the newcomer targets immediately — its first ring may form within the debounce, and
+        // a node with no targets can never contribute a measurement — then hand the SAME peers a
+        // fresh slice so they measure back. Measurement is pairwise, and without the second half the
+        // node that announced first would learn about nobody until the next rolling round. Bounded
+        // at PROBE_FANOUT + 1 emits per announce, so a burst of joins is not a pool-wide fan-out.
+        for (const peerId of sendProbePeers(socket.id, data.model)) sendProbePeers(peerId, data.model);
+      }
+    });
+
+    // a round of measurements to the peers we handed this node (rtt-cache.ts owns the validation)
+    socket.on('node:rtt', (data: RttPayload) => {
+      const kept = rttCache.report(socket.id, data?.rttMs);
+      if (kept) log(`rtt: ${socket.id} reported ${kept} peer measurement(s) (cache ${rttCache.size})`);
     });
 
     socket.on('swarm:ready', (data: ReadyPayload) => {
@@ -209,6 +249,9 @@ export function attachSwarmLoop(io: Server, opts: SwarmLoopOptions) {
       for (const [jobId, p] of pending) {
         if (p.coordinatorNodeId === socket.id) { finishJob(jobId); p.onError('coordinator disconnected mid-job'); }
       }
+      // a departed node's samples describe paths that no longer exist — they must not place the next pool
+      rttCache.forget(socket.id);
+      probeCursor.delete(socket.id);
       const swarm = mgr.onNodeGone(socket.id);
       // CHURN SELF-HEAL (P0-#6): a dead stage just freed its whole ring's slots — re-form from
       // the survivors + free spares NOW. Auto-form's only other trigger is an ANNOUNCE, which
@@ -222,8 +265,19 @@ export function attachSwarmLoop(io: Server, opts: SwarmLoopOptions) {
   const sweep = setInterval(() => mgr.sweepSpotChecks(), 30_000);
   sweep.unref?.();
 
-  // Auto-form is wired above (opts.resolveModel). REMAINING refinement: a MEASURED rtt matrix — a short
-  // probe round the nodes run and report — replaces the uniform placeholder so placement is latency-aware.
+  // rolling probe round: every candidate gets a fresh rotated slice of peers to measure, so a pool
+  // larger than PROBE_FANOUT fills its matrix over successive rounds and samples refresh before the
+  // cache TTL retires them. Nodes that ignore the event simply stay unmeasured.
+  const probePeriod = opts.rttProbePeriodMs ?? 60_000;
+  const probeRound = probePeriod > 0 ? setInterval(() => {
+    for (const c of mgr.snapshot().candidates) sendProbePeers(c.nodeId, c.model);
+  }, probePeriod) : null;
+  probeRound?.unref?.();
+
+  // Auto-form is wired above (opts.resolveModel), and it now places on the MEASURED matrix the nodes
+  // report (rtt-cache.ts). REMAINING refinement: the reports are self-attested, and taking max() of a
+  // pair only cancels one-sided UNDERSTATEMENT. Receiver-signed observations + a disinterested prober
+  // (PLACEMENT_AS_PROTOCOL.md §3, level 2) are what make a fabricated RTT unprofitable outright.
   // Spot-check cadence is still the caller's: startSpotCheck(swarmId) probes one stranger stage.
   return {
     manager: mgr,

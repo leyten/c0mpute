@@ -277,6 +277,75 @@ export function pickDialAddrs(addrs: string[]): string[] {
   return [...addrs].sort((a, b) => rank(a) - rank(b));
 }
 
+/**
+ * TCP-connect RTT to a set of peers' announced sidecar multiaddrs — the input to latency-aware
+ * placement (the orchestrator used to plan every ring on a constant 30 ms matrix, so ring order,
+ * head election and the candidate trim were all decided by announce arrival order).
+ *
+ * A connect handshake against the sidecar's OWN listener, which is already up: no probe endpoint to
+ * run, no port to open, nothing to install. It is also exactly how the one full N×N mesh we have
+ * ever measured was taken (min-of-N TCP connect), so the numbers are comparable to the calibration.
+ * `shard.probe --net-only` measures more (receiver-timed uplink, nonce dial-back) but needs every
+ * peer to be running `--serve`, which strangers' daemons are not.
+ *
+ * Only DIRECT tcp addrs are dialed: a `/p2p-circuit` addr has no host to connect to, and timing a
+ * relay hop would measure the relay, not the peer. A peer we can't time is simply omitted — the
+ * orchestrator fills unmeasured pairs itself, and reporting a guess would be worse than silence.
+ */
+export async function measureRttMs(peers: { nodeId: string; addrs: string[] }[],
+  opts: { limit?: number; attempts?: number; timeoutMs?: number; concurrency?: number } = {}):
+  Promise<Record<string, number>> {
+  const { limit = 16, attempts = 3, timeoutMs = 1500, concurrency = 4 } = opts;
+  const targets = peers.slice(0, limit)
+    .map((p) => ({ nodeId: p.nodeId, hp: tcpHostPort(p.addrs) }))
+    .filter((t): t is { nodeId: string; hp: { host: string; port: number } } => t.hp !== null);
+  const out: Record<string, number> = {};
+  let next = 0;
+  const worker = async () => {
+    for (let i = next++; i < targets.length; i = next++) {
+      const { nodeId, hp } = targets[i];
+      let best: number | null = null;
+      for (let a = 0; a < attempts; a += 1) {
+        const ms = await connectMs(hp.host, hp.port, timeoutMs);
+        if (ms !== null && (best === null || ms < best)) best = ms;   // min-of-N: the unqueued path
+      }
+      if (best !== null) out[nodeId] = Math.round(best * 100) / 100;
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(concurrency, targets.length) }, worker));
+  return out;
+}
+
+/** host:port of the first DIRECT tcp multiaddr (loopback and relay circuits are not timeable peers).
+ *  The port is range-checked because these addrs are UNVERIFIED announce data: `net.connect` throws
+ *  SYNCHRONOUSLY on a port above 65535, which would take the whole round down instead of one peer. */
+function tcpHostPort(addrs: string[]): { host: string; port: number } | null {
+  for (const a of addrs) {
+    if (a.includes('/p2p-circuit')) continue;
+    const m = /^\/ip4\/(\d+\.\d+\.\d+\.\d+)\/tcp\/(\d+)/.exec(a);
+    if (!m || m[1].startsWith('127.')) continue;
+    const port = Number(m[2]);
+    if (port > 0 && port <= 65535) return { host: m[1], port };
+  }
+  return null;
+}
+
+/** One connect handshake, in ms; null if it timed out, was refused, or could not be attempted. */
+function connectMs(host: string, port: number, timeoutMs: number): Promise<number | null> {
+  return new Promise((resolve) => {
+    const t0 = performance.now();
+    let settled = false;
+    let sock: ReturnType<typeof netConnect> | null = null;
+    const finish = (v: number | null) => { if (!settled) { settled = true; sock?.destroy(); resolve(v); } };
+    try {
+      sock = netConnect({ host, port });
+    } catch { return resolve(null); }     // never leave the round's promise unresolved
+    sock.setTimeout(timeoutMs, () => finish(null));
+    sock.on('connect', () => finish(performance.now() - t0));
+    sock.on('error', () => finish(null));
+  });
+}
+
 /** The graph-aux perf trio, defaulted ON for every engine process (stage + coordinator) unless
  *  the operator already set it. CUDA-graph + static-KV + SDPA are bit-exact and need no extra
  *  weights — a ~2× speedup over the eager path. WITHOUT this a stranger's `--mode shard` (no env)
