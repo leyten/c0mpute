@@ -283,6 +283,17 @@ function measureServe(p: PromptClass): Promise<RepResult> {
       onDone: (response: string, tokens: number) => {
         clearTimeout(to);
         const tDone = Date.now();
+        // A fail-closed job (shard-worker's failJob: tokensGenerated 0, response '', receipts [])
+        // arrives here as a perfectly ordinary completion. Scored as a rep it reads
+        // `0.0 tok/s … coherent=true` — `response === ''` passes the equality — which is how the
+        // 07-21 rehearsal printed a green-looking scorecard over a ring that never served a token
+        // (docs/receipts/stranger-serve-20260728.json, finding F-simfix). Zero tokens is a FAILED
+        // rep, loudly, or this harness cannot tell a dead ring from a working one.
+        if (!tokens) {
+          reject(new Error(`served 0 tokens in ${tDone - tDispatch}ms (fail-closed job `
+            + '— check the head daemon log for the failJob reason)'));
+          return;
+        }
         const decodeS = tFirst ? (tDone - tFirst) / 1000 : 0;
         resolve({
           ttftMs: tFirst ? tFirst - tDispatch : (tDone - tDispatch),
