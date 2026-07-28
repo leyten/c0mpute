@@ -33,6 +33,13 @@ export const RETURN_PORT = PORT_BASE + 12;
 // The stage's loopback-only challenge door (P0-#1 spot-checks): the engine binds it iff the
 // daemon mints SHARD_PROBE_TOKEN at stage spawn. Never tunneled — daemon-local by construction.
 export const PROBE_PORT = PORT_BASE + 13;
+// The admission NETWORK probe (`shard.probe --peers`): the local port its dial-back listener binds,
+// and the port a peer must actually reach if this box maps ports (docker/vast/home router). Bind
+// and advertise are the same on a directly-reachable box, which is why the override is opt-in.
+export const NETPROBE_PORT = Number(process.env.C0MPUTE_SHARD_NETPROBE_PORT || PORT_BASE + 14);
+export const NETPROBE_ADVERTISE = Number(process.env.C0MPUTE_SHARD_NETPROBE_ADVERTISE || 0);
+// Where the network's `shard.probe --serve` receivers listen (shard/probe.py's own default port).
+export const NETPROBE_SERVE_PORT = Number(process.env.C0MPUTE_SHARD_NETPROBE_SERVE_PORT || 29655);
 
 export const SIDECAR_BIN = process.env.C0MPUTE_SIDECAR_BIN || join(SHARD_HOME, 'bin', 'sidecar');
 // A shard checkout (or the flat runtime-artifact layout) to run `python -m shard.*` from.
@@ -134,11 +141,47 @@ function shardCwd(): string | undefined {
   return existsSync(SHARD_REPO) ? SHARD_REPO : undefined;
 }
 
-/** `python -m shard.probe --measure` — the measured capability vector (footprint, transient,
- *  layer_ms, fast-kernel). Needs the probe slice on disk; null = announce falls back to basics. */
-export function probeMeasure(): Record<string, unknown> | null {
-  const r = spawnSync(pythonBin(), ['-m', 'shard.probe', '--measure', '--dir', MODEL_DIR, '--backend', 'auto'],
-    { encoding: 'utf8', cwd: shardCwd(), timeout: 15 * 60_000 });
+/** The `--serve` probe endpoints this node measures its NETWORK vector against — the receivers
+ *  that time our upload and dial us back. Control-plane-chosen by construction (a candidate that
+ *  picks its own receiver can pick a colluding fast one), which is why the default is the
+ *  orchestrator's own origin. `C0MPUTE_SHARD_PROBE_PEERS=''` opts out explicitly. */
+export function probePeers(orchestratorUrl: string): string[] {
+  const env = process.env.C0MPUTE_SHARD_PROBE_PEERS;
+  if (env !== undefined) return env.split(',').map((s) => s.trim()).filter(Boolean);
+  try {
+    const host = new URL(orchestratorUrl).hostname;
+    return host ? [`${host}:${NETPROBE_SERVE_PORT}`] : [];
+  } catch { return []; }
+}
+
+/** `python -m shard.probe --measure [--peers …]` — the measured capability vector. `--measure`
+ *  alone is the GPU half only (footprint, transient, layer_ms, fast-kernel); `--peers` adds the
+ *  NETWORK half in the SAME subprocess and the same JSON object (probe.py merges both dicts).
+ *
+ *  Without the network half the vector has no `uplink_mbps`, no `rtt_to_pool_ms` and no
+ *  `nat_dialable`, and derive_role fails THREE gates on every healthy card — `uplink` (0 < 200),
+ *  `nat_dialable` (absent is not true) and `hops_vs_rtt` (an absent pool RTT defaults to 9000ms).
+ *  Every 5090 on the 2026-07-28 stranger ring was therefore admitted as `verifier` (receipt
+ *  stranger-serve-20260728, bug S3).
+ *
+ *  What that costs TODAY is smaller than the receipt says, and worth being precise about: the
+ *  verdict is stored by setNodeRole and nothing reads it back — getNodeRole has no callers, admit()
+ *  is a coarse VRAM/subnet floor, and formSwarm's role() filter is the REPUTATION oracle, not this.
+ *  So the roles are currently write-only and a pool of verifiers still forms a ring. The cost is
+ *  that the one measurement the network makes about a stranger is garbage for everyone who wants to
+ *  use it — placement (up_mbps null on every candidate), pricing, and the moment admission is
+ *  actually enforced.
+ *
+ *  Needs the probe slice on disk; null = announce falls back to basics. */
+export function probeMeasure(peers: string[] = []): Record<string, unknown> | null {
+  const args = ['-m', 'shard.probe', '--measure', '--dir', MODEL_DIR, '--backend', 'auto'];
+  if (peers.length) {
+    args.push('--peers', peers.join(','), '--port', String(NETPROBE_PORT));
+    // Behind a port-mapping NAT (docker, vast, a home router) the port a peer must dial back is
+    // not the port we bind; without this every honest node reads nat_dialable:false.
+    if (NETPROBE_ADVERTISE) args.push('--dialback-advertise', String(NETPROBE_ADVERTISE));
+  }
+  const r = spawnSync(pythonBin(), args, { encoding: 'utf8', cwd: shardCwd(), timeout: 15 * 60_000 });
   if (r.error || r.status !== 0) {
     log(`probe --measure unavailable (${(r.stderr || r.error?.message || '').toString().trim().slice(-200)})`);
     return null;
@@ -568,6 +611,13 @@ export class CoordinatorProcess {
   private exited = false;
   private fatal: string | null = null;
   ready = false;
+
+  /** Is there a LIVE process behind this object? Between a death and the next relaunch the object
+   *  outlives its process, so a caller testing `coord != null` mistakes a corpse for a coordinator. */
+  get running(): boolean {
+    return this.proc !== null && !this.exited && this.proc.exitCode === null;
+  }
+
   onReady?: () => void;
   onToken?: (jobId: string, delta: string) => void;
   onDone?: (done: CoordJobDone) => void;
