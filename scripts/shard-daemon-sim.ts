@@ -32,6 +32,15 @@ const ONCE = process.argv.includes('--once');
 // --full: tile the WHOLE model [0:L) across the ring (real serving ring); default = tail-anchored
 // partial ranges for the GPU-less shim tests.
 const FULL = process.argv.includes('--full');
+// --real-seam: use the REAL capability planner (SubprocessSeam -> `python -m shard.plan`) instead of
+// the even-split SimSeam stub. Required for a heterogeneous ring: the stub is capability-blind and
+// exists only for GPU-less shim nodes; with REAL GPUs that ran shard.probe --measure, the real planner
+// fits layers per-node (a 24GB 4090 gets fewer layers than a 32GB 5090). SHARD_REPO defaults to
+// ../shard, SHARD_PYTHON to python3 — both satisfied on the orchestrator box.
+const REAL_SEAM = process.argv.includes('--real-seam');
+// interactive gateway ring-status (updated from the swarm-loop log callback below), read by /status
+let gwReady = false;
+let gwStages = 0;
 // --manifest-ref <mf1:name@cid>: the real signed manifest's ref, so daemons' --manifest-cid check
 // passes against the real doc served via --manifest-file (else the empty fixture ref -> FETCH_FATAL).
 const MANIFEST_REF_ARG = process.argv.includes('--manifest-ref')
@@ -123,8 +132,9 @@ const nonces = new Map<string, number>();                    // nonce -> expiry 
 
 const http = createServer(async (req, res) => {
   const send = (code: number, body: unknown) => {
-    res.writeHead(code, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(body));
+    if (res.headersSent || res.writableEnded) return;   // guard: a double-send (e.g. serveRequest's
+    res.writeHead(code, { 'Content-Type': 'application/json' });  // sync onError + a fallthrough send)
+    res.end(JSON.stringify(body));                       // must never ERR_HTTP_HEADERS_SENT-crash the sim
   };
   if (req.url?.startsWith('/relays.json') && req.method === 'GET') {
     if (RELAYS_FILE_ARG) {
@@ -182,6 +192,58 @@ const http = createServer(async (req, res) => {
       return send(400, { error: e.message });
     }
   }
+  // ── interactive gateway (this run only): a chat UI + OpenAI /v1 over the FORMED swarm ──
+  if ((req.url === '/' || req.url === '/chat' || req.url?.startsWith('/?')) && req.method === 'GET') {
+    try {
+      const html = readFileSync(process.env.CHAT_UI_FILE || '', 'utf8');
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      return res.end(html);
+    } catch { return send(503, { error: 'chat UI not configured' }); }
+  }
+  if (req.url === '/status' && req.method === 'GET') {
+    return send(200, { ready: gwReady, stages: gwStages, model: 'minimax-m2.5',
+      msg: gwReady ? 'serving' : 'ring forming / pulling…' });
+  }
+  if (req.url === '/v1/models' && req.method === 'GET') {
+    return send(200, { object: 'list', data: [{ id: 'minimax-m2.5', object: 'model', owned_by: 'shard' }] });
+  }
+  if (req.url === '/v1/chat/completions' && req.method === 'POST') {
+    let raw = ''; for await (const c of req) raw += c;
+    let body: any; try { body = JSON.parse(raw); } catch { return send(400, { error: { message: 'bad json' } }); }
+    const messages = body?.messages;
+    if (!Array.isArray(messages) || !messages.length) return send(400, { error: { message: '`messages` required' } });
+    const maxNew = Math.max(1, Math.min(8192, Number(body.max_tokens) || 512));
+    const reasoning = body.reasoning !== false;
+    const model = 'minimax-m2.5';
+    if (body.stream === true) {
+      res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-cache, no-transform', 'Connection': 'keep-alive' });
+      const id = 'chatcmpl-' + Math.random().toString(36).slice(2), created = Math.floor(Date.now() / 1000);
+      let roleSent = false, done = false;
+      const chunk = (delta: any, finish: string | null = null) => {
+        if (res.writableEnded) return;
+        res.write(`data: ${JSON.stringify({ id, object: 'chat.completion.chunk', created, model, choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`);
+      };
+      const end = () => { if (done) return; done = true; if (!res.writableEnded) { res.write('data: [DONE]\n\n'); res.end(); } };
+      const r = loop.serveRequest({
+        model, messages, params: { maxNew, reasoning }, timeoutMs: 240_000,
+        onToken: (d: string) => { if (!roleSent) { roleSent = true; chunk({ role: 'assistant', content: '' }); } chunk({ content: d }); },
+        onDone: (response: string) => { if (!roleSent) { roleSent = true; chunk({ role: 'assistant', content: response || '' }); } chunk({}, 'stop'); end(); },
+        onError: (e: string) => { if (!roleSent) { roleSent = true; chunk({ role: 'assistant', content: '' }); } chunk({ content: `\n\n[ring error: ${e}]` }, 'stop'); end(); },
+      });
+      if (!r) { chunk({ role: 'assistant', content: 'the ring is still forming / pulling weights — try again in a moment.' }, 'stop'); end(); }
+      req.on('close', () => { done = true; });
+      return;
+    }
+    let full = ''; let settled = false;
+    const r = loop.serveRequest({
+      model, messages, params: { maxNew, reasoning }, timeoutMs: 240_000,
+      onToken: (d: string) => { full += d; },
+      onDone: (response: string, tokens: number) => { if (settled) return; settled = true; send(200, { id: 'chatcmpl-' + Math.random().toString(36).slice(2), object: 'chat.completion', created: Math.floor(Date.now() / 1000), model, choices: [{ index: 0, message: { role: 'assistant', content: response || full }, finish_reason: 'stop' }], usage: { completion_tokens: tokens } }); },
+      onError: (e: string) => { if (settled) return; settled = true; send(503, { error: { message: e } }); },
+    });
+    if (!r && !settled) send(503, { error: { message: 'no ready swarm yet — ring forming' } });
+    return;
+  }
   send(404, { error: 'not found' });
 });
 
@@ -210,6 +272,10 @@ const SIM_SPEC = {
   manifestRef: MANIFEST_REF_ARG
     || 'mf1:m25-nvfp4-v1@bafkreisimfixturecidnotarealhashbutshapedlikeone0000000000',
   minStages: STAGES,        // a ring needs STAGES nodes; spares beyond it are the churn reserve
+  // NO cap_layers override: the sim must plan with the SAME profile production uses, or it cannot
+  // catch placement bugs. A cap_layers:13 hack here masked the real defect (density_cap_layers
+  // truncating a 32103 MB card to 11 layers) and made this rig quietly optimistic — it "passed"
+  // while production was infeasible. The truncation is fixed in shard/plan.py instead.
   profile: { layerCount: 62, prefill_bytes: 1.0e8, decode_bytes: 1.6e4, decode_steps: 64 },
 };
 
@@ -222,11 +288,15 @@ const loop = attachSwarmLoop(io, {
     // launch-parity: the operator seed box(es) so joiners pull peers-first (mirrors prod orchestrator.ts)
     seedAddrs: (process.env.SWARM_SEED_ADDRS ?? '').split(',').map((s) => s.trim()).filter(Boolean),
   },
-  seam: new SimSeam(),
+  // --real-seam: the real planner end to end (real receipts too — no --accept-receipts shortcut)
+  seam: REAL_SEAM ? new SubprocessSeam() : new SimSeam(),
   resolveModel: (m) => (m === 'minimax-m2.5' ? SIM_SPEC : undefined),   // auto-form this model
   autoFormDebounceMs: Number(process.argv[process.argv.indexOf('--debounce') + 1] || 0) || 900,
   log: (m) => {
     log(`loop: ${m}`);
+    const fm = /\bformed \S+ for \S+: (\d+) stages/.exec(m); if (fm) gwStages = +fm[1];
+    if (/ READY — all /.test(m)) gwReady = true;
+    if (/DEGRADED|not forming/.test(m)) gwReady = false;
     if (/ READY — all /.test(m) && !suiteStarted) {
       log('*** LIFECYCLE COMPLETE — every stage pulled, connected, and reported ready ***');
       if (SUITE) { suiteStarted = true; setTimeout(() => void runSuite(), 1500); }
@@ -439,5 +509,6 @@ io.on('connection', (socket) => {
 
 http.listen(PORT, () => {
   log(`mock orchestrator up on http://127.0.0.1:${PORT}`);
+  log(`seam: ${REAL_SEAM ? 'SubprocessSeam (REAL capability planner — heterogeneous placement)' : 'SimSeam (even-split stub)'}`);
   log(`point a daemon at it:  c0mpute-worker --mode shard --token cwt_sim --url http://127.0.0.1:${PORT}`);
 });

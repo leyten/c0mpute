@@ -261,6 +261,20 @@ export class SwarmManager {
     const idx = kept.map((k) => k.i);
     const subRtt = idx.map((i) => idx.map((j) => rtt[i][j]));   // aligned to `pool`, not the full set
 
+    // Uplink is used ONLY when nodes actually measured and announced one. We do not infer it.
+    //
+    // A previous version guessed "residential" from the announced addrs and handed such nodes a low
+    // uplink so the planner would relegate them to the tail. That was a workaround, and a wrong one:
+    // in a 7-stage ring SIX seats forward the full prefill activation and only the tail does not, so
+    // "put the slow node on the tail" is a trick that works exactly once, when a single slow node
+    // sits among fast ones. On the network this is actually for — where every node is a home GPU —
+    // there is no cheap seat to hide in, and a planner that believes a fabricated uplink is worse
+    // than one that admits it has no data. It also could not work: a carrier-NAT address is an
+    // ordinary public IP and is indistinguishable from a real one by inspection.
+    //
+    // So: no data, no claim. Placement falls back to VRAM + latency, and the real fix for prefill
+    // cost is engineering (fp8 wire, chunked prefill overlapped with compute, fewer hops), not
+    // seat-shuffling. When the probe genuinely measures uplink, that number lands here and is used.
     const upAll = pool.every((c) => c.cap.upMbps != null);
     const req = {
       nodes: pool.map((c) => ({
