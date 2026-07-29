@@ -55,11 +55,16 @@ Every item verified missing in code, with build-shape:
    Self-published throwaway-key manifests + the raw serving pull are DELETED (dev hatch:
    `C0MPUTE_SHARD_MANIFEST_FILE`, refused whenever an assignment carries `mf1:`). Standby
    sidecars now `-seed`; assignments hand out free-candidate seeders + `SWARM_SEED_ADDRS`.
-   **Remaining = the one-time LAUNCH PUBLISH runbook step (leyten):** on the ops box run
+   **Remaining = the one-time LAUNCH PUBLISH runbook step (leyten):** on the ops box, from the
+   shard checkout root, run
    `python phase0/publish_manifest.py --hf nvidia/MiniMax-M2.5-NVFP4 --key <OFFLINE key> --out m25-nvfp4-v1.json --version 1`,
    check the doc into `public/manifests/m25-nvfp4-v1.json`, paste the printed
-   `publisher_pubkey` into `MANIFEST_PUBKEY`, flip `MODEL_SPECS.manifestRef` to
-   `mf1:m25-nvfp4-v1@<cid>` (CID = `python -c "from shard import manifest as m; s,_=m.sha256_file('m25-nvfp4-v1.json'); print(m.cidv1_raw(s))"`),
+   `publisher_pubkey` into `MANIFEST_PUBKEY` (the `C0MPUTE_SHARD_MANIFEST_PUBKEY` fallback string
+   in `c0mpute-worker/src/shard-runner.ts`, baked into the npm build — flip the worker's
+   `MANIFEST_REF` default to the same full `mf1:…@<cid>` ref in the same edit), flip
+   `MODEL_SPECS.manifestRef` (`lib/orchestrator/model-profiles.ts`) to
+   `mf1:m25-nvfp4-v1@<cid>` (CID = `python -c "from shard import manifest as m; s,_=m.sha256_file('m25-nvfp4-v1.json'); print(m.cidv1_raw(s))"`,
+   also from the shard checkout root),
    and point `SWARM_SEED_ADDRS` at ≥1 always-on full-model seed box.
    **Relay half (P0-#3, daemon side BUILT 2026-07-20):** the daemon resolves `/relays.json` off the
    orchestrator origin at enroll (validated — a malformed entry would log.Fatalf every sidecar, so
