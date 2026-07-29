@@ -9,14 +9,14 @@
 ---
 
 ## 0. Pre-flight (the morning of — do NOT skip)
-- [ ] **Orchestrator health:** `curl -s $ORCH/api/network | jq .stats` returns live counters; map at shard.c0mpute.ai renders.
+- [ ] **Orchestrator health:** on the prod box, `curl -s http://127.0.0.1:3004/api/network | jq .stats` returns live counters (the feed is loopback-gated and nginx only proxies `/socket.io/` to :3004 — a remote curl hits the Next app instead); map at shard.c0mpute.ai renders.
 - [ ] **Relays up:** `systemctl is-active shard-relay` on both relay boxes = active; `journalctl -u shard-relay -n2` shows the ADDR lines. Reservation smoke from a throwaway sidecar (see `launch-relays-live` memory).
-- [ ] **Manifest published:** `curl -s $ORCH/manifests/m25-nvfp4-v1.json | jq .publisher_pubkey` == the baked `MANIFEST_PUBKEY`; the CID matches `MODEL_SPECS.manifestRef`.
-- [ ] **`relays.json` filled:** `curl -s $ORCH/relays.json | jq '.relays|length'` ≥ 2.
-- [ ] **Sidecar release:** `curl -sIL .../sidecar-v0.1.0/sidecar-linux-amd64 | head -1` = 200; sha matches `SIDECAR_SHA256`.
+- [ ] **Manifest published:** `curl -s https://c0mpute.ai/manifests/m25-nvfp4-v1.json | jq .publisher_pubkey` (the daemon resolves these off the WEB origin — Next serves `public/`) == the baked `MANIFEST_PUBKEY`; the CID matches `MODEL_SPECS.manifestRef`.
+- [ ] **`relays.json` filled:** `curl -s https://c0mpute.ai/relays.json | jq '.relays|length'` ≥ 2.
+- [ ] **Sidecar release:** the pinned `SIDECAR_URL` in `c0mpute-worker/src/shard-setup.ts` returns 200 (`curl -sIL <SIDECAR_URL> | head -1`); its sha256 matches the `SIDECAR_SHA256` pin next to it (the pin and the release move as a pair — never check one without the other).
 - [ ] **npm published:** `npx @c0mpute/worker@latest --mode shard --help` runs (version ≥ 2.8.3).
 - [ ] **Auditor box:** at least one we-run auditor announced (reputation/spot-check depends on it).
-- [ ] **Kill-switch rehearsed:** know how to flip `SWARM_PAYOUT_ENABLED=0`, take the swarm model out of `mapModel`, and drop `/relays.json` to `[]` — each is a one-line revert.
+- [ ] **Kill-switch rehearsed:** know how to flip `SWARM_PAYOUT_ENABLED=0`, take the swarm model out of `mapModel`, and drop `public/relays.json` back to `{"relays": []}` (the daemon validates the object shape) — each is a one-line revert.
 - [ ] **Dead-man switch armed** if any ops boxes are rented (pin iids, heartbeat cron).
 
 ---
@@ -65,7 +65,7 @@
 ## 7. 🟡 A stranger on Windows/WSL2 can't join
 **Symptom:** WSL user reports the one-liner fails.
 **Diagnose:** most likely the toolchain gate (py3.11 on Ubuntu 22.04, no git/node) or the sidecar (no Go fallback needed now the release is published).
-**Fix (staged):** point them at `docs/WINDOWS.md` + the `wsl-setup.sh` bootstrap (installs the toolchain). Mirrored networking is a perf upgrade, not a requirement — relayed still serves.
+**Fix (staged):** point them at `c0mpute-worker/WINDOWS.md` + the `wsl-setup.sh` bootstrap (installs the toolchain). Mirrored networking is a perf upgrade, not a requirement — relayed still serves.
 
 ## 8. 🟡 Churn storm — mass simultaneous joins/leaves
 **Symptom:** rings form and dissolve rapidly; thrash.
