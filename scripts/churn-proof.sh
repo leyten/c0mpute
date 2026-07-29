@@ -38,7 +38,7 @@ start_daemon() {  # $1 = letter, $2 = port base
     C0MPUTE_SHARD_PORT_BASE="$2" \
     C0MPUTE_SHARD_PYTHON="$SHIM" \
     C0MPUTE_SHARD_REPO="${SHARD_REPO_PATH:-/root/.openclaw/workspace/shard}" \
-    C0MPUTE_SIDECAR_BIN="${C0MPUTE_SIDECAR_BIN:-/root/.c0mpute/bin/sidecar}" \
+    ${C0MPUTE_SIDECAR_BIN:+"C0MPUTE_SIDECAR_BIN=$C0MPUTE_SIDECAR_BIN"} \
     C0MPUTE_SHARD_MANIFEST_PUBKEY=sim-publisher-pin \
     node "$WORKER/dist/index.js" --mode shard --token cwt_sim --url "http://127.0.0.1:$PORT" \
     > "$LOGS/daemon-$1.log" 2>&1 &

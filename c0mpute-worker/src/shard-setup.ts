@@ -24,15 +24,17 @@ const ENGINE_DEPS = process.env.C0MPUTE_SHARD_DEPS
   || 'vllm==0.23.0 torch==2.11.0 transformers==5.12.1 safetensors cryptography numpy huggingface_hub hf_transfer';
 
 // Prebuilt sidecar (linux-amd64, CGO_ENABLED=0) — verified against this sha256 before first use.
-// PUBLISHED 2026-07-21 as sidecar-v0.1.0 (reproducible: CGO_ENABLED=0 go build -trimpath
+// PUBLISHED 2026-07-29 as sidecar-v0.2.0 (reproducible: CGO_ENABLED=0 go build -trimpath
 // -buildvcs=false -ldflags="-s -w -buildid=", go 1.25.7 per sidecar/go.mod — rebuildable from the
 // public workflow, verify against this pin). Cutting a new release = update this pin in the same
 // breath (no auto-update by design). An overridden URL must bring its own checksum.
+// v0.2.0 adds comma-list multi-target forward parsing (parseForwardTargets); the daemon's
+// dial-every-addr change depends on it — v0.1.0 fails the comma-list parse.
 const SIDECAR_URL = process.env.C0MPUTE_SIDECAR_URL
-  || 'https://github.com/leyten/shard/releases/download/sidecar-v0.1.0/sidecar-linux-amd64';
+  || 'https://github.com/leyten/shard/releases/download/sidecar-v0.2.0/sidecar-linux-amd64';
 const SIDECAR_SHA256 = process.env.C0MPUTE_SIDECAR_URL
   ? (process.env.C0MPUTE_SIDECAR_SHA256 ?? '')
-  : '4f88dd4c6c70be636af520b6fc239f6e27a8e45ca4b4ec3bcbe585f1e3a01153';
+  : '45a22cbda27011abe0d96927737f4a1a5ac30112d744e3f0fdf447a6b16cd9be';
 
 function log(msg: string): void {
   console.log(`[${new Date().toISOString()}] [shard-setup] ${msg}`);
