@@ -450,7 +450,11 @@ export async function startShardWorker(opts: ShardWorkerOptions): Promise<void> 
         release(`non-tail stage ${a.stageIndex}: successor ${successor?.nodeId ?? '?'} announced no dialable addrs`);
         return;
       }
-      forwards.push(`127.0.0.1:${FORWARD_PORT}=${dial[0]}`);
+      // EVERY candidate addr, not just the best-ranked one: the sidecar hands them to libp2p as
+      // one AddrInfo and they race (direct first, /p2p-circuit +500ms). Sending only dial[0]
+      // meant a residential node's undialable carrier addr shadowed its working relay circuit.
+      // Needs a sidecar with list-forward support (> v0.1.0) — bump the shard-setup pin with it.
+      forwards.push(`127.0.0.1:${FORWARD_PORT}=${dial.join(',')}`);
     }
     if (a.isHead) {
       const tail = a.peers.find((p) => p.stageIndex === a.peers.length - 1);
@@ -459,7 +463,7 @@ export async function startShardWorker(opts: ShardWorkerOptions): Promise<void> 
         release(`head: tail ${tail?.nodeId ?? '?'} announced no dialable addrs (no return leg)`);
         return;
       }
-      forwards.push(`127.0.0.1:${RETURN_PORT}=${dial[0]}`);
+      forwards.push(`127.0.0.1:${RETURN_PORT}=${dial.join(',')}`);
     }
     const predPid = peerPid(a.peers.find((p) => p.stageIndex === a.stageIndex - 1));
     if (predPid) allow.push(predPid);

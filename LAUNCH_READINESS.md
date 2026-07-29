@@ -74,7 +74,7 @@ Every item verified missing in code, with build-shape:
    boxes running `sidecar -relay -quic`; addrs in the ops notes).
 
 **WSL2 turnkey (P1-#3) — daemon side BUILT 2026-07-21.** The two hard blockers were the sidecar
-release (now published, sidecar-v0.1.0) and the npm publish (below). `scripts/wsl-setup.sh` (one
+release (now published, current pin sidecar-v0.2.0) and the npm publish (below). `scripts/wsl-setup.sh` (one
 bootstrap: git + Node 20 + Python 3.11 → `npx @c0mpute/worker --mode shard`) + `c0mpute-worker/
 WINDOWS.md` (WSL install, Windows NVIDIA driver, mirrored networking, one command) make a Windows
 stranger's join turnkey. **Remaining:** (a) `npm publish @c0mpute/worker` at ≥2.8.3 — LEYTEN's npm

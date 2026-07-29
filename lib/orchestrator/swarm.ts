@@ -365,7 +365,10 @@ export class SwarmManager {
     const peers = stages.map((s) => ({
       nodeId: s.nodeId, pubkey: s.pubkey, stageIndex: s.stageIndex,
       layerStart: s.layerStart, layerEnd: s.layerEnd,
-      // dialable sidecar multiaddrs from the announce — stage i dials stage i+1's forward leg
+      // EVERY announced sidecar multiaddr — stage i dials stage i+1's forward leg with all of
+      // them and libp2p races the candidates (direct first, /p2p-circuit as the fallback). No
+      // rewriting here: a NAT'd node advertises its own reserved relay circuit, so the working
+      // path is already in the list.
       addrs: byId.get(s.nodeId)?.cap.addrs ?? [],
     }));
     // STANDBY SEEDERS (P0-#1, the torrent path): un-placed candidates — including relegated
