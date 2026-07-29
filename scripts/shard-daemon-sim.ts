@@ -32,6 +32,12 @@ const ONCE = process.argv.includes('--once');
 // --full: tile the WHOLE model [0:L) across the ring (real serving ring); default = tail-anchored
 // partial ranges for the GPU-less shim tests.
 const FULL = process.argv.includes('--full');
+// --real-seam: use the REAL capability planner (SubprocessSeam -> `python -m shard.plan`) instead of
+// the even-split SimSeam stub. Required for a heterogeneous ring: the stub is capability-blind and
+// exists only for GPU-less shim nodes; with REAL GPUs that ran shard.probe --measure, the real planner
+// fits layers per-node (a 24GB 4090 gets fewer layers than a 32GB 5090). SHARD_REPO defaults to
+// ../shard, SHARD_PYTHON to python3 — both satisfied on the orchestrator box.
+const REAL_SEAM = process.argv.includes('--real-seam');
 // --manifest-ref <mf1:name@cid>: the real signed manifest's ref, so daemons' --manifest-cid check
 // passes against the real doc served via --manifest-file (else the empty fixture ref -> FETCH_FATAL).
 const MANIFEST_REF_ARG = process.argv.includes('--manifest-ref')
@@ -210,6 +216,10 @@ const SIM_SPEC = {
   manifestRef: MANIFEST_REF_ARG
     || 'mf1:m25-nvfp4-v1@bafkreisimfixturecidnotarealhashbutshapedlikeone0000000000',
   minStages: STAGES,        // a ring needs STAGES nodes; spares beyond it are the churn reserve
+  // NO cap_layers override: the sim must plan with the SAME profile production uses, or it cannot
+  // catch placement bugs. A cap_layers:13 hack here masked the real defect (density_cap_layers
+  // truncating a 32103 MB card to 11 layers) and made this rig quietly optimistic — it "passed"
+  // while production was infeasible. The truncation is fixed in shard/plan.py instead.
   profile: { layerCount: 62, prefill_bytes: 1.0e8, decode_bytes: 1.6e4, decode_steps: 64 },
 };
 
@@ -222,7 +232,8 @@ const loop = attachSwarmLoop(io, {
     // launch-parity: the operator seed box(es) so joiners pull peers-first (mirrors prod orchestrator.ts)
     seedAddrs: (process.env.SWARM_SEED_ADDRS ?? '').split(',').map((s) => s.trim()).filter(Boolean),
   },
-  seam: new SimSeam(),
+  // --real-seam: the real planner end to end (real receipts too — no --accept-receipts shortcut)
+  seam: REAL_SEAM ? new SubprocessSeam() : new SimSeam(),
   resolveModel: (m) => (m === 'minimax-m2.5' ? SIM_SPEC : undefined),   // auto-form this model
   autoFormDebounceMs: Number(process.argv[process.argv.indexOf('--debounce') + 1] || 0) || 900,
   log: (m) => {
@@ -439,5 +450,6 @@ io.on('connection', (socket) => {
 
 http.listen(PORT, () => {
   log(`mock orchestrator up on http://127.0.0.1:${PORT}`);
+  log(`seam: ${REAL_SEAM ? 'SubprocessSeam (REAL capability planner — heterogeneous placement)' : 'SimSeam (even-split stub)'}`);
   log(`point a daemon at it:  c0mpute-worker --mode shard --token cwt_sim --url http://127.0.0.1:${PORT}`);
 });
