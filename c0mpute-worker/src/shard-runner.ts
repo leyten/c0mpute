@@ -228,9 +228,15 @@ export function pullRange(lo: number, hi: number, head: boolean, tail: boolean,
     return Promise.reject(new Error(
       'no publisher pin in this build (MANIFEST_PUBKEY empty) and no dev manifest hatch — refusing'));
   }
+  // NO --key: the one-shot weight fetcher gets its OWN ephemeral identity (the sidecar mints one
+  // when -key is empty). Running it under this node's key made it a PHANTOM of us — a second
+  // connection claiming our PeerId that never registers /shard/activation/1.0.0. When that
+  // connection happened to be a ringmate's only one for us, their forward leg multiplexed onto it
+  // and died with "protocols not supported" for the WHOLE ~10-minute pull, while this node sat
+  // healthy. Nothing in the weight path needs our real identity: block-exchange has no allowlist.
   const args = ['-m', 'shard.fetch', '--manifest', MANIFEST_FILE, '--dir', MODEL_DIR,
     '--lo', String(lo), '--hi', String(hi), '--role', opts.role ?? 'stage',
-    '--sidecar', SIDECAR_BIN, '--key', NODE_KEY_FILE];
+    '--sidecar', SIDECAR_BIN];
   if (MANIFEST_PUBKEY) args.push('--pubkey', MANIFEST_PUBKEY);
   if (opts.manifestRef?.startsWith('mf1:')) args.push('--manifest-cid', opts.manifestRef);
   if (opts.expectModelId) args.push('--expect-model-id', opts.expectModelId);
