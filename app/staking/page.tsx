@@ -11,7 +11,6 @@ import { useState, useEffect, useCallback } from 'react';
 import { usePrivy, useLinkAccount, useConnectWallet } from '@privy-io/react-auth';
 import { useWallets, useSignAndSendTransaction } from '@privy-io/react-auth/solana';
 import { PublicKey } from '@solana/web3.js';
-import StatusBadge from '@/components/StatusBadge';
 import {
   buildStakeTx, buildUnstakeTx, buildClaimTx,
   mintsConfigured, SOLANA_CHAIN, type StakeChunks,
@@ -287,10 +286,7 @@ export default function StakingPage() {
         <div className="max-w-3xl mx-auto">
           {/* Page lede */}
           <div className="mb-10">
-            <div className="pixel-sans text-white/40 text-xs tracking-widest mb-3 flex items-center gap-2">
-              <span>STAKING</span>
-              <StatusBadge state="live" />
-            </div>
+            <div className="pixel-sans text-white/40 text-xs tracking-widest mb-3">STAKING</div>
             <h1 className="pixel-serif text-white text-4xl md:text-5xl mb-3">Stake <span className="dollar">$</span>ZERO</h1>
             <p className="pixel-sans text-white/70 text-sm max-w-xl">
               Self-custody staking. Your <span className="dollar">$</span>ZERO sits in an on-chain vault only you control,

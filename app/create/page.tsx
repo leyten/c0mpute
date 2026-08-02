@@ -3,7 +3,6 @@
 import { useState, useEffect, useCallback, useRef, type CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
-import StatusBadge from '@/components/StatusBadge';
 
 interface ResultImage {
   url: string; // inline data URL, never stored server-side
@@ -299,10 +298,7 @@ export default function CreatePage() {
         <div className="max-w-4xl mx-auto">
           {/* Title */}
           <div className="mb-8">
-            <div className="flex items-baseline gap-3 mb-2">
-              <h1 className="pixel-serif text-white text-3xl md:text-4xl">Create</h1>
-              <StatusBadge state="live" />
-            </div>
+            <h1 className="pixel-serif text-white text-3xl md:text-4xl mb-2">Create</h1>
             <p className="pixel-sans text-white/60 text-sm max-w-xl">
               Image generation on the c0mpute network. Every image is returned straight to your browser and the server stores nothing.
             </p>

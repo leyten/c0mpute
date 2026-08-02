@@ -5,7 +5,6 @@
 // Presentation: editorial money surface (Newsreader figures, Inter labels), with
 // the $ZERO flywheel expressed once as a diagram strip.
 import { useEffect, useState } from 'react';
-import StatusBadge from '@/components/StatusBadge';
 
 interface Treasury {
   launched: boolean;
@@ -218,10 +217,7 @@ export default function TreasuryPage() {
         <div className="max-w-5xl mx-auto">
           {/* Page lede */}
           <div className="mb-8">
-            <div className="pixel-sans text-white/40 text-xs tracking-widest mb-3 flex items-center gap-2">
-              <span>TREASURY</span>
-              <StatusBadge state="live" />
-            </div>
+            <div className="pixel-sans text-white/40 text-xs tracking-widest mb-3">TREASURY</div>
             <h1 className="pixel-serif text-white text-4xl md:text-5xl mb-3">Treasury</h1>
             <p className="pixel-sans text-white/70 text-sm max-w-2xl">
               100% of the compute margin and a share of <span className="dollar">$</span>ZERO trading fees flow into this treasury.
