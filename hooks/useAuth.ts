@@ -255,37 +255,6 @@ export function useAuth(): UseAuthReturn {
       ? `${walletAddress.slice(0, 4)}...${walletAddress.slice(-4)}`
       : null;
 
-  // PREVIEW MODE (design-review builds only): fake a signed-in session so
-  // every gated interface renders without Privy. The preview origin is not in
-  // Privy's allowed domains, so real auth cannot complete there anyway.
-  if (process.env.NEXT_PUBLIC_PREVIEW_MODE === '1') {
-    const previewUser = { id: 'did:privy:preview', twitter: { username: 'preview' } } as unknown as ReturnType<typeof usePrivy>['user'];
-    return {
-      isLoading: false,
-      isAuthenticated: true,
-      user: previewUser,
-      login: () => {},
-      logout: async () => {},
-      getAccessToken: async () => null,
-      profile,
-      profileLoading: false,
-      profileError,
-      refreshProfile,
-      refreshBalance,
-      toggleWorkerMode,
-      linkWallet: () => {},
-      linkTwitter: () => {},
-      unlinkWallet: async () => {},
-      unlinkTwitter: async () => {},
-      deleteAccount: async () => ({ ok: false, error: 'preview mode' }),
-      displayName: '@preview',
-      walletAddress: null,
-      xUsername: 'preview',
-      hasWallet: false,
-      hasTwitter: true,
-    };
-  }
-
   return {
     // Privy state
     isLoading: !ready,
