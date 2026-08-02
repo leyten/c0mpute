@@ -94,3 +94,6 @@ COMPUTE_CODE_SPEC.md
 
 # dev server build dir (runs beside the served build)
 .next-dev/
+
+# local snapshot of the production db, review only
+data/
