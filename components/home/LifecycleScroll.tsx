@@ -112,7 +112,7 @@ export default function LifecycleScroll({ hero }: { hero: React.ReactNode }) {
           style={{ background: 'linear-gradient(to top, rgba(12,10,9,0.92), rgba(12,10,9,0))' }} />
 
         {/* hero overlay — chapter zero; fades into the story on scroll */}
-        <div ref={heroRef} className="absolute inset-0 z-0 flex items-center">
+        <div ref={heroRef} className="absolute inset-0 z-0 max-md:z-20 flex items-center">
           {hero}
           <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2">
             <span className="pixel-sans text-white/60 text-xs tracking-widest uppercase">Scroll</span>
@@ -135,10 +135,12 @@ export default function LifecycleScroll({ hero }: { hero: React.ReactNode }) {
           </div>
         )}
 
-        {/* finale — sits UNDER the canvas like the hero: the shrinking globe
-            uncovers it (the hero swallow, in reverse) */}
+        {/* finale — sits UNDER the canvas on a wide screen, where the globe is
+            off to one side and uncovers it as it shrinks. On a phone the globe
+            fills the screen, so the text has to sit above it or it is painted
+            over entirely. */}
         {step >= CHAPTERS - 2 && (
-          <div className="absolute z-0 left-5 right-5 bottom-10 md:right-auto md:left-[26%] md:bottom-auto md:top-1/2 md:-translate-y-1/2 md:max-w-sm">
+          <div className="absolute z-0 max-md:z-20 left-5 right-5 bottom-10 md:right-auto md:left-[26%] md:bottom-auto md:top-1/2 md:-translate-y-1/2 md:max-w-sm">
             <h3 className="pixel-serif text-white text-3xl md:text-5xl">One network.</h3>
             <p className="pixel-sans text-white/60 text-sm md:text-base mt-2 md:mt-4 leading-relaxed max-w-xs md:max-w-sm">
               Too big for one machine, so it runs on all of them.
