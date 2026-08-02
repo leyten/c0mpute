@@ -97,3 +97,6 @@ COMPUTE_CODE_SPEC.md
 
 # local snapshot of the production db, review only
 data/
+
+# review-only docs build (DOCS_BASE_URL=/preview-docs/)
+docs-site/build-preview/

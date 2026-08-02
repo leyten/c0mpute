@@ -6,7 +6,9 @@ const config = {
   tagline: 'AI powered by people, not data centers.',
   favicon: 'img/favicon.ico',
   url: 'https://docs.c0mpute.ai',
-  baseUrl: '/',
+  // '/' in production; the review copy is built under a path with
+  // DOCS_BASE_URL so it can be served beside the rest of the preview.
+  baseUrl: process.env.DOCS_BASE_URL || '/',
 
   onBrokenLinks: 'throw',
   onBrokenMarkdownLinks: 'warn',
