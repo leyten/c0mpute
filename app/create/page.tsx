@@ -1,5 +1,7 @@
 'use client';
 
+import SiteNav from '@/components/SiteNav';
+
 import { useState, useEffect, useCallback, useRef, type CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
@@ -271,22 +273,10 @@ export default function CreatePage() {
 
   return (
     <div className="ui-readable flex h-dvh flex-col overflow-hidden bg-black">
-      <header className="shrink-0 px-4 pt-4 md:px-6">
-        <nav className="mx-auto flex max-w-[100rem] items-center justify-between rounded-2xl border border-white/10 bg-black/80 px-4 py-3 backdrop-blur-sm md:px-6">
-          <a href="/" className="cursor-pointer pixel-serif-logo flex items-center text-lg font-bold text-white md:text-xl">
-            c<span className="pixel-serif-logo" style={{ fontSize: '1.8em', display: 'inline-block', verticalAlign: 'baseline', lineHeight: '1', marginTop: '-0.3em' }}>0</span>mpute
-          </a>
-          <div className="flex items-center gap-4">
-            {balance !== null && (
-              <span className="pixel-sans hidden text-xs text-white/70 sm:inline">{balance.toLocaleString()} credits</span>
-            )}
-            <button onClick={() => router.push('/settings')} className="cursor-pointer pixel-sans text-sm text-white/70 transition-colors hover:text-white">Settings</button>
-            <button onClick={() => router.push('/')} className="cursor-pointer pixel-sans text-sm text-white/70 transition-colors hover:text-white">Back</button>
-          </div>
-        </nav>
-      </header>
+      <SiteNav />
 
-      <main className="flex min-h-0 flex-1 flex-col gap-3 p-4 md:flex-row md:gap-4 md:p-6">
+      {/* the nav is fixed, so the studio starts below it */}
+      <main className="flex min-h-0 flex-1 flex-col gap-3 px-4 pb-4 pt-[86px] md:flex-row md:gap-4 md:px-6 md:pb-6">
         {/* Everything you have made, beside the canvas rather than below it. */}
         {history.length > 0 && (
           <aside className="flex shrink-0 gap-2 overflow-x-auto pb-1 md:w-[88px] md:flex-col md:overflow-y-auto md:overflow-x-hidden md:pb-0">

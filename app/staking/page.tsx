@@ -1,5 +1,7 @@
 'use client';
 
+import SiteNav from '@/components/SiteNav';
+
 // $ZERO staking, self-custody. One page for everyone: brand-new users get the
 // on-chain stake/unstake/claim flow; anyone still holding a legacy custodial
 // position sees a migrate banner until they have moved over. Funds live in
@@ -268,25 +270,12 @@ export default function StakingPage() {
 
   return (
     <div className="min-h-screen bg-black">
-      <header className="fixed top-0 left-0 right-0 z-50 py-4">
-        <div className="max-w-6xl mx-auto px-4 md:px-6">
-          <nav className="bg-black/80 backdrop-blur-sm border border-white/10 rounded-2xl px-4 md:px-6 py-3 flex items-center justify-between">
-            <a href="/" className="cursor-pointer pixel-serif-logo text-white text-lg md:text-xl font-bold flex items-center">
-              c<span className="pixel-serif-logo" style={{ fontSize: '1.8em', display: 'inline-block', verticalAlign: 'baseline', lineHeight: '1', marginTop: '-0.3em' }}>0</span>mpute
-            </a>
-            <div className="flex items-center gap-5">
-              <a href="/treasury" className="pixel-sans text-sm text-white/50 hover:text-white transition-colors hidden sm:inline">treasury</a>
-              <a href="/" className="pixel-sans text-sm text-white/70 hover:text-white transition-colors">← Back</a>
-            </div>
-          </nav>
-        </div>
-      </header>
+      <SiteNav />
 
       <main className="pt-32 pb-20 px-4 md:px-6">
         <div className="max-w-3xl mx-auto">
           {/* Page lede */}
           <div className="mb-10">
-            <div className="pixel-sans text-white/40 text-xs tracking-widest mb-3">STAKING</div>
             <h1 className="pixel-serif text-white text-4xl md:text-5xl mb-3">Stake <span className="dollar">$</span>ZERO</h1>
             <p className="pixel-sans text-white/70 text-sm max-w-xl">
               Self-custody staking. Your <span className="dollar">$</span>ZERO sits in an on-chain vault only you control,

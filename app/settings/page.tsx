@@ -1,5 +1,7 @@
 'use client';
 
+import SiteNav from '@/components/SiteNav';
+
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
@@ -523,23 +525,7 @@ export default function SettingsPage() {
   return (
     <div className="min-h-screen bg-black">
       {/* Header */}
-      <header className="fixed top-0 left-0 right-0 z-50 py-4">
-        <div className="max-w-6xl mx-auto px-4 md:px-6">
-          <nav className="bg-black/80 backdrop-blur-sm border border-white/10 rounded-2xl px-4 md:px-6 py-3 flex items-center justify-between">
-            <div className="flex-1">
-              <a href="/" className="cursor-pointer pixel-serif-logo text-white text-lg md:text-xl font-bold flex items-center">
-                c<span className="pixel-serif-logo" style={{ fontSize: '1.8em', display: 'inline-block', verticalAlign: 'baseline', lineHeight: '1', marginTop: '-0.3em' }}>0</span>mpute
-              </a>
-            </div>
-            <button
-              onClick={() => router.push('/')}
-              className="cursor-pointer pixel-sans text-sm text-white/70 hover:text-white transition-colors"
-            >
-              Back
-            </button>
-          </nav>
-        </div>
-      </header>
+      <SiteNav />
 
       {/* Main Content */}
       <main className="pt-32 pb-24 px-4 md:px-6">

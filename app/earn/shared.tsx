@@ -3,6 +3,7 @@
 // Pieces the three earn layouts share, so each variant file is only its layout.
 import { useCallback, useEffect, useState } from 'react';
 import type { useWorkerEngine } from './engine/useWorkerEngine';
+import SiteNav from '@/components/SiteNav';
 
 export type Engine = ReturnType<typeof useWorkerEngine>;
 
@@ -118,9 +119,13 @@ export function CommandBox({ command, copied, onCopy }: { command: string; copie
  *  would be unusable at 390px. */
 export function Screen({ children }: { children: React.ReactNode }) {
   return (
-    <main className="flex min-h-dvh flex-col overflow-y-auto md:h-dvh md:overflow-hidden" style={{ background: BG }}>
-      {children}
-    </main>
+    <div style={{ background: BG }}>
+      <SiteNav />
+      {/* the nav is fixed, so the page starts below it */}
+      <main className="flex min-h-dvh flex-col overflow-y-auto pt-[86px] md:h-dvh md:overflow-hidden">
+        {children}
+      </main>
+    </div>
   );
 }
 

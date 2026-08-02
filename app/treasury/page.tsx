@@ -1,5 +1,7 @@
 'use client';
 
+import SiteNav from '@/components/SiteNav';
+
 // Public treasury dashboard. Every figure comes from /api/treasury (polled every
 // 30s) and /api/treasury/history; nothing on this page is estimated client-side.
 // Presentation: editorial money surface (Newsreader figures, Inter labels), with
@@ -189,25 +191,12 @@ export default function TreasuryPage() {
 
   return (
     <div className="min-h-screen bg-black">
-      <header className="fixed top-0 left-0 right-0 z-50 py-4">
-        <div className="max-w-6xl mx-auto px-4 md:px-6">
-          <nav className="bg-black/80 backdrop-blur-sm border border-white/10 rounded-2xl px-4 md:px-6 py-3 flex items-center justify-between">
-            <a href="/" className="cursor-pointer pixel-serif-logo text-white text-lg md:text-xl font-bold flex items-center">
-              c<span className="pixel-serif-logo" style={{ fontSize: '1.8em', display: 'inline-block', verticalAlign: 'baseline', lineHeight: '1', marginTop: '-0.3em' }}>0</span>mpute
-            </a>
-            <div className="flex items-center gap-5">
-              <a href="/staking" className="pixel-sans text-sm text-white/50 hover:text-white transition-colors hidden sm:inline">staking</a>
-              <a href="/" className="pixel-sans text-sm text-white/70 hover:text-white transition-colors">← Back</a>
-            </div>
-          </nav>
-        </div>
-      </header>
+      <SiteNav />
 
       <main className="pt-32 pb-20 px-4 md:px-6">
         <div className="max-w-5xl mx-auto">
           {/* Page lede */}
           <div className="mb-8">
-            <div className="pixel-sans text-white/40 text-xs tracking-widest mb-3">TREASURY</div>
             <h1 className="pixel-serif text-white text-4xl md:text-5xl mb-3">Treasury</h1>
             <p className="pixel-sans text-white/70 text-sm max-w-2xl">
               100% of the compute margin and a share of <span className="dollar">$</span>ZERO trading fees flow into this treasury.
