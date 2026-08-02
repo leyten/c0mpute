@@ -100,3 +100,7 @@ data/
 
 # review-only docs build (DOCS_BASE_URL=/preview-docs/)
 docs-site/build-preview/
+
+# local release build dir
+.next-rel/
+.next-new/
