@@ -139,34 +139,24 @@ function ChartCard({ title, last, sub, points, color, fmt, prefix, suffix }: {
   );
 }
 
-// The flywheel, drawn once: revenue funds the treasury, the treasury splits in
-// half between burns and staker payouts. Pure mechanics, no numbers.
-function FlywheelStrip() {
-  const node = 'flex-1 border border-white/10 bg-white/[0.02] rounded-xl px-4 py-4 text-center';
-  const arrow = <div className="self-center pixel-sans text-white/30 text-lg rotate-90 md:rotate-0" aria-hidden>→</div>;
+// The mechanic, stated rather than drawn. Boxes with arrows between them add
+// nothing a sentence does not already carry.
+function Flywheel() {
   return (
-    <div className={`${card} p-5 md:p-6 mb-10`}>
-      <div className={`${secLabel} mb-4 text-center`}>How value flows</div>
-      <div className="flex flex-col md:flex-row items-stretch gap-3">
-        <div className={node}>
-          <div className="pixel-serif text-white text-lg">Network revenue</div>
-          <div className="pixel-sans text-white/50 text-[11px] mt-1">compute margin + a share of <span className="dollar">$</span>ZERO trading fees</div>
+    <div className="mb-10">
+      <div className={`${secLabel} mb-3`}>How value flows</div>
+      <p className="pixel-serif text-white text-xl md:text-2xl leading-snug max-w-[46rem]">
+        The compute margin and a share of <span className="dollar">$</span>ZERO trading fees
+        accumulate here in <span className="dollar">$</span>USDC, then split in half.
+      </p>
+      <div className="mt-6 grid gap-px sm:grid-cols-2 max-w-[46rem]">
+        <div className="pt-4 border-t border-white/10 sm:pr-8">
+          <div className="pixel-sans text-white text-sm">Half buys <span className="dollar">$</span>ZERO and burns it</div>
+          <div className="pixel-sans text-white/45 text-[12.5px] mt-1">Supply shrinks permanently, on-chain.</div>
         </div>
-        {arrow}
-        <div className={node}>
-          <div className="pixel-serif text-white text-lg">Treasury</div>
-          <div className="pixel-sans text-white/50 text-[11px] mt-1">accumulates in <span className="dollar">$</span>USDC</div>
-        </div>
-        {arrow}
-        <div className="flex-1 flex flex-col gap-3">
-          <div className="border border-green-500/20 bg-green-500/[0.04] rounded-xl px-4 py-3 text-center">
-            <div className="pixel-serif text-white text-base">Half: buyback and burn</div>
-            <div className="pixel-sans text-white/50 text-[11px] mt-0.5"><span className="dollar">$</span>ZERO supply shrinks forever</div>
-          </div>
-          <div className="border border-[#80a0c1]/25 bg-[#80a0c1]/[0.05] rounded-xl px-4 py-3 text-center">
-            <div className="pixel-serif text-white text-base">Half: staker rewards</div>
-            <div className="pixel-sans text-white/50 text-[11px] mt-0.5">paid to stakers in <span className="dollar">$</span>USDC</div>
-          </div>
+        <div className="pt-4 border-t border-white/10 sm:pl-8">
+          <div className="pixel-sans text-white text-sm">Half is paid to stakers</div>
+          <div className="pixel-sans text-white/45 text-[12.5px] mt-1">In <span className="dollar">$</span>USDC, claimable from the staking page.</div>
         </div>
       </div>
     </div>
@@ -226,7 +216,7 @@ export default function TreasuryPage() {
             </p>
           </div>
 
-          <FlywheelStrip />
+          <Flywheel />
 
           {data && !data.launched && (
             <div className="border border-[#80a0c1]/30 bg-[#80a0c1]/10 rounded-2xl p-6 mb-8">
