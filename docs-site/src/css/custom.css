@@ -1,26 +1,46 @@
-/* ── c0mpute docs theme ── */
-/* Matches main site: black bg, white text, #80a0c1 accent, pixel fonts */
+/* ── c0mpute docs ──────────────────────────────────────────────────────────
+   The editorial theme, applied to Docusaurus. Same vocabulary as the app
+   (app/chat/ui/ui.css): #0c0a09 page, rails a half-step down instead of
+   borders, large radii, steel for anything you can click. Newsreader sets
+   the display sizes, Inter sets the prose. The pixel face and every
+   render-degrading hack that propped it up are gone — a docs site is read,
+   not glanced at, so it is antialiased throughout.
+
+   Docs colour mode is dark-only (colorMode.disableSwitch in the config), so
+   the palette is declared once on :root and mirrored onto [data-theme] —
+   there is no second theme to keep coherent. */
 
 :root {
-  --ifm-color-primary: #80a0c1;
-  --ifm-color-primary-dark: #6b90b6;
-  --ifm-color-primary-darker: #6089b1;
-  --ifm-color-primary-darkest: #4a7199;
-  --ifm-color-primary-light: #95b0cc;
-  --ifm-color-primary-lighter: #a0b8d1;
-  --ifm-color-primary-lightest: #c0d0e1;
-  --ifm-font-family-base: 'Courier New', 'Monaco', 'Consolas', monospace;
-  --ifm-font-family-monospace: 'SF Mono', 'Fira Code', Menlo, Consolas, monospace;
-  --ifm-heading-font-family: "argent-pixel-cf", sans-serif;
-  --ifm-heading-font-weight: 400;
+  /* palette */
+  --c0-bg: #0c0a09;           /* the page */
+  --c0-rail: #0a0908;         /* navbar, sidebar — a half-step down */
+  --c0-surface: rgba(255, 255, 255, 0.04);    /* code, cards, admonitions */
+  --c0-surface-hi: rgba(255, 255, 255, 0.075);
+  --c0-text: rgba(255, 255, 255, 0.78);
+  --c0-heading: #fff;
+  --c0-muted: rgba(255, 255, 255, 0.45);
+  --c0-line: rgba(255, 255, 255, 0.08);
+  --c0-steel: #80a0c1;
+  --c0-ease: cubic-bezier(0.2, 0, 0, 1);
+
+  /* type */
+  --c0-display: 'Newsreader', Georgia, 'Times New Roman', serif;
+  --c0-body: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --c0-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas,
+    'Liberation Mono', monospace;
+
+  --ifm-font-family-base: var(--c0-body);
+  --ifm-font-family-monospace: var(--c0-mono);
+  --ifm-heading-font-family: var(--c0-display);
+  --ifm-heading-font-weight: 500;
+  --ifm-font-weight-semibold: 600;
   --ifm-font-weight-bold: 600;
-  --ifm-line-height-base: 1.75;
+  --ifm-font-size-base: 16px;
+  --ifm-line-height-base: 1.7;
+  --ifm-heading-line-height: 1.3;
   --ifm-spacing-horizontal: 1.2rem;
-}
+  --ifm-code-font-size: 87.5%;
 
-[data-theme='dark'] {
-  --ifm-background-color: #000;
-  --ifm-background-surface-color: #000;
   --ifm-color-primary: #80a0c1;
   --ifm-color-primary-dark: #6b90b6;
   --ifm-color-primary-darker: #6089b1;
@@ -28,147 +48,176 @@
   --ifm-color-primary-light: #95b0cc;
   --ifm-color-primary-lighter: #a0b8d1;
   --ifm-color-primary-lightest: #c0d0e1;
-  --ifm-navbar-background-color: #000;
-  --ifm-footer-background-color: #000;
-  --ifm-card-background-color: #000;
-  --ifm-toc-border-color: rgba(255,255,255,0.06);
-  --ifm-color-emphasis-300: rgba(255,255,255,0.06);
-  --ifm-hr-border-color: rgba(255,255,255,0.06);
-  --ifm-color-content: rgba(255,255,255,0.85);
-  --ifm-color-content-secondary: rgba(255,255,255,0.5);
-  --ifm-heading-color: #fff;
-  --ifm-link-color: #80a0c1;
-  --ifm-link-hover-color: #a0b8d1;
-  --ifm-menu-color: rgba(255,255,255,0.72);
-  --ifm-menu-color-active: #80a0c1;
-  --ifm-menu-color-background-active: rgba(128,160,193,0.08);
-  --ifm-menu-color-background-hover: rgba(255,255,255,0.03);
-  --ifm-table-stripe-background: rgba(255,255,255,0.02);
-  --ifm-table-border-color: rgba(255,255,255,0.06);
-  --ifm-code-background: rgba(255,255,255,0.05);
-  --ifm-breadcrumb-color-active: rgba(255,255,255,0.5);
-  --ifm-pagination-nav-color-hover: rgba(255,255,255,0.03);
-  --docusaurus-highlighted-code-line-bg: rgba(128,160,193,0.1);
 }
 
-/* ── Pixel font classes (match main site) ── */
-.pixel-serif {
-  font-family: "argent-pixel-cf", sans-serif;
-  font-weight: 400;
-  font-style: normal;
-  letter-spacing: 0.02em;
-  font-smooth: never;
-  -webkit-font-smoothing: none;
-  -moz-osx-font-smoothing: unset;
-  text-rendering: optimizeSpeed;
+:root,
+[data-theme='light'],
+[data-theme='dark'] {
+  --ifm-background-color: var(--c0-bg);
+  --ifm-background-surface-color: var(--c0-bg);
+  --ifm-navbar-background-color: var(--c0-rail);
+  --ifm-footer-background-color: var(--c0-rail);
+  --ifm-card-background-color: var(--c0-surface);
+
+  --ifm-color-content: var(--c0-text);
+  --ifm-color-content-secondary: var(--c0-muted);
+  --ifm-heading-color: var(--c0-heading);
+  --ifm-link-color: var(--c0-steel);
+  --ifm-link-hover-color: var(--c0-steel);
+
+  --ifm-toc-border-color: var(--c0-line);
+  --ifm-hr-border-color: var(--c0-line);
+  --ifm-color-emphasis-200: rgba(255, 255, 255, 0.06);
+  --ifm-color-emphasis-300: var(--c0-line);
+
+  --ifm-menu-color: var(--c0-text);
+  --ifm-menu-color-active: var(--c0-steel);
+  --ifm-menu-color-background-active: rgba(128, 160, 193, 0.1);
+  --ifm-menu-color-background-hover: rgba(255, 255, 255, 0.04);
+
+  --ifm-table-stripe-background: rgba(255, 255, 255, 0.02);
+  --ifm-table-border-color: var(--c0-line);
+  --ifm-table-head-background: rgba(255, 255, 255, 0.025);
+
+  --ifm-code-background: var(--c0-surface);
+  --ifm-pre-background: var(--c0-surface);
+  --ifm-breadcrumb-color-active: var(--c0-muted);
+  --ifm-pagination-nav-color-hover: rgba(255, 255, 255, 0.04);
+  --ifm-blockquote-color: var(--c0-muted);
+  --ifm-blockquote-border-color: var(--c0-line);
+  --ifm-scrollbar-track-background-color: transparent;
+  --ifm-scrollbar-thumb-background-color: rgba(255, 255, 255, 0.12);
+  --ifm-scrollbar-thumb-hover-background-color: rgba(255, 255, 255, 0.2);
+
+  /* the code container owns the fill; the Prism theme only inks the tokens */
+  --prism-background-color: transparent;
+  --prism-color: rgba(255, 255, 255, 0.88);
+  --docusaurus-highlighted-code-line-bg: rgba(128, 160, 193, 0.1);
 }
 
-.pixel-sans {
-  font-family: 'Courier New', 'Monaco', 'Consolas', monospace;
-  letter-spacing: 0.01em;
-  font-weight: 400;
-  line-height: 1.6;
-}
-
-/* ── Global body ── */
-html, body {
-  overflow-x: hidden;
-  max-width: 100vw;
+/* ── Global ── */
+html {
+  background: var(--c0-bg);
 }
 
 body {
-  font-smooth: never;
-  -webkit-font-smoothing: none;
-  -moz-osx-font-smoothing: unset;
+  background: var(--c0-bg);
+  color: var(--c0-text);
+  font-family: var(--c0-body);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  -webkit-text-stroke: 0;
+}
+
+::selection {
+  background: rgba(128, 160, 193, 0.28);
+}
+
+.main-wrapper {
+  background: var(--c0-bg);
+}
+
+/* `.dollar` is written into the docs markdown. It existed because the retired
+   pixel face had no usable `$`; both faces here render it, so it inherits. */
+.dollar {
+  font-family: inherit;
 }
 
 /* ── Navbar ── */
 .navbar {
-  background: #000 !important;
-  border-bottom: 1px solid rgba(255,255,255,0.10);
-  padding: 0.6rem 1.5rem;
+  background: var(--c0-rail);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  padding: 0.7rem 1.5rem;
   box-shadow: none !important;
 }
 
-.main-wrapper {
-  background: #000;
+.navbar__wordmark {
+  display: flex;
+  align-items: baseline;
+  text-decoration: none;
+  font-family: var(--c0-display);
+  font-weight: 500;
+  font-size: 1.05rem;
+  letter-spacing: 0.06em;
+  color: var(--c0-heading);
 }
 
-[data-theme='dark'] .docusaurus-highlight-code-line {
-  background-color: rgba(128,160,193,0.1);
-}
-
-.navbar__title {
-  font-family: "argent-pixel-cf", sans-serif;
-  font-weight: 400;
-  font-style: normal;
-  font-smooth: never;
-  -webkit-font-smoothing: none;
-  -moz-osx-font-smoothing: unset;
-  letter-spacing: 0.08em;
-  font-size: 1.1rem;
+.navbar__wordmark:hover {
+  color: var(--c0-heading);
+  text-decoration: none;
 }
 
 .navbar__link,
 .navbar__item {
-  font-family: 'Courier New', 'Monaco', 'Consolas', monospace;
-  font-size: 0.8rem;
+  font-family: var(--c0-body);
+  font-size: 0.875rem;
   font-weight: 400;
-  color: rgba(255,255,255,0.4) !important;
-  transition: color 0.15s;
+  color: var(--c0-muted) !important;
+  transition: color 150ms var(--c0-ease);
 }
 
 .navbar__link:hover,
 .navbar__item:hover {
-  color: rgba(255,255,255,0.7) !important;
+  color: var(--c0-heading) !important;
 }
 
-/* Hide external link icon on App link */
+.navbar-sidebar {
+  background: var(--c0-rail);
+}
+
+/* Hide the external-link icon on the App link */
 .navbar__link--active,
 a[href="https://c0mpute.ai"] svg,
 a[href="https://c0mpute.ai"]::after {
   display: none;
 }
 
-/* ── Sidebar ── */
+/* ── Sidebar ──
+   Separated from the page by value, not by a border. */
+.theme-doc-sidebar-container {
+  background: var(--c0-rail) !important;
+  border-right: 1px solid rgba(255, 255, 255, 0.05) !important;
+}
+
+.theme-doc-sidebar-menu,
+.doc-sidebar-container,
+aside,
+aside > div {
+  background: var(--c0-rail) !important;
+}
+
 .menu {
   padding: 1rem 0.8rem;
+  font-family: var(--c0-body);
   font-size: 0.9rem;
-  font-family: 'Courier New', 'Monaco', 'Consolas', monospace;
 }
 
 .menu__link {
   font-size: 0.9rem;
-  border-radius: 8px;
+  line-height: 1.45;
+  border-radius: 10px;
   padding: 0.5rem 0.9rem;
   font-weight: 400;
+  transition: color 150ms var(--c0-ease), background-color 150ms var(--c0-ease);
 }
 
 .menu__link--active:not(.menu__link--sublist) {
   font-weight: 500;
-  background: rgba(128,160,193,0.08);
+  color: var(--c0-steel);
+  background: rgba(128, 160, 193, 0.1);
 }
 
 .menu__list-item-collapsible {
-  border-radius: 8px;
+  border-radius: 10px;
 }
 
-.theme-doc-sidebar-container {
-  background: #000 !important;
-  border-right: 1px solid rgba(255,255,255,0.10) !important;
+.menu__caret,
+.menu__link--sublist-caret {
+  color: var(--c0-muted);
 }
 
-.theme-doc-sidebar-menu {
-  background: #000;
-}
-
-.doc-sidebar-container,
-aside,
-aside > div {
-  background: #000 !important;
-}
-
-/* ── Breadcrumbs — hide them ── */
+/* ── Breadcrumbs — hidden, as before ── */
 .theme-doc-breadcrumbs {
   display: none !important;
 }
@@ -178,183 +227,310 @@ article {
   max-width: 780px;
 }
 
+.markdown {
+  --ifm-h1-vertical-rhythm-bottom: 1;
+  font-size: 16px;
+  line-height: 1.7;
+}
+
+.markdown h1,
+.markdown h2,
+.markdown h3 {
+  font-family: var(--c0-display);
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--c0-heading);
+}
+
 .markdown h1 {
-  font-family: "argent-pixel-cf", sans-serif;
-  font-weight: 400;
-  font-size: 2.2rem;
+  font-size: 2.25rem;
+  line-height: 1.2;
   margin-bottom: 1.5rem;
-  letter-spacing: 0.02em;
-  font-smooth: never;
-  -webkit-font-smoothing: none;
-  -moz-osx-font-smoothing: unset;
-  text-rendering: optimizeSpeed;
 }
 
 .markdown h2 {
-  font-family: "argent-pixel-cf", sans-serif;
-  font-weight: 400;
-  font-size: 1.5rem;
-  margin-top: 2.5rem;
+  font-size: 1.55rem;
+  margin-top: 2.75rem;
   margin-bottom: 1rem;
-  padding-bottom: 0.4rem;
-  border-bottom: 1px solid rgba(255,255,255,0.10);
-  letter-spacing: 0.02em;
-  font-smooth: never;
-  -webkit-font-smoothing: none;
-  -moz-osx-font-smoothing: unset;
+  padding-bottom: 0.45rem;
+  border-bottom: 1px solid var(--c0-line);
 }
 
 .markdown h3 {
-  font-family: "argent-pixel-cf", sans-serif;
-  font-weight: 400;
-  font-size: 1.15rem;
+  font-size: 1.2rem;
   margin-top: 2rem;
-  margin-bottom: 0.8rem;
-  letter-spacing: 0.02em;
-  font-smooth: never;
-  -webkit-font-smoothing: none;
-  -moz-osx-font-smoothing: unset;
+  margin-bottom: 0.75rem;
+}
+
+.markdown h4,
+.markdown h5,
+.markdown h6 {
+  font-family: var(--c0-body);
+  font-weight: 600;
+  letter-spacing: 0;
+  color: var(--c0-heading);
+}
+
+.markdown p,
+.markdown li {
+  font-family: var(--c0-body);
+  color: var(--c0-text);
+  line-height: 1.7;
+  font-size: 1rem;
 }
 
 .markdown p {
-  font-family: 'Courier New', 'Monaco', 'Consolas', monospace;
-  color: rgba(255,255,255,0.9);
-  line-height: 1.85;
-  margin-bottom: 1.2rem;
-  font-size: 1rem;
+  margin-bottom: 1.15rem;
 }
 
 .markdown li {
-  font-family: 'Courier New', 'Monaco', 'Consolas', monospace;
-  color: rgba(255,255,255,0.9);
-  line-height: 1.85;
-  margin-bottom: 0.4rem;
-  font-size: 1rem;
+  margin-bottom: 0.35rem;
+}
+
+.markdown li::marker {
+  color: rgba(255, 255, 255, 0.38);
 }
 
 .markdown strong {
-  color: rgba(255,255,255,0.95);
-  font-weight: 700;
-  letter-spacing: 0.03em;
+  color: var(--c0-heading);
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.markdown a {
+  color: var(--c0-steel);
+  text-decoration: none;
+  border-bottom: 1px solid rgba(128, 160, 193, 0.35);
+  transition: border-color 150ms var(--c0-ease);
+}
+
+.markdown a:hover {
+  border-bottom-color: var(--c0-steel);
+}
+
+.markdown a.hash-link {
+  border-bottom: 0;
 }
 
 .markdown blockquote {
-  border-left: 3px solid #80a0c1;
-  background: rgba(128,160,193,0.05);
-  padding: 0.8rem 1.2rem;
-  border-radius: 0 12px 12px 0;
-  color: rgba(255,255,255,0.6);
+  border-left: 2px solid var(--c0-line);
+  background: none;
+  padding: 0.1rem 0 0.1rem 1rem;
+  color: var(--c0-muted);
 }
 
-/* ── Cards (info boxes) ── */
-.markdown .card,
-.markdown details {
-  border: 1px solid rgba(255,255,255,0.10);
-  background: rgba(255,255,255,0.02);
-  border-radius: 16px;
+.markdown hr {
+  border: 0;
+  border-top: 1px solid var(--c0-line);
+  margin: 2rem 0;
 }
 
-/* ── Code ── */
-code {
+.markdown img {
+  max-width: 100%;
+  border-radius: 14px;
+}
+
+/* ── Code ──
+   Most of what a docs page shows. 13.5px on a 1.6 rhythm, real monospace,
+   a fill instead of a frame, and it scrolls inside its own box. */
+:not(pre) > code {
+  font-family: var(--c0-mono);
   border: none;
-  background: rgba(255,255,255,0.06);
+  background: var(--c0-surface);
   border-radius: 6px;
-  padding: 0.15rem 0.4rem;
-  font-size: 0.85em;
+  padding: 0.15em 0.4em;
+  font-size: 0.875em;
+  vertical-align: baseline;
 }
 
 .theme-code-block {
-  border: 1px solid rgba(255,255,255,0.10);
-  border-radius: 12px !important;
-  background: rgba(255,255,255,0.02) !important;
+  border: none;
+  border-radius: 14px !important;
+  background: var(--c0-surface) !important;
+  box-shadow: none !important;
+  overflow: hidden;
 }
 
 .theme-code-block pre {
-  background: rgba(255,255,255,0.02) !important;
-  border-radius: 12px !important;
-}
-
-.prism-code {
-  font-size: 0.85rem;
-  line-height: 1.6;
-}
-
-/* ── Tables ── */
-/* Dollar sign fix — pixel font breaks $ */
-.dollar {
-  font-family: 'Courier New', 'Monaco', monospace;
-  font-weight: 400;
-}
-
-/* Table wrapper for mobile scroll */
-.theme-doc-markdown div:has(> table),
-.markdown > table,
-div > table {
-  display: block;
+  background: transparent !important;
+  border-radius: 14px !important;
   overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
   max-width: 100%;
 }
 
-table {
-  border-collapse: collapse;
-  border: 1px solid rgba(255,255,255,0.10);
-  border-radius: 12px;
-  overflow: hidden;
-  font-size: 0.85rem;
-  font-family: 'Courier New', 'Monaco', 'Consolas', monospace;
-  white-space: nowrap;
+.theme-code-block .prism-code {
+  font-family: var(--c0-mono);
+  font-size: 13.5px;
+  line-height: 1.6;
+  background: transparent !important;
 }
 
-table th {
-  background: rgba(255,255,255,0.03);
-  font-family: "argent-pixel-cf", sans-serif;
-  font-weight: 400;
+/* The container owns the fill. Leave the code element's own padding alone —
+   Docusaurus puts the block's inset on `.codeBlockLines`, not on the `pre`. */
+.theme-code-block code {
+  background: none;
+  border: none;
+  border-radius: 0;
+  font-size: inherit;
+}
+
+/* the language / title bar and the copy button ride quietly on the fill */
+.theme-code-block .buttonGroup__atx button,
+.theme-code-block div[class*='codeBlockTitle'] {
+  background: transparent !important;
+  border: none !important;
+  color: var(--c0-muted) !important;
+  font-family: var(--c0-body);
+}
+
+.theme-code-block .buttonGroup__atx button:hover {
+  background: var(--c0-surface-hi) !important;
+  color: var(--c0-heading) !important;
+}
+
+/* ── Tables ──
+   display:block is what lets a markdown table scroll on its own instead of
+   pushing the page sideways. It needs `width: max-content` with it, or the
+   generated table box sizes itself off the viewport and every table scrolls
+   whether it has to or not. Only the head refuses to wrap. */
+.markdown table {
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+  border: 1px solid var(--c0-line);
+  border-radius: 12px;
+  font-family: var(--c0-body);
+  font-size: 0.9rem;
+}
+
+.markdown table th {
+  background: rgba(255, 255, 255, 0.025);
+  font-family: var(--c0-body);
+  font-weight: 600;
   font-size: 0.8rem;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: rgba(255,255,255,0.5);
-  padding: 0.6rem 1rem;
+  color: var(--c0-muted);
+  padding: 0.65rem 1rem;
+  border-bottom: 1px solid var(--c0-line);
+  white-space: nowrap;
 }
 
-table td {
-  padding: 0.6rem 1rem;
-  color: rgba(255,255,255,0.7);
+.markdown table td {
+  padding: 0.65rem 1rem;
+  color: var(--c0-text);
+  border: 0;
+  border-bottom: 1px solid var(--c0-line);
 }
 
-table tr:nth-child(even) {
-  background: rgba(255,255,255,0.015);
+.markdown table tr {
+  background: transparent;
+  border: 0;
 }
 
-/* ── TOC (right sidebar) ── */
+.markdown table tr:nth-child(even) {
+  background: rgba(255, 255, 255, 0.015);
+}
+
+.markdown table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+/* ── Admonitions + details ── */
+.theme-admonition,
+.alert {
+  border-radius: 16px;
+  border: 1px solid var(--c0-line);
+  border-left-width: 3px;
+  background: var(--c0-surface);
+  color: var(--c0-text);
+  box-shadow: none;
+}
+
+.theme-admonition .admonition-heading h5,
+.alert .admonition-heading {
+  font-family: var(--c0-body);
+  font-weight: 600;
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+}
+
+.markdown details,
+.theme-admonition details {
+  border: 1px solid var(--c0-line);
+  background: var(--c0-surface);
+  border-radius: 16px;
+}
+
+.card {
+  border: 1px solid var(--c0-line);
+  border-radius: 16px;
+  background: var(--c0-surface);
+  box-shadow: none;
+}
+
+/* ── TOC (right rail) ── */
 .theme-doc-toc-desktop {
-  background: #000;
+  background: transparent;
 }
 
 .table-of-contents {
-  font-size: 0.8rem;
-  font-family: 'Courier New', 'Monaco', 'Consolas', monospace;
+  font-family: var(--c0-body);
+  font-size: 0.82rem;
+  border-left: 1px solid var(--c0-line);
 }
 
 .table-of-contents__link {
-  color: rgba(255,255,255,0.62);
-  transition: color 0.15s;
+  color: var(--c0-muted);
+  transition: color 150ms var(--c0-ease);
 }
 
 .table-of-contents__link:hover,
 .table-of-contents__link--active {
-  color: #80a0c1;
+  color: var(--c0-steel);
+}
+
+/* ── Pagination ── */
+.pagination-nav__link {
+  border: none;
+  border-radius: 16px;
+  padding: 1rem 1.2rem;
+  background: var(--c0-surface);
+  transition: background-color 150ms var(--c0-ease);
+}
+
+.pagination-nav__link:hover {
+  background: var(--c0-surface-hi);
+}
+
+.pagination-nav__sublabel {
+  font-family: var(--c0-body);
+  font-size: 0.75rem;
+  color: var(--c0-muted);
+}
+
+.pagination-nav__label {
+  font-family: var(--c0-display);
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--c0-heading);
+}
+
+/* ── Search ── */
+.DocSearch-Button {
+  border: none !important;
+  border-radius: 12px !important;
+  background: var(--c0-surface) !important;
 }
 
 /* ── Footer ── */
-.footer {
-  background: #000 !important;
-  border-top: 1px solid rgba(255,255,255,0.06);
-  padding: 1.5rem 0 !important;
-}
-
+.footer,
 .footer--dark {
-  background: #000 !important;
+  background: var(--c0-rail) !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  padding: 1.75rem 0 !important;
 }
 
 .footer__links {
@@ -366,59 +542,16 @@ table tr:nth-child(even) {
 }
 
 .footer__copyright {
-  font-family: 'Courier New', 'Monaco', 'Consolas', monospace;
-  font-size: 0.7rem;
-  color: rgba(255,255,255,0.15);
+  font-family: var(--c0-body);
+  font-size: 0.78rem;
+  color: rgba(255, 255, 255, 0.28);
   text-align: center;
 }
 
-/* ── Pagination nav ── */
-.pagination-nav__link {
-  border: 1px solid rgba(255,255,255,0.10);
-  border-radius: 12px;
-  padding: 1rem;
-  transition: border-color 0.15s, background 0.15s;
-  background: rgba(255,255,255,0.02);
-}
-
-.pagination-nav__link:hover {
-  border-color: rgba(255,255,255,0.15);
-  background: rgba(255,255,255,0.04);
-}
-
-.pagination-nav__sublabel {
-  font-size: 0.7rem;
-  color: rgba(255,255,255,0.3);
-  font-family: 'Courier New', 'Monaco', 'Consolas', monospace;
-}
-
-.pagination-nav__label {
-  font-family: 'Courier New', 'Monaco', 'Consolas', monospace;
-  font-weight: 400;
-}
-
-/* ── Search ── */
-.DocSearch-Button {
-  border: 1px solid rgba(255,255,255,0.1) !important;
-  border-radius: 12px !important;
-  background: rgba(255,255,255,0.03) !important;
-}
-
-/* ── Admonitions ── */
-.alert {
-  border-radius: 12px;
-  border-width: 1px;
-  background: rgba(255,255,255,0.02);
-}
-
-.alert .admonition-heading {
-  font-family: "argent-pixel-cf", sans-serif;
-}
-
-/* ── Scrollbar ── */
+/* ── Scrollbars — thin and quiet ── */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 10px;
+  height: 10px;
 }
 
 ::-webkit-scrollbar-track {
@@ -426,44 +559,31 @@ table tr:nth-child(even) {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(255,255,255,0.1);
-  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 99px;
+  border: 3px solid transparent;
+  background-clip: content-box;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255,255,255,0.2);
+  background: rgba(255, 255, 255, 0.2);
+  background-clip: content-box;
 }
 
 * {
   scrollbar-width: thin;
-  scrollbar-color: rgba(255,255,255,0.1) transparent;
+  scrollbar-color: rgba(255, 255, 255, 0.14) transparent;
 }
 
-/* ── Mobile responsive ── */
-@media (max-width: 768px) {
+/* ── Narrow ── */
+@media (max-width: 996px) {
   .markdown h1 {
-    font-size: 1.6rem;
+    font-size: 1.85rem;
   }
   .markdown h2 {
-    font-size: 1.2rem;
+    font-size: 1.35rem;
   }
   .markdown h3 {
-    font-size: 1rem;
+    font-size: 1.1rem;
   }
-  article {
-    padding: 0 0.5rem;
-  }
-}
-
-/* Site-wide Courier thickening (leyten 2026-06-12): text-stroke fakes the
-   medium weight Courier doesn't have. Pixel-serif headings stay unstroked. */
-body {
-  -webkit-text-stroke: 0.35px currentColor;
-}
-h1, h2, h3, h4, h5, h6,
-.navbar__title {
-  -webkit-text-stroke: 0;
-}
-strong, b {
-  -webkit-text-stroke: 0.2px currentColor;
 }
