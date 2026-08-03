@@ -206,14 +206,18 @@ export async function discoverUntrackedOnchainStakers(): Promise<number> {
       const oldest = sigs[sigs.length - 1];
       const tx = oldest ? await conn.getTransaction(oldest.signature, { maxSupportedTransactionVersion: 0 }) : null;
       const keys = tx?.transaction.message.staticAccountKeys;
-      if (!oldest || !keys?.some((k) => k.equals(stakingProgramId()))) {
-        db.prepare('INSERT OR IGNORE INTO onchain_vault_scan_cache (vault, verdict) VALUES (?, ?)').run(vaultAddr, 'not_stake');
-        continue;
-      }
+      if (!oldest || !keys) continue; // no history / flaky tx read — retry next cycle
+      // A web deposit is a plain ATA-create + transfer and never invokes the staking
+      // program, so the ownership proof is the derivation itself: the first tx's fee
+      // payer must derive exactly this vault.
       const wallet = keys[0]; // fee payer of the first deposit = the staker
       if (!vaultFor(wallet).equals(a.pubkey)) {
-        // fee payer isn't the vault's owner (sponsored tx?) — flag, don't guess
-        console.warn(`[Keeper v2] untracked stake vault ${vaultAddr} whose first fee payer doesn't derive it — needs manual look`);
+        if (keys.some((k) => k.equals(stakingProgramId()))) {
+          // touches the staking program but fee payer doesn't derive it (sponsored tx?) — flag, don't guess
+          console.warn(`[Keeper v2] untracked stake vault ${vaultAddr} whose first fee payer doesn't derive it — needs manual look`);
+        } else {
+          db.prepare('INSERT OR IGNORE INTO onchain_vault_scan_cache (vault, verdict) VALUES (?, ?)').run(vaultAddr, 'not_stake');
+        }
         continue;
       }
       const sinceIso = oldest.blockTime ? new Date(oldest.blockTime * 1000).toISOString() : new Date().toISOString();
