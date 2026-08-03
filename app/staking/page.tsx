@@ -1,17 +1,21 @@
 'use client';
 
-// $ZERO staking — self-custody. One page for everyone: brand-new users get the clean
-// on-chain stake/unstake/claim flow; anyone still holding a legacy custodial position
-// sees a "migrate to self-custody" banner until they've moved over. Funds live in
-// on-chain vaults only the user controls — no server key can move them.
+import SiteNav from '@/components/SiteNav';
+
+// $ZERO staking, self-custody. One page for everyone: brand-new users get the
+// on-chain stake/unstake/claim flow; anyone still holding a legacy custodial
+// position sees a migrate banner until they have moved over. Funds live in
+// on-chain vaults only the user controls; no server key can move them.
+//
+// Presentation: editorial money surface (Newsreader figures, Inter labels).
+// All state, handlers and API calls are unchanged from the production page.
 import { useState, useEffect, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
 import { usePrivy, useLinkAccount, useConnectWallet } from '@privy-io/react-auth';
 import { useWallets, useSignAndSendTransaction } from '@privy-io/react-auth/solana';
 import { PublicKey } from '@solana/web3.js';
 import {
   buildStakeTx, buildUnstakeTx, buildClaimTx,
-  mintsConfigured, SOLANA_CHAIN, RPC_URL, type StakeChunks,
+  mintsConfigured, SOLANA_CHAIN, type StakeChunks,
   readStakeChunks, readClaimable, readWalletZero, stakeVault, ZERO_MINT,
   preflight, readSol,
 } from '@/lib/onchain-staking';
@@ -35,9 +39,45 @@ function legacyLine(zero: number, usd: number): string {
   return parts.join(' and ');
 }
 
+// Shared presentation tokens for this page.
+const card = 'border border-white/10 bg-white/[0.02] rounded-2xl';
+const secLabel = 'pixel-sans text-white/40 text-[10px] tracking-widest uppercase';
+const btn = 'pixel-sans text-sm font-medium px-6 py-2.5 rounded-xl bg-white text-black hover:bg-white/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed';
+const btnFull = `w-full ${btn}`;
+const btnGhost = 'pixel-sans text-xs px-2.5 py-1.5 rounded-lg border border-white/20 text-white/70 hover:text-white hover:bg-white/5 transition-colors disabled:opacity-40 disabled:cursor-not-allowed';
+const amountBox = 'flex items-center gap-2 bg-white/[0.03] border border-white/10 rounded-xl px-4 py-3 mb-3 focus-within:border-white/25 transition-colors';
+const amountInput = 'flex-1 min-w-0 bg-transparent outline-none pixel-serif text-white text-2xl placeholder-white/25 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none';
+
+// The mechanics of the protocol, shown to visitors who have not connected yet.
+// Every claim here restates copy that already ships on this page or /treasury.
+function HowItWorks() {
+  const steps = [
+    { n: '01', title: 'Stake', body: <>Move <span className="dollar">$</span>ZERO from your wallet into your own on-chain vault. Only your wallet can sign it back out.</> },
+    { n: '02', title: 'Mature', body: <>New stake starts earning after 24 hours. Unstakes draw your newest deposits first, so aged stake keeps earning.</> },
+    { n: '03', title: 'Earn USDC', body: <>Stakers receive half of every treasury distribution, paid in <span className="dollar">$</span>USDC.</> },
+    { n: '04', title: 'Claim or compound', body: <>Claim <span className="dollar">$</span>USDC to your wallet anytime, or auto-compound it into more staked <span className="dollar">$</span>ZERO.</> },
+  ];
+  return (
+    <section className="mt-10">
+      <div className={`${secLabel} mb-4`}>How it works</div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {steps.map((s) => (
+          <div key={s.n} className={`${card} p-5`}>
+            <div className="pixel-serif text-white/50 text-2xl mb-2">{s.n}</div>
+            <h3 className="pixel-serif text-white text-lg mb-1.5">{s.title}</h3>
+            <p className="pixel-sans text-white/60 text-[13px] leading-relaxed">{s.body}</p>
+          </div>
+        ))}
+      </div>
+      <p className="pixel-sans text-white/40 text-xs mt-4">
+        The staker half is funded by the treasury. <a href="/treasury" className="text-[#80a0c1]/70 hover:text-[#80a0c1] transition-colors">See where the value comes from →</a>
+      </p>
+    </section>
+  );
+}
+
 export default function StakingPage() {
-  const router = useRouter();
-  const { ready, authenticated, login, user, getAccessToken } = usePrivy();
+  const { ready, authenticated, user, getAccessToken } = usePrivy();
   const { linkWallet } = useLinkAccount();
   const { connectWallet } = useConnectWallet();
   const { wallets } = useWallets();
@@ -227,59 +267,77 @@ export default function StakingPage() {
   };
 
   const hasLegacy = custodial > 0 || custodialRewards > 0;
-  const card = 'border border-white/10 bg-white/[0.02] p-6 rounded-2xl';
-  const input = 'flex-1 bg-transparent outline-none pixel-serif text-white text-lg placeholder-white/40';
-  const btn = 'w-full pixel-serif px-6 py-2.5 rounded-xl bg-white text-black hover:bg-white/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm';
+  const coolingLabel = chunks.cooling > 0 && countdown(chunks.nextMatureAt, now)
+    ? <>matures in <span className="text-white/90 tabular-nums">{countdown(chunks.nextMatureAt, now)}</span></>
+    : 'cooling down';
 
   return (
     <div className="min-h-screen bg-black">
-      <header className="fixed top-0 left-0 right-0 z-50 py-4">
-        <div className="max-w-6xl mx-auto px-4 md:px-6">
-          <nav className="bg-black/80 backdrop-blur-sm border border-white/10 rounded-2xl px-4 md:px-6 py-3 flex items-center justify-between">
-            <span className="pixel-serif-logo text-white text-lg md:text-xl font-bold flex items-center">C<span className="pixel-serif-logo" style={{ fontSize: '1.8em', display: 'inline-block', verticalAlign: 'baseline', lineHeight: '1', marginTop: '-0.3em' }}>0</span>MPUTE</span>
-            <button onClick={() => router.push('/')} className="pixel-sans text-sm text-white/70 hover:text-white">← Back</button>
-          </nav>
-        </div>
-      </header>
+      <SiteNav />
 
-      <main className="pt-32 pb-16 px-4 md:px-6">
-        <div className="max-w-2xl mx-auto">
-          <h1 className="pixel-serif text-white text-3xl md:text-4xl mb-2">Stake <span className="dollar">$</span>ZERO <span className="text-white/40 text-lg">· self-custody</span></h1>
-          <p className="pixel-sans text-white/70 text-sm mb-2">Your <span className="dollar">$</span>ZERO stays in your own on-chain vault. Only you can unstake or claim. No server holds your funds.</p>
-          <p className="pixel-sans text-white/40 text-xs mb-8 min-h-4">
-            {netStats ? <>{intnum(netStats.stakers)} stakers · {intnum(netStats.autocompound)} with auto-compound on</> : ' '}
-          </p>
+      <main className="pt-32 pb-20 px-4 md:px-6">
+        <div className="max-w-3xl mx-auto">
+          {/* Page lede */}
+          <div className="mb-10">
+            <h1 className="pixel-serif text-white text-4xl md:text-5xl mb-3">Stake <span className="dollar">$</span>ZERO</h1>
+            <p className="pixel-sans text-white/70 text-sm max-w-xl">
+              Self-custody staking. Your <span className="dollar">$</span>ZERO sits in an on-chain vault only you control,
+              and rewards are paid in <span className="dollar">$</span>USDC from the treasury&apos;s staker half.
+            </p>
+            <p className="pixel-sans text-white/40 text-xs mt-2 min-h-4">
+              {netStats ? <>{intnum(netStats.stakers)} stakers · {intnum(netStats.autocompound)} with auto-compound on</> : ' '}
+            </p>
+          </div>
 
           {!ready ? (
-            <p className="pixel-sans text-white/60 text-sm">Loading…</p>
-          ) : !authenticated ? (
-            <button onClick={login} className={btn}>Log in</button>
-          ) : !wallet ? (
-            <div className={card}>
-              {hasLegacy && (
-                <p className="pixel-sans text-[#80a0c1] text-sm mb-3">
-                  You have {legacyLine(custodial, custodialRewards)} in the old staking. Connect your wallet to migrate it to self-custody.
-                </p>
-              )}
-              {linkedWallet ? (
-                <p className="pixel-sans text-white/70 text-sm mb-4">
-                  Connecting your linked wallet <span className="font-mono text-[#80a0c1]">{linkedWallet.address.slice(0, 4)}…{linkedWallet.address.slice(-4)}</span>. Approve it in your wallet if prompted — after the first time it reconnects automatically.
-                </p>
-              ) : (
-                <p className="pixel-sans text-white/70 text-sm mb-4">Connect a Solana wallet (Phantom, Solflare, Backpack) to stake from self-custody.</p>
-              )}
-              <button onClick={() => (linkedWallet ? connectWallet({ walletChainType: 'solana-only' }) : linkWallet())} className={btn}>
-                {linkedWallet ? 'Connect' : 'Connect Wallet'}
-              </button>
+            <div className={`${card} p-8`}>
+              <div className="animate-pulse space-y-3" aria-hidden>
+                <div className="h-4 w-40 bg-white/10 rounded" />
+                <div className="h-3 w-64 bg-white/5 rounded" />
+              </div>
+              <p className="pixel-sans text-white/40 text-xs mt-5">Loading your session</p>
             </div>
+          ) : !authenticated ? (
+            <>
+              <div className={`${card} p-8 text-center`}>
+                <h2 className="pixel-serif text-white text-2xl mb-2">Log in to continue</h2>
+                <p className="pixel-sans text-white/60 text-sm mb-6 max-w-sm mx-auto">
+                  Sign in to view your vault, stake <span className="dollar">$</span>ZERO, and claim <span className="dollar">$</span>USDC rewards.
+                </p>
+                <button onClick={() => window.location.assign('/login?next=/staking')} className={`${btn} px-10`}>Log in</button>
+              </div>
+              <HowItWorks />
+            </>
+          ) : !wallet ? (
+            <>
+              <div className={`${card} p-8`}>
+                <h2 className="pixel-serif text-white text-2xl mb-2">Connect a wallet</h2>
+                {hasLegacy && (
+                  <p className="pixel-sans text-[#80a0c1] text-sm mb-3">
+                    You have {legacyLine(custodial, custodialRewards)} in the old staking. Connect your wallet to migrate it to self-custody.
+                  </p>
+                )}
+                {linkedWallet ? (
+                  <p className="pixel-sans text-white/60 text-sm mb-6">
+                    Connecting your linked wallet <span className="font-mono text-[#80a0c1]">{linkedWallet.address.slice(0, 4)}…{linkedWallet.address.slice(-4)}</span>.
+                    Approve it in your wallet if prompted. After the first time it reconnects automatically.
+                  </p>
+                ) : (
+                  <p className="pixel-sans text-white/60 text-sm mb-6">Connect a Solana wallet (Phantom, Solflare, Backpack) to stake from self-custody.</p>
+                )}
+                <button onClick={() => (linkedWallet ? connectWallet({ walletChainType: 'solana-only' }) : linkWallet())} className={btnFull}>
+                  {linkedWallet ? 'Connect' : 'Connect Wallet'}
+                </button>
+              </div>
+              <HowItWorks />
+            </>
           ) : (
-            <div className="space-y-6">
-              <div className="pixel-sans text-white/50 text-xs">wallet: <span className="font-mono text-[#80a0c1]">{wallet.address.slice(0, 6)}…{wallet.address.slice(-6)}</span></div>
-
+            <div className="space-y-5">
               {walletSol !== null && walletSol < 0.01 && (
                 <div className="border border-amber-500/30 bg-amber-500/[0.06] px-4 py-3 rounded-xl">
                   <p className="pixel-sans text-amber-300/90 text-xs">
-                    This wallet has {num(walletSol)} SOL. Staking and unstaking need a small amount of SOL for the network fee (and ~0.002 SOL one-time to open your vault). Add ~0.01 SOL or your wallet will warn the transaction may fail.
+                    This wallet has {num(walletSol)} SOL. Staking and unstaking need a small amount of SOL for the network fee,
+                    plus about 0.002 SOL one time to open your vault. Add about 0.01 SOL or your wallet will warn the transaction may fail.
                   </p>
                 </div>
               )}
@@ -288,39 +346,59 @@ export default function StakingPage() {
                 <section className="border border-[#80a0c1]/40 bg-[#80a0c1]/[0.08] p-6 rounded-2xl">
                   <h2 className="pixel-serif text-white text-xl mb-2">Migrate to self-custody</h2>
                   <p className="pixel-sans text-white/70 text-sm mb-4">
-                    You have <span className="text-white">{legacyLine(custodial, custodialRewards)}</span> in the old custodial system. Move it into your own on-chain vault — one click, no unstake/restake, and your 24h earning status carries over.
+                    You have <span className="text-white">{legacyLine(custodial, custodialRewards)}</span> in the old custodial system.
+                    One click moves it into your own on-chain vault, and your 24h earning status carries over.
                   </p>
-                  <button disabled={migrating} onClick={handleMigrate} className={btn}>
+                  <button disabled={migrating} onClick={handleMigrate} className={btnFull}>
                     {migrating ? 'Migrating…' : 'Migrate to self-custody'}
                   </button>
                   {migrateMsg && <p className="pixel-sans text-green-400/80 text-xs mt-2">{migrateMsg}</p>}
                 </section>
               )}
 
-              <section className={card}>
+              {/* Position overview: the three stake states, then the reward strip. */}
+              <section className={`${card} p-6`}>
+                <div className="flex items-center justify-between gap-3 mb-5">
+                  <h2 className={secLabel}>Your position</h2>
+                  <span className="pixel-sans text-white/40 text-xs">
+                    wallet <span className="font-mono text-[#80a0c1]">{wallet.address.slice(0, 6)}…{wallet.address.slice(-6)}</span>
+                  </span>
+                </div>
+
                 <div className="grid grid-cols-3 gap-3 mb-3">
                   <div className="text-center p-4 bg-white/[0.02] border border-white/5 rounded-xl">
-                    <div className="pixel-serif text-white text-2xl">{intnum(chunks.staked)}</div>
-                    <div className="pixel-sans text-white/70 text-xs mt-1">ZERO staked</div>
+                    <div className="pixel-serif text-white text-2xl md:text-3xl">{intnum(chunks.staked)}</div>
+                    <div className="pixel-sans text-white/60 text-xs mt-1.5">ZERO staked</div>
                   </div>
                   <div className="text-center p-4 bg-white/[0.02] border border-white/5 rounded-xl">
-                    <div className="pixel-serif text-green-400 text-2xl">{intnum(chunks.mature)}</div>
-                    <div className="pixel-sans text-white/70 text-xs mt-1">earning</div>
-                  </div>
-                  <div className="text-center p-4 bg-white/[0.02] border border-white/5 rounded-xl">
-                    <div className="pixel-serif text-white/70 text-2xl">{intnum(chunks.cooling)}</div>
-                    <div className="pixel-sans text-white/70 text-xs mt-1">
-                      {chunks.cooling > 0 && countdown(chunks.nextMatureAt, now)
-                        ? <>matures in <span className="text-white/90 tabular-nums">{countdown(chunks.nextMatureAt, now)}</span></>
-                        : 'cooling down'}
+                    <div className="pixel-serif text-white text-2xl md:text-3xl">{intnum(chunks.mature)}</div>
+                    <div className="pixel-sans text-white/60 text-xs mt-1.5 flex items-center justify-center gap-1.5">
+                      <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-400" aria-hidden />earning
                     </div>
                   </div>
+                  <div className="text-center p-4 bg-white/[0.02] border border-white/5 rounded-xl">
+                    <div className="pixel-serif text-white/70 text-2xl md:text-3xl">{intnum(chunks.cooling)}</div>
+                    <div className="pixel-sans text-white/60 text-xs mt-1.5">{coolingLabel}</div>
+                  </div>
                 </div>
-                <div className="text-center p-4 bg-[#80a0c1]/[0.06] border border-[#80a0c1]/20 rounded-xl">
-                  <div className="pixel-serif text-green-400 text-2xl"><span className="dollar">$</span>{num(claimable)}</div>
-                  <div className="pixel-sans text-white/70 text-xs mt-1">claimable USDC</div>
+
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5 bg-[#80a0c1]/[0.06] border border-[#80a0c1]/20 rounded-xl">
+                  <div>
+                    <div className="pixel-serif text-green-400 text-3xl"><span className="dollar">$</span>{num(claimable)}</div>
+                    <div className="pixel-sans text-white/60 text-xs mt-1">claimable <span className="dollar">$</span>USDC rewards · claimed in full to your wallet</div>
+                  </div>
+                  <button
+                    disabled={!!busy || !mintsConfigured() || !(claimable > 0)}
+                    onClick={() => run('Claim', (o) => buildClaimTx(o, claimable))}
+                    className={`${btn} whitespace-nowrap`}
+                  >
+                    {busy === 'Claim' ? 'Confirm in wallet…' : <>Claim <span className="dollar">$</span>{num(claimable)} USDC</>}
+                  </button>
                 </div>
-                <p className="pixel-sans text-white/45 text-[11px] mt-3">Stake earns rewards after 24h (anti-snipe). Unstaking pulls your newest deposits first, so aged stake keeps earning.</p>
+
+                <p className="pixel-sans text-white/45 text-[11px] mt-3">
+                  New stake starts earning after 24 hours. Unstaking draws your newest deposits first, so aged stake keeps earning.
+                </p>
                 {vaultAddr && (
                   <div className="flex items-center justify-between gap-2 mt-3 pt-3 border-t border-white/5">
                     <span className="pixel-sans text-white/40 text-[11px]">Your on-chain vault</span>
@@ -329,29 +407,38 @@ export default function StakingPage() {
                       title={vaultAddr}
                       className="pixel-sans text-[#80a0c1] hover:text-white text-[11px] tabular-nums transition-colors"
                     >
-                      {copiedVault ? 'copied ✓' : `${vaultAddr.slice(0, 4)}…${vaultAddr.slice(-4)}`}
+                      {copiedVault ? 'copied' : `${vaultAddr.slice(0, 4)}…${vaultAddr.slice(-4)}`}
                     </button>
                   </div>
                 )}
               </section>
 
               {boost.threshold > 0 && (
-                <section className={boost.active ? 'border border-green-500/30 bg-green-500/[0.05] p-5 rounded-2xl' : card}>
+                <section className={boost.active ? 'border border-green-500/30 bg-green-500/[0.05] p-5 rounded-2xl' : `${card} p-5`}>
                   {boost.active ? (
-                    <p className="pixel-sans text-green-400/90 text-sm">Worker boost active — you earn <span className="text-white">80%</span> on jobs you complete (vs 70%).</p>
+                    <p className="pixel-sans text-green-400/90 text-sm">Worker boost active. You earn <span className="text-white">80%</span> on jobs you complete, up from 70%.</p>
                   ) : (
-                    <p className="pixel-sans text-white/70 text-sm">
-                      Staking {intnum(boost.threshold)} ZERO for 24h boosts your worker payout to 80% (from 70%).
-                      {boost.mature > 0 && boost.mature < boost.threshold ? <> <span className="text-white">{intnum(boost.threshold - boost.mature)} more</span> to go.</> : ''}
-                    </p>
+                    <>
+                      <p className="pixel-sans text-white/70 text-sm">
+                        Staking {intnum(boost.threshold)} ZERO for 24 hours boosts your worker payout to 80%, up from 70%.
+                        {boost.mature > 0 && boost.mature < boost.threshold ? <> <span className="text-white">{intnum(boost.threshold - boost.mature)} more</span> to go.</> : ''}
+                      </p>
+                      {boost.mature > 0 && boost.mature < boost.threshold && (
+                        <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden mt-3">
+                          <div className="h-full bg-[#80a0c1]/70" style={{ width: `${Math.min(100, Math.max(0, 100 * boost.mature / boost.threshold))}%` }} />
+                        </div>
+                      )}
+                    </>
                   )}
                 </section>
               )}
 
               {allowance?.enabled && allowance.dailyAllowance > 0 && (
-                <section className={card}>
+                <section className={`${card} p-6`}>
                   <h2 className="pixel-serif text-white text-xl mb-1">Daily free credits</h2>
-                  <p className="pixel-sans text-white/55 text-[11px] mb-4">Your matured stake earns free credits every day, drawn before your paid credits. Refreshes 00:00 UTC — use it or lose it.</p>
+                  <p className="pixel-sans text-white/55 text-[11px] mb-4">
+                    Your matured stake earns free credits every day, drawn before your paid credits. Refreshes at 00:00 UTC and does not roll over.
+                  </p>
                   <div className="flex items-end justify-between mb-2">
                     <div className="pixel-serif text-green-400 text-3xl tabular-nums">{intnum(allowance.remaining)}</div>
                     <div className="pixel-sans text-white/50 text-xs">of {intnum(allowance.dailyAllowance)} credits/day</div>
@@ -359,48 +446,58 @@ export default function StakingPage() {
                   <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden mb-3">
                     <div className="h-full bg-green-400/70" style={{ width: `${Math.min(100, Math.max(0, 100 * allowance.remaining / allowance.dailyAllowance))}%` }} />
                   </div>
-                  <p className="pixel-sans text-white/45 text-[11px]">free credits left today · stake more for a bigger daily share</p>
+                  <p className="pixel-sans text-white/45 text-[11px]">Free credits left today. Stake more for a bigger daily share.</p>
                 </section>
               )}
 
-              <section className={card}>
-                <div className="flex items-center justify-between mb-4">
-                  <h2 className="pixel-serif text-white text-xl">Stake</h2>
-                  {walletZero !== null && (
-                    <span className="pixel-sans text-white/50 text-xs">Balance: <span className="text-white/80 tabular-nums">{intnum(walletZero)}</span> ZERO</span>
-                  )}
-                </div>
-                <div className="flex items-center gap-2 bg-white/[0.03] border border-white/10 rounded-lg p-3 mb-3">
-                  <input type="number" inputMode="decimal" min="0" value={stakeAmt} onChange={(e) => setStakeAmt(e.target.value)} placeholder="0" className={input} />
-                  <span className="pixel-sans text-white/60 text-xs">ZERO</span>
-                  <button disabled={walletZero === null || walletZero <= 0} onClick={() => walletZero !== null && setStakeAmt(String(walletZero))} className="pixel-sans text-xs px-2.5 py-1.5 rounded-lg border border-white/10 text-white/70 hover:text-white hover:bg-white/5 disabled:opacity-40 disabled:cursor-not-allowed">Max</button>
-                </div>
-                <button disabled={!!busy || !mintsConfigured() || !(parseFloat(stakeAmt) > 0) || (walletZero !== null && parseFloat(stakeAmt) > walletZero)} onClick={() => run('Stake', (o) => buildStakeTx(o, parseFloat(stakeAmt)))} className={btn}>
-                  {busy === 'Stake' ? 'Confirm in wallet…' : (walletZero !== null && parseFloat(stakeAmt) > walletZero ? 'Not enough ZERO' : 'Stake')}
-                </button>
-              </section>
+              {/* Actions: stake and unstake side by side. */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                <section className={`${card} p-6`}>
+                  <div className="flex items-center justify-between mb-4">
+                    <h2 className="pixel-serif text-white text-xl">Stake</h2>
+                    {walletZero !== null && (
+                      <span className="pixel-sans text-white/50 text-xs">balance <span className="text-white/80 tabular-nums">{intnum(walletZero)}</span> ZERO</span>
+                    )}
+                  </div>
+                  <div className={amountBox}>
+                    <input type="number" inputMode="decimal" min="0" value={stakeAmt} onChange={(e) => setStakeAmt(e.target.value)} placeholder="0" className={amountInput} />
+                    <span className="pixel-sans text-white/50 text-xs">ZERO</span>
+                    <button
+                      disabled={walletZero === null || walletZero <= 0}
+                      onClick={() => walletZero !== null && setStakeAmt(String(walletZero))}
+                      className={btnGhost}
+                    >Max</button>
+                  </div>
+                  <button
+                    disabled={!!busy || !mintsConfigured() || !(parseFloat(stakeAmt) > 0) || (walletZero !== null && parseFloat(stakeAmt) > walletZero)}
+                    onClick={() => run('Stake', (o) => buildStakeTx(o, parseFloat(stakeAmt)))}
+                    className={btnFull}
+                  >
+                    {busy === 'Stake' ? 'Confirm in wallet…' : (walletZero !== null && parseFloat(stakeAmt) > walletZero ? 'Not enough ZERO' : 'Stake')}
+                  </button>
+                </section>
 
-              <section className={card}>
-                <h2 className="pixel-serif text-white text-xl mb-4">Unstake</h2>
-                <div className="flex items-center gap-2 bg-white/[0.03] border border-white/10 rounded-lg p-3 mb-3">
-                  <input type="number" inputMode="decimal" min="0" value={unstakeAmt} onChange={(e) => setUnstakeAmt(e.target.value)} placeholder="0" className={input} />
-                  <span className="pixel-sans text-white/60 text-xs">ZERO</span>
-                  <button onClick={() => setUnstakeAmt(String(chunks.staked))} className="pixel-sans text-xs px-2.5 py-1.5 rounded-lg border border-white/10 text-white/70 hover:text-white hover:bg-white/5">Max</button>
-                </div>
-                <button disabled={!!busy || !mintsConfigured() || !(parseFloat(unstakeAmt) > 0) || parseFloat(unstakeAmt) > chunks.staked} onClick={() => run('Unstake', (o) => buildUnstakeTx(o, parseFloat(unstakeAmt)))} className={btn}>
-                  {busy === 'Unstake' ? 'Confirm in wallet…' : 'Unstake'}
-                </button>
-              </section>
+                <section className={`${card} p-6`}>
+                  <div className="flex items-center justify-between mb-4">
+                    <h2 className="pixel-serif text-white text-xl">Unstake</h2>
+                    <span className="pixel-sans text-white/50 text-xs">staked <span className="text-white/80 tabular-nums">{intnum(chunks.staked)}</span> ZERO</span>
+                  </div>
+                  <div className={amountBox}>
+                    <input type="number" inputMode="decimal" min="0" value={unstakeAmt} onChange={(e) => setUnstakeAmt(e.target.value)} placeholder="0" className={amountInput} />
+                    <span className="pixel-sans text-white/50 text-xs">ZERO</span>
+                    <button onClick={() => setUnstakeAmt(String(chunks.staked))} className={btnGhost}>Max</button>
+                  </div>
+                  <button
+                    disabled={!!busy || !mintsConfigured() || !(parseFloat(unstakeAmt) > 0) || parseFloat(unstakeAmt) > chunks.staked}
+                    onClick={() => run('Unstake', (o) => buildUnstakeTx(o, parseFloat(unstakeAmt)))}
+                    className={btnFull}
+                  >
+                    {busy === 'Unstake' ? 'Confirm in wallet…' : 'Unstake'}
+                  </button>
+                </section>
+              </div>
 
-              <section className={card}>
-                <h2 className="pixel-serif text-white text-xl mb-4">Claim rewards</h2>
-                <p className="pixel-sans text-white/55 text-[11px] mb-3">Claims your full claimable USDC to your wallet.</p>
-                <button disabled={!!busy || !mintsConfigured() || !(claimable > 0)} onClick={() => run('Claim', (o) => buildClaimTx(o, claimable))} className={btn}>
-                  {busy === 'Claim' ? 'Confirm in wallet…' : <>Claim <span className="dollar">$</span>{num(claimable)} USDC</>}
-                </button>
-              </section>
-
-              <section className={card}>
+              <section className={`${card} p-6`}>
                 <div className="flex items-center justify-between mb-2">
                   <h2 className="pixel-serif text-white text-xl">Auto-compound</h2>
                   <button
@@ -413,14 +510,15 @@ export default function StakingPage() {
                   </button>
                 </div>
                 <p className="pixel-sans text-white/55 text-[11px]">
-                  When on, your daily USDC rewards are used to buy <span className="dollar">$</span>ZERO and staked straight into your vault — only you can ever withdraw it. Compounded stake starts earning after the normal 24h.
+                  When on, your daily <span className="dollar">$</span>USDC rewards are used to buy <span className="dollar">$</span>ZERO and staked
+                  straight into your vault. Only you can ever withdraw it, and compounded stake starts earning after the normal 24h.
                 </p>
                 {autoCompound && acHistory.length > 0 && (
                   <div className="mt-3 pt-3 border-t border-white/5 space-y-1">
                     {acHistory.slice(0, 5).map((h, i) => (
                       <div key={i} className="flex items-center justify-between pixel-sans text-[11px]">
                         <span className="text-white/45">{new Date(h.createdAt).toLocaleDateString()}</span>
-                        <span className="text-white/70"><span className="dollar">$</span>{h.usd.toFixed(2)} → <span className="text-green-400/80">{intnum(h.zeroUi)} ZERO</span></span>
+                        <span className="text-white/70 tabular-nums"><span className="dollar">$</span>{h.usd.toFixed(2)} → <span className="text-green-400/80">{intnum(h.zeroUi)} ZERO</span></span>
                       </div>
                     ))}
                   </div>

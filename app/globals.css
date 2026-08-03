@@ -143,8 +143,12 @@
     min-height: 100vh;
     @apply text-foreground;
     background: #000000;
-    overflow-x: hidden;
-    overflow-y: auto;
+    /* clip, not hidden: overflow-x hidden + overflow-y auto made body a
+       scroll container, which broke position:sticky (the homepage scroll
+       stage pins against body instead of the viewport). clip does not
+       create a scroll container. */
+    overflow-x: clip;
+    overflow-y: visible;
     font-smooth: never;
     -webkit-font-smoothing: none;
     -moz-osx-font-smoothing: unset;
@@ -443,25 +447,20 @@
 #privy-modal-content *,
 [id^="privy"],
 [id^="privy"] *,
-[class*="privy"],
-[class*="privy"] *,
-[data-privy],
-[data-privy] *,
-div[role="dialog"],
-div[role="dialog"] * {
-  border-radius: 0 !important;
-  -webkit-border-radius: 0 !important;
-  -moz-border-radius: 0 !important;
-}
+/* The square-corner override belonged to the pixel skin; the site is round
+   now, so the modal keeps the radii Privy ships with. */
 
-/* Force our pixel font on Privy modal */
+/* The sign-in modal follows the site, not the retired pixel skin. This
+   selector also catches any accessible dialog, which is why it is stated in
+   the same breath as the Privy ids. */
 #privy-dialog,
 #privy-modal-content,
 [id^="privy"],
 [class*="privy"],
 [data-privy],
 div[role="dialog"] {
-  font-family: "argent-pixel-cf", 'Courier New', monospace !important;
+  font-family: var(--font-inter), system-ui, sans-serif !important;
+  -webkit-font-smoothing: antialiased !important;
 }
 
 /* Style Privy headers with our pixel font */
@@ -480,29 +479,20 @@ div[role="dialog"] {
 div[role="dialog"] h1,
 div[role="dialog"] h2,
 div[role="dialog"] h3 {
-  font-family: "argent-pixel-cf", sans-serif !important;
-  letter-spacing: 0.05em !important;
-  font-smooth: never !important;
-  -webkit-font-smoothing: none !important;
-  -moz-osx-font-smoothing: unset !important;
-  text-rendering: optimizeSpeed !important;
+  font-family: var(--font-newsreader), Georgia, serif !important;
+  letter-spacing: 0 !important;
+  -webkit-font-smoothing: antialiased !important;
+  text-rendering: optimizeLegibility !important;
   color: #ffffff !important;
 }
 
-/* Style buttons with no rounded corners */
+/* Buttons follow the site font; their radius is Privy's own. */
 #privy-dialog button,
 #privy-modal-content button,
 [id^="privy"] button,
 [class*="privy"] button,
 div[role="dialog"] button {
-  border-radius: 0 !important;
-  font-family: "argent-pixel-cf", 'Courier New', monospace !important;
-}
-
-/* Target the modal container itself (square corners only, no border here) */
-div[role="dialog"][aria-modal="true"],
-div[role="dialog"][aria-modal="true"] > div {
-  border-radius: 0 !important;
+  font-family: var(--font-inter), system-ui, sans-serif !important;
 }
 
 /* Border ONLY the visible modal card. The previous broad selectors

@@ -28,8 +28,13 @@ export const USDC_DECIMALS = 6;
 
 export const connection = () => new Connection(RPC_URL, 'confirmed');
 
+// DataView, not Buffer.writeBigUInt64LE: this runs in the browser, and bundler
+// Buffer shims don't all implement the BigInt writers (turbopack's doesn't —
+// broke every stake/unstake/claim on 2026-08-02). setBigUint64 is native ES2020.
 const u64le = (n: bigint): Buffer => {
-  const b = Buffer.alloc(8); b.writeBigUInt64LE(n); return b;
+  const a = new Uint8Array(8);
+  new DataView(a.buffer).setBigUint64(0, n, true);
+  return Buffer.from(a);
 };
 export const toBase = (uiAmount: number, decimals: number): bigint =>
   BigInt(Math.round(uiAmount * 10 ** decimals));

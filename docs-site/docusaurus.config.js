@@ -6,19 +6,17 @@ const config = {
   tagline: 'AI powered by people, not data centers.',
   favicon: 'img/favicon.ico',
   url: 'https://docs.c0mpute.ai',
-  baseUrl: '/',
+  // '/' in production; the review copy is built under a path with
+  // DOCS_BASE_URL so it can be served beside the rest of the preview.
+  baseUrl: process.env.DOCS_BASE_URL || '/',
 
   onBrokenLinks: 'throw',
   onBrokenMarkdownLinks: 'warn',
 
-  headTags: [
-    {
-      tagName: 'link',
-      attributes: {
-        rel: 'stylesheet',
-        href: 'https://use.typekit.net/kwe2dpm.css',
-      },
-    },
+  // Editorial theme: Newsreader for display, Inter for body. The Typekit sheet
+  // that loaded the retired pixel face is gone with its last consumer.
+  stylesheets: [
+    'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Newsreader:opsz,wght@6..72,400;6..72,500&display=swap',
   ],
 
   i18n: {

@@ -39,7 +39,16 @@ interface UseAuthReturn {
 }
 
 export function useAuth(): UseAuthReturn {
-  const { ready, authenticated, user, login, logout: privyLogout, unlinkWallet: privyUnlinkWallet, unlinkTwitter: privyUnlinkTwitter, getAccessToken: privyGetAccessToken } = usePrivy();
+  const { ready, authenticated, user, logout: privyLogout, unlinkWallet: privyUnlinkWallet, unlinkTwitter: privyUnlinkTwitter, getAccessToken: privyGetAccessToken } = usePrivy();
+
+  // Sign-in lives on /login now (custom page, Privy headless underneath) —
+  // no more Privy modal. Full navigation on purpose: it works identically
+  // from every page without needing a router instance here.
+  const login = useCallback(() => {
+    const path = window.location.pathname;
+    const next = path === '/' || path === '/login' ? '/chat' : path;
+    window.location.assign(`/login?next=${encodeURIComponent(next)}`);
+  }, []);
   const { linkWallet, linkTwitter } = useLinkAccount();
   
   const [profile, setProfile] = useState<Profile | null>(null);
