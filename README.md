@@ -4,15 +4,13 @@
 
 c0mpute is an inference network where the GPUs are contributed, not rented. Anyone can plug a
 machine in and earn for the tokens it serves; anyone can run a model through an OpenAI-compatible
-API without an account gate, without their prompts being logged, and without a content filter
-deciding what they're allowed to ask. The network is coordinated by a thin orchestrator and
+API without an account gate, without prompts being stored in the application database. A narrow server-side legal-safety filter blocks CSAM-related requests before dispatch. The network is coordinated by a thin orchestrator and
 settled on Solana through the `$ZERO` token.
 
 It is built on three pillars, and every feature is measured against all three:
 
-- **Uncensored** — the only hard line is illegal content (CSAM). There is no model-level refusal layer.
-- **Private** — prompts and generated images are never persisted. The only thing stored is the
-  credit transaction needed to bill the job.
+- **Uncensored** — the only hard line is illegal content (CSAM). There is no model-level refusal layer, but the orchestrator does run a narrow CSAM keyword filter before dispatch.
+- **Private** — prompts and generated images are not stored in the application database. Operational logs and job metadata can still include user/job identifiers for billing and debugging.
 - **Decentralized** — inference runs on contributor GPUs (browser via WebGPU, or native via
   Ollama), not on centralized infrastructure. Payouts settle on-chain.
 
