@@ -1,21 +1,22 @@
 #!/usr/bin/env bash
 # Polls the profiles table and pings Telegram when a new signup appears.
+# Config via env: TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID (required),
+# TELEGRAM_THREAD_ID (optional; omit for chats without forum topics),
+# SIGNUP_WATCH_DB / SIGNUP_WATCH_STATE (default: repo-relative paths below).
 # Detached one-off for the public test launch; kill via the PID in signup-watch.pid.
 set -u
 
-DB="/root/.openclaw/workspace/c0mpute/data/c0mpute.db"
-ENV_FILE="/root/.claude/channels/telegram/.env"
-CHAT_ID="1608487611"
-THREAD_ID="171187"
-STATE="/root/.openclaw/workspace/c0mpute/scripts/.signup-watch.baseline"
-
-TOKEN="$(grep -oE 'TELEGRAM_BOT_TOKEN=.*' "$ENV_FILE" | cut -d= -f2-)"
+DB="${SIGNUP_WATCH_DB:-data/c0mpute.db}"
+STATE="${SIGNUP_WATCH_STATE:-scripts/.signup-watch.baseline}"
+TOKEN="${TELEGRAM_BOT_TOKEN:?TELEGRAM_BOT_TOKEN is required}"
+CHAT_ID="${TELEGRAM_CHAT_ID:?TELEGRAM_CHAT_ID is required}"
+THREAD_ID="${TELEGRAM_THREAD_ID:-}"
 
 send() {
-  curl -s "https://api.telegram.org/bot${TOKEN}/sendMessage" \
-    --data-urlencode "chat_id=${CHAT_ID}" \
-    --data-urlencode "message_thread_id=${THREAD_ID}" \
-    --data-urlencode "text=$1" >/dev/null
+  local args=(--data-urlencode "chat_id=${CHAT_ID}")
+  [ -n "$THREAD_ID" ] && args+=(--data-urlencode "message_thread_id=${THREAD_ID}")
+  args+=(--data-urlencode "text=$1")
+  curl -s "https://api.telegram.org/bot${TOKEN}/sendMessage" "${args[@]}" >/dev/null
 }
 
 count() { sqlite3 "$DB" "SELECT COUNT(*) FROM profiles;" 2>/dev/null; }
