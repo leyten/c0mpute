@@ -272,6 +272,7 @@ export default function Chat() {
     };
     landing.current = to;
     earlyImages.current = [];
+    awaitingImage.current = false;
     setRetryJob(job);
     setError(null);
 
@@ -279,6 +280,9 @@ export default function Chat() {
     setStreamText('');
     setQueue(null);
     setSearching(false);
+    // sources belong to the job that found them: the next answer starts with
+    // none, or the strip from the last one shows on it while it is thinking
+    setLiveSources([]);
     setGenImage(false);
     setRegenFor(job.target);
     setState('queued');
