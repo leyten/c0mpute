@@ -3,7 +3,7 @@
 // Custom /login page — replaces the default Privy modal. Privy still does the
 // actual auth (X OAuth redirect + Sign-In-With-Solana), but headless, so the
 // screen is fully ours: same DIDs, same accounts, zero backend changes.
-import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Captcha, usePrivy, useLoginWithOAuth, useLoginWithSiws } from '@privy-io/react-auth';
 import { getWallets } from '@wallet-standard/app';
@@ -43,8 +43,8 @@ function LoginInner() {
   // The SDK's initOAuth throws "Captcha failed" INSTANTLY unless the invisible
   // captcha has already solved (it checks status === 'success' at call time and
   // never waits — verified in the bundle). Solving takes ~2-4s after load, so a
-  // fast first click always failed while the second worked. Hold the buttons
-  // until the widget reports success; fail open if the captcha is disabled
+  // fast first click always failed while the second worked. Track solved state
+  // to queue early clicks behind it; fail open if the captcha is disabled
   // app-side (no widget appears) or takes absurdly long (Turnstile outage).
   const [captchaSolved, setCaptchaSolved] = useState(false);
   useEffect(() => {
@@ -76,6 +76,23 @@ function LoginInner() {
     },
   });
 
+  // A click that lands before the captcha solves is queued (button just shows
+  // its busy state) and fires from the effect below the moment it solves —
+  // no greyed-out button, no dead first click.
+  const queuedXRef = useRef(false);
+  const fireXOAuth = useCallback(() => {
+    initOAuth({ provider: 'twitter' }).catch(() => {
+      setBusy(null);
+      setError('Could not start X sign-in. Try again.');
+    });
+  }, [initOAuth]);
+  useEffect(() => {
+    if (captchaSolved && queuedXRef.current) {
+      queuedXRef.current = false;
+      fireXOAuth();
+    }
+  }, [captchaSolved, fireXOAuth]);
+
   // Installed Solana wallets via the wallet-standard registry (Phantom,
   // Solflare, Backpack, ... register themselves on page load).
   useEffect(() => {
@@ -104,11 +121,12 @@ function LoginInner() {
     setBusy('x');
     // The OAuth round-trip loses component state; park the destination.
     sessionStorage.setItem(NEXT_KEY, next);
-    initOAuth({ provider: 'twitter' }).catch(() => {
-      setBusy(null);
-      setError('Could not start X sign-in. Try again.');
-    });
-  }, [initOAuth, next]);
+    if (!captchaSolved) {
+      queuedXRef.current = true;
+      return;
+    }
+    fireXOAuth();
+  }, [captchaSolved, next, fireXOAuth]);
 
   const signInWithWallet = useCallback(
     async (wallet: StandardWallet) => {
@@ -156,10 +174,10 @@ function LoginInner() {
     [generateSiwsMessage, loginWithSiws]
   );
 
-  // Gate clicks until the Privy SDK is initialized AND the invisible captcha
-  // has solved — login calls before either fail instantly (the fast-first-click
-  // bug). captchaSolved fails open if captcha is disabled or times out.
-  const pending = !ready || !captchaSolved || busy !== null || oauthReturning || authenticated;
+  // Buttons look live immediately; early X clicks queue behind the captcha
+  // (see queuedXRef) and the SIWS path waits internally, so neither needs a
+  // visible captcha gate anymore.
+  const pending = !ready || busy !== null || oauthReturning || authenticated;
 
   return (
     <div className="ui-readable min-h-screen bg-black flex flex-col items-center justify-center px-4 py-16">
