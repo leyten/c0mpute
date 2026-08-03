@@ -6,8 +6,9 @@
 // else.
 //
 // It answers three questions in the order they get asked. What have I got —
-// the balance, and the free prompts today. How have I been using it — the
-// year, as squares. What on — the models. Every figure appears once.
+// the balance, then the two free lanes that get spent before it. How have I
+// been using it — the year, as squares. What on — the models. Every figure
+// appears once.
 import { useEffect } from 'react';
 import type { ChatEngine } from '../../engine/useChatEngine';
 import { X } from '../Icons';
@@ -60,7 +61,7 @@ export default function UsagePanel({ engine, onClose }: { engine: ChatEngine; on
           ) : (
             <>
               <Balance data={data} />
-              <FreeToday data={data} />
+              <Lanes data={data} />
               <Grid data={data} />
               <ByModel models={data.models} />
             </>
@@ -69,7 +70,6 @@ export default function UsagePanel({ engine, onClose }: { engine: ChatEngine; on
 
         <div className="flex flex-wrap items-center gap-x-5 gap-y-1 px-5 pb-4 pt-4 text-[12px]" style={{ color: 'var(--cu-faint)' }}>
           <a href="/settings#usage" className="transition-colors hover:text-white/70">Full account usage</a>
-          <a href="/staking" className="transition-colors hover:text-white/70">Daily allowance from staking</a>
         </div>
       </div>
     </div>
@@ -88,26 +88,91 @@ function Balance({ data }: { data: UsageData }) {
   );
 }
 
-function FreeToday({ data }: { data: UsageData }) {
-  const used = data.freeLimit !== null && data.freePrompts !== null ? data.freeLimit - data.freePrompts : null;
+/** The lanes a prompt is paid from, in the order the server drains them: the
+ *  one-time welcome grant, then today's staking allowance, then the balance
+ *  above. Each bar fills with what is left, and each lane states its own
+ *  reset — or states that it has none. */
+function Lanes({ data }: { data: UsageData }) {
+  const welcome = data.freeLimit !== null && data.freeLimit > 0;
+  if (!welcome && !data.staker.enabled) return null;
+
+  return (
+    <div className="space-y-4">
+      {welcome && <Welcome data={data} />}
+      {data.staker.enabled && <Staking data={data} />}
+      <p className="text-[11.5px]" style={{ color: 'var(--cu-faint)' }}>
+        A prompt spends {welcome && 'the welcome grant first, then '}
+        {data.staker.enabled && 'today’s allowance, then '}the balance above.
+      </p>
+    </div>
+  );
+}
+
+/** Given once when the account is created and never topped up, which is why
+ *  nothing in this lane says "today". */
+function Welcome({ data }: { data: UsageData }) {
+  const { freePrompts: left, freeLimit: limit } = data;
   return (
     <div>
       <div className="flex items-baseline justify-between gap-3 text-[12px]">
-        <span style={{ color: 'var(--cu-dim)' }}>Free prompts today</span>
+        <span style={{ color: 'var(--cu-dim)' }}>Welcome prompts</span>
         <span className="tabular-nums" style={{ color: 'var(--cu-faint)' }}>
-          {used === null || data.freeLimit === null ? 'unavailable' : `${used} of ${data.freeLimit} used`}
+          {left === null || limit === null ? 'unavailable' : `${left} of ${limit} left`}
         </span>
       </div>
       <div className="mt-2 flex h-1.5 overflow-hidden rounded-full" style={{ background: 'var(--cu-surface)' }}>
-        {used !== null && data.freeLimit !== null && data.freeLimit > 0 && (
-          <div style={{ width: `${Math.min(100, (used / data.freeLimit) * 100)}%`, background: 'var(--cu-live)' }} />
+        {left !== null && limit !== null && limit > 0 && left > 0 && (
+          <div style={{ width: `${Math.min(100, (left / limit) * 100)}%`, background: 'var(--cu-live)' }} />
         )}
       </div>
-      {data.stakerAllowance > 0 && (
-        <p className="mt-2 text-[11.5px] tabular-nums" style={{ color: 'var(--cu-faint)' }}>
-          {data.stakerAllowance} more from staking
+      <p className="mt-2 text-[11.5px]" style={{ color: 'var(--cu-faint)' }}>
+        A one-time grant for a new account. It does not refresh.
+      </p>
+      {data.freePromptsPaused && (left ?? 0) > 0 && (
+        <p className="mt-1 text-[11.5px]" style={{ color: 'var(--cu-faint)' }}>
+          Paused today — the network has reached its free-prompt cap.
         </p>
       )}
+    </div>
+  );
+}
+
+/** Credits, not prompts: the allowance is a share of a network-wide pool and
+ *  buys whatever the tier costs. The prompt figure under it says so. */
+function Staking({ data }: { data: UsageData }) {
+  const { daily, remaining } = data.staker;
+
+  if (daily <= 0) {
+    return (
+      <div>
+        <div className="text-[12px]" style={{ color: 'var(--cu-dim)' }}>Daily staking allowance</div>
+        <p className="mt-2 text-[11.5px]" style={{ color: 'var(--cu-faint)' }}>
+          <a href="/staking" className="transition-colors hover:text-white/70" style={{ color: 'var(--cu-dim)' }}>Stake $ZERO for a daily allowance</a>
+          {' '}of credits, shared out pro rata among stakers.
+        </p>
+      </div>
+    );
+  }
+
+  const prompts = data.proCost && data.proCost > 0 ? Math.floor(remaining / data.proCost) : null;
+  return (
+    <div>
+      <div className="flex items-baseline justify-between gap-3 text-[12px]">
+        <span style={{ color: 'var(--cu-dim)' }}>Daily staking allowance</span>
+        <span className="tabular-nums" style={{ color: 'var(--cu-faint)' }}>
+          {fmt(remaining)} of {fmt(daily)} credits left
+        </span>
+      </div>
+      <div className="mt-2 flex h-1.5 overflow-hidden rounded-full" style={{ background: 'var(--cu-surface)' }}>
+        {remaining > 0 && (
+          <div style={{ width: `${Math.min(100, (remaining / daily) * 100)}%`, background: 'var(--cu-live)' }} />
+        )}
+      </div>
+      <p className="mt-2 text-[11.5px] tabular-nums" style={{ color: 'var(--cu-faint)' }}>
+        {prompts === null
+          ? 'Resets 00:00 UTC.'
+          : `≈ ${prompts} Pro ${prompts === 1 ? 'prompt' : 'prompts'} left · resets 00:00 UTC`}
+      </p>
     </div>
   );
 }

@@ -15,8 +15,8 @@ import {
   selectionWeight,
 } from './types';
 import { verifyPrivyToken } from '../privy-server';
-import { incrementPromptsSent, verifyWorkerToken, recordCompletedJob, recordEarning, spendCredits, getCreditBalance, refundCredits, isWorkerBanned, recordWorkerStrike, recordCanaryResult, consumeFreePrompt, getTodayFreeSubsidyUsd, getThisHourFreeSubsidyUsd, anonGrantFreePrompt, profileHasLogin, getAccountAgeMs } from '../db';
-import { FREE_PROMPT_LIMIT, FREE_SUBSIDY_DAILY_CAP_USD, FREE_SUBSIDY_HOURLY_CAP_USD, STAKER_ALLOWANCE_ENABLED, ANON_FREE_PROMPT_LIMIT, ANON_IP_DAILY_CAP, WORKER_STAKED_REVENUE_SHARE } from '../tokenomics';
+import { incrementPromptsSent, verifyWorkerToken, recordCompletedJob, recordEarning, spendCredits, getCreditBalance, refundCredits, isWorkerBanned, recordWorkerStrike, recordCanaryResult, consumeFreePrompt, recordSubsidizedPrompt, getTodayFreeSubsidyUsd, getThisHourFreeSubsidyUsd, anonGrantFreePrompt, profileHasLogin, getAccountAgeMs } from '../db';
+import { FREE_PROMPT_LIMIT, FREE_SUBSIDY_DAILY_CAP_USD, FREE_SUBSIDY_HOURLY_CAP_USD, STAKER_ALLOWANCE_ENABLED, ANON_FREE_PROMPT_LIMIT, ANON_IP_DAILY_CAP, WORKER_STAKED_REVENUE_SHARE, TIER_CREDIT_COST } from '../tokenomics';
 import { verifyAnonToken } from '../anon-auth';
 import { CREDITS_PER_USD } from '../token-price';
 import { getWorkerRevenueShare } from '../staking';
@@ -476,8 +476,8 @@ export class Orchestrator {
         const requestedTierForCredits = getModelTier(data.model);
         const deepThinking = data.think === true && requestedTierForCredits === 'max';
         let creditCost = 0;
-        if (requestedTierForCredits === 'max') creditCost = deepThinking ? 20 : 15;
-        else if (requestedTierForCredits === 'pro') creditCost = 10;
+        if (requestedTierForCredits === 'max') creditCost = deepThinking ? TIER_CREDIT_COST.maxDeep : TIER_CREDIT_COST.max;
+        else if (requestedTierForCredits === 'pro') creditCost = TIER_CREDIT_COST.pro;
         // List price of the tier, kept after creditCost is zeroed by a free
         // prompt — it's the basis we still pay the worker (treasury-funded).
         const listCredits = creditCost;
@@ -540,6 +540,7 @@ export class Orchestrator {
           if (getTodayFreeSubsidyUsd() + projectedSubsidyUsd <= FREE_SUBSIDY_DAILY_CAP_USD && consumeFreePrompt(privyUserId, FREE_PROMPT_LIMIT)) {
             creditCost = 0;
             usedFreePrompt = true;
+            recordSubsidizedPrompt(privyUserId, 'free_prompt', `${requestedTierForCredits}${deepThinking ? ' deep-thinking' : ''} prompt (welcome grant)`);
             console.log(`[Orchestrator] Free prompt used by ${privyUserId} (${requestedTierForCredits})`);
           }
         }
@@ -555,6 +556,7 @@ export class Orchestrator {
           if (consumeStakerAllowance(privyUserId, creditCost)) {
             creditCost = 0;
             usedStakerAllowance = true;
+            recordSubsidizedPrompt(privyUserId, 'staker_allowance', `${requestedTierForCredits}${deepThinking ? ' deep-thinking' : ''} prompt (staking allowance)`);
             console.log(`[Orchestrator] Staker allowance used by ${privyUserId} (${requestedTierForCredits}, ${listCredits}cr)`);
           }
         }

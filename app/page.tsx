@@ -20,6 +20,9 @@ export default function Home() {
   const [prompt, setPrompt] = useState('');
   const [copied, setCopied] = useState(false);
   const [anonModalOpen, setAnonModalOpen] = useState(false);
+  // How many free prompts we advertise. Server-configured (ANON_FREE_PROMPT_LIMIT);
+  // /api/anon carries it back, and this only stands in until it answers.
+  const [anonFreeLimit, setAnonFreeLimit] = useState(5);
 
   // Capture referral code from /r/<code> redirects (?ref=...). Last click
   // wins; binding happens server-side at signup, new accounts only.
@@ -77,6 +80,7 @@ export default function Home() {
         body: JSON.stringify({ token: existing || undefined }),
       });
       const data = await res.json();
+      if (typeof data.limit === 'number') setAnonFreeLimit(data.limit);
       if (data.capReached || !data.token) {
         setAnonModalOpen(true);
         return;
@@ -93,7 +97,7 @@ export default function Home() {
       {anonModalOpen && (
         <AnonGateModal
           mode="softlogin"
-          freePromptLimit={5}
+          freePromptLimit={anonFreeLimit}
           onClose={() => setAnonModalOpen(false)}
           onSignIn={() => { login(); setAnonModalOpen(false); }}
         />

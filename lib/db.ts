@@ -1306,6 +1306,25 @@ export function refundCredits(privyId: string, amount: number, description?: str
   txn();
 }
 
+/**
+ * Records a prompt the user paid nothing for — an onboarding welcome prompt or
+ * a draw on the daily staking allowance — as a 0-credit row in the same ledger
+ * as real spends, so the account's own activity history shows the prompt
+ * happened. The treasury paid the worker; the user's balance did not move, and
+ * this row must never make it look as though it did.
+ *
+ * Deliberately not routed through spendCredits: that guard (amount > 0) is what
+ * keeps a bug from silently crediting an account, and it stays. Every aggregate
+ * over this table filters on `type` ('deposit' / 'spend'), so a 0-amount row of
+ * a new type cannot shift any total.
+ */
+export function recordSubsidizedPrompt(privyId: string, type: 'free_prompt' | 'staker_allowance', description: string): void {
+  ensureCreditTables();
+  const db = getDb();
+  db.prepare('INSERT INTO credit_transactions (id, privy_id, type, amount, description, tx_hash, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    .run(crypto.randomUUID(), privyId, type, 0, description, null, new Date().toISOString());
+}
+
 // ── Free onboarding prompts ──
 //
 // Each X account gets a fixed allowance of free Pro-tier prompts so a brand-new

@@ -8,7 +8,7 @@
 // pool if they've made a request in the last STAKER_ALLOWANCE_ACTIVE_DAYS — idle
 // farmers don't dilute active users (Venice's active-staker gate).
 //
-// FLAGGED OFF by default (STAKER_ALLOWANCE_ENABLED). Reuses the same treasury
+// Gated by the STAKER_ALLOWANCE_ENABLED env flag. Reuses the same treasury
 // subsidy lane as the free-prompt feature: the user pays 0, the worker is still
 // paid, funded by the treasury — see the orchestrator billing + completion paths.
 //

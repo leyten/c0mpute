@@ -177,7 +177,11 @@ function balanceLabel(engine: ChatEngine): string {
     return engine.anonRemaining !== null ? `${engine.anonRemaining} free prompts` : 'Usage';
   }
   const { credits } = engine;
+  // A new account has a 0 balance and welcome prompts to spend first, so the
+  // free count is what it actually has left — "0 credits" would be wrong there.
+  if (!credits.balance && credits.freePrompts !== null && credits.freePrompts > 0) {
+    return `${credits.freePrompts} free prompts`;
+  }
   if (credits.balance !== null) return `${credits.balance} credits`;
-  if (credits.freePrompts !== null && credits.freePrompts > 0) return `${credits.freePrompts} free prompts`;
   return 'Usage';
 }
