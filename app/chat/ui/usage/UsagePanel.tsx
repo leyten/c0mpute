@@ -88,22 +88,18 @@ function Balance({ data }: { data: UsageData }) {
   );
 }
 
-/** The lanes a prompt is paid from, in the order the server drains them: the
- *  one-time welcome grant, then today's staking allowance, then the balance
- *  above. Each bar fills with what is left, and each lane states its own
+/** The lanes a prompt is paid from: the one-time welcome grant (only while any
+ *  of it is left — once spent it is dead information), then today's staking
+ *  allowance. Each bar fills with what is left, and each lane states its own
  *  reset — or states that it has none. */
 function Lanes({ data }: { data: UsageData }) {
-  const welcome = data.freeLimit !== null && data.freeLimit > 0;
+  const welcome = data.freeLimit !== null && data.freeLimit > 0 && (data.freePrompts ?? 0) > 0;
   if (!welcome && !data.staker.enabled) return null;
 
   return (
     <div className="space-y-4">
       {welcome && <Welcome data={data} />}
       {data.staker.enabled && <Staking data={data} />}
-      <p className="text-[11.5px]" style={{ color: 'var(--cu-faint)' }}>
-        A prompt spends {welcome && 'the welcome grant first, then '}
-        {data.staker.enabled && 'today’s allowance, then '}the balance above.
-      </p>
     </div>
   );
 }
