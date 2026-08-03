@@ -33,6 +33,7 @@ interface UseSocketReturn {
   setOnJobGeneratingImage: (handler: ((jobId: string) => void) | null) => void;
   setOnJobImage: (handler: ((jobId: string, images: string[]) => void) | null) => void;
   setOnJobImageError: (handler: ((jobId: string, error: string) => void) | null) => void;
+  setOnJobFile: (handler: ((jobId: string, file: { name: string; mime: string; data: string }) => void) | null) => void;
   nativeStatus: { online: boolean; workerId?: string; type?: 'native' | 'image'; connectedAt?: number; jobsCompleted: number; tokensGenerated: number; tokPerSec: number; currentJob?: string } | null;
 }
 
@@ -54,6 +55,7 @@ export function useSocket(authToken?: string | null): UseSocketReturn {
   const onJobGeneratingImageRef = useRef<((jobId: string) => void) | null>(null);
   const onJobImageRef = useRef<((jobId: string, images: string[]) => void) | null>(null);
   const onJobImageErrorRef = useRef<((jobId: string, error: string) => void) | null>(null);
+  const onJobFileRef = useRef<((jobId: string, file: { name: string; mime: string; data: string }) => void) | null>(null);
 
   useEffect(() => {
     // Don't connect until we have an auth token
@@ -156,6 +158,12 @@ export function useSocket(authToken?: string | null): UseSocketReturn {
       }
     });
 
+    socket.on('job:file', (data) => {
+      if (onJobFileRef.current) {
+        onJobFileRef.current(data.jobId, { name: data.name, mime: data.mime, data: data.data });
+      }
+    });
+
     (socket as any).on('native:status', (data: any) => {
       setNativeStatus(data);
     });
@@ -246,5 +254,6 @@ export function useSocket(authToken?: string | null): UseSocketReturn {
     setOnJobGeneratingImage: useCallback((handler: ((jobId: string) => void) | null) => { onJobGeneratingImageRef.current = handler; }, []),
     setOnJobImage: useCallback((handler: ((jobId: string, images: string[]) => void) | null) => { onJobImageRef.current = handler; }, []),
     setOnJobImageError: useCallback((handler: ((jobId: string, error: string) => void) | null) => { onJobImageErrorRef.current = handler; }, []),
+    setOnJobFile: useCallback((handler: ((jobId: string, file: { name: string; mime: string; data: string }) => void) | null) => { onJobFileRef.current = handler; }, []),
   };
 }

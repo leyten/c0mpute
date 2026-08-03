@@ -14,7 +14,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import './ui.css';
 import { useChatEngine, type EngineMessage } from '../engine/useChatEngine';
-import { PLANS, parseThinking, parseSourcesFromContent, type Plan, type SourceRef } from '../lib';
+import { PLANS, parseThinking, parseSourcesFromContent, type FileRef, type Plan, type SourceRef } from '../lib';
 import {
   load, save, uid, titleFrom, toWire, truncateAt,
   activeVersion, addImagesTo, addVersion, assistantMsg, makeVersion, selectVersion,
@@ -122,6 +122,9 @@ export default function Chat() {
   const earlyImages = useRef<string[]>([]);
   /** An image was announced and has not landed yet. */
   const awaitingImage = useRef(false);
+  /** Documents this job generated. They are delivered while the answer is
+   *  still being written, so commit always finds them here. */
+  const liveFiles = useRef<FileRef[]>([]);
   const composerInput = useRef<HTMLTextAreaElement>(null);
 
   // hydrate — localStorage can only be read after mount, so this one-shot
@@ -235,6 +238,10 @@ export default function Chat() {
       earlyImages.current = [];
       version.pendingImage = undefined;
     }
+    if (liveFiles.current.length) {
+      version.files = liveFiles.current;
+      liveFiles.current = [];
+    }
     setConvos(prev => {
       const next = prev.map(c => {
         if (c.id !== to.convoId) return c;
@@ -273,6 +280,8 @@ export default function Chat() {
     landing.current = to;
     earlyImages.current = [];
     awaitingImage.current = false;
+    // documents belong to the job that made them, exactly like the sources
+    liveFiles.current = [];
     setRetryJob(job);
     setError(null);
 
@@ -325,6 +334,7 @@ export default function Chat() {
             return next;
           });
         },
+        onFile: file => { liveFiles.current.push(file); },
         onComplete: (finalText, meta) => {
           if (flushTimer.current) { clearTimeout(flushTimer.current); flushTimer.current = null; }
           let content = finalText || '[No response received]';

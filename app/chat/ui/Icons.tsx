@@ -46,6 +46,9 @@ export const Spark = (p: { className?: string }) => (
 export const Image = (p: { className?: string }) => (
   <svg {...base} {...p}><rect x="3" y="4.5" width="18" height="15" rx="2.5" /><circle cx="8.5" cy="10" r="1.5" /><path d="m4 17 4.5-4.5 3 3L15 12l5 5" /></svg>
 );
+export const File = (p: { className?: string }) => (
+  <svg {...base} width={15} height={15} {...p}><path d="M13.5 3.5H7A2 2 0 0 0 5 5.5v13a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9Z" /><path d="M13.5 3.5V9H19" /><path d="M12 12v5M9.5 14.5 12 17l2.5-2.5" /></svg>
+);
 export const X = (p: { className?: string }) => (
   <svg {...base} width={14} height={14} {...p}><path d="M18 6 6 18M6 6l12 12" /></svg>
 );

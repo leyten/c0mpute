@@ -15,12 +15,15 @@ import { parseSourcesFromContent, parseThinking, type Plan, type SourceRef } fro
 import type { ChatEngine } from '../engine/useChatEngine';
 import { activeIndex, versionsOf, type Msg, type Version } from './store';
 import ModelMenu from './ModelMenu';
-import { Copy, Check, Pencil, Refresh, Swap, Split, Left, Right } from './Icons';
+import { Copy, Check, File as FileIcon, Pencil, Refresh, Swap, Split, Left, Right } from './Icons';
 
 /** Every control in a turn is quiet: invisible until the turn is hovered, and
  *  reachable anyway by keyboard and on devices with no hover to give (cu-quiet
  *  in ui.css). */
 const QUIET = 'cu-quiet opacity-0 transition-all duration-150 focus-visible:opacity-100 group-hover:opacity-100';
+
+/** A generated document, offered under the answer that produced it. */
+const CHIP = 'cu-chip flex items-center gap-2 px-3 py-1.5 text-[13px]';
 
 /** What the running job looks like from a turn's point of view. */
 export interface LiveState {
@@ -77,6 +80,23 @@ function VersionBody({ v }: { v: Version }) {
             // eslint-disable-next-line @next/next/no-img-element
             <img key={i} src={src} alt="" className="max-h-96 max-w-full rounded-2xl" />
           ))}
+        </div>
+      )}
+      {v.files && v.files.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {v.files.map((f, i) => (f.data ? (
+            <a key={i} href={f.data} download={f.name} className={CHIP} style={{ color: 'var(--cu-dim)' }}>
+              <FileIcon />
+              {f.name}
+            </a>
+          ) : (
+            // the download did not survive the reload, but the turn should
+            // still show what it produced
+            <span key={i} className={`${CHIP} opacity-40`} style={{ color: 'var(--cu-faint)' }} title="Ask again to download this">
+              <FileIcon />
+              {f.name}
+            </span>
+          )))}
         </div>
       )}
     </>

@@ -11,7 +11,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useSocket } from '@/hooks/useSocket';
 import { scanOutput, BLOCKED_MESSAGE } from '@/lib/safety';
 import type { NetworkStats } from '@/lib/orchestrator/types';
-import { PLANS, SWARM_PLAN, planWorkerCount, filterDisclaimers, type Plan, type SourceRef } from '../lib';
+import { PLANS, SWARM_PLAN, planWorkerCount, filterDisclaimers, type FileRef, type Plan, type SourceRef } from '../lib';
 import { DEMO_MODE, DEMO_NETWORK_STATS, pickDemo, demoChunks, demoSleep, makeDemoImage } from '../demo';
 
 const ANON_TOKEN_KEY = 'c0mpute_anon_token';
@@ -29,6 +29,9 @@ export interface SendCallbacks {
   onGeneratingImage?: () => void;
   /** Images may arrive after onComplete (async render path). */
   onImage?: (images: string[]) => void;
+  /** A generated document, ready to download. Arrives while the answer is
+   *  still being written: the tool renders it before the model's turn ends. */
+  onFile?: (file: FileRef) => void;
   /** Final SAFE text (disclaimers filtered, scan applied) + everything gathered. */
   onComplete?: (finalText: string, meta: { thinkSeconds: number | null; sources: SourceRef[]; images: string[] }) => void;
   onError?: (message: string) => void;
@@ -130,6 +133,7 @@ export function useChatEngine(): ChatEngine {
     setOnJobGeneratingImage,
     setOnJobImage,
     setOnJobImageError,
+    setOnJobFile,
   } = useSocket(isAuthenticated ? socketAuthToken : anonToken);
 
   // ---- credits ----
@@ -254,11 +258,16 @@ export function useChatEngine(): ChatEngine {
       const a = activeRef.current;
       if (a && jobId === a.jobId) a.cb.onImage?.([]);
     });
+    setOnJobFile((jobId, file) => {
+      const a = activeRef.current;
+      if (a && jobId === a.jobId) a.cb.onFile?.(file);
+    });
     return () => {
       setOnJobToken(null); setOnJobAssigned(null); setOnJobComplete(null); setOnJobError(null);
       setOnJobSearching(null); setOnJobSources(null); setOnJobGeneratingImage(null); setOnJobImage(null); setOnJobImageError(null);
+      setOnJobFile(null);
     };
-  }, [setOnJobToken, setOnJobAssigned, setOnJobComplete, setOnJobError, setOnJobSearching, setOnJobSources, setOnJobGeneratingImage, setOnJobImage, setOnJobImageError, armStall, finishActive]);
+  }, [setOnJobToken, setOnJobAssigned, setOnJobComplete, setOnJobError, setOnJobSearching, setOnJobSources, setOnJobGeneratingImage, setOnJobImage, setOnJobImageError, setOnJobFile, armStall, finishActive]);
 
   // queue positions flow to the active job's callback
   useEffect(() => {

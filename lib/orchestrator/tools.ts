@@ -5,6 +5,7 @@
  */
 
 import { ToolDefinition, ToolCall, ChatMessage } from './types';
+import { scanOutput } from '../safety';
 
 // Dynamic imports for server-only modules
 type SearchHit = { title: string; url: string; description: string; age?: string };
@@ -52,6 +53,17 @@ export type PendingImage = {
   refund: () => void;
 };
 
+/**
+ * A document produced by a tool and handed to the user as a download. Rendered
+ * in memory and relayed over the socket — nothing is written to disk. `data` is
+ * a full data URL, ready for a download link.
+ */
+export type GeneratedFile = {
+  name: string;
+  mime: string;
+  data: string;
+};
+
 export const AVAILABLE_TOOLS: ToolDefinition[] = [
   {
     type: 'function',
@@ -96,12 +108,33 @@ export const AVAILABLE_TOOLS: ToolDefinition[] = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'generate_pdf',
+      description: 'Render a document as a PDF and hand it to the user as a download. Use this ONLY when the user explicitly asks for a PDF, a document, or a file/export of something written — an ordinary answer belongs in the chat, not in a file. Write the complete document in the markdown argument: the user reads what this tool renders, so nothing may be left for your reply to fill in. Headings (#, ##, ###), paragraphs, **bold**, *italic*, bullet and numbered lists, fenced code blocks, blockquotes and --- rules are rendered; anything else comes out as plain text. Free — it costs the user nothing.',
+      parameters: {
+        type: 'object',
+        required: ['title', 'markdown'],
+        properties: {
+          title: {
+            type: 'string',
+            description: 'Title of the document. Printed at the top of the first page and used for the download filename.',
+          },
+          markdown: {
+            type: 'string',
+            description: 'The complete document body in markdown. Do not repeat the title as a heading — it is rendered from the title argument.',
+          },
+        },
+      },
+    },
+  },
 ];
 
 /**
  * Execute a tool call and return the result as a ChatMessage.
  */
-export async function executeTool(toolCall: ToolCall, ctx?: ToolContext): Promise<{ message: ChatMessage; sources?: { title: string; url: string; description: string }[]; images?: string[]; pendingImage?: PendingImage }> {
+export async function executeTool(toolCall: ToolCall, ctx?: ToolContext): Promise<{ message: ChatMessage; sources?: { title: string; url: string; description: string }[]; images?: string[]; pendingImage?: PendingImage; file?: GeneratedFile }> {
   const { name, arguments: args } = toolCall.function;
 
   switch (name) {
@@ -229,6 +262,40 @@ export async function executeTool(toolCall: ToolCall, ctx?: ToolContext): Promis
       }
     }
 
+    case 'generate_pdf': {
+      const title = ((args.title as string) || '').trim();
+      const markdown = ((args.markdown as string) || '').trim();
+      const fail = (content: string) => ({ message: { role: 'tool' as const, content, tool_name: name } });
+      if (!markdown) return fail('Error: no document content provided.');
+
+      // Same output scan the orchestrator runs on streamed tokens — a document
+      // leaves the platform as a file, so it gets the same floor.
+      if (!scanOutput(`${title}\n${markdown}`).safe) {
+        return fail('Document blocked by safety policy. Tell the user briefly and do not retry.');
+      }
+
+      const { renderMarkdownPdf, pdfFileName } = require('../pdf-gen');
+      try {
+        const pdf: Buffer = await renderMarkdownPdf(title, markdown);
+        console.log(`[Tools] generate_pdf "${title}" (${markdown.length} chars, ${pdf.length} bytes)`);
+        return {
+          message: {
+            role: 'tool',
+            content: `PDF "${title}" generated and delivered to the user as a download.`,
+            tool_name: name,
+          },
+          file: {
+            name: pdfFileName(title),
+            mime: 'application/pdf',
+            data: `data:application/pdf;base64,${pdf.toString('base64')}`,
+          },
+        };
+      } catch (err) {
+        console.error('[Tools] generate_pdf failed:', err instanceof Error ? err.message : err);
+        return fail('PDF generation failed. Tell the user briefly and offer the document as a normal reply instead.');
+      }
+    }
+
     default:
       return {
         message: {
@@ -248,6 +315,7 @@ export async function executeToolCalls(toolCalls: ToolCall[], ctx?: ToolContext)
   sources?: { title: string; url: string; description: string }[];
   images?: string[];
   pendingImages?: PendingImage[];
+  files?: GeneratedFile[];
 }> {
   const results = await Promise.all(toolCalls.map(tc => executeTool(tc, ctx)));
 
@@ -264,11 +332,16 @@ export async function executeToolCalls(toolCalls: ToolCall[], ctx?: ToolContext)
   const pendingImages = results
     .filter(r => r.pendingImage)
     .map(r => r.pendingImage!);
+  // Rendered documents (generate_pdf), relayed to the user as downloads
+  const files = results
+    .filter(r => r.file)
+    .map(r => r.file!);
 
   return {
     messages,
     sources: allSources.length > 0 ? allSources : undefined,
     images: allImages.length > 0 ? allImages : undefined,
     pendingImages: pendingImages.length > 0 ? pendingImages : undefined,
+    files: files.length > 0 ? files : undefined,
   };
 }

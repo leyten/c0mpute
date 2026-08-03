@@ -5,6 +5,8 @@
 // them oldest first, `active` is the one on screen, and `content`/`images`
 // mirror that active version so every reader downstream — the context
 // builder, copy, the renderers — keeps reading a single field.
+import type { FileRef } from '../lib';
+
 export type Role = 'user' | 'assistant';
 
 /** Which model produced an answer, captured when the answer lands. */
@@ -20,6 +22,10 @@ export interface Version {
    *  as the shared parsers expect. */
   content: string;
   images?: string[];
+  /** Documents this answer generated, offered as downloads. Only the ones from
+   *  the session that made them can still be downloaded: `data` does not
+   *  survive persistence (see save). */
+  files?: FileRef[];
   model?: VersionModel;
   /** Cut short by the stop button, so the turn can offer to continue it. */
   truncated?: boolean;
@@ -236,12 +242,21 @@ export function save(convos: Convo[]): void {
   if (typeof window === 'undefined') return;
   const write = (list: Convo[]) =>
     localStorage.setItem(KEY, JSON.stringify({ v: VERSION, convos: list }));
+  // Generated documents are base64 data URLs — never worth a quota slot. The
+  // name is kept so a reloaded turn still shows what it produced; the download
+  // itself belongs to the session that made it.
+  const list = convos.map(c => ({
+    ...c,
+    messages: c.messages.map(m => (m.versions
+      ? { ...m, versions: m.versions.map(v => (v.files ? { ...v, files: v.files.map(f => ({ ...f, data: '' })) } : v)) }
+      : m)),
+  }));
   try {
-    write(convos);
+    write(list);
   } catch {
     // Quota: drop generated images, in every version, before losing text.
     try {
-      write(convos.map(c => ({
+      write(list.map(c => ({
         ...c,
         messages: c.messages.map(m => (m.role === 'assistant'
           ? { ...m, images: undefined, versions: m.versions?.map(v => ({ ...v, images: undefined })) }
@@ -249,7 +264,7 @@ export function save(convos: Convo[]): void {
       })));
     } catch {
       try {
-        write(convos.slice(0, 20));
+        write(list.slice(0, 20));
       } catch { /* give up quietly; the session still works in memory */ }
     }
   }

@@ -791,7 +791,7 @@ export class Orchestrator {
     console.log(`[Orchestrator] Job ${jobId}: executing tools — ${toolCalls.map(tc => tc.function.name).join(', ')}`);
 
     // Execute all tool calls
-    const { messages, sources, images, pendingImages } = await executeToolCalls(toolCalls, {
+    const { messages, sources, images, pendingImages, files } = await executeToolCalls(toolCalls, {
       privyUserId: job.privyUserId,
       renderImage: (workflow, meta) => this.renderImageInternal(workflow, meta),
     });
@@ -804,6 +804,14 @@ export class Orchestrator {
     // Legacy synchronous images (none today — generate_image now defers; kept defensive)
     if (images && images.length > 0 && userSocket) {
       userSocket.emit('job:image', { jobId, images });
+    }
+
+    // Rendered documents (generate_pdf). Small enough to ride the socket
+    // inline, and never stored server-side — same posture as images.
+    if (files && files.length > 0 && userSocket) {
+      for (const f of files) {
+        userSocket.emit('job:file', { jobId, name: f.name, mime: f.mime, data: f.data });
+      }
     }
 
     // Send tool results back to the worker immediately so its tool-result wait
@@ -1220,13 +1228,16 @@ export class Orchestrator {
 
       // Tools: API passthrough jobs use the caller's own tools (returned to the
       // agent, not run server-side); everything else gets the built-in tools.
-      // generate_image is withheld from API-bridge jobs — an API client has no
-      // socket channel to receive the rendered image, so it would charge the
-      // user for a picture nobody sees.
+      // generate_image and generate_pdf are withheld from API-bridge jobs — an
+      // API client has no socket channel to receive the artifact, so the model
+      // would promise a picture or a document nobody ever gets (and, for an
+      // image, charge the user for it).
       const tools = job.toolPassthrough
         ? (job.clientTools && job.clientTools.length ? job.clientTools : undefined)
         : (idleWorker.capabilities.tools
-          ? (job.internal ? AVAILABLE_TOOLS.filter((t) => t.function.name !== 'generate_image') : AVAILABLE_TOOLS)
+          ? (job.internal
+            ? AVAILABLE_TOOLS.filter((t) => t.function.name !== 'generate_image' && t.function.name !== 'generate_pdf')
+            : AVAILABLE_TOOLS)
           : undefined);
 
       workerSocket.emit('job:new', { jobId: job.id, messages, tools, think: job.think ?? false });

@@ -7,6 +7,11 @@ import { NetworkStats } from '@/lib/orchestrator/types';
 
 export type SourceRef = { title: string; url: string; description: string };
 
+/** A document a tool generated for this answer. `data` is a full data URL, so
+ *  a download link needs nothing else. It is dropped on persistence (store.ts),
+ *  and a reloaded turn keeps only the name. */
+export type FileRef = { name: string; mime: string; data: string };
+
 export type ChatState = 'idle' | 'queued' | 'streaming' | 'error';
 
 // Plan definitions — maps user-facing models to internal model IDs.
