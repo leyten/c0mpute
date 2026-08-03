@@ -5,7 +5,7 @@
 // screen is fully ours: same DIDs, same accounts, zero backend changes.
 import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { usePrivy, useLoginWithOAuth, useLoginWithSiws } from '@privy-io/react-auth';
+import { Captcha, usePrivy, useLoginWithOAuth, useLoginWithSiws } from '@privy-io/react-auth';
 import { getWallets } from '@wallet-standard/app';
 import bs58 from 'bs58';
 
@@ -29,6 +29,7 @@ function isSolanaSignInWallet(w: StandardWallet): boolean {
   );
 }
 
+
 function LoginInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -38,6 +39,25 @@ function LoginInner() {
   const [wallets, setWallets] = useState<StandardWallet[]>([]);
   const [busy, setBusy] = useState<string | null>(null); // 'x' | wallet name
   const [error, setError] = useState<string | null>(null);
+
+  // The SDK's initOAuth throws "Captcha failed" INSTANTLY unless the invisible
+  // captcha has already solved (it checks status === 'success' at call time and
+  // never waits — verified in the bundle). Solving takes ~2-4s after load, so a
+  // fast first click always failed while the second worked. Hold the buttons
+  // until the widget reports success; fail open if the captcha is disabled
+  // app-side (no widget appears) or takes absurdly long (Turnstile outage).
+  const [captchaSolved, setCaptchaSolved] = useState(false);
+  useEffect(() => {
+    if (captchaSolved) return;
+    const probe = setTimeout(() => {
+      if (!document.getElementById('cf-turnstile')) setCaptchaSolved(true);
+    }, 2500);
+    const failOpen = setTimeout(() => setCaptchaSolved(true), 10000);
+    return () => {
+      clearTimeout(probe);
+      clearTimeout(failOpen);
+    };
+  }, [captchaSolved]);
 
   // Where to go after auth. Only same-site paths; default is chat.
   const next = useMemo(() => {
@@ -136,10 +156,21 @@ function LoginInner() {
     [generateSiwsMessage, loginWithSiws]
   );
 
-  const pending = busy !== null || oauthReturning || (ready && authenticated);
+  // Gate clicks until the Privy SDK is initialized AND the invisible captcha
+  // has solved — login calls before either fail instantly (the fast-first-click
+  // bug). captchaSolved fails open if captcha is disabled or times out.
+  const pending = !ready || !captchaSolved || busy !== null || oauthReturning || authenticated;
 
   return (
     <div className="ui-readable min-h-screen bg-black flex flex-col items-center justify-center px-4 py-16">
+      {/* Privy bot protection: the modal mounted this internally; a headless
+          page must mount it itself or every SIWS login throws "Captcha failed".
+          onSuccess/onExpire drive the button gate above — tokens expire after
+          ~5 min and the widget re-solves itself, so the gate closes and reopens. */}
+      <Captcha
+        onSuccess={() => setCaptchaSolved(true)}
+        onExpire={() => setCaptchaSolved(false)}
+      />
       <div className="w-full max-w-sm rounded-2xl border border-white/10 bg-[#141210] p-8 shadow-2xl">
         {/* Wordmark */}
         <div className="flex justify-center mb-6">

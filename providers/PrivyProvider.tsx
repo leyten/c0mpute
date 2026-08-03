@@ -40,6 +40,14 @@ export default function PrivyProvider({ children }: { children: React.ReactNode 
           solana: { connectors: solanaConnectors },
         },
 
+        // Sign-in runs headless on our custom /login page, which mounts the
+        // SDK's <Captcha /> itself. Without this flag the provider ALSO
+        // auto-mounts one, and Privy's docs require exactly one <Captcha /> at
+        // a time — the duplicate fights over the shared captcha ref and every
+        // login dies with "Captcha failed". The flag is parsed by the SDK
+        // (headless: !!config.headless) but missing from PrivyClientConfig.
+        ...({ headless: true } as object),
+
         // Appearance - match c0mpute style
         appearance: {
           theme: '#0c0a09', // the editorial warm near-black
