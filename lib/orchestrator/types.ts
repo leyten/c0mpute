@@ -117,6 +117,10 @@ export interface ServerToClientEvents {
   'job:generating_image': (data: { jobId: string }) => void;
   'job:image': (data: { jobId: string; images: string[] }) => void;
   'job:image_error': (data: { jobId: string; error: string }) => void;
+  // A generated document, delivered inline. `data` is a full data URL
+  // (`data:application/pdf;base64,...`) so the client can hang it straight off
+  // a download link — unlike job:image, which sends bare base64.
+  'job:file': (data: { jobId: string; name: string; mime: string; data: string }) => void;
   'job:assigned': (data: { jobId: string; workerId: string }) => void;
   'job:token': (data: { jobId: string; token: string }) => void;
   'job:complete': (data: { jobId: string; response: string }) => void;

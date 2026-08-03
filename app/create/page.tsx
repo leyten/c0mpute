@@ -1,11 +1,13 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import SiteNav from '@/components/SiteNav';
+
+import { useState, useEffect, useCallback, useRef, type CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 
 interface ResultImage {
-  url: string; // inline data URL — never stored server-side
+  url: string; // inline data URL, never stored server-side
   prompt: string;
   width: number | null;
   height: number | null;
@@ -14,10 +16,11 @@ interface ResultImage {
 
 const IMAGE_CREDITS = 20; // keep in sync with lib/image-gen IMAGE_CREDITS
 const NSFW_ACK_KEY = 'c0mpute_nsfw_ack';
+const ACCENT = '#80a0c1';
 
 // Style presets: `pos` is appended to the prompt, `neg` to the negative prompt
 // (on top of the server-side baseline anti-slop negative). Written in real-photo
-// language — stacking "professional photography, sharp focus, high detail" is
+// language: stacking "professional photography, sharp focus, high detail" is
 // what produced the over-processed AI-slop look.
 const STYLES: { label: string; pos: string; neg: string }[] = [
   { label: 'None', pos: '', neg: '' },
@@ -34,7 +37,7 @@ const RATIOS: { label: string; w: number; h: number }[] = [
   { label: 'Landscape', w: 1216, h: 832 },
 ];
 
-// Client-side image history. Kept in IndexedDB (not localStorage — full PNGs blow
+// Client-side image history. Kept in IndexedDB (not localStorage: full PNGs blow
 // localStorage's ~5MB quota after a couple images). Fully private: the browser
 // is the only place these live; the server still stores nothing.
 interface SavedImage { id: string; url: string; prompt: string; seed?: number; width: number | null; height: number | null; createdAt: number; }
@@ -75,12 +78,59 @@ async function idbDelete(id: string): Promise<void> {
   });
 }
 
+// The canvas frame takes the exact shape of the image it holds (or the shape
+// the user selected, before one exists). Width caps keep tall formats from
+// running past the viewport inside the centered column.
+function frameStyle(w: number | null, h: number | null): CSSProperties {
+  return { aspectRatio: `${w || 1024} / ${h || 1024}`, maxHeight: '100%', maxWidth: '100%' };
+}
+
+// Small inline glyphs. Stroke inherits currentColor so hover states carry through.
+function IconDownload({ className }: { className?: string }) {
+  return (
+    <svg className={className} width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M8 2v8m0 0L5 7m3 3l3-3M2.5 12.5v1a1 1 0 001 1h9a1 1 0 001-1v-1" />
+    </svg>
+  );
+}
+function IconCopy({ className }: { className?: string }) {
+  return (
+    <svg className={className} width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="5.5" y="5.5" width="8" height="8" rx="1.5" />
+      <path d="M10.5 5.5v-2a1 1 0 00-1-1h-6a1 1 0 00-1 1v6a1 1 0 001 1h2" />
+    </svg>
+  );
+}
+function IconX({ className }: { className?: string }) {
+  return (
+    <svg className={className} width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
+      <path d="M2.5 2.5l7 7m0-7l-7 7" />
+    </svg>
+  );
+}
+function IconChevron({ open }: { open: boolean }) {
+  return (
+    <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
+      className={`transition-transform ${open ? 'rotate-180' : ''}`}>
+      <path d="M2 3.5l3 3 3-3" />
+    </svg>
+  );
+}
+
+// Ratio selector glyph: a small rectangle in the actual orientation.
+function RatioGlyph({ w, h }: { w: number; h: number }) {
+  const landscape = w > h;
+  const portrait = h > w;
+  const cls = portrait ? 'w-2.5 h-3.5' : landscape ? 'w-4 h-2.5' : 'w-3 h-3';
+  return <span className={`inline-block rounded-[3px] border border-current ${cls}`} aria-hidden="true" />;
+}
+
 export default function CreatePage() {
   const router = useRouter();
   const { isAuthenticated, login, getAccessToken } = useAuth();
 
   const [prompt, setPrompt] = useState('');
-  const [styleIdx, setStyleIdx] = useState(1); // default to "Photo" — "None" hands users the raw model (CGI look)
+  const [styleIdx, setStyleIdx] = useState(1); // default to "Photo": "None" hands users the raw model (CGI look)
   const [ratioIdx, setRatioIdx] = useState(0);
   const [nsfw, setNsfw] = useState(false);
   const [showGate, setShowGate] = useState(false);
@@ -99,8 +149,8 @@ export default function CreatePage() {
   const [history, setHistory] = useState<SavedImage[]>([]);
   const [balance, setBalance] = useState<number | null>(null);
   const [freeImages, setFreeImages] = useState<number | null>(null);
+  const [copied, setCopied] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const previewRef = useRef<HTMLDivElement | null>(null);
 
   const loadBalance = useCallback(async () => {
     if (!isAuthenticated) return;
@@ -139,6 +189,14 @@ export default function CreatePage() {
     setShowGate(false);
   };
 
+  const copyPrompt = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {}
+  };
+
   const generate = async () => {
     setError(null);
     if (!prompt.trim()) return;
@@ -147,8 +205,6 @@ export default function CreatePage() {
     setLoading(true);
     setCurrent(null);
     setElapsed(0);
-    // Bring the preview pane into view (matters on mobile, where it's below the form).
-    if (typeof window !== 'undefined') previewRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     const t0 = Date.now();
     timerRef.current = setInterval(() => setElapsed(Math.floor((Date.now() - t0) / 1000)), 250);
 
@@ -207,193 +263,187 @@ export default function CreatePage() {
   const hasFree = (freeImages ?? 0) > 0;
   const lowBalance = balance !== null && balance < IMAGE_CREDITS && !hasFree;
   const progressPct = Math.min(95, (elapsed / 30) * 100);
+  const ratio = RATIOS[ratioIdx];
+  const canvasShape = current ? frameStyle(current.width, current.height) : frameStyle(ratio.w, ratio.h);
+
+  const chip = (active: boolean) =>
+    `cursor-pointer pixel-sans text-xs px-3 py-1.5 rounded-lg border transition-colors ${
+      active ? 'bg-white text-black border-white' : 'bg-transparent text-white/60 border-white/15 hover:text-white hover:border-white/35'
+    }`;
 
   return (
-    <div className="ui-readable min-h-screen bg-black">
-      <header className="fixed top-0 left-0 right-0 z-50 py-4">
-        <div className="max-w-6xl mx-auto px-4 md:px-6">
-          <nav className="bg-black/80 backdrop-blur-sm border border-white/10 rounded-2xl px-4 md:px-6 py-3 flex items-center justify-between">
-            <a href="/" className="cursor-pointer pixel-serif-logo text-white text-lg md:text-xl font-bold flex items-center">
-              C<span className="pixel-serif-logo" style={{ fontSize: '1.8em', display: 'inline-block', verticalAlign: 'baseline', lineHeight: '1', marginTop: '-0.3em' }}>0</span>MPUTE
-            </a>
-            <div className="flex items-center gap-4">
-              {balance !== null && (
-                <span className="pixel-sans text-xs text-white/70 hidden sm:inline">{balance.toLocaleString()} credits</span>
-              )}
-              <button onClick={() => router.push('/settings')} className="cursor-pointer pixel-sans text-sm text-white/70 hover:text-white transition-colors">Settings</button>
-              <button onClick={() => router.push('/')} className="cursor-pointer pixel-sans text-sm text-white/70 hover:text-white transition-colors">← Back</button>
-            </div>
-          </nav>
-        </div>
-      </header>
+    <div className="ui-readable flex h-dvh flex-col overflow-hidden bg-black">
+      <SiteNav />
 
-      <main className="pt-32 pb-16 px-4 md:px-6">
-        <div className="max-w-6xl mx-auto">
-          <h1 className="pixel-serif text-white text-3xl md:text-4xl mb-2">Create</h1>
-          <p className="pixel-sans text-white/70 text-sm mb-2">
-            Image generation on the c0mpute network. {IMAGE_CREDITS} credits ($0.20) per image.
-          </p>
-          {isAuthenticated && freeImages !== null && freeImages > 0 && (
-            <p className="pixel-sans text-emerald-300/90 text-sm mb-2">
-              {freeImages} free image{freeImages > 1 ? 's' : ''} left — on us.
-            </p>
-          )}
-          <p className="pixel-sans text-white/70 text-xs mb-8">
-            Fully private — your images are returned to you and never stored. Download what you want to keep.
-          </p>
-
-          <div className="grid lg:grid-cols-2 gap-8 items-start">
-          <section className="border border-white/10 bg-white/[0.02] p-6 rounded-2xl">
-            <textarea
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) generate(); }}
-              placeholder="Describe the image you want…"
-              rows={3}
-              className="w-full bg-white/[0.03] border border-white/10 rounded-xl p-3 pixel-sans text-white placeholder-white/55 focus:outline-none focus:border-white/25 transition-colors resize-none mb-4"
-            />
-
-            {/* Style presets */}
-            <label className="pixel-sans text-xs text-white/70 font-semibold block mb-2">Style</label>
-            <div className="flex flex-wrap gap-2 mb-4">
-              {STYLES.map((s, i) => (
-                <button key={s.label} onClick={() => setStyleIdx(i)}
-                  className={`pixel-sans text-xs px-3 py-1.5 rounded-lg border transition-colors ${styleIdx === i ? 'bg-white text-black border-white' : 'bg-white/[0.06] text-white/85 border-white/20 hover:border-white/40'}`}>
-                  {s.label}
+      {/* the nav is fixed, so the studio starts below it */}
+      <main className="flex min-h-0 flex-1 flex-col gap-3 px-4 pb-4 pt-[86px] md:flex-row md:gap-4 md:px-6 md:pb-6">
+        {/* Everything you have made, beside the canvas rather than below it. */}
+        {history.length > 0 && (
+          <aside className="flex shrink-0 gap-2 overflow-x-auto pb-1 md:w-[88px] md:flex-col md:overflow-y-auto md:overflow-x-hidden md:pb-0">
+            {history.map((g) => (
+              <div key={g.id} className="group relative aspect-square h-16 w-16 shrink-0 overflow-hidden rounded-xl border border-white/10 md:h-auto md:w-full">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={g.url} alt={g.prompt} loading="lazy" onClick={() => setCurrent(g)}
+                  className={`h-full w-full cursor-pointer object-cover transition-opacity ${current?.url === g.url ? 'opacity-100' : 'opacity-60 hover:opacity-100'}`} />
+                <button onClick={() => deleteImage(g.id)} aria-label="Delete image"
+                  className="absolute right-1 top-1 grid h-5 w-5 cursor-pointer place-items-center rounded-md bg-black/70 text-white/70 opacity-0 transition-opacity hover:bg-black hover:text-white group-hover:opacity-100">
+                  <IconX />
                 </button>
-              ))}
-            </div>
-
-            {/* Aspect ratio */}
-            <label className="pixel-sans text-xs text-white/70 font-semibold block mb-2">Aspect ratio</label>
-            <div className="flex flex-wrap gap-2 mb-4">
-              {RATIOS.map((r, i) => (
-                <button key={r.label} onClick={() => setRatioIdx(i)}
-                  className={`pixel-sans text-xs px-3 py-1.5 rounded-lg border transition-colors ${ratioIdx === i ? 'bg-white text-black border-white' : 'bg-white/[0.06] text-white/85 border-white/20 hover:border-white/40'}`}>
-                  {r.label}
-                </button>
-              ))}
-            </div>
-
-            {/* NSFW toggle */}
-            <div className="flex items-center justify-between mb-4 p-3 rounded-xl bg-white/[0.03] border border-white/10">
-              <div>
-                <p className="pixel-sans text-sm text-white">NSFW <span className="text-white/70">(18+)</span></p>
-                <p className="pixel-sans text-xs text-white/70">Allow adult content. Sexual content involving minors is never generated.</p>
               </div>
+            ))}
+          </aside>
+        )}
+
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          {/* The canvas takes whatever room is left, so the image is always in
+              front of you and the page never scrolls to reach it. */}
+          <section className="grid min-h-0 flex-1 place-items-center">
+            <div style={canvasShape}
+              className={`overflow-hidden rounded-2xl border bg-white/[0.02] ${loading ? 'border-white/15' : 'border-white/10'}`}>
+              {loading ? (
+                <div className="flex h-full w-full flex-col items-center justify-center gap-4 p-8" role="status">
+                  <div className="h-1 w-48 max-w-full overflow-hidden rounded-full bg-white/10">
+                    <div className="h-full rounded-full transition-all duration-300" style={{ width: `${progressPct}%`, background: ACCENT }} />
+                  </div>
+                  <p className="pixel-sans text-xs tabular-nums text-white/70">
+                    {elapsed}s elapsed{elapsed > 45 ? ', taking longer than usual' : ' · typically about 30s'}
+                  </p>
+                  <p className="pixel-sans line-clamp-2 max-w-sm text-center text-xs text-white/35">{prompt.trim()}</p>
+                </div>
+              ) : current ? (
+                /* eslint-disable-next-line @next/next/no-img-element */
+                <img src={current.url} alt={current.prompt} className="block h-full w-full object-contain" />
+              ) : (
+                <div className="flex h-full w-full flex-col items-center justify-center gap-1.5 p-8 text-center">
+                  <p className="pixel-sans text-sm text-white/55">Your image appears here</p>
+                  <p className="pixel-sans text-xs text-white/30">Describe it below and press Generate</p>
+                </div>
+              )}
+            </div>
+          </section>
+
+          {current && !loading && (
+            <div className="mt-3 flex shrink-0 items-center justify-between gap-4">
+              <span className="pixel-sans truncate text-xs tabular-nums text-white/45">
+                {current.width && current.height ? `${current.width} x ${current.height}` : ''}
+                {current.seed ? ` · seed ${current.seed}` : ''}
+              </span>
+              <div className="flex flex-shrink-0 items-center gap-2">
+                <button onClick={() => copyPrompt(current.prompt)}
+                  className="pixel-sans inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-white/15 px-3 py-1.5 text-xs text-white/70 transition-colors hover:border-white/35 hover:text-white">
+                  <IconCopy /> {copied ? 'Copied' : 'Copy prompt'}
+                </button>
+                <a href={current.url} download={`c0mpute-${current.seed || 'image'}.png`}
+                  className="pixel-sans inline-flex cursor-pointer items-center gap-1.5 rounded-lg bg-white px-3 py-1.5 text-xs text-black transition-colors hover:bg-white/90">
+                  <IconDownload /> Download
+                </a>
+              </div>
+            </div>
+          )}
+
+          {/* Notices sit with the controls, not above the picture. */}
+          {isAuthenticated && lowBalance && (
+            <div className="pixel-sans mt-3 shrink-0 rounded-xl border border-amber-400/20 bg-amber-400/[0.05] px-4 py-2.5 text-xs text-amber-300/90">
+              You have {balance?.toLocaleString()} credits and an image costs {IMAGE_CREDITS}.{' '}
+              <button onClick={() => router.push('/settings')} className="cursor-pointer underline hover:text-amber-200">Top up in settings</button>
+            </div>
+          )}
+          {error && (
+            <div role="alert" className="pixel-sans mt-3 shrink-0 rounded-xl border border-red-400/20 bg-red-400/[0.05] px-4 py-2.5 text-xs text-red-300/90">{error}</div>
+          )}
+
+          {showAdvanced && (
+            <div className="mt-3 grid shrink-0 gap-x-8 gap-y-4 rounded-2xl border border-white/10 bg-white/[0.02] p-4 md:grid-cols-2">
+              <div className="md:col-span-2">
+                <label className="pixel-sans mb-1.5 block text-xs text-white/50">Negative prompt</label>
+                <input value={negative} onChange={(e) => setNegative(e.target.value)} placeholder="Things to avoid (optional)"
+                  className="pixel-sans w-full rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-white placeholder-white/40 transition-colors focus:border-white/25 focus:outline-none" />
+              </div>
+              <div>
+                <label className="pixel-sans mb-1.5 flex justify-between text-xs text-white/50"><span>Steps</span><span className="tabular-nums text-white/80">{steps}</span></label>
+                <input type="range" min={10} max={50} value={steps} onChange={(e) => setSteps(Number(e.target.value))} className="w-full" style={{ accentColor: ACCENT }} />
+              </div>
+              <div>
+                <label className="pixel-sans mb-1.5 flex justify-between text-xs text-white/50"><span>Guidance</span><span className="tabular-nums text-white/80">{cfg.toFixed(1)}</span></label>
+                <input type="range" min={1} max={10} step={0.1} value={cfg} onChange={(e) => setCfg(Number(e.target.value))} className="w-full" style={{ accentColor: ACCENT }} />
+              </div>
+              <div className="md:col-span-2">
+                <label className="pixel-sans mb-1.5 block text-xs text-white/50">Seed</label>
+                <input value={seed} onChange={(e) => setSeed(e.target.value.replace(/[^0-9]/g, ''))} placeholder="Blank for random" inputMode="numeric"
+                  className="pixel-sans w-full rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-white placeholder-white/40 transition-colors focus:border-white/25 focus:outline-none md:w-64" />
+              </div>
+            </div>
+          )}
+
+          {/* The controls, pinned under the canvas. */}
+          <section className="mt-3 shrink-0 rounded-2xl border border-white/10 bg-white/[0.02] p-3 md:p-4">
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              {STYLES.map((s, i) => (
+                <button key={s.label} onClick={() => setStyleIdx(i)} aria-pressed={styleIdx === i} className={chip(styleIdx === i)}>{s.label}</button>
+              ))}
+              <span className="mx-1 hidden h-5 w-px bg-white/10 sm:block" aria-hidden="true" />
+              {RATIOS.map((r, i) => (
+                <button key={r.label} onClick={() => setRatioIdx(i)} aria-pressed={ratioIdx === i} title={`${r.label} ${r.w} x ${r.h}`}
+                  className={`${chip(ratioIdx === i)} inline-flex items-center gap-2`}>
+                  <RatioGlyph w={r.w} h={r.h} /><span className="hidden sm:inline">{r.label}</span>
+                </button>
+              ))}
+              <span className="mx-1 hidden h-5 w-px bg-white/10 sm:block" aria-hidden="true" />
               <button onClick={toggleNsfw} aria-pressed={nsfw}
-                className={`relative w-12 h-6 rounded-full transition-colors flex-shrink-0 ${nsfw ? 'bg-red-500/80' : 'bg-white/15'}`}>
-                <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform ${nsfw ? 'translate-x-6' : ''}`} />
+                title="Allow adult content. Sexual content involving minors is never generated."
+                className={`pixel-sans inline-flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-1.5 text-xs transition-colors ${
+                  nsfw ? 'border-red-400/40 bg-red-500/15 text-red-300' : 'border-white/15 bg-transparent text-white/60 hover:border-white/35 hover:text-white'
+                }`}>
+                <span className={`inline-block h-1.5 w-1.5 rounded-full ${nsfw ? 'bg-red-400' : 'bg-white/25'}`} aria-hidden="true" />18+
+              </button>
+              <button onClick={() => setShowAdvanced((v) => !v)} aria-expanded={showAdvanced}
+                className="pixel-sans inline-flex cursor-pointer items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs text-white/60 transition-colors hover:text-white">
+                Advanced <IconChevron open={showAdvanced} />
               </button>
             </div>
 
-            {/* Advanced */}
-            <button onClick={() => setShowAdvanced((v) => !v)} className="pixel-sans text-xs text-white/70 hover:text-white/80 transition-colors mb-2">
-              {showAdvanced ? '− Advanced' : '+ Advanced'}
-            </button>
-            {showAdvanced && (
-              <div className="space-y-4 mb-4 p-4 rounded-xl bg-white/[0.02] border border-white/10">
-                <input value={negative} onChange={(e) => setNegative(e.target.value)} placeholder="Negative prompt (optional)"
-                  className="w-full bg-white/[0.03] border border-white/10 rounded-lg p-2.5 pixel-sans text-sm text-white placeholder-white/55 focus:outline-none focus:border-white/25" />
-                <div>
-                  <label className="pixel-sans text-xs text-white/70 flex justify-between mb-1"><span>Steps</span><span>{steps}</span></label>
-                  <input type="range" min={10} max={50} value={steps} onChange={(e) => setSteps(Number(e.target.value))} className="w-full accent-white" />
-                </div>
-                <div>
-                  <label className="pixel-sans text-xs text-white/70 flex justify-between mb-1"><span>Guidance</span><span>{cfg.toFixed(1)}</span></label>
-                  <input type="range" min={1} max={10} step={0.1} value={cfg} onChange={(e) => setCfg(Number(e.target.value))} className="w-full accent-white" />
-                </div>
-                <input value={seed} onChange={(e) => setSeed(e.target.value.replace(/[^0-9]/g, ''))} placeholder="Seed (blank = random)" inputMode="numeric"
-                  className="w-full bg-white/[0.03] border border-white/10 rounded-lg p-2.5 pixel-sans text-sm text-white placeholder-white/55 focus:outline-none focus:border-white/25" />
-              </div>
-            )}
-
-            <button
-              onClick={generate}
-              disabled={loading || !prompt.trim() || (isAuthenticated && lowBalance)}
-              className="w-full pixel-serif text-sm px-6 py-3 rounded-xl bg-white text-black hover:bg-white/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {loading ? `Generating… ${elapsed}s` : !isAuthenticated ? 'Log in to generate' : lowBalance ? 'Not enough credits' : hasFree ? `Generate · free (${freeImages} left)` : `Generate · ${IMAGE_CREDITS} credits`}
-            </button>
-
-            {isAuthenticated && lowBalance && (
-              <p className="pixel-sans text-amber-400/90 text-xs mt-3">
-                You have {balance?.toLocaleString()} credits. <button onClick={() => router.push('/settings')} className="underline hover:text-amber-300">Top up →</button>
-              </p>
-            )}
-            {error && <p className="pixel-sans text-red-400/90 text-sm mt-3">{error}</p>}
-          </section>
-
-          {/* Preview pane — always visible (sticky on desktop) so the result
-              never hides below the form. */}
-          <div ref={previewRef} className="lg:sticky lg:top-28">
-            <div className="aspect-square w-full rounded-2xl border border-white/10 bg-white/[0.02] overflow-hidden flex items-center justify-center">
-              {loading ? (
-                <div className="w-full h-full flex flex-col items-center justify-center gap-4 p-6">
-                  <div className="w-10 h-10 rounded-full border-2 border-white/20 border-t-white animate-spin" />
-                  <div className="w-2/3 h-1.5 rounded-full bg-white/10 overflow-hidden">
-                    <div className="h-full bg-white/70 transition-all duration-300" style={{ width: `${progressPct}%` }} />
-                  </div>
-                  <p className="pixel-sans text-white/70 text-xs">Generating · {elapsed}s / ~30s</p>
-                </div>
-              ) : current ? (
-                <div className="w-full h-full">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={current.url} alt={current.prompt} className="w-full h-full object-contain" />
-                </div>
-              ) : (
-                <div className="text-center px-6">
-                  <p className="pixel-sans text-white/70 text-sm">Your image appears here</p>
-                  <p className="pixel-sans text-white/50 text-xs mt-1">Describe something and hit Generate</p>
-                </div>
-              )}
+            <div className="flex items-end gap-3">
+              <textarea
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); generate(); } }}
+                placeholder="Describe the image you want"
+                rows={2}
+                className="pixel-sans min-w-0 flex-1 resize-none bg-transparent text-[15px] text-white placeholder-white/40 focus:outline-none"
+              />
+              <button
+                onClick={generate}
+                disabled={loading || !prompt.trim() || (isAuthenticated && lowBalance)}
+                className="pixel-serif shrink-0 cursor-pointer rounded-xl bg-white px-6 py-2.5 text-sm text-black transition-colors hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {loading ? `Generating ${elapsed}s` : !isAuthenticated ? 'Log in to generate' : lowBalance ? 'Not enough credits' : hasFree ? `Generate free (${freeImages} left)` : 'Generate'}
+              </button>
             </div>
-            {current && !loading && (
-              <div className="flex items-center justify-between mt-3">
-                <span className="pixel-sans text-white/70 text-xs">{current.seed ? `seed ${current.seed}` : ''}</span>
-                <a href={current.url} download={`c0mpute-${current.seed || 'image'}.png`} className="pixel-sans text-xs text-white/70 hover:text-white underline">Download</a>
-              </div>
-            )}
-          </div>
-          </div>
 
-          {history.length > 0 && (
-            <section className="mt-12">
-              <h2 className="pixel-serif text-white text-lg mb-1">Your images</h2>
-              <p className="pixel-sans text-white/50 text-xs mb-4">Saved in this browser only — private, never uploaded. Tap to view, × to delete.</p>
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-                {history.map((g) => (
-                  <div key={g.id} className="group relative aspect-square overflow-hidden rounded-xl border border-white/10 bg-white/[0.02]">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={g.url} alt={g.prompt} loading="lazy"
-                      onClick={() => { setCurrent(g); previewRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }); }}
-                      className="w-full h-full object-cover cursor-pointer" />
-                    <button onClick={() => deleteImage(g.id)} aria-label="Delete"
-                      className="absolute top-1.5 right-1.5 w-6 h-6 rounded-full bg-black/70 text-white/80 hover:text-white hover:bg-black flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity pixel-sans text-sm">×</button>
-                    <a href={g.url} download={`c0mpute-${g.seed || g.id}.png`} aria-label="Download"
-                      className="absolute bottom-1.5 right-1.5 px-2 py-0.5 rounded bg-black/70 text-white/80 hover:text-white text-[10px] pixel-sans opacity-0 group-hover:opacity-100 transition-opacity">save</a>
-                  </div>
-                ))}
-              </div>
-            </section>
-          )}
+            <div className="pixel-sans mt-2 text-xs">
+              {isAuthenticated && hasFree
+                ? <span className="text-emerald-300/90">{freeImages} free image{(freeImages ?? 0) > 1 ? 's' : ''} left, on us</span>
+                : <span className="text-white/45">{IMAGE_CREDITS} credits ($0.20) per image</span>}
+              <span className="hidden text-white/30 md:inline"> · Enter to generate, Shift and Enter for a new line · saved in this browser only</span>
+            </div>
+          </section>
         </div>
       </main>
 
       {/* 18+ gate */}
       {showGate && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-          <div className="max-w-md w-full border border-white/15 bg-black rounded-2xl p-6">
-            <h3 className="pixel-serif text-white text-xl mb-3">Adult content (18+)</h3>
-            <p className="pixel-sans text-white/70 text-sm mb-2">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl border border-white/15 bg-black p-6">
+            <h3 className="pixel-serif mb-3 text-xl text-white">Adult content (18+)</h3>
+            <p className="pixel-sans mb-2 text-sm text-white/70">
               Enabling NSFW allows generation of adult content. By continuing you confirm you are 18 or older and that adult content is legal where you live.
             </p>
-            <p className="pixel-sans text-white/70 text-xs mb-5">
+            <p className="pixel-sans mb-5 text-xs text-white/70">
               Sexual content involving minors is never generated and is permanently blocked.
             </p>
             <div className="flex gap-3">
-              <button onClick={() => setShowGate(false)} className="flex-1 pixel-sans text-sm px-4 py-2.5 rounded-xl border border-white/15 text-white/70 hover:text-white transition-colors">Cancel</button>
-              <button onClick={confirmGate} className="flex-1 pixel-serif text-sm px-4 py-2.5 rounded-xl bg-white text-black hover:bg-white/90 transition-colors">I'm 18+, continue</button>
+              <button onClick={() => setShowGate(false)} className="pixel-sans flex-1 cursor-pointer rounded-xl border border-white/15 px-4 py-2.5 text-sm text-white/70 transition-colors hover:text-white">Cancel</button>
+              <button onClick={confirmGate} className="pixel-serif flex-1 cursor-pointer rounded-xl bg-white px-4 py-2.5 text-sm text-black transition-colors hover:bg-white/90">I&apos;m 18+, continue</button>
             </div>
           </div>
         </div>

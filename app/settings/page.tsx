@@ -1,5 +1,7 @@
 'use client';
 
+import SiteNav from '@/components/SiteNav';
+
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
@@ -15,6 +17,126 @@ const PLAN_OPTIONS: { id: PlanId; name: string; cost: string; features: string[]
 ];
 const planName = (id: PlanId): string => PLAN_OPTIONS.find(p => p.id === id)?.name ?? id;
 
+/* ---------- shared button styles ---------- */
+const btnPrimary = 'cursor-pointer pixel-sans text-[13px] font-medium px-4 py-2 rounded-lg bg-white text-black hover:bg-white/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed';
+const btnSecondary = 'cursor-pointer pixel-sans text-[13px] px-4 py-2 rounded-lg border border-white/20 text-white hover:bg-white/5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed';
+const btnDanger = 'cursor-pointer pixel-sans text-[13px] px-4 py-2 rounded-lg border border-red-400/30 text-red-400 hover:bg-red-400/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed';
+const btnGhostSmall = 'cursor-pointer pixel-sans text-xs px-2.5 py-1.5 rounded-lg border border-white/10 text-white/70 hover:text-white hover:bg-white/5 transition-colors flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed';
+
+/* ---------- icons ---------- */
+function IconCopy({ size = 11 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <rect x="9" y="9" width="13" height="13" rx="2" />
+      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+    </svg>
+  );
+}
+
+function IconCheck({ size = 11 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M20 6L9 17l-5-5" />
+    </svg>
+  );
+}
+
+/* ---------- primitives ---------- */
+
+// Sectioned card: title + quiet description, body, optional action footer.
+function Card({ title, description, children, footer }: {
+  title: string;
+  description?: React.ReactNode;
+  children: React.ReactNode;
+  footer?: React.ReactNode;
+}) {
+  return (
+    <section className="border border-white/10 bg-white/[0.02] rounded-2xl overflow-hidden">
+      <div className="p-5 md:p-6">
+        <h2 className="pixel-serif text-white text-xl">{title}</h2>
+        {description && <p className="pixel-sans text-white/50 text-[13px] leading-relaxed mt-1.5">{description}</p>}
+        <div className="mt-5">{children}</div>
+      </div>
+      {footer && (
+        <div className="px-5 md:px-6 py-3.5 border-t border-white/[0.06] bg-white/[0.015] flex flex-wrap items-center justify-between gap-3">
+          {footer}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function Stat({ label, value, tone = 'default' }: {
+  label: string;
+  value: React.ReactNode;
+  tone?: 'default' | 'dim' | 'positive';
+}) {
+  const color = tone === 'positive' ? 'text-emerald-400' : tone === 'dim' ? 'text-white/70' : 'text-white';
+  return (
+    <div className="border border-white/[0.06] bg-white/[0.02] rounded-xl px-4 py-3.5 min-w-0">
+      <div className="pixel-sans text-white/40 text-[10px] uppercase tracking-[0.14em] whitespace-nowrap">{label}</div>
+      <div className={`pixel-serif text-2xl mt-1.5 tabular-nums truncate ${color}`}>{value}</div>
+    </div>
+  );
+}
+
+// Inline copyable value (ids, addresses).
+function CopyValue({ text, display }: { text: string; display: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      onClick={() => { navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
+      className="cursor-pointer pixel-sans font-mono text-sm text-white/70 hover:text-white inline-flex items-center gap-1.5 transition-colors"
+    >
+      {display}
+      <span className={copied ? 'text-emerald-400' : 'text-white/40'}>{copied ? <IconCheck /> : <IconCopy />}</span>
+    </button>
+  );
+}
+
+// Boxed monospace field with a copy action (commands, keys, addresses, links).
+function CopyField({ text, display, accent = false, wrap = false }: {
+  text: string | null;      // null disables copying
+  display: string;
+  accent?: boolean;         // steel highlight for freshly generated values
+  wrap?: boolean;
+}) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <div className="flex items-center gap-2 bg-white/[0.03] border border-white/10 rounded-xl p-3">
+      <code
+        className={`font-mono text-xs flex-1 select-all ${wrap ? 'break-all' : 'whitespace-nowrap overflow-x-auto'} ${accent ? 'text-[#80a0c1]' : 'text-white/35'}`}
+      >
+        {display}
+      </code>
+      <button
+        onClick={() => {
+          if (text === null) return;
+          navigator.clipboard.writeText(text);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 2000);
+        }}
+        disabled={text === null}
+        className={btnGhostSmall}
+      >
+        {copied ? 'Copied' : 'Copy'}
+      </button>
+    </div>
+  );
+}
+
+function Notice({ tone, children }: { tone: 'error' | 'success' | 'info'; children: React.ReactNode }) {
+  const cls =
+    tone === 'error' ? 'border-red-400/25 bg-red-400/[0.06] text-red-400' :
+    tone === 'success' ? 'border-emerald-400/25 bg-emerald-400/[0.06] text-emerald-400' :
+    'border-white/10 bg-white/[0.03] text-white/60';
+  return (
+    <div className={`border rounded-lg px-3 py-2 ${cls}`}>
+      <p className="pixel-sans text-xs leading-relaxed">{children}</p>
+    </div>
+  );
+}
+
 export default function SettingsPage() {
   const router = useRouter();
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -23,13 +145,11 @@ export default function SettingsPage() {
   const [linkingTwitter, setLinkingTwitter] = useState(false);
   const [linkingWallet, setLinkingWallet] = useState(false);
   const [unlinkingWallet, setUnlinkingWallet] = useState(false);
-  const [copied, setCopied] = useState<string | null>(null);
 
   const {
     isLoading,
     isAuthenticated,
     user,
-    logout,
     profile,
     xUsername,
     hasTwitter,
@@ -38,6 +158,7 @@ export default function SettingsPage() {
     unlinkWallet,
     hasWallet,
     walletAddress,
+    displayName,
     deleteAccount,
     refreshProfile,
     getAccessToken,
@@ -74,7 +195,6 @@ export default function SettingsPage() {
   const [resaleKeyGenerating, setResaleKeyGenerating] = useState(false);
   const [earnings, setEarnings] = useState<{pendingBalance: number; todayEarnings: number; totalEarnings: number; wallet: string | null} | null>(null);
   const [referrals, setReferrals] = useState<{code: string; link: string; referredCount: number; earnedUsd: number; earnedUsdThisMonth: number; recent: {tier: string; usd: number; created_at: string}[]} | null>(null);
-  const [refCopied, setRefCopied] = useState(false);
   const [withdrawAddress, setWithdrawAddress] = useState('');
   const [withdrawAmount, setWithdrawAmount] = useState('');
   const [withdrawLoading, setWithdrawLoading] = useState(false);
@@ -89,20 +209,7 @@ export default function SettingsPage() {
   const [planSwitching, setPlanSwitching] = useState(false);
   const [checkingDeposit, setCheckingDeposit] = useState(false);
   const [depositResult, setDepositResult] = useState<string | null>(null);
-  const [copiedDeposit, setCopiedDeposit] = useState(false);
   const [topUpUsd, setTopUpUsd] = useState('');
-
-  const copyToClipboard = (text: string, id: string) => {
-    navigator.clipboard.writeText(text);
-    setCopied(id);
-    setTimeout(() => setCopied(null), 2000);
-  };
-
-  // Redirect to home if not authenticated
-  if (!isLoading && !isAuthenticated) {
-    router.push('/');
-    return null;
-  }
 
   // Fetch worker tokens
   const fetchTokens = async () => {
@@ -189,6 +296,16 @@ export default function SettingsPage() {
       });
     }
   }, [activeTab, isAuthenticated]);
+
+  // Signed-out visitors go home. This has to be an effect placed after every
+  // other hook: it used to redirect during render and return early, which
+  // skipped the hook above and crashed the page with a hook-count mismatch
+  // (React #300/#310) for anyone who opened /settings without a session.
+  useEffect(() => {
+    if (!isLoading && !isAuthenticated) router.push('/');
+  }, [isLoading, isAuthenticated, router]);
+
+  const signedOut = !isLoading && !isAuthenticated;
 
   const switchPlan = async (plan: PlanId) => {
     setPlanSwitching(true);
@@ -317,6 +434,31 @@ export default function SettingsPage() {
     finally { setWithdrawLoading(false); }
   };
 
+  const checkDeposit = async () => {
+    setCheckingDeposit(true);
+    setDepositResult(null);
+    try {
+      const t = await getAccessToken();
+      const res = await fetch('/api/credits/check-deposit', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'check' }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        if (data.credited > 0) {
+          setCredits(prev => prev ? { ...prev, balance: data.newBalance } : prev);
+          setDepositResult(`+${data.credited} credits added` + (data.message ? `. ${data.message}` : ''));
+        } else {
+          setDepositResult(data.message || 'No new deposits found');
+        }
+      } else {
+        setDepositResult(data.error || 'Check failed');
+      }
+    } catch { setDepositResult('Failed to check'); }
+    finally { setCheckingDeposit(false); }
+  };
+
   const handleLinkTwitter = async () => {
     setLinkingTwitter(true);
     try {
@@ -374,311 +516,282 @@ export default function SettingsPage() {
   if (isLoading) {
     return (
       <div className="min-h-screen bg-black flex items-center justify-center">
-        <div className="pixel-sans text-white/70">Loading...</div>
+        <div className="pixel-sans text-white/50 text-sm">Loading</div>
       </div>
     );
   }
 
+  // Zero-state fallbacks: preview builds and failing APIs leave these null.
+  const e = earnings ?? { pendingBalance: 0, todayEarnings: 0, totalEarnings: 0, wallet: null };
+  const CREDITS_PER_USD = credits?.config?.creditsPerUsd ?? 100; // 1 credit = $0.01
+  const topUpCredits = Math.round(Math.max(0, parseFloat(topUpUsd) || 0) * CREDITS_PER_USD);
+
+  // every hook above has run by now, so bailing here is safe
+  if (signedOut) return null;
+
   return (
     <div className="min-h-screen bg-black">
       {/* Header */}
-      <header className="fixed top-0 left-0 right-0 z-50 py-4">
-        <div className="max-w-6xl mx-auto px-4 md:px-6">
-          <nav className="bg-black/80 backdrop-blur-sm border border-white/10 rounded-2xl px-4 md:px-6 py-3 flex items-center justify-between">
-            <div className="flex-1">
-              <a href="/" className="cursor-pointer pixel-serif-logo text-white text-lg md:text-xl font-bold flex items-center">
-                C<span className="pixel-serif-logo" style={{ fontSize: '1.8em', display: 'inline-block', verticalAlign: 'baseline', lineHeight: '1', marginTop: '-0.3em' }}>0</span>MPUTE
-              </a>
-            </div>
-            <button 
-              onClick={() => router.push('/')}
-              className="pixel-sans text-sm text-white/70 hover:text-white transition-colors"
-            >
-              ← Back
-            </button>
-          </nav>
-        </div>
-      </header>
+      <SiteNav />
 
       {/* Main Content */}
-      <main className="pt-32 pb-16 px-4 md:px-6">
-        <div className="max-w-2xl mx-auto">
-          <h1 className="pixel-serif text-white text-3xl md:text-4xl mb-8">Settings</h1>
-          
-          {/* Tabs */}
-          <div className="flex gap-1 mb-8 border-b border-white/10">
-            {tabs.map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => {
-                  setActiveTab(tab.id);
-                  window.history.replaceState(null, '', `#${tab.id === 'developer' ? 'api' : tab.id}`);
-                }}
-                className={`pixel-sans text-sm px-4 py-3 transition-colors relative ${
-                  activeTab === tab.id ? 'text-white' : 'text-white/50 hover:text-white/70'
-                }`}
-              >
-                {tab.label}
-                {activeTab === tab.id && (
-                  <div className="absolute bottom-0 left-0 right-0 h-px bg-white" />
-                )}
-              </button>
-            ))}
-          </div>
+      <main className="pt-32 pb-24 px-4 md:px-6">
+        <div className="max-w-4xl mx-auto">
+          <h1 className="pixel-serif text-white text-3xl md:text-4xl">Settings</h1>
+          <p className="pixel-sans text-white/50 text-sm mt-2">Manage your account, keys, and usage.</p>
 
-          {/* Account Tab */}
-          {activeTab === 'account' && (
-            <div className="space-y-8">
-              {/* Connected Accounts Section */}
-              <section className="border border-white/10 bg-white/[0.02] p-6 rounded-2xl">
-                <h2 className="pixel-serif text-white text-xl mb-6">Connected Accounts</h2>
-                <div className="space-y-4">
-                  {/* X (Twitter) Connection */}
-                  <div className="flex items-center justify-between py-3">
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 flex items-center justify-center">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" className="text-white/70">
-                          <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
-                        </svg>
-                      </div>
-                      <div>
-                        <div className="pixel-sans text-white text-sm">X (Twitter)</div>
-                        {hasTwitter ? (
-                          <div className="pixel-sans text-white/70 text-xs mt-1">@{xUsername}</div>
-                        ) : (
-                          <div className="pixel-sans text-white/60 text-xs mt-1">Not connected</div>
-                        )}
-                      </div>
-                    </div>
-                    {!hasTwitter && (
-                      <button onClick={handleLinkTwitter} disabled={linkingTwitter} className="cursor-pointer pixel-serif text-xs px-4 py-2 border border-white/20 text-white hover:bg-white/5 transition-colors disabled:opacity-50">
-                        {linkingTwitter ? '...' : 'Link X'}
-                      </button>
-                    )}
-                    {hasTwitter && (
-                      <div className="pixel-sans text-xs text-white/60">Connected</div>
-                    )}
-                  </div>
-
-                  {/* Solana Wallet Connection */}
-                  <div className="flex items-center justify-between py-3 border-t border-white/5">
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 flex items-center justify-center">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-white/70">
-                          <path d="M21 12V7H5a2 2 0 0 1 0-4h14v4" />
-                          <path d="M3 5v14a2 2 0 0 0 2 2h16v-5" />
-                          <path d="M18 12a2 2 0 0 0 0 4h4v-4Z" />
-                        </svg>
-                      </div>
-                      <div>
-                        <div className="pixel-sans text-white text-sm">Solana Wallet</div>
-                        {hasWallet && walletAddress ? (
-                          <button
-                            onClick={() => copyToClipboard(walletAddress, 'wallet')}
-                            className="pixel-sans text-white/70 hover:text-white text-xs mt-1 font-mono flex items-center gap-1 transition-colors"
-                          >
-                            {walletAddress.slice(0, 4)}...{walletAddress.slice(-4)}
-                            {copied === 'wallet' ? (
-                              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-green-400"><path d="M20 6L9 17l-5-5" /></svg>
-                            ) : (
-                              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" /></svg>
-                            )}
-                          </button>
-                        ) : (
-                          <div className="pixel-sans text-white/60 text-xs mt-1">Not connected</div>
-                        )}
-                      </div>
-                    </div>
-                    {!hasWallet ? (
-                      <button onClick={handleLinkWallet} disabled={linkingWallet} className="cursor-pointer pixel-serif text-xs px-4 py-2 border border-white/20 text-white hover:bg-white/5 transition-colors disabled:opacity-50">
-                        {linkingWallet ? '...' : 'Connect Wallet'}
-                      </button>
-                    ) : hasTwitter ? (
-                      <button onClick={handleUnlinkWallet} disabled={unlinkingWallet} className="cursor-pointer pixel-sans text-xs text-red-400/60 hover:text-red-400 transition-colors disabled:opacity-50">
-                        {unlinkingWallet ? '...' : 'Disconnect'}
-                      </button>
-                    ) : (
-                      <div className="pixel-sans text-xs text-white/60">Connected</div>
-                    )}
-                  </div>
-                </div>
-                <p className="pixel-sans text-white/45 text-[11px] mt-4">Connect a Solana wallet (Phantom, Solflare, Backpack) to stake $ZERO and manage on-chain actions yourself. Required for staking and on-chain withdrawals.</p>
-              </section>
-
-              {/* Account Info Section */}
-              <section className="border border-white/10 bg-white/[0.02] p-6 rounded-2xl">
-                <h2 className="pixel-serif text-white text-xl mb-6">Account Info</h2>
-                <div className="space-y-4">
-                  <div className="flex justify-between py-2">
-                    <span className="pixel-sans text-white/70 text-sm">Privy ID</span>
-                    <button 
-                      onClick={() => user?.id && copyToClipboard(user.id, 'privy')}
-                      className="pixel-sans text-white/70 hover:text-white text-sm font-mono flex items-center gap-1 transition-colors"
-                    >
-                      {user?.id?.slice(0, 12)}...
-                      {copied === 'privy' ? (
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-green-400"><path d="M20 6L9 17l-5-5" /></svg>
-                      ) : (
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" /></svg>
-                      )}
-                    </button>
-                  </div>
-                  <div className="flex justify-between py-2">
-                    <span className="pixel-sans text-white/70 text-sm">Member Since</span>
-                    <span className="pixel-sans text-white/70 text-sm">
-                      {profile?.created_at ? new Date(profile.created_at).toLocaleDateString() : '—'}
-                    </span>
-                  </div>
-                  <div className="flex justify-between py-2">
-                    <span className="pixel-sans text-white/70 text-sm">Prompts Sent</span>
-                    <span className="pixel-sans text-white/70 text-sm">{profile?.prompts_sent ?? 0}</span>
-                  </div>
-                </div>
-              </section>
-
-              {/* Danger Zone */}
-              <section className="border border-red-500/20 bg-red-500/[0.02] p-6 rounded-2xl">
-                <h2 className="pixel-serif text-red-400/80 text-xl mb-4">Danger Zone</h2>
-                <p className="pixel-sans text-white/70 text-sm mb-6">
-                  Once you delete your account, there is no going back. This will permanently delete your profile and all associated data.
-                </p>
-                {!showDeleteConfirm ? (
-                  <button onClick={() => setShowDeleteConfirm(true)} className="cursor-pointer pixel-serif text-sm px-4 py-2 border border-red-500/30 text-red-400/80 hover:bg-red-500/10 transition-colors">
-                    Delete Account
-                  </button>
-                ) : (
-                  <div className="space-y-4">
-                    <p className="pixel-sans text-red-400/80 text-sm">Are you sure? This action cannot be undone.</p>
-                    {deleteError && (
-                      <p className="pixel-sans text-red-400 text-sm">{deleteError}</p>
-                    )}
-                    <div className="flex gap-3">
-                      <button onClick={handleDeleteAccount} disabled={deleteLoading} className="cursor-pointer pixel-serif text-sm px-4 py-2 bg-red-500/20 border border-red-500/30 text-red-400 hover:bg-red-500/30 transition-colors disabled:opacity-50">
-                        {deleteLoading ? 'Deleting...' : 'Yes, Delete My Account'}
-                      </button>
-                      <button onClick={() => { setShowDeleteConfirm(false); setDeleteError(null); }} disabled={deleteLoading} className="cursor-pointer pixel-serif text-sm px-4 py-2 border border-white/20 text-white/70 hover:bg-white/5 transition-colors disabled:opacity-50">
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </section>
-            </div>
-          )}
-
-          {/* Worker Tab */}
-          {activeTab === 'worker' && (
-            <div className="space-y-8">
-              {/* Worker Tokens */}
-              <section className="border border-white/10 bg-white/[0.02] p-6 rounded-2xl">
-                <h2 className="pixel-serif text-white text-xl mb-4">Worker Tokens</h2>
-                <p className="pixel-sans text-white/70 text-sm mb-4">Max 5 tokens. Use them to run a native worker:</p>
-                
-                {tokenError && (
-                  <div className="mb-3 p-2 border border-red-500/30 bg-red-500/10 rounded-lg">
-                    <p className="pixel-sans text-red-400 text-xs">{tokenError}</p>
-                  </div>
-                )}
-
-                <div className="flex items-center gap-2 bg-white/[0.03] border border-white/10 rounded-lg p-3 mb-4">
-                  <code className="font-mono text-sm flex-1 whitespace-nowrap overflow-x-auto select-all" style={{color: newToken ? '#80a0c1' : 'rgba(255,255,255,0.35)'}}>
-                    npx @c0mpute/worker --token {newToken || '<token>'}
-                  </code>
-                  <button
-                    onClick={() => {
-                      const cmd = `npx @c0mpute/worker --token ${newToken || '<token>'}`;
-                      navigator.clipboard.writeText(cmd);
-                      setCopied('cmd');
-                      setTimeout(() => setCopied(null), 2000);
-                    }}
-                    className="pixel-sans text-xs px-2.5 py-1.5 rounded-lg border border-white/10 text-white/70 hover:text-white hover:bg-white/5 transition-colors flex-shrink-0"
-                  >
-                    {copied === 'cmd' ? 'Copied' : 'Copy'}
-                  </button>
-                </div>
-
-                {newToken && (
-                  <p className="pixel-sans text-white/60 text-xs mb-4">
-                    Token generated — save the command above. It won&apos;t be shown again.
-                  </p>
-                )}
-
-                <button onClick={generateToken} disabled={tokenGenerating} className="cursor-pointer pixel-serif text-sm px-6 py-3 rounded-xl bg-[#80a0c1]/15 border border-[#80a0c1]/30 text-[#80a0c1] hover:bg-[#80a0c1]/25 transition-colors disabled:opacity-50 mb-4">
-                  {tokenGenerating ? 'Generating...' : 'Generate New Token'}
+          <div className="mt-8 md:mt-10 md:grid md:grid-cols-[164px_minmax(0,1fr)] md:gap-10">
+            {/* Section nav */}
+            <nav className="flex md:flex-col gap-1 mb-6 md:mb-0 overflow-x-auto pb-2 md:pb-0 border-b border-white/[0.06] md:border-b-0 md:sticky md:top-32 md:self-start">
+              {tabs.map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => {
+                    setActiveTab(tab.id);
+                    window.history.replaceState(null, '', `#${tab.id === 'developer' ? 'api' : tab.id}`);
+                  }}
+                  className={`cursor-pointer pixel-sans text-sm px-3 py-2 rounded-lg text-left whitespace-nowrap transition-colors ${
+                    activeTab === tab.id ? 'text-white bg-white/[0.06]' : 'text-white/50 hover:text-white/80'
+                  }`}
+                >
+                  {tab.label}
                 </button>
+              ))}
+            </nav>
 
-                {loadingTokens ? (
-                  <p className="pixel-sans text-white/60 text-xs">Loading tokens...</p>
-                ) : activeTokens.length > 0 ? (
-                  <div className="mt-4 pt-4 border-t border-white/5">
-                    <div className="pixel-sans text-white/60 text-[11px] uppercase tracking-wider mb-2">Active tokens ({activeTokens.length}/5)</div>
-                    <div className="space-y-2">
-                      {activeTokens.map(t => (
-                        <div key={t.id} className="flex items-center justify-between px-3 py-2 bg-white/[0.02] border border-white/5 rounded-lg">
-                          <div>
-                            <span className="pixel-sans text-white/70 text-xs font-mono">{t.id.slice(0, 8)}...</span>
-                            <span className="pixel-sans text-white/55 text-[10px] ml-2">created {new Date(t.created_at).toLocaleDateString()}</span>
-                            {t.last_used_at && (
-                              <span className="pixel-sans text-white/55 text-[10px] ml-2">last used {new Date(t.last_used_at).toLocaleDateString()}</span>
+            {/* Content */}
+            <div className="space-y-6 min-w-0">
+
+              {/* ── Account ── */}
+              {activeTab === 'account' && (
+                <>
+                  <Card title="Account" description="Your identity on the network.">
+                    <div className="divide-y divide-white/[0.06]">
+                      <div className="flex items-center justify-between gap-4 py-3">
+                        <span className="pixel-sans text-white/60 text-sm">Signed in as</span>
+                        <span className="pixel-sans text-white text-sm">{displayName ?? 'Anonymous'}</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-4 py-3">
+                        <span className="pixel-sans text-white/60 text-sm">Privy ID</span>
+                        {user?.id ? (
+                          <CopyValue text={user.id} display={`${user.id.slice(0, 12)}...`} />
+                        ) : (
+                          <span className="pixel-sans text-white/40 text-sm">—</span>
+                        )}
+                      </div>
+                      <div className="flex items-center justify-between gap-4 py-3">
+                        <span className="pixel-sans text-white/60 text-sm">Member since</span>
+                        <span className="pixel-sans text-white/80 text-sm tabular-nums">
+                          {profile?.created_at ? new Date(profile.created_at).toLocaleDateString() : '—'}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between gap-4 py-3">
+                        <span className="pixel-sans text-white/60 text-sm">Prompts sent</span>
+                        <span className="pixel-sans text-white/80 text-sm tabular-nums">{profile?.prompts_sent ?? 0}</span>
+                      </div>
+                    </div>
+                  </Card>
+
+                  <Card
+                    title="Connected accounts"
+                    description="Sign-in methods and wallets linked to this account."
+                    footer={
+                      <p className="pixel-sans text-white/40 text-[11px] leading-relaxed">
+                        A Solana wallet (Phantom, Solflare, Backpack) is required for staking $ZERO and on-chain withdrawals.
+                      </p>
+                    }
+                  >
+                    <div className="divide-y divide-white/[0.06]">
+                      {/* X (Twitter) */}
+                      <div className="flex items-center justify-between gap-4 py-3.5">
+                        <div className="flex items-center gap-3.5 min-w-0">
+                          <div className="w-9 h-9 rounded-lg border border-white/10 bg-white/[0.03] flex items-center justify-center flex-shrink-0">
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" className="text-white/70" aria-hidden>
+                              <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+                            </svg>
+                          </div>
+                          <div className="min-w-0">
+                            <div className="pixel-sans text-white text-sm">X (Twitter)</div>
+                            <div className={`pixel-sans text-xs mt-0.5 truncate ${hasTwitter ? 'text-white/60' : 'text-white/40'}`}>
+                              {hasTwitter ? `@${xUsername}` : 'Not connected'}
+                            </div>
+                          </div>
+                        </div>
+                        {hasTwitter ? (
+                          <span className="pixel-sans text-xs text-white/40 flex items-center gap-1.5">
+                            <span className="text-emerald-400"><IconCheck size={12} /></span>
+                            Connected
+                          </span>
+                        ) : (
+                          <button onClick={handleLinkTwitter} disabled={linkingTwitter} className={btnSecondary}>
+                            {linkingTwitter ? 'Linking' : 'Link X'}
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Solana wallet */}
+                      <div className="flex items-center justify-between gap-4 py-3.5">
+                        <div className="flex items-center gap-3.5 min-w-0">
+                          <div className="w-9 h-9 rounded-lg border border-white/10 bg-white/[0.03] flex items-center justify-center flex-shrink-0">
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-white/70" aria-hidden>
+                              <path d="M21 12V7H5a2 2 0 0 1 0-4h14v4" />
+                              <path d="M3 5v14a2 2 0 0 0 2 2h16v-5" />
+                              <path d="M18 12a2 2 0 0 0 0 4h4v-4Z" />
+                            </svg>
+                          </div>
+                          <div className="min-w-0">
+                            <div className="pixel-sans text-white text-sm">Solana wallet</div>
+                            {hasWallet && walletAddress ? (
+                              <div className="mt-0.5 [&>button]:text-xs">
+                                <CopyValue text={walletAddress} display={`${walletAddress.slice(0, 4)}...${walletAddress.slice(-4)}`} />
+                              </div>
+                            ) : (
+                              <div className="pixel-sans text-white/40 text-xs mt-0.5">Not connected</div>
                             )}
                           </div>
-                          <button onClick={() => revokeToken(t.id)} className="pixel-sans text-xs text-red-400/60 hover:text-red-400 transition-colors">Revoke</button>
                         </div>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
-              </section>
-
-              {/* Earnings */}
-              <section className="border border-white/10 bg-white/[0.02] p-6 rounded-2xl">
-                <h2 className="pixel-serif text-white text-xl mb-4">Earnings</h2>
-                <p className="pixel-sans text-white/60 text-xs mb-4">You earn 70% of the <span className="dollar">$</span>USDC value of credits spent on jobs you complete.</p>
-
-                {earnings ? (
-                  <div>
-                    <div className="grid grid-cols-3 gap-4 mb-4">
-                      <div className="text-center p-3 bg-white/[0.02] border border-white/5 rounded-xl">
-                        <div className="pixel-serif text-green-400 text-xl"><span className="dollar">$</span>{earnings.pendingBalance.toFixed(2)}</div>
-                        <div className="pixel-sans text-white/70 text-[11px] mt-1">Pending</div>
-                      </div>
-                      <div className="text-center p-3 bg-white/[0.02] border border-white/5 rounded-xl">
-                        <div className="pixel-serif text-white/70 text-lg"><span className="dollar">$</span>{earnings.todayEarnings.toFixed(2)}</div>
-                        <div className="pixel-sans text-white/70 text-[11px] mt-1">Today</div>
-                      </div>
-                      <div className="text-center p-3 bg-white/[0.02] border border-white/5 rounded-xl">
-                        <div className="pixel-serif text-white/70 text-lg"><span className="dollar">$</span>{earnings.totalEarnings.toFixed(2)}</div>
-                        <div className="pixel-sans text-white/70 text-[11px] mt-1">All Time</div>
+                        {!hasWallet ? (
+                          <button onClick={handleLinkWallet} disabled={linkingWallet} className={btnSecondary}>
+                            {linkingWallet ? 'Connecting' : 'Connect wallet'}
+                          </button>
+                        ) : hasTwitter ? (
+                          <button onClick={handleUnlinkWallet} disabled={unlinkingWallet} className="cursor-pointer pixel-sans text-xs text-red-400/70 hover:text-red-400 transition-colors disabled:opacity-50">
+                            {unlinkingWallet ? 'Disconnecting' : 'Disconnect'}
+                          </button>
+                        ) : (
+                          <span className="pixel-sans text-xs text-white/40 flex items-center gap-1.5">
+                            <span className="text-emerald-400"><IconCheck size={12} /></span>
+                            Connected
+                          </span>
+                        )}
                       </div>
                     </div>
+                  </Card>
 
-                    <div className="space-y-3 pt-2 border-t border-white/5">
+                  {/* Danger zone */}
+                  <section className="border border-red-400/20 bg-red-400/[0.03] rounded-2xl p-5 md:p-6">
+                    <h2 className="pixel-serif text-red-400 text-xl">Danger zone</h2>
+                    <p className="pixel-sans text-white/60 text-[13px] leading-relaxed mt-1.5">
+                      Deleting your account permanently removes your profile and all associated data. This cannot be undone.
+                    </p>
+                    {!showDeleteConfirm ? (
+                      <button onClick={() => setShowDeleteConfirm(true)} className={`${btnDanger} mt-5`}>
+                        Delete account
+                      </button>
+                    ) : (
+                      <div className="mt-5 border border-red-400/25 bg-red-400/[0.05] rounded-xl p-4 space-y-3">
+                        <p className="pixel-sans text-red-400 text-sm">This will permanently delete your account. Are you sure?</p>
+                        {deleteError && <p className="pixel-sans text-red-400 text-xs">{deleteError}</p>}
+                        <div className="flex flex-wrap gap-3">
+                          <button onClick={handleDeleteAccount} disabled={deleteLoading} className={btnDanger}>
+                            {deleteLoading ? 'Deleting' : 'Yes, delete my account'}
+                          </button>
+                          <button onClick={() => { setShowDeleteConfirm(false); setDeleteError(null); }} disabled={deleteLoading} className={btnSecondary}>
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </section>
+                </>
+              )}
+
+              {/* ── Worker ── */}
+              {activeTab === 'worker' && (
+                <>
+                  <Card
+                    title="Worker tokens"
+                    description="Authenticate a native worker on your machine with a token."
+                    footer={
+                      <>
+                        <p className="pixel-sans text-white/40 text-[11px]">Up to 5 active tokens. Each token is shown once at creation.</p>
+                        <button onClick={generateToken} disabled={tokenGenerating} className={btnPrimary}>
+                          {tokenGenerating ? 'Generating' : 'Generate token'}
+                        </button>
+                      </>
+                    }
+                  >
+                    <div className="space-y-3">
+                      {tokenError && <Notice tone="error">{tokenError}</Notice>}
+
+                      <CopyField
+                        text={`npx @c0mpute/worker --token ${newToken || '<token>'}`}
+                        display={`npx @c0mpute/worker --token ${newToken || '<token>'}`}
+                        accent={!!newToken}
+                      />
+                      {newToken && (
+                        <Notice tone="info">Token created. Save the command above, it will not be shown again.</Notice>
+                      )}
+
+                      <div className="pt-2">
+                        <div className="pixel-sans text-white/40 text-[10px] uppercase tracking-[0.14em] mb-2">
+                          Active tokens ({activeTokens.length}/5)
+                        </div>
+                        {loadingTokens ? (
+                          <p className="pixel-sans text-white/40 text-xs">Loading tokens</p>
+                        ) : activeTokens.length > 0 ? (
+                          <div className="divide-y divide-white/[0.05] border border-white/[0.06] rounded-xl px-3">
+                            {activeTokens.map(t => (
+                              <div key={t.id} className="flex items-center justify-between gap-3 py-2.5">
+                                <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 min-w-0">
+                                  <span className="pixel-sans text-white/80 text-xs font-mono">{t.id.slice(0, 8)}...</span>
+                                  <span className="pixel-sans text-white/40 text-[11px]">created {new Date(t.created_at).toLocaleDateString()}</span>
+                                  {t.last_used_at && (
+                                    <span className="pixel-sans text-white/40 text-[11px]">last used {new Date(t.last_used_at).toLocaleDateString()}</span>
+                                  )}
+                                </div>
+                                <button onClick={() => revokeToken(t.id)} className="cursor-pointer pixel-sans text-xs text-red-400/70 hover:text-red-400 transition-colors flex-shrink-0">
+                                  Revoke
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="pixel-sans text-white/40 text-xs">No active tokens.</p>
+                        )}
+                      </div>
+                    </div>
+                  </Card>
+
+                  <Card
+                    title="Earnings"
+                    description="You earn 70% of the USDC value of credits spent on jobs your worker completes."
+                  >
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <Stat label="Pending" value={<>${e.pendingBalance.toFixed(2)}</>} tone="positive" />
+                      <Stat label="Today" value={<>${e.todayEarnings.toFixed(2)}</>} tone="dim" />
+                      <Stat label="All time" value={<>${e.totalEarnings.toFixed(2)}</>} tone="dim" />
+                    </div>
+
+                    <div className="mt-5 pt-5 border-t border-white/[0.06] space-y-3">
                       <div>
-                        <label className="pixel-sans text-white/60 text-[11px] uppercase tracking-wider mb-1.5 block">Withdraw to Solana address</label>
+                        <label className="pixel-sans text-white/40 text-[10px] uppercase tracking-[0.14em] mb-1.5 block">
+                          Withdraw to Solana address
+                        </label>
                         <input
                           type="text"
                           value={withdrawAddress}
-                          onChange={(e) => setWithdrawAddress(e.target.value)}
+                          onChange={(ev) => setWithdrawAddress(ev.target.value)}
                           placeholder="Your USDC wallet address"
                           spellCheck={false}
-                          className="w-full bg-white/[0.03] border border-white/10 rounded-lg p-3 font-mono text-[#80a0c1] text-xs outline-none focus:border-white/25 placeholder-white/40"
+                          className="w-full bg-white/[0.03] border border-white/10 rounded-xl p-3 font-mono text-white/80 text-xs outline-none focus:border-white/25 placeholder:text-white/30 transition-colors"
                         />
                       </div>
-                      <div className="flex items-center gap-2 bg-white/[0.03] border border-white/10 rounded-lg p-3">
-                        <span className="dollar text-white/70 text-lg">$</span>
+                      <div className="flex items-center gap-2 bg-white/[0.03] border border-white/10 rounded-xl p-3 focus-within:border-white/25 transition-colors">
+                        <span className="pixel-sans text-white/50 text-base">$</span>
                         <input
                           type="number"
                           inputMode="decimal"
                           min="0"
                           step="0.01"
                           value={withdrawAmount}
-                          onChange={(e) => setWithdrawAmount(e.target.value)}
+                          onChange={(ev) => setWithdrawAmount(ev.target.value)}
                           placeholder="0.00"
-                          className="flex-1 bg-transparent outline-none pixel-serif text-white text-lg placeholder-white/40"
+                          className="flex-1 bg-transparent outline-none pixel-serif text-white text-lg tabular-nums placeholder:text-white/30 min-w-0"
                         />
                         <button
-                          onClick={() => setWithdrawAmount(earnings.pendingBalance.toFixed(2))}
-                          className="pixel-sans text-xs px-2.5 py-1.5 rounded-lg border border-white/10 text-white/70 hover:text-white hover:bg-white/5 transition-colors flex-shrink-0"
+                          onClick={() => setWithdrawAmount(e.pendingBalance.toFixed(2))}
+                          className={btnGhostSmall}
                         >
                           Max
                         </button>
@@ -689,412 +802,334 @@ export default function SettingsPage() {
                           withdrawLoading ||
                           !withdrawAddress.trim() ||
                           !(parseFloat(withdrawAmount) >= 1.0) ||
-                          parseFloat(withdrawAmount) > Math.round(earnings.pendingBalance * 100) / 100 + 1e-9
+                          parseFloat(withdrawAmount) > Math.round(e.pendingBalance * 100) / 100 + 1e-9
                         }
-                        className="w-full pixel-serif px-6 py-2.5 rounded-xl bg-white text-black hover:bg-white/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+                        className={`${btnPrimary} w-full py-2.5`}
                       >
-                        {withdrawLoading ? 'Sending...' : <>Withdraw <span className="dollar">$</span>USDC</>}
+                        {withdrawLoading ? 'Sending' : 'Withdraw USDC'}
                       </button>
-                      <p className="pixel-sans text-white/55 text-[11px]">Minimum <span className="dollar">$</span>1.00. Sent as USDC on Solana, no signature needed.</p>
+                      {withdrawError && <Notice tone="error">{withdrawError}</Notice>}
+                      {withdrawSuccess && <Notice tone="success">{withdrawSuccess}</Notice>}
+                      <p className="pixel-sans text-white/40 text-[11px]">
+                        Minimum withdrawal is $1.00. Sent as USDC on Solana, no signature needed.
+                      </p>
                     </div>
-                    {withdrawError && <p className="pixel-sans text-red-400 text-xs mt-2">{withdrawError}</p>}
-                    {withdrawSuccess && <p className="pixel-sans text-green-400/80 text-xs mt-2">{withdrawSuccess}</p>}
-                  </div>
-                ) : (
-                  <p className="pixel-sans text-white/60 text-sm">Loading earnings...</p>
-                )}
-              </section>
-            </div>
-          )}
-
-          {/* Developer / API Tab */}
-          {activeTab === 'developer' && (
-            <div className="space-y-8">
-              <section className="border border-white/10 bg-white/[0.02] p-6 rounded-2xl">
-                <h2 className="pixel-serif text-white text-xl mb-4">API Keys</h2>
-                <p className="pixel-sans text-white/70 text-sm mb-4">Max 5 keys. OpenAI-compatible — point any SDK at the endpoint by changing only base_url + api_key.</p>
-
-                {apiKeyError && (
-                  <div className="mb-3 p-2 border border-red-500/30 bg-red-500/10 rounded-lg">
-                    <p className="pixel-sans text-red-400 text-xs">{apiKeyError}</p>
-                  </div>
-                )}
-
-                <div className="flex items-center gap-2 bg-white/[0.03] border border-white/10 rounded-lg p-3 mb-2">
-                  <code className="font-mono text-sm flex-1 whitespace-nowrap overflow-x-auto select-all" style={{color: newApiKey ? '#80a0c1' : 'rgba(255,255,255,0.35)'}}>
-                    {newApiKey || 'sk-c0mpute-...'}
-                  </code>
-                  <button
-                    onClick={() => {
-                      navigator.clipboard.writeText(newApiKey || '');
-                      setCopied('apikey');
-                      setTimeout(() => setCopied(null), 2000);
-                    }}
-                    disabled={!newApiKey}
-                    className="pixel-sans text-xs px-2.5 py-1.5 rounded-lg border border-white/10 text-white/70 hover:text-white hover:bg-white/5 transition-colors flex-shrink-0 disabled:opacity-40"
-                  >
-                    {copied === 'apikey' ? 'Copied' : 'Copy'}
-                  </button>
-                </div>
-
-                {newApiKey && (
-                  <p className="pixel-sans text-white/60 text-xs mb-4">
-                    Key generated — copy it now. It won&apos;t be shown again.
-                  </p>
-                )}
-
-                <div className="bg-white/[0.03] border border-white/10 rounded-lg p-3 mb-4">
-                  <code className="font-mono text-xs text-white/50 whitespace-pre overflow-x-auto block">{`base_url:  https://c0mpute.ai/api/v1
-models:    c0mpute-pro  ·  c0mpute-max  ·  c0mpute-max-think`}</code>
-                </div>
-
-                <button onClick={() => generateApiKey(false)} disabled={apiKeyGenerating} className="cursor-pointer pixel-serif text-sm px-6 py-3 rounded-xl bg-[#80a0c1]/15 border border-[#80a0c1]/30 text-[#80a0c1] hover:bg-[#80a0c1]/25 transition-colors disabled:opacity-50 mb-4">
-                  {apiKeyGenerating ? 'Generating...' : 'Generate New Key'}
-                </button>
-
-                {loadingApiKeys ? (
-                  <p className="pixel-sans text-white/60 text-xs">Loading keys...</p>
-                ) : apiKeys.length > 0 ? (
-                  <div className="mt-4 pt-4 border-t border-white/5">
-                    <div className="pixel-sans text-white/60 text-[11px] uppercase tracking-wider mb-2">Active keys ({apiKeys.length}/5)</div>
-                    <div className="space-y-2">
-                      {apiKeys.map(k => (
-                        <div key={k.id} className="flex items-center justify-between px-3 py-2 bg-white/[0.02] border border-white/5 rounded-lg">
-                          <div>
-                            <span className="pixel-sans text-white/70 text-xs font-mono">{k.id.slice(0, 8)}...</span>
-                            {k.free_only ? (
-                              <span className="pixel-sans text-[#80a0c1] text-[10px] ml-2 px-1.5 py-0.5 rounded border border-[#80a0c1]/30">resale</span>
-                            ) : null}
-                            <span className="pixel-sans text-white/55 text-[10px] ml-2">created {new Date(k.created_at).toLocaleDateString()}</span>
-                            {k.last_used_at && (
-                              <span className="pixel-sans text-white/55 text-[10px] ml-2">last used {new Date(k.last_used_at).toLocaleDateString()}</span>
-                            )}
-                          </div>
-                          <button onClick={() => revokeApiKey(k.id)} className="pixel-sans text-xs text-red-400/60 hover:text-red-400 transition-colors">Revoke</button>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
-              </section>
-
-              {/* Resale key card — only for stakers who actually have a daily
-                  allowance to resell. Spends allowance only, never deposited USDC. */}
-              {allowance?.enabled && allowance.dailyAllowance > 0 && (
-                <section className="border border-[#80a0c1]/30 bg-[#80a0c1]/[0.04] p-6 rounded-2xl">
-                  <h2 className="pixel-serif text-white text-xl mb-2">Resale key</h2>
-                  <p className="pixel-sans text-white/70 text-sm mb-4">
-                    You have <span className="text-[#80a0c1]">{allowance.dailyAllowance}</span> credits/day of staking allowance ({allowance.remaining} left today). A resale key lets a marketplace spend only this daily allowance — never your deposited balance — so you can sell your unused inference. Safe to share.
-                  </p>
-
-                  <div className="flex items-center gap-2 bg-white/[0.03] border border-white/10 rounded-lg p-3 mb-2">
-                    <code className="font-mono text-sm flex-1 whitespace-nowrap overflow-x-auto select-all" style={{color: newResaleKey ? '#80a0c1' : 'rgba(255,255,255,0.35)'}}>
-                      {newResaleKey || 'sk-c0mpute-...'}
-                    </code>
-                    <button
-                      onClick={() => {
-                        navigator.clipboard.writeText(newResaleKey || '');
-                        setCopied('resalekey');
-                        setTimeout(() => setCopied(null), 2000);
-                      }}
-                      disabled={!newResaleKey}
-                      className="pixel-sans text-xs px-2.5 py-1.5 rounded-lg border border-white/10 text-white/70 hover:text-white hover:bg-white/5 transition-colors flex-shrink-0 disabled:opacity-40"
-                    >
-                      {copied === 'resalekey' ? 'Copied' : 'Copy'}
-                    </button>
-                  </div>
-
-                  {newResaleKey && (
-                    <p className="pixel-sans text-white/60 text-xs mb-4">
-                      Resale key generated — copy it now. It won&apos;t be shown again.
-                    </p>
-                  )}
-
-                  <button onClick={() => generateApiKey(true)} disabled={resaleKeyGenerating} className="cursor-pointer pixel-serif text-sm px-6 py-3 rounded-xl bg-[#80a0c1]/15 border border-[#80a0c1]/30 text-[#80a0c1] hover:bg-[#80a0c1]/25 transition-colors disabled:opacity-50">
-                    {resaleKeyGenerating ? 'Generating...' : 'Generate Resale Key'}
-                  </button>
-                </section>
+                  </Card>
+                </>
               )}
-            </div>
-          )}
 
-          {/* Referrals Tab */}
-          {activeTab === 'referrals' && (
-            <div className="space-y-8">
-              <section className="border border-white/10 bg-white/[0.02] p-6 rounded-2xl">
-                <h2 className="pixel-serif text-white text-xl mb-4">Referrals</h2>
-                <p className="pixel-sans text-white/60 text-xs mb-4">Share your link. You earn <span className="text-white">5%</span> of the <span className="dollar">$</span>USDC value of every prompt your referrals pay for. Forever.</p>
-                {referrals ? (
-                  <div>
-                    <div className="flex items-center gap-2 mb-5">
-                      <div className="flex-1 bg-white/[0.03] border border-white/10 rounded-lg p-3 font-mono text-[#80a0c1] text-xs overflow-x-auto whitespace-nowrap">{referrals.link}</div>
-                      <button
-                        onClick={() => { navigator.clipboard.writeText(referrals.link); setRefCopied(true); setTimeout(() => setRefCopied(false), 2000); }}
-                        className="pixel-sans text-xs px-3 py-3 rounded-lg border border-white/10 text-white/70 hover:text-white hover:bg-white/5 transition-colors flex-shrink-0"
-                      >
-                        {refCopied ? 'Copied' : 'Copy'}
-                      </button>
+              {/* ── API ── */}
+              {activeTab === 'developer' && (
+                <>
+                  <Card
+                    title="API keys"
+                    description="OpenAI-compatible inference API. Point any SDK at the endpoint below by changing only the base URL and key."
+                    footer={
+                      <>
+                        <p className="pixel-sans text-white/40 text-[11px]">Up to 5 active keys. Each key is shown once at creation.</p>
+                        <button onClick={() => generateApiKey(false)} disabled={apiKeyGenerating} className={btnPrimary}>
+                          {apiKeyGenerating ? 'Generating' : 'Generate key'}
+                        </button>
+                      </>
+                    }
+                  >
+                    <div className="space-y-3">
+                      {apiKeyError && <Notice tone="error">{apiKeyError}</Notice>}
+
+                      <CopyField
+                        text={newApiKey}
+                        display={newApiKey || 'sk-c0mpute-...'}
+                        accent={!!newApiKey}
+                      />
+                      {newApiKey && (
+                        <Notice tone="info">Key created. Copy it now, it will not be shown again.</Notice>
+                      )}
+
+                      <div className="bg-white/[0.03] border border-white/10 rounded-xl p-3 space-y-1.5">
+                        <div className="flex items-baseline gap-3">
+                          <span className="pixel-sans text-white/40 text-[10px] uppercase tracking-[0.14em] w-16 flex-shrink-0">base url</span>
+                          <code className="font-mono text-xs text-white/70 select-all overflow-x-auto whitespace-nowrap">https://c0mpute.ai/api/v1</code>
+                        </div>
+                        <div className="flex items-baseline gap-3">
+                          <span className="pixel-sans text-white/40 text-[10px] uppercase tracking-[0.14em] w-16 flex-shrink-0">models</span>
+                          <code className="font-mono text-xs text-white/70 select-all overflow-x-auto whitespace-nowrap">c0mpute-pro · c0mpute-max · c0mpute-max-think</code>
+                        </div>
+                      </div>
+
+                      <div className="pt-2">
+                        <div className="pixel-sans text-white/40 text-[10px] uppercase tracking-[0.14em] mb-2">
+                          Active keys ({apiKeys.length}/5)
+                        </div>
+                        {loadingApiKeys ? (
+                          <p className="pixel-sans text-white/40 text-xs">Loading keys</p>
+                        ) : apiKeys.length > 0 ? (
+                          <div className="divide-y divide-white/[0.05] border border-white/[0.06] rounded-xl px-3">
+                            {apiKeys.map(k => (
+                              <div key={k.id} className="flex items-center justify-between gap-3 py-2.5">
+                                <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 min-w-0">
+                                  <span className="pixel-sans text-white/80 text-xs font-mono">{k.id.slice(0, 8)}...</span>
+                                  {k.free_only ? (
+                                    <span className="pixel-sans text-[#80a0c1] text-[10px] px-1.5 py-0.5 rounded border border-[#80a0c1]/30">resale</span>
+                                  ) : null}
+                                  <span className="pixel-sans text-white/40 text-[11px]">created {new Date(k.created_at).toLocaleDateString()}</span>
+                                  {k.last_used_at && (
+                                    <span className="pixel-sans text-white/40 text-[11px]">last used {new Date(k.last_used_at).toLocaleDateString()}</span>
+                                  )}
+                                </div>
+                                <button onClick={() => revokeApiKey(k.id)} className="cursor-pointer pixel-sans text-xs text-red-400/70 hover:text-red-400 transition-colors flex-shrink-0">
+                                  Revoke
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="pixel-sans text-white/40 text-xs">No active keys.</p>
+                        )}
+                      </div>
                     </div>
-                    <div className="grid grid-cols-3 gap-4 mb-4">
-                      <div className="text-center p-3 bg-white/[0.02] border border-white/5 rounded-xl">
-                        <div className="pixel-serif text-white text-xl">{referrals.referredCount}</div>
-                        <div className="pixel-sans text-white/70 text-[11px] mt-1">Referred</div>
+                  </Card>
+
+                  {/* Resale key: only for stakers who actually have a daily
+                      allowance to resell. Spends allowance only, never deposited USDC. */}
+                  {allowance?.enabled && allowance.dailyAllowance > 0 && (
+                    <section className="border border-[#80a0c1]/30 bg-[#80a0c1]/[0.04] rounded-2xl p-5 md:p-6">
+                      <h2 className="pixel-serif text-white text-xl">Resale key</h2>
+                      <p className="pixel-sans text-white/60 text-[13px] leading-relaxed mt-1.5">
+                        You have <span className="text-[#80a0c1] tabular-nums">{allowance.dailyAllowance}</span> credits per day of staking allowance ({allowance.remaining} left today). A resale key lets a marketplace spend only this daily allowance, never your deposited balance, so you can sell your unused inference. Safe to share.
+                      </p>
+                      <div className="mt-5 space-y-3">
+                        <CopyField
+                          text={newResaleKey}
+                          display={newResaleKey || 'sk-c0mpute-...'}
+                          accent={!!newResaleKey}
+                        />
+                        {newResaleKey && (
+                          <Notice tone="info">Resale key created. Copy it now, it will not be shown again.</Notice>
+                        )}
+                        <button onClick={() => generateApiKey(true)} disabled={resaleKeyGenerating} className={btnPrimary}>
+                          {resaleKeyGenerating ? 'Generating' : 'Generate resale key'}
+                        </button>
                       </div>
-                      <div className="text-center p-3 bg-white/[0.02] border border-white/5 rounded-xl">
-                        <div className="pixel-serif text-green-400 text-xl"><span className="dollar">$</span>{referrals.earnedUsdThisMonth.toFixed(2)}</div>
-                        <div className="pixel-sans text-white/70 text-[11px] mt-1">This Month</div>
-                      </div>
-                      <div className="text-center p-3 bg-white/[0.02] border border-white/5 rounded-xl">
-                        <div className="pixel-serif text-white/70 text-lg"><span className="dollar">$</span>{referrals.earnedUsd.toFixed(2)}</div>
-                        <div className="pixel-sans text-white/70 text-[11px] mt-1">All Time</div>
-                      </div>
+                    </section>
+                  )}
+                </>
+              )}
+
+              {/* ── Usage ── */}
+              {activeTab === 'usage' && (
+                <>
+                  <Card
+                    title="Credits"
+                    description="Credits pay for prompts and API usage."
+                    footer={<p className="pixel-sans text-white/40 text-[11px]">1 credit = $0.01 USD.</p>}
+                  >
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <Stat label="Balance" value={(credits?.balance ?? 0).toFixed(0)} />
+                      <Stat label="Deposited" value={(credits?.totalDeposited ?? 0).toFixed(0)} tone="dim" />
+                      <Stat label="Spent" value={(credits?.totalSpent ?? 0).toFixed(0)} tone="dim" />
                     </div>
-                    {referrals.recent.length > 0 ? (
-                      <div className="pt-2 border-t border-white/5">
-                        <div className="pixel-sans text-white/60 text-[11px] uppercase tracking-wider mb-2">Recent earnings</div>
-                        <div className="space-y-1.5">
-                          {referrals.recent.map((r, i) => (
-                            <div key={i} className="flex items-center justify-between pixel-sans text-xs">
-                              <span className="text-white/50">{new Date(r.created_at).toLocaleDateString()} · {r.tier}</span>
-                              <span className="text-green-400/90"><span className="dollar">$</span>{r.usd.toFixed(4)}</span>
+                  </Card>
+
+                  <Card title="Usage" description="Requests and tokens across chat and the API.">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <Stat label="Requests" value={(usage?.totalRequests ?? 0).toLocaleString()} />
+                      <Stat label="Tokens generated" value={(usage?.totalTokens ?? 0).toLocaleString()} />
+                    </div>
+                    <div className="mt-5 pt-4 border-t border-white/[0.06]">
+                      <div className="pixel-sans text-white/40 text-[10px] uppercase tracking-[0.14em] mb-2">By model</div>
+                      {usage && usage.byModel.length > 0 ? (
+                        <div className="divide-y divide-white/[0.05] border border-white/[0.06] rounded-xl px-3">
+                          {usage.byModel.map((m) => (
+                            <div key={m.model} className="flex items-center justify-between gap-3 py-2.5">
+                              <span className="pixel-sans text-white/80 text-xs font-mono truncate">{m.model}</span>
+                              <span className="pixel-sans text-white/50 text-xs tabular-nums whitespace-nowrap">
+                                {m.requests.toLocaleString()} req · {m.tokens.toLocaleString()} tok
+                              </span>
                             </div>
                           ))}
                         </div>
-                      </div>
-                    ) : (
-                      <p className="pixel-sans text-white/50 text-xs pt-2 border-t border-white/5">No earnings yet — they show up here the moment a referral pays for a prompt.</p>
-                    )}
-                    <p className="pixel-sans text-white/55 text-[11px] mt-4">Referrals bind when someone signs up after using your link (valid 30 days from click). Free prompts and staking allowance usage do not pay referral fees. Earnings are withdrawable as <span className="dollar">$</span>USDC (rolling out).</p>
-                  </div>
-                ) : (
-                  <div className="pixel-sans text-white/50 text-xs">Loading...</div>
-                )}
-              </section>
-            </div>
-          )}
-
-          {/* Usage Tab */}
-          {activeTab === 'usage' && (
-            <div className="space-y-8">
-              {/* Credit Balance */}
-              <section className="border border-white/10 bg-white/[0.02] p-6 rounded-2xl">
-                <h2 className="pixel-serif text-white text-xl mb-4">Credit Balance</h2>
-                <div className="grid grid-cols-3 gap-4 mb-4">
-                  <div className="text-center p-4 bg-white/[0.02] border border-white/5 rounded-xl">
-                    <div className="pixel-serif text-white text-2xl">{credits?.balance?.toFixed(0) ?? '0'}</div>
-                    <div className="pixel-sans text-white/70 text-xs mt-1">Balance</div>
-                  </div>
-                  <div className="text-center p-4 bg-white/[0.02] border border-white/5 rounded-xl">
-                    <div className="pixel-serif text-white/70 text-2xl">{credits?.totalDeposited?.toFixed(0) ?? '0'}</div>
-                    <div className="pixel-sans text-white/70 text-xs mt-1">Deposited</div>
-                  </div>
-                  <div className="text-center p-4 bg-white/[0.02] border border-white/5 rounded-xl">
-                    <div className="pixel-serif text-white/70 text-2xl">{credits?.totalSpent?.toFixed(0) ?? '0'}</div>
-                    <div className="pixel-sans text-white/70 text-xs mt-1">Spent</div>
-                  </div>
-                </div>
-                <p className="pixel-sans text-white/60 text-xs">1 credit = <span className="dollar">$</span>0.01 USD</p>
-              </section>
-
-              {/* API / Inference Usage */}
-              <section className="border border-white/10 bg-white/[0.02] p-6 rounded-2xl">
-                <h2 className="pixel-serif text-white text-xl mb-4">Usage</h2>
-                <div className="grid grid-cols-2 gap-4 mb-4">
-                  <div className="text-center p-4 bg-white/[0.02] border border-white/5 rounded-xl">
-                    <div className="pixel-serif text-white text-2xl">{(usage?.totalRequests ?? 0).toLocaleString()}</div>
-                    <div className="pixel-sans text-white/70 text-xs mt-1">Requests</div>
-                  </div>
-                  <div className="text-center p-4 bg-white/[0.02] border border-white/5 rounded-xl">
-                    <div className="pixel-serif text-white text-2xl">{(usage?.totalTokens ?? 0).toLocaleString()}</div>
-                    <div className="pixel-sans text-white/70 text-xs mt-1">Tokens generated</div>
-                  </div>
-                </div>
-                {usage && usage.byModel.length > 0 ? (
-                  <div className="pt-2 border-t border-white/5 space-y-2">
-                    <div className="pixel-sans text-white/60 text-[11px] uppercase tracking-wider mb-1">By model</div>
-                    {usage.byModel.map((m) => (
-                      <div key={m.model} className="flex items-center justify-between px-3 py-2 bg-white/[0.02] border border-white/5 rounded-lg">
-                        <span className="pixel-sans text-white/80 text-xs font-mono">{m.model}</span>
-                        <span className="pixel-sans text-white/60 text-xs">{m.requests.toLocaleString()} req · {m.tokens.toLocaleString()} tok</span>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="pixel-sans text-white/55 text-xs">No usage yet.</p>
-                )}
-              </section>
-
-              {/* Plan Selection */}
-              <section className="border border-white/10 bg-white/[0.02] p-6 rounded-2xl">
-                <h2 className="pixel-serif text-white text-xl mb-4">Plan</h2>
-                <div className="grid grid-cols-3 gap-3">
-                  {PLAN_OPTIONS.map((plan) => {
-                    const isActive = activePlan === plan.id;
-                    return (
-                      <div
-                        key={plan.id}
-                        className={`relative p-4 rounded-xl border transition-colors cursor-pointer ${
-                          isActive
-                            ? 'border-[#80a0c1]/40 bg-[#80a0c1]/[0.06]'
-                            : 'border-white/10 bg-white/[0.02] hover:border-white/20'
-                        }`}
-                        onClick={() => {
-                          if (plan.id !== activePlan) setPlanConfirm(plan.id);
-                        }}
-                      >
-                        {isActive && (
-                          <div className="absolute top-2 right-2">
-                            <span className="pixel-sans text-[10px] px-1.5 py-0.5 bg-[#80a0c1]/20 text-[#80a0c1] rounded">Active</span>
-                          </div>
-                        )}
-                        <div className="pixel-serif text-white text-lg mb-1">{plan.name}</div>
-                        <div className="pixel-sans text-white/70 text-xs mb-3">{plan.cost} / message</div>
-                        <ul className="space-y-1.5">
-                          {plan.features.map((f, i) => (
-                            <li key={i} className="pixel-sans text-white/70 text-xs flex items-center gap-1.5">
-                              <span className="text-[#80a0c1]">✓</span> {f}
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    );
-                  })}
-                </div>
-              </section>
-
-              {/* Plan Switch Confirmation */}
-              {planConfirm && (
-                <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[100] flex items-center justify-center p-4" onClick={() => setPlanConfirm(null)}>
-                  <div className="bg-[#0a0a0a] border border-white/10 rounded-2xl p-6 max-w-sm w-full" onClick={e => e.stopPropagation()}>
-                    <h3 className="pixel-serif text-white text-lg mb-2">Switch to {planName(planConfirm)}?</h3>
-                    <p className="pixel-sans text-white/70 text-sm mb-5">
-                      This will change the model used for all future messages.
-                    </p>
-                    <div className="flex gap-3">
-                      <button onClick={() => setPlanConfirm(null)} className="cursor-pointer flex-1 pixel-serif text-sm py-2.5 rounded-xl border border-white/10 text-white/50 hover:bg-white/5 transition-colors">Cancel</button>
-                      <button onClick={() => switchPlan(planConfirm)} className="cursor-pointer flex-1 pixel-serif text-sm py-2.5 rounded-xl bg-[#80a0c1]/20 border border-[#80a0c1]/30 text-[#80a0c1] hover:bg-[#80a0c1]/30 transition-colors">
-                        {planSwitching ? 'Switching...' : 'Switch'}
-                      </button>
+                      ) : (
+                        <p className="pixel-sans text-white/40 text-xs">No usage recorded yet.</p>
+                      )}
                     </div>
-                  </div>
-                </div>
-              )}
+                  </Card>
 
-              {/* Top Up */}
-              <section className="border border-white/10 bg-white/[0.02] p-6 rounded-2xl">
-                <h2 className="pixel-serif text-white text-xl mb-4">Top Up</h2>
-
-                {/* Amount calculator: user enters USD, sees credits + conversion */}
-                {(() => {
-                  const CREDITS_PER_USD = credits?.config?.creditsPerUsd ?? 100; // 1 credit = $0.01
-                  const usd = Math.max(0, parseFloat(topUpUsd) || 0);
-                  const creditsOut = Math.round(usd * CREDITS_PER_USD);
-                  return (
-                    <div className="mb-5">
-                      <div className="flex items-center gap-2 bg-white/[0.03] border border-white/10 rounded-lg p-3">
-                        <span className="dollar text-white/70 text-lg">$</span>
-                        <input
-                          type="number"
-                          inputMode="decimal"
-                          min="0"
-                          value={topUpUsd}
-                          onChange={(e) => setTopUpUsd(e.target.value)}
-                          placeholder="0"
-                          className="flex-1 bg-transparent outline-none pixel-serif text-white text-lg placeholder-white/45"
-                        />
-                        <span className="pixel-sans text-white/60 text-xs whitespace-nowrap">USDC</span>
-                      </div>
-                      <div className="flex items-baseline justify-between mt-2.5">
-                        <span className="pixel-serif text-white text-xl">{creditsOut.toLocaleString()} <span className="text-white/70 text-sm">credits</span></span>
-                        <span className="pixel-sans text-white/55 text-[11px]"><span className="dollar">$</span>1 = {CREDITS_PER_USD} credits</span>
-                      </div>
+                  <Card title="Plan" description="The model used for your messages. Switching applies to all future messages.">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      {PLAN_OPTIONS.map((plan) => {
+                        const isActive = activePlan === plan.id;
+                        return (
+                          <button
+                            key={plan.id}
+                            onClick={() => { if (plan.id !== activePlan) setPlanConfirm(plan.id); }}
+                            className={`cursor-pointer relative p-4 rounded-xl border text-left transition-colors ${
+                              isActive
+                                ? 'border-[#80a0c1]/40 bg-[#80a0c1]/[0.06]'
+                                : 'border-white/10 bg-white/[0.02] hover:border-white/20'
+                            }`}
+                          >
+                            {isActive && (
+                              <span className="absolute top-3 right-3 pixel-sans text-[10px] px-1.5 py-0.5 bg-[#80a0c1]/20 text-[#80a0c1] rounded">
+                                Active
+                              </span>
+                            )}
+                            <div className="pixel-serif text-white text-lg">{plan.name}</div>
+                            <div className="pixel-sans text-white/50 text-xs mt-0.5 mb-3">{plan.cost} / message</div>
+                            <ul className="space-y-1.5">
+                              {plan.features.map((f, i) => (
+                                <li key={i} className="pixel-sans text-white/60 text-xs flex items-center gap-1.5">
+                                  <span className="text-[#80a0c1] flex-shrink-0"><IconCheck size={10} /></span>
+                                  {f}
+                                </li>
+                              ))}
+                            </ul>
+                          </button>
+                        );
+                      })}
                     </div>
-                  );
-                })()}
+                  </Card>
 
-                <div className="mb-4">
-                  <div className="pixel-sans text-white/60 text-[11px] uppercase tracking-wider mb-2">Your deposit address</div>
-                  <div className="flex items-center gap-2 bg-white/[0.03] border border-white/10 rounded-lg p-3">
-                    <code className="font-mono text-[#80a0c1] text-xs flex-1 break-all select-all">{credits?.depositWallet || 'Loading...'}</code>
-                    <button
-                      onClick={() => {
-                        if (credits?.depositWallet) {
-                          navigator.clipboard.writeText(credits.depositWallet);
-                          setCopiedDeposit(true);
-                          setTimeout(() => setCopiedDeposit(false), 2000);
-                        }
-                      }}
-                      className="pixel-sans text-xs px-2.5 py-1.5 rounded-lg border border-white/10 text-white/70 hover:text-white hover:bg-white/5 transition-colors flex-shrink-0"
-                    >
-                      {copiedDeposit ? 'Copied' : 'Copy'}
-                    </button>
-                  </div>
-                  <p className="pixel-sans text-white/55 text-[11px] mt-1.5">Only send USDC (SPL token) to this address. Other tokens will be lost.</p>
-                </div>
-
-                <button
-                  onClick={async () => {
-                    setCheckingDeposit(true);
-                    setDepositResult(null);
-                    try {
-                      const t = await getAccessToken();
-                      const res = await fetch('/api/credits/check-deposit', {
-                        method: 'POST',
-                        headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ action: 'check' }),
-                      });
-                      const data = await res.json();
-                      if (res.ok) {
-                        if (data.credited > 0) {
-                          setCredits(prev => prev ? { ...prev, balance: data.newBalance } : prev);
-                          setDepositResult(`+${data.credited} credits added` + (data.message ? ` — ${data.message}` : ''));
-                        } else {
-                          setDepositResult(data.message || 'No new deposits found');
-                        }
-                      } else {
-                        setDepositResult(data.error || 'Check failed');
-                      }
-                    } catch { setDepositResult('Failed to check'); }
-                    finally { setCheckingDeposit(false); }
-                  }}
-                  disabled={checkingDeposit}
-                  className="cursor-pointer w-full pixel-serif text-sm py-3 rounded-xl bg-white/[0.05] border border-white/10 text-white/70 hover:bg-white/[0.08] hover:text-white transition-colors disabled:opacity-50"
-                >
-                  {checkingDeposit ? 'Checking...' : 'Check for deposit'}
-                </button>
-                {depositResult && (
-                  <p className={`pixel-sans text-xs text-center mt-2.5 ${depositResult.includes('added') ? 'text-green-400/80' : 'text-white/70'}`}>{depositResult}</p>
-                )}
-              </section>
-
-              {/* Transaction History */}
-              {credits?.recentTransactions && credits.recentTransactions.length > 0 && (
-                <section className="border border-white/10 bg-white/[0.02] p-6 rounded-2xl">
-                  <h2 className="pixel-serif text-white text-xl mb-4">Transaction History</h2>
-                  <div className="space-y-2">
-                    {credits.recentTransactions.map((tx, i) => (
-                      <div key={i} className="flex items-center justify-between px-3 py-2 bg-white/[0.02] border border-white/5 rounded-lg">
-                        <div className="flex items-center gap-3">
-                          <span className={`pixel-sans text-xs px-2 py-0.5 rounded ${
-                            tx.type === 'deposit' ? 'bg-green-500/15 text-green-400' :
-                            tx.type === 'refund' ? 'bg-blue-500/15 text-blue-400' :
-                            'bg-white/5 text-white/70'
-                          }`}>{tx.type}</span>
-                          <span className="pixel-sans text-white/70 text-xs">{tx.description}</span>
+                  <Card
+                    title="Top up"
+                    description="Deposit USDC on Solana to add credits."
+                  >
+                    <div className="space-y-4">
+                      <div>
+                        <div className="flex items-center gap-2 bg-white/[0.03] border border-white/10 rounded-xl p-3 focus-within:border-white/25 transition-colors">
+                          <span className="pixel-sans text-white/50 text-base">$</span>
+                          <input
+                            type="number"
+                            inputMode="decimal"
+                            min="0"
+                            value={topUpUsd}
+                            onChange={(ev) => setTopUpUsd(ev.target.value)}
+                            placeholder="0"
+                            className="flex-1 bg-transparent outline-none pixel-serif text-white text-lg tabular-nums placeholder:text-white/30 min-w-0"
+                          />
+                          <span className="pixel-sans text-white/50 text-xs whitespace-nowrap">USDC</span>
                         </div>
-                        <div className="flex items-center gap-3">
-                          <span className={`pixel-sans text-sm ${tx.type === 'spend' ? 'text-red-400/70' : 'text-green-400/70'}`}>
-                            {tx.type === 'spend' ? '-' : '+'}{tx.amount}
+                        <div className="flex items-baseline justify-between mt-2.5">
+                          <span className="pixel-serif text-white text-xl tabular-nums">
+                            {topUpCredits.toLocaleString()} <span className="text-white/50 text-sm">credits</span>
                           </span>
-                          <span className="pixel-sans text-white/55 text-[10px]">{new Date(tx.created_at).toLocaleDateString()}</span>
+                          <span className="pixel-sans text-white/40 text-[11px] tabular-nums">$1 = {CREDITS_PER_USD} credits</span>
                         </div>
                       </div>
-                    ))}
-                  </div>
-                </section>
+
+                      <div>
+                        <div className="pixel-sans text-white/40 text-[10px] uppercase tracking-[0.14em] mb-2">Your deposit address</div>
+                        <CopyField
+                          text={credits?.depositWallet ?? null}
+                          display={credits?.depositWallet || 'Deposit address unavailable'}
+                          accent={!!credits?.depositWallet}
+                          wrap
+                        />
+                        <p className="pixel-sans text-white/40 text-[11px] mt-1.5">
+                          Send only USDC (SPL token) to this address. Other tokens will be lost.
+                        </p>
+                      </div>
+
+                      <button onClick={checkDeposit} disabled={checkingDeposit} className={`${btnSecondary} w-full py-2.5`}>
+                        {checkingDeposit ? 'Checking' : 'Check for deposit'}
+                      </button>
+                      {depositResult && (
+                        <Notice tone={depositResult.includes('added') ? 'success' : 'info'}>{depositResult}</Notice>
+                      )}
+                    </div>
+                  </Card>
+
+                  {credits?.recentTransactions && credits.recentTransactions.length > 0 && (
+                    <Card title="Transaction history" description="Recent credit activity on your account.">
+                      <div className="divide-y divide-white/[0.05] border border-white/[0.06] rounded-xl px-3">
+                        {credits.recentTransactions.map((tx, i) => (
+                          <div key={i} className="flex items-center justify-between gap-3 py-2.5">
+                            <div className="flex items-center gap-3 min-w-0">
+                              <span className={`pixel-sans text-[10px] px-2 py-0.5 rounded flex-shrink-0 ${
+                                tx.type === 'deposit' ? 'bg-emerald-400/10 text-emerald-400' :
+                                tx.type === 'refund' ? 'bg-[#80a0c1]/10 text-[#80a0c1]' :
+                                'bg-white/5 text-white/60'
+                              }`}>{tx.type}</span>
+                              <span className="pixel-sans text-white/60 text-xs truncate">{tx.description}</span>
+                            </div>
+                            <div className="flex items-baseline gap-3 flex-shrink-0">
+                              <span className={`pixel-sans text-sm tabular-nums ${tx.type === 'spend' ? 'text-white/60' : 'text-emerald-400/90'}`}>
+                                {tx.type === 'spend' ? '-' : '+'}{tx.amount}
+                              </span>
+                              <span className="pixel-sans text-white/40 text-[11px] tabular-nums">{new Date(tx.created_at).toLocaleDateString()}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </Card>
+                  )}
+
+                  {/* Plan switch confirmation */}
+                  {planConfirm && (
+                    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[100] flex items-center justify-center p-4" onClick={() => setPlanConfirm(null)}>
+                      <div className="bg-[#0c0a09] border border-white/10 rounded-2xl p-6 max-w-sm w-full" onClick={ev => ev.stopPropagation()}>
+                        <h3 className="pixel-serif text-white text-lg">Switch to {planName(planConfirm)}?</h3>
+                        <p className="pixel-sans text-white/60 text-sm mt-2 mb-5 leading-relaxed">
+                          This will change the model used for all future messages.
+                        </p>
+                        <div className="flex gap-3">
+                          <button onClick={() => setPlanConfirm(null)} className={`${btnSecondary} flex-1`}>Cancel</button>
+                          <button onClick={() => switchPlan(planConfirm)} disabled={planSwitching} className={`${btnPrimary} flex-1`}>
+                            {planSwitching ? 'Switching' : 'Switch'}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
+
+              {/* ── Referrals ── */}
+              {activeTab === 'referrals' && (
+                <Card
+                  title="Referrals"
+                  description={<>Share your link. You earn <span className="text-white">5%</span> of the USDC value of every prompt your referrals pay for, forever.</>}
+                  footer={
+                    <p className="pixel-sans text-white/40 text-[11px] leading-relaxed">
+                      Referrals bind when someone signs up within 30 days of using your link. Free prompts and staking allowance usage do not pay referral fees. Earnings are withdrawable as USDC (rolling out).
+                    </p>
+                  }
+                >
+                  <div className="space-y-4">
+                    <CopyField
+                      text={referrals?.link ?? null}
+                      display={referrals?.link || 'Referral link unavailable'}
+                      accent={!!referrals?.link}
+                    />
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <Stat label="Referred" value={referrals?.referredCount ?? 0} />
+                      <Stat label="This month" value={<>${(referrals?.earnedUsdThisMonth ?? 0).toFixed(2)}</>} tone="positive" />
+                      <Stat label="All time" value={<>${(referrals?.earnedUsd ?? 0).toFixed(2)}</>} tone="dim" />
+                    </div>
+
+                    <div className="pt-2">
+                      <div className="pixel-sans text-white/40 text-[10px] uppercase tracking-[0.14em] mb-2">Recent earnings</div>
+                      {referrals && referrals.recent.length > 0 ? (
+                        <div className="divide-y divide-white/[0.05] border border-white/[0.06] rounded-xl px-3">
+                          {referrals.recent.map((r, i) => (
+                            <div key={i} className="flex items-center justify-between gap-3 py-2.5">
+                              <span className="pixel-sans text-white/50 text-xs">
+                                {new Date(r.created_at).toLocaleDateString()} · {r.tier}
+                              </span>
+                              <span className="pixel-sans text-emerald-400/90 text-xs tabular-nums">${r.usd.toFixed(4)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="pixel-sans text-white/40 text-xs">Earnings appear here when a referral pays for a prompt.</p>
+                      )}
+                    </div>
+                  </div>
+                </Card>
+              )}
+
             </div>
-          )}
+          </div>
         </div>
       </main>
     </div>

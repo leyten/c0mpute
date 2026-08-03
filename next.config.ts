@@ -37,6 +37,9 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
+  // A dev server can then run beside the built preview without clobbering the
+  // build it is serving: NEXT_DIST_DIR=.next-dev next dev -p 3011
+  distDir: process.env.NEXT_DIST_DIR || '.next',
   // Pin the build root to this dir — a stray package-lock.json at the workspace
   // root made Turbopack treat the whole workspace as root and scan every sibling
   // project, stalling the build.

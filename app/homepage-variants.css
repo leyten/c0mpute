@@ -1,0 +1,105 @@
+/* Homepage theme (preview): the chosen "Editorial" treatment — Newsreader
+   display over a warm near-black, Inter body. The markup keeps the legacy
+   .pixel-serif/.pixel-sans hooks; the .v-b scope re-skins them with readable
+   faces. Card ARTWORK (bento visuals, PixelBlast) is untouched by design. */
+
+.v-b .pixel-serif, .v-b .pixel-serif-sub {
+  font-family: var(--font-newsreader), Georgia, serif;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  line-height: 1.15;
+  font-smooth: auto;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+.v-b .pixel-sans {
+  font-family: var(--font-inter), system-ui, sans-serif;
+  letter-spacing: 0;
+  line-height: 1.65;
+  -webkit-text-stroke: 0;
+  font-smooth: auto;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+.v-b .pixel-sans strong, .v-b .pixel-sans b {
+  text-shadow: none;
+  letter-spacing: 0;
+  -webkit-font-smoothing: antialiased;
+}
+.v-b .pixel-serif-logo {
+  font-family: var(--font-newsreader), Georgia, serif;
+  font-weight: 500;
+  font-smooth: auto;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+.v-b .pixel-serif-logo span {
+  font-size: 1em !important;
+  margin-top: 0 !important;
+  vertical-align: baseline !important;
+}
+.v-b .dollar {
+  font-family: inherit !important;
+  -webkit-font-smoothing: antialiased !important;
+}
+
+/* warm near-black instead of pure black */
+body.v-b { background: #0c0a09; }
+.v-b.bg-black, .v-b .bg-black { background-color: #0c0a09; }
+.v-b .bg-black\/80 { background-color: rgba(12, 10, 9, 0.8); }
+.v-b .bg-black\/95 { background-color: rgba(12, 10, 9, 0.95); }
+
+.v-b .step-num { font-style: italic; }
+
+/* ---------- status badge (dot + small caps, no border box) ---------- */
+.badge-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.45);
+}
+.badge-chip .badge-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  background: rgba(52, 211, 153, 0.9);
+}
+.badge-chip.badge-live { color: rgba(110, 231, 183, 0.9); }
+
+/* ---------- scroll-stage step text crossfade ---------- */
+.fade-step { animation: fadeStep 0.55s ease both; }
+@keyframes fadeStep {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ---------- preview-only layout switcher ---------- */
+.variant-switcher {
+  position: fixed;
+  bottom: 16px;
+  right: 16px;
+  z-index: 60;
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 9999px;
+  background: rgba(12, 10, 9, 0.75);
+  backdrop-filter: blur(8px);
+  font-family: var(--font-inter), system-ui, sans-serif;
+}
+.variant-switcher button {
+  width: 30px;
+  height: 30px;
+  border-radius: 9999px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.6);
+  cursor: pointer;
+}
+.variant-switcher button:hover { color: #fff; }
+.variant-switcher button.on { background: #fff; color: #000; }

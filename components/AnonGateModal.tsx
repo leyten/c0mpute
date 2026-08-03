@@ -16,19 +16,19 @@ interface AnonGateModalProps {
 const COPY = {
   nudge: {
     title: '1 free prompt left',
-    body: 'Make a free account to keep going. Sign in with X — no card, no crypto — and top up only when you want more.',
+    body: 'Make a free account to keep going. Sign in with X and top up only when you want more.',
     primary: 'Make an account',
     secondary: 'Use my last one',
   },
   empty: {
     title: "You're out of free prompts",
-    body: 'Sign in with X to create your account and top up to keep chatting. No card or crypto needed to sign in.',
+    body: 'Sign in with X to create your account and top up to keep chatting. Signing in is free.',
     primary: 'Sign in & top up',
     secondary: 'Maybe later',
   },
   softlogin: {
     title: 'Try c0mpute free',
-    body: 'Sign in with X to get free prompts — no card, no crypto needed.',
+    body: 'Sign in with X to get your free prompts.',
     primary: 'Sign in with X',
     secondary: 'Not now',
   },
@@ -37,13 +37,13 @@ const COPY = {
 export default function AnonGateModal({ mode, freePromptLimit, onClose, onSignIn }: AnonGateModalProps) {
   const c = COPY[mode];
   const body = mode === 'softlogin'
-    ? `Sign in with X to get ${freePromptLimit} free prompts — no card, no crypto needed.`
+    ? `Sign in with X to get ${freePromptLimit} free prompts.`
     : c.body;
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-      <div className="w-full max-w-sm rounded-2xl border border-white/10 bg-[#0a0a0a] p-7 shadow-2xl">
-        <div className="pixel-sans text-white text-xl font-bold mb-3">{c.title}</div>
+      <div className="w-full max-w-sm rounded-2xl border border-white/10 bg-[#141210] p-7 shadow-2xl">
+        <div className="pixel-serif text-white text-2xl mb-3">{c.title}</div>
         <p className="pixel-sans text-white/70 text-sm leading-relaxed mb-6">{body}</p>
         <button
           onClick={onSignIn}

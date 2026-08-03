@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
 
 interface Overview {
   totalUsers: number;
@@ -42,16 +41,81 @@ interface RepRow {
   updated_at: string;
 }
 
+type AdminTab = 'overview' | 'users' | 'reputation';
+const TABS: { id: AdminTab; label: string }[] = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'users', label: 'Users' },
+  { id: 'reputation', label: 'Reputation' },
+];
+
+/* ---------- shared button styles ---------- */
+const btnPrimary = 'cursor-pointer pixel-sans text-[13px] font-medium px-4 py-2 rounded-lg bg-white text-black hover:bg-white/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed';
+const btnSecondary = 'cursor-pointer pixel-sans text-[13px] px-4 py-2 rounded-lg border border-white/20 text-white hover:bg-white/5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed';
+const btnGhostSmall = 'cursor-pointer pixel-sans text-[11px] px-2.5 py-1 rounded-md border border-white/10 text-white/70 hover:text-white hover:bg-white/5 transition-colors whitespace-nowrap';
+
+/* ---------- primitives ---------- */
+
+function Stat({ label, value, tone = 'default' }: {
+  label: string;
+  value: React.ReactNode;
+  tone?: 'default' | 'dim';
+}) {
+  return (
+    <div className="border border-white/10 bg-white/[0.02] rounded-2xl px-5 py-4 min-w-0">
+      <div className="pixel-sans text-white/40 text-[10px] uppercase tracking-[0.14em] whitespace-nowrap">{label}</div>
+      <div className={`pixel-serif text-2xl mt-1.5 tabular-nums truncate ${tone === 'dim' ? 'text-white/70' : 'text-white'}`}>{value}</div>
+    </div>
+  );
+}
+
+function Chip({ tone = 'neutral', title, children }: {
+  tone?: 'positive' | 'negative' | 'accent' | 'neutral';
+  title?: string;
+  children: React.ReactNode;
+}) {
+  const cls =
+    tone === 'positive' ? 'bg-emerald-400/10 text-emerald-400' :
+    tone === 'negative' ? 'bg-red-400/10 text-red-400' :
+    tone === 'accent' ? 'bg-[#80a0c1]/10 text-[#80a0c1]' :
+    'bg-white/5 text-white/60';
+  return (
+    <span title={title} className={`pixel-sans inline-block px-2 py-0.5 rounded text-[10px] ${cls}`}>
+      {children}
+    </span>
+  );
+}
+
+function TableCard({ title, meta, action, children }: {
+  title: string;
+  meta?: React.ReactNode;
+  action?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="border border-white/10 bg-white/[0.02] rounded-2xl overflow-hidden">
+      <div className="px-6 pt-5 pb-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-baseline gap-3">
+          <h2 className="pixel-serif text-white text-lg">{title}</h2>
+          {meta !== undefined && <span className="pixel-sans text-white/40 text-xs tabular-nums">{meta}</span>}
+        </div>
+        {action}
+      </div>
+      <div className="px-6 pb-5">{children}</div>
+    </section>
+  );
+}
+
+const thCls = 'pixel-sans text-white/40 text-[10px] uppercase tracking-[0.14em] font-normal pb-2.5 pr-4 whitespace-nowrap';
+const thNumCls = `${thCls} text-right`;
+
 export default function DashboardPage() {
-  const router = useRouter();
   const [token, setToken] = useState('');
   const [authed, setAuthed] = useState(false);
-  const [tab, setTab] = useState<'overview' | 'users' | 'reputation'>('overview');
+  const [tab, setTab] = useState<AdminTab>('overview');
   const [overview, setOverview] = useState<Overview | null>(null);
   const [users, setUsers] = useState<UserRow[]>([]);
   const [reputation, setReputation] = useState<RepRow[]>([]);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [actionResult, setActionResult] = useState<string | null>(null);
   const [search, setSearch] = useState('');
 
@@ -111,7 +175,7 @@ export default function DashboardPage() {
     if (isNaN(num) || num < 0) { setActionResult('Invalid amount'); return; }
     try {
       const result = await apiPost({ action: 'set_credits', privyId, amount: num });
-      setActionResult(`Credits set: ${result.previousBalance} → ${result.newBalance}`);
+      setActionResult(`Credits set: ${result.previousBalance} to ${result.newBalance}`);
       loadUsers();
     } catch (e: any) { setActionResult(`Error: ${e.message}`); }
   };
@@ -137,21 +201,23 @@ export default function DashboardPage() {
     } catch (e: any) { setActionResult(`Error: ${e.message}`); }
   };
 
+  /* ── Gate ── */
   if (!authed) {
     return (
-      <div className="h-screen bg-black flex items-center justify-center">
-        <div className="border border-white/10 bg-white/[0.02] rounded-2xl p-8 max-w-sm w-full mx-4">
-          <h1 className="pixel-serif text-white text-2xl mb-2">Admin</h1>
-          <p className="pixel-sans text-white/70 text-sm mb-6">Enter admin key to continue.</p>
+      <div className="min-h-screen bg-black flex items-center justify-center px-4">
+        <div className="border border-white/10 bg-white/[0.02] rounded-2xl p-8 max-w-sm w-full">
+          <div className="pixel-serif-logo text-white/40 text-sm mb-6">c0mpute</div>
+          <h1 className="pixel-serif text-white text-2xl">Admin console</h1>
+          <p className="pixel-sans text-white/50 text-sm mt-1.5 mb-6">Enter the admin key to continue.</p>
           <input
             type="password"
             value={token}
             onChange={e => setToken(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && handleLogin()}
             placeholder="Admin key"
-            className="w-full bg-black border border-white/10 rounded-xl text-white px-4 py-3 mb-4 text-sm focus:outline-none focus:border-white/20"
+            className="w-full bg-white/[0.03] border border-white/10 rounded-xl text-white px-4 py-3 mb-4 pixel-sans text-sm focus:outline-none focus:border-white/25 placeholder:text-white/30 transition-colors"
           />
-          <button onClick={handleLogin} className="cursor-pointer w-full pixel-serif text-sm py-3 rounded-xl bg-white text-black hover:bg-white/90 transition-colors">
+          <button onClick={handleLogin} className={`${btnPrimary} w-full py-2.5`}>
             Authenticate
           </button>
         </div>
@@ -159,257 +225,298 @@ export default function DashboardPage() {
     );
   }
 
+  const filteredUsers = search.trim()
+    ? users.filter(u =>
+        (u.x_username || '').toLowerCase().includes(search.toLowerCase()) ||
+        u.privy_id.toLowerCase().includes(search.toLowerCase()) ||
+        (u.wallet_address || '').toLowerCase().includes(search.toLowerCase())
+      )
+    : users;
+
   return (
     <div className="min-h-screen bg-black">
       {/* Header */}
-      <header className="border-b border-white/10 px-6 py-4">
-        <div className="max-w-6xl mx-auto flex items-center justify-between">
-          <h1 className="pixel-serif text-white text-xl">c0mpute admin</h1>
+      <header className="border-b border-white/[0.08] sticky top-0 z-50 bg-black/80 backdrop-blur-sm">
+        <div className="max-w-6xl mx-auto px-4 md:px-6 h-16 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3 min-w-0">
+            <a href="/" className="cursor-pointer pixel-serif-logo text-white text-lg flex items-center flex-shrink-0">
+              c<span className="pixel-serif-logo" style={{ fontSize: '1.8em', display: 'inline-block', verticalAlign: 'baseline', lineHeight: '1', marginTop: '-0.3em' }}>0</span>mpute
+            </a>
+            <span className="pixel-sans text-white/40 text-[10px] uppercase tracking-[0.14em] border border-white/10 rounded px-1.5 py-0.5">
+              admin
+            </span>
+          </div>
           <div className="flex items-center gap-4">
-            <div className="flex items-center border border-white/10 rounded-lg overflow-hidden">
-              {(['overview', 'users', 'reputation'] as const).map(t => (
-                <button key={t} onClick={() => setTab(t)}
-                  className={`pixel-sans text-xs px-4 py-2 transition-colors ${tab === t ? 'bg-[#80a0c1]/20 text-[#80a0c1]' : 'text-white/70 hover:text-white/60'}`}>
-                  {t.charAt(0).toUpperCase() + t.slice(1)}
+            <div className="flex items-center gap-0.5 border border-white/10 bg-white/[0.02] rounded-lg p-0.5">
+              {TABS.map(t => (
+                <button
+                  key={t.id}
+                  onClick={() => setTab(t.id)}
+                  className={`cursor-pointer pixel-sans text-xs px-3 py-1.5 rounded-md transition-colors ${
+                    tab === t.id ? 'bg-white/[0.08] text-white' : 'text-white/50 hover:text-white/80'
+                  }`}
+                >
+                  {t.label}
                 </button>
               ))}
             </div>
-            <button onClick={() => { sessionStorage.removeItem('admin_token'); setAuthed(false); }} className="pixel-sans text-xs text-white/60 hover:text-white/60">
-              Logout
+            <button
+              onClick={() => { sessionStorage.removeItem('admin_token'); setAuthed(false); }}
+              className="cursor-pointer pixel-sans text-xs text-white/40 hover:text-white transition-colors whitespace-nowrap"
+            >
+              Sign out
             </button>
           </div>
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto px-6 py-8">
+      <main className="max-w-6xl mx-auto px-4 md:px-6 py-8">
         {/* Action result banner */}
         {actionResult && (
-          <div className="mb-6 p-3 border border-[#80a0c1]/30 bg-[#80a0c1]/10 rounded-lg flex justify-between items-center">
+          <div className="mb-6 flex items-center justify-between gap-4 border border-[#80a0c1]/25 bg-[#80a0c1]/[0.07] rounded-xl px-4 py-3">
             <span className="pixel-sans text-[#80a0c1] text-sm">{actionResult}</span>
-            <button onClick={() => setActionResult(null)} className="pixel-sans text-[#80a0c1]/50 text-xs">✕</button>
+            <button
+              onClick={() => setActionResult(null)}
+              aria-label="Dismiss"
+              className="cursor-pointer text-[#80a0c1]/60 hover:text-[#80a0c1] transition-colors flex-shrink-0"
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
+                <path d="M18 6L6 18M6 6l12 12" />
+              </svg>
+            </button>
           </div>
         )}
 
-        {loading && <p className="pixel-sans text-white/60 text-sm">Loading...</p>}
+        {loading && <p className="pixel-sans text-white/40 text-xs mb-4">Loading</p>}
 
-        {/* Overview */}
+        {/* ── Overview ── */}
         {tab === 'overview' && overview && (
-          <div className="space-y-8">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              {[
-                { label: 'Users', value: overview.totalUsers },
-                { label: 'Jobs', value: overview.totalJobs.toLocaleString() },
-                { label: 'Tokens Generated', value: overview.totalTokensGenerated.toLocaleString() },
-                { label: 'Worker Tokens', value: overview.activeWorkerTokens },
-              ].map((s, i) => (
-                <div key={i} className="border border-white/10 bg-white/[0.02] rounded-2xl p-5 text-center">
-                  <div className="pixel-serif text-white text-2xl">{s.value}</div>
-                  <div className="pixel-sans text-white/70 text-xs mt-1">{s.label}</div>
-                </div>
-              ))}
+          <div className="space-y-6">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <Stat label="Users" value={overview.totalUsers} />
+              <Stat label="Jobs" value={overview.totalJobs.toLocaleString()} />
+              <Stat label="Tokens generated" value={overview.totalTokensGenerated.toLocaleString()} />
+              <Stat label="Worker tokens" value={overview.activeWorkerTokens} />
             </div>
-
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-              {[
-                { label: 'Earnings Paid', value: <><span className="dollar">$</span>{overview.totalEarningsPaid.toFixed(2)}</> },
-                { label: 'Credits Deposited', value: overview.totalCreditsDeposited.toLocaleString() },
-                { label: 'Credits Spent', value: overview.totalCreditsSpent.toLocaleString() },
-              ].map((s, i) => (
-                <div key={i} className="border border-white/5 bg-white/[0.01] rounded-xl p-4 text-center">
-                  <div className="pixel-serif text-white/70 text-xl">{s.value}</div>
-                  <div className="pixel-sans text-white/60 text-xs mt-1">{s.label}</div>
-                </div>
-              ))}
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+              <Stat label="Earnings paid" value={<>${overview.totalEarningsPaid.toFixed(2)}</>} tone="dim" />
+              <Stat label="Credits deposited" value={overview.totalCreditsDeposited.toLocaleString()} tone="dim" />
+              <Stat label="Credits spent" value={overview.totalCreditsSpent.toLocaleString()} tone="dim" />
             </div>
 
             {/* Recent jobs */}
-            <section className="border border-white/10 bg-white/[0.02] rounded-2xl p-6">
-              <h2 className="pixel-serif text-white text-lg mb-4">Recent Jobs</h2>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left">
-                  <thead>
-                    <tr className="border-b border-white/5">
-                      {['ID', 'Worker', 'Tier', 'Tokens', 'Duration', 'Time'].map(h => (
-                        <th key={h} className="pixel-sans text-white/60 text-[10px] uppercase tracking-wider pb-2 pr-4">{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {overview.recentJobs.map((j: any) => (
-                      <tr key={j.id} className="border-b border-white/[0.03]">
-                        <td className="pixel-sans text-white/70 text-xs py-2 pr-4 font-mono">{j.id?.slice(0, 8)}</td>
-                        <td className="pixel-sans text-white/50 text-xs py-2 pr-4 font-mono">{j.worker_privy_id?.slice(-8)}</td>
-                        <td className="pixel-sans text-white/50 text-xs py-2 pr-4">{j.tier}</td>
-                        <td className="pixel-sans text-white/60 text-xs py-2 pr-4">{j.tokens_generated}</td>
-                        <td className="pixel-sans text-white/70 text-xs py-2 pr-4">{j.duration_ms ? `${(j.duration_ms / 1000).toFixed(1)}s` : '—'}</td>
-                        <td className="pixel-sans text-white/60 text-xs py-2">{j.completed_at ? new Date(j.completed_at).toLocaleString() : '—'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-
-            {/* Recent payouts */}
-            {overview.recentPayouts.length > 0 && (
-              <section className="border border-white/10 bg-white/[0.02] rounded-2xl p-6">
-                <h2 className="pixel-serif text-white text-lg mb-4">Recent Payouts</h2>
+            <TableCard title="Recent jobs">
+              {overview.recentJobs.length > 0 ? (
                 <div className="overflow-x-auto">
                   <table className="w-full text-left">
                     <thead>
-                      <tr className="border-b border-white/5">
-                        {['Worker', 'Amount', 'Wallet', 'Status', 'Time'].map(h => (
-                          <th key={h} className="pixel-sans text-white/60 text-[10px] uppercase tracking-wider pb-2 pr-4">{h}</th>
-                        ))}
+                      <tr className="border-b border-white/[0.06]">
+                        <th className={thCls}>ID</th>
+                        <th className={thCls}>Worker</th>
+                        <th className={thCls}>Tier</th>
+                        <th className={thNumCls}>Tokens</th>
+                        <th className={thNumCls}>Duration</th>
+                        <th className={`${thCls} pr-0`}>Time</th>
                       </tr>
                     </thead>
-                    <tbody>
-                      {overview.recentPayouts.map((p: any) => (
-                        <tr key={p.id} className="border-b border-white/[0.03]">
-                          <td className="pixel-sans text-white/50 text-xs py-2 pr-4 font-mono">{p.privy_id?.slice(-8)}</td>
-                          <td className="pixel-sans text-white/60 text-xs py-2 pr-4"><span className="dollar">$</span>{p.amount_usd?.toFixed(2)}</td>
-                          <td className="pixel-sans text-white/70 text-xs py-2 pr-4 font-mono">{p.wallet_address?.slice(0, 8)}...</td>
-                          <td className="pixel-sans text-xs py-2 pr-4">
-                            <span className={`px-2 py-0.5 rounded text-[10px] ${
-                              p.status === 'completed' ? 'bg-green-500/15 text-green-400' :
-                              p.status === 'pending_transfer' ? 'bg-[#80a0c1]/15 text-[#80a0c1]' :
-                              'bg-red-500/15 text-red-400'
-                            }`}>{p.status}</span>
-                          </td>
-                          <td className="pixel-sans text-white/60 text-xs py-2">{p.created_at ? new Date(p.created_at).toLocaleString() : '—'}</td>
+                    <tbody className="divide-y divide-white/[0.04]">
+                      {overview.recentJobs.map((j: any) => (
+                        <tr key={j.id}>
+                          <td className="pixel-sans text-white/70 text-xs py-2.5 pr-4 font-mono">{j.id?.slice(0, 8)}</td>
+                          <td className="pixel-sans text-white/50 text-xs py-2.5 pr-4 font-mono">{j.worker_privy_id?.slice(-8)}</td>
+                          <td className="pixel-sans text-white/50 text-xs py-2.5 pr-4">{j.tier}</td>
+                          <td className="pixel-sans text-white/70 text-xs py-2.5 pr-4 text-right tabular-nums">{j.tokens_generated}</td>
+                          <td className="pixel-sans text-white/70 text-xs py-2.5 pr-4 text-right tabular-nums">{j.duration_ms ? `${(j.duration_ms / 1000).toFixed(1)}s` : '—'}</td>
+                          <td className="pixel-sans text-white/50 text-xs py-2.5 tabular-nums">{j.completed_at ? new Date(j.completed_at).toLocaleString() : '—'}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
-              </section>
+              ) : (
+                <p className="pixel-sans text-white/40 text-xs">No jobs recorded yet.</p>
+              )}
+            </TableCard>
+
+            {/* Recent payouts */}
+            {overview.recentPayouts.length > 0 && (
+              <TableCard title="Recent payouts">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left">
+                    <thead>
+                      <tr className="border-b border-white/[0.06]">
+                        <th className={thCls}>Worker</th>
+                        <th className={thNumCls}>Amount</th>
+                        <th className={thCls}>Wallet</th>
+                        <th className={thCls}>Status</th>
+                        <th className={`${thCls} pr-0`}>Time</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-white/[0.04]">
+                      {overview.recentPayouts.map((p: any) => (
+                        <tr key={p.id}>
+                          <td className="pixel-sans text-white/50 text-xs py-2.5 pr-4 font-mono">{p.privy_id?.slice(-8)}</td>
+                          <td className="pixel-sans text-white/80 text-xs py-2.5 pr-4 text-right tabular-nums">${p.amount_usd?.toFixed(2)}</td>
+                          <td className="pixel-sans text-white/70 text-xs py-2.5 pr-4 font-mono">{p.wallet_address?.slice(0, 8)}...</td>
+                          <td className="py-2.5 pr-4">
+                            <Chip tone={
+                              p.status === 'completed' ? 'positive' :
+                              p.status === 'pending_transfer' ? 'accent' :
+                              'negative'
+                            }>{p.status}</Chip>
+                          </td>
+                          <td className="pixel-sans text-white/50 text-xs py-2.5 tabular-nums">{p.created_at ? new Date(p.created_at).toLocaleString() : '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </TableCard>
             )}
           </div>
         )}
 
-        {/* Users */}
-        {tab === 'users' && (() => {
-          const filtered = search.trim()
-            ? users.filter(u =>
-                (u.x_username || '').toLowerCase().includes(search.toLowerCase()) ||
-                u.privy_id.toLowerCase().includes(search.toLowerCase()) ||
-                (u.wallet_address || '').toLowerCase().includes(search.toLowerCase())
-              )
-            : users;
-          return (
-          <section className="border border-white/10 bg-white/[0.02] rounded-2xl p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="pixel-serif text-white text-lg">Users ({filtered.length})</h2>
+        {/* Overview zero state (API unreachable or empty response) */}
+        {tab === 'overview' && !overview && !loading && (
+          <section className="border border-white/10 bg-white/[0.02] rounded-2xl p-10 text-center">
+            <h2 className="pixel-serif text-white text-lg">Overview unavailable</h2>
+            <p className="pixel-sans text-white/50 text-sm mt-1.5 mb-5">The admin API did not return any data.</p>
+            <button onClick={loadOverview} className={btnSecondary}>Retry</button>
+          </section>
+        )}
+
+        {/* ── Users ── */}
+        {tab === 'users' && (
+          <TableCard
+            title="Users"
+            meta={filteredUsers.length}
+            action={
               <input
                 type="text"
                 value={search}
                 onChange={e => setSearch(e.target.value)}
-                placeholder="Search by name, wallet, ID..."
-                className="pixel-sans text-sm bg-black border border-white/10 rounded-xl px-4 py-2 text-white placeholder:text-white/45 focus:outline-none focus:border-white/20 w-64"
+                placeholder="Search name, wallet, or ID"
+                className="pixel-sans text-[13px] bg-white/[0.03] border border-white/10 rounded-lg px-3.5 py-2 text-white placeholder:text-white/30 focus:outline-none focus:border-white/25 w-full sm:w-64 transition-colors"
               />
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left">
-                <thead>
-                  <tr className="border-b border-white/5">
-                    {['User', 'Wallet', 'Credits', 'Worker Jobs', 'Worker Earned', 'Actions'].map(h => (
-                      <th key={h} className="pixel-sans text-white/60 text-[10px] uppercase tracking-wider pb-2 pr-4">{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.map(u => (
-                    <tr key={u.privy_id} className="border-b border-white/[0.03]">
-                      <td className="py-3 pr-4">
-                        {u.x_username && <div className="pixel-sans text-white text-xs">@{u.x_username}</div>}
-                        <div className="pixel-sans text-white/55 text-[10px] font-mono">{u.privy_id.slice(-16)}</div>
-                      </td>
-                      <td className="pixel-sans text-white/70 text-xs py-3 pr-4 font-mono">{u.wallet_address ? `${u.wallet_address.slice(0, 4)}...${u.wallet_address.slice(-4)}` : '—'}</td>
-                      <td className="py-3 pr-4">
-                        <span className="pixel-sans text-white/70 text-xs">{u.credit_balance.toFixed(0)}</span>
-                        <span className="pixel-sans text-white/55 text-[10px] ml-1">({u.credits_spent.toFixed(0)} spent)</span>
-                      </td>
-                      <td className="pixel-sans text-white/50 text-xs py-3 pr-4">{u.worker_jobs}</td>
-                      <td className="pixel-sans text-white/50 text-xs py-3 pr-4"><span className="dollar">$</span>{u.worker_earnings_usd.toFixed(2)}</td>
-                      <td className="py-3">
-                        <div className="flex gap-2">
-                          <button onClick={() => handleSetCredits(u.privy_id)} className="pixel-sans text-[10px] px-2 py-1 rounded border border-white/10 text-white/70 hover:text-white hover:bg-white/5 transition-colors">
-                            Set Credits
-                          </button>
-                          <button onClick={() => handleAddCredits(u.privy_id)} className="pixel-sans text-[10px] px-2 py-1 rounded border border-[#80a0c1]/30 text-[#80a0c1]/60 hover:text-[#80a0c1] hover:bg-[#80a0c1]/10 transition-colors">
-                            + Credits
-                          </button>
-                        </div>
-                      </td>
+            }
+          >
+            {filteredUsers.length > 0 ? (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left">
+                  <thead>
+                    <tr className="border-b border-white/[0.06]">
+                      <th className={thCls}>User</th>
+                      <th className={thCls}>Wallet</th>
+                      <th className={thNumCls}>Credits</th>
+                      <th className={thNumCls}>Worker jobs</th>
+                      <th className={thNumCls}>Worker earned</th>
+                      <th className={`${thCls} pr-0 text-right`}>Actions</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </section>
-          );
-        })()}
-
-        {/* Reputation */}
-        {tab === 'reputation' && (
-          <section className="border border-white/10 bg-white/[0.02] rounded-2xl p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="pixel-serif text-white text-lg">Worker Reputation ({reputation.length})</h2>
-              <span className="pixel-sans text-white/50 text-xs">Auto-ban at 5 strikes</span>
-            </div>
-            {reputation.length === 0 ? (
-              <p className="pixel-sans text-white/50 text-sm">No flagged workers yet. Strikes appear here when a worker fails a canary, coherence check, or returns output at impossible speed.</p>
+                  </thead>
+                  <tbody className="divide-y divide-white/[0.04]">
+                    {filteredUsers.map(u => (
+                      <tr key={u.privy_id}>
+                        <td className="py-3 pr-4">
+                          {u.x_username && <div className="pixel-sans text-white text-xs">@{u.x_username}</div>}
+                          <div className="pixel-sans text-white/40 text-[10px] font-mono">{u.privy_id.slice(-16)}</div>
+                        </td>
+                        <td className="pixel-sans text-white/70 text-xs py-3 pr-4 font-mono">
+                          {u.wallet_address ? `${u.wallet_address.slice(0, 4)}...${u.wallet_address.slice(-4)}` : '—'}
+                        </td>
+                        <td className="py-3 pr-4 text-right whitespace-nowrap">
+                          <span className="pixel-sans text-white/80 text-xs tabular-nums">{u.credit_balance.toFixed(0)}</span>
+                          <span className="pixel-sans text-white/40 text-[10px] ml-1.5 tabular-nums">{u.credits_spent.toFixed(0)} spent</span>
+                        </td>
+                        <td className="pixel-sans text-white/60 text-xs py-3 pr-4 text-right tabular-nums">{u.worker_jobs}</td>
+                        <td className="pixel-sans text-white/60 text-xs py-3 pr-4 text-right tabular-nums">${u.worker_earnings_usd.toFixed(2)}</td>
+                        <td className="py-3">
+                          <div className="flex gap-2 justify-end">
+                            <button onClick={() => handleSetCredits(u.privy_id)} className={btnGhostSmall}>
+                              Set credits
+                            </button>
+                            <button onClick={() => handleAddCredits(u.privy_id)} className="cursor-pointer pixel-sans text-[11px] px-2.5 py-1 rounded-md border border-[#80a0c1]/30 text-[#80a0c1]/80 hover:text-[#80a0c1] hover:bg-[#80a0c1]/10 transition-colors whitespace-nowrap">
+                              Add credits
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left">
-                <thead>
-                  <tr className="border-b border-white/5">
-                    {['Worker', 'Canary ✓/✗', 'Coherence ✗', 'Speed ✗', 'Total Strikes', 'Status', 'Last Activity', 'Actions'].map(h => (
-                      <th key={h} className="pixel-sans text-white/60 text-[10px] uppercase tracking-wider pb-2 pr-4">{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {reputation.map(r => (
-                    <tr key={r.privy_id} className="border-b border-white/[0.03]">
-                      <td className="py-3 pr-4">
-                        {r.x_username && <div className="pixel-sans text-white text-xs">@{r.x_username}</div>}
-                        <div className="pixel-sans text-white/55 text-[10px] font-mono">{r.privy_id.slice(-16)}</div>
-                      </td>
-                      <td className="pixel-sans text-xs py-3 pr-4">
-                        <span className="text-green-400">{r.canary_passed}</span>
-                        <span className="text-white/40"> / </span>
-                        <span className={r.canary_failed > 0 ? 'text-red-400' : 'text-white/50'}>{r.canary_failed}</span>
-                      </td>
-                      <td className={`pixel-sans text-xs py-3 pr-4 ${r.coherence_failed > 0 ? 'text-red-400' : 'text-white/50'}`}>{r.coherence_failed}</td>
-                      <td className={`pixel-sans text-xs py-3 pr-4 ${r.speed_strikes > 0 ? 'text-red-400' : 'text-white/50'}`}>{r.speed_strikes}</td>
-                      <td className="pixel-sans text-xs py-3 pr-4">
-                        <span className={r.total_strikes >= 3 ? 'text-red-400' : r.total_strikes > 0 ? 'text-yellow-400' : 'text-white/50'}>{r.total_strikes}</span>
-                      </td>
-                      <td className="pixel-sans text-xs py-3 pr-4">
-                        {r.banned ? (
-                          <span className="px-2 py-0.5 rounded text-[10px] bg-red-500/15 text-red-400" title={r.ban_reason || undefined}>banned</span>
-                        ) : (
-                          <span className="px-2 py-0.5 rounded text-[10px] bg-green-500/15 text-green-400">ok</span>
-                        )}
-                      </td>
-                      <td className="pixel-sans text-white/60 text-xs py-3 pr-4">{r.updated_at ? new Date(r.updated_at).toLocaleString() : '—'}</td>
-                      <td className="py-3">
-                        {r.banned ? (
-                          <button onClick={() => handleUnban(r.privy_id)} className="cursor-pointer pixel-sans text-[10px] px-2 py-1 rounded border border-[#80a0c1]/30 text-[#80a0c1]/60 hover:text-[#80a0c1] hover:bg-[#80a0c1]/10 transition-colors">
-                            Unban
-                          </button>
-                        ) : (
-                          <span className="pixel-sans text-white/30 text-[10px]">—</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+              <p className="pixel-sans text-white/40 text-xs">
+                {search.trim() ? 'No users match this search.' : 'No users loaded.'}
+              </p>
             )}
-          </section>
+          </TableCard>
+        )}
+
+        {/* ── Reputation ── */}
+        {tab === 'reputation' && (
+          <TableCard
+            title="Worker reputation"
+            meta={reputation.length}
+            action={<span className="pixel-sans text-white/40 text-xs">Workers are banned automatically at 5 strikes</span>}
+          >
+            {reputation.length === 0 ? (
+              <p className="pixel-sans text-white/40 text-xs leading-relaxed">
+                No flagged workers yet. Strikes appear here when a worker fails a canary, fails a coherence check, or returns output at impossible speed.
+              </p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left">
+                  <thead>
+                    <tr className="border-b border-white/[0.06]">
+                      <th className={thCls}>Worker</th>
+                      <th className={thNumCls}>Canary pass / fail</th>
+                      <th className={thNumCls}>Coherence fails</th>
+                      <th className={thNumCls}>Speed strikes</th>
+                      <th className={thNumCls}>Total strikes</th>
+                      <th className={thCls}>Status</th>
+                      <th className={thCls}>Last activity</th>
+                      <th className={`${thCls} pr-0 text-right`}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-white/[0.04]">
+                    {reputation.map(r => (
+                      <tr key={r.privy_id}>
+                        <td className="py-3 pr-4">
+                          {r.x_username && <div className="pixel-sans text-white text-xs">@{r.x_username}</div>}
+                          <div className="pixel-sans text-white/40 text-[10px] font-mono">{r.privy_id.slice(-16)}</div>
+                        </td>
+                        <td className="pixel-sans text-xs py-3 pr-4 text-right tabular-nums whitespace-nowrap">
+                          <span className="text-emerald-400">{r.canary_passed}</span>
+                          <span className="text-white/30"> / </span>
+                          <span className={r.canary_failed > 0 ? 'text-red-400' : 'text-white/50'}>{r.canary_failed}</span>
+                        </td>
+                        <td className={`pixel-sans text-xs py-3 pr-4 text-right tabular-nums ${r.coherence_failed > 0 ? 'text-red-400' : 'text-white/50'}`}>{r.coherence_failed}</td>
+                        <td className={`pixel-sans text-xs py-3 pr-4 text-right tabular-nums ${r.speed_strikes > 0 ? 'text-red-400' : 'text-white/50'}`}>{r.speed_strikes}</td>
+                        <td className={`pixel-sans text-xs py-3 pr-4 text-right tabular-nums ${r.total_strikes >= 3 ? 'text-red-400' : r.total_strikes > 0 ? 'text-amber-400' : 'text-white/50'}`}>{r.total_strikes}</td>
+                        <td className="py-3 pr-4">
+                          {r.banned ? (
+                            <Chip tone="negative" title={r.ban_reason || undefined}>banned</Chip>
+                          ) : (
+                            <Chip tone="positive">ok</Chip>
+                          )}
+                        </td>
+                        <td className="pixel-sans text-white/50 text-xs py-3 pr-4 tabular-nums">{r.updated_at ? new Date(r.updated_at).toLocaleString() : '—'}</td>
+                        <td className="py-3 text-right">
+                          {r.banned ? (
+                            <button onClick={() => handleUnban(r.privy_id)} className="cursor-pointer pixel-sans text-[11px] px-2.5 py-1 rounded-md border border-[#80a0c1]/30 text-[#80a0c1]/80 hover:text-[#80a0c1] hover:bg-[#80a0c1]/10 transition-colors whitespace-nowrap">
+                              Unban
+                            </button>
+                          ) : (
+                            <span className="pixel-sans text-white/30 text-[10px]">—</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </TableCard>
         )}
       </main>
     </div>
