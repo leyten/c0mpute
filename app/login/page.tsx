@@ -7,7 +7,6 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Captcha, usePrivy, useLoginWithOAuth, useLoginWithSiws } from '@privy-io/react-auth';
 import { getWallets } from '@wallet-standard/app';
-import bs58 from 'bs58';
 
 const NEXT_KEY = 'c0mpute_login_next';
 
@@ -154,9 +153,13 @@ function LoginInner() {
         });
         if (!signed) throw new Error('Wallet did not sign the message');
 
+        // Privy's server expects the signature BASE64-encoded — its own
+        // internal SIWS flow does base64(signature); base58 gets decoded to
+        // garbage and every login dies with "Invalid SIWS message and/or
+        // nonce".
         await loginWithSiws({
           message,
-          signature: bs58.encode(signed.signature),
+          signature: btoa(String.fromCharCode(...signed.signature)),
           walletClientType: wallet.name.toLowerCase().split(' ')[0],
           connectorType: 'injected',
         });
