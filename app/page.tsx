@@ -34,24 +34,15 @@ export default function Home() {
 
   const { isLoading, isAuthenticated, login } = useAuth();
   
-  // After the X OAuth round-trip, continue to chat — but only on the explicit
-  // post-login flag (sessionStorage, so it dies with the tab). A leftover
-  // PENDING_PROMPT_KEY alone must NOT redirect: it's written on every hero
-  // keystroke-submit and survives in localStorage if the chat page never got
-  // to consume it, which made every later login bounce straight to /chat.
+  // Post-login routing moved to /login (?next=). If an authenticated user
+  // lands here, just drop any stale abandoned hero prompt: it's written on
+  // every keystroke-submit and survives in localStorage if the chat page
+  // never got to consume it, which made later visits ghost-inject it.
   useEffect(() => {
     if (!isLoading && isAuthenticated) {
-      const postLogin = sessionStorage.getItem('c0mpute_post_login_redirect');
-      if (postLogin) {
-        sessionStorage.removeItem('c0mpute_post_login_redirect');
-        router.push('/chat');
-      } else {
-        // No redirect intent this session — drop any stale abandoned prompt
-        // so it can't ghost-inject into the next chat visit.
-        localStorage.removeItem(PENDING_PROMPT_KEY);
-      }
+      localStorage.removeItem(PENDING_PROMPT_KEY);
     }
-  }, [isLoading, isAuthenticated, router]);
+  }, [isLoading, isAuthenticated]);
   
   
   const TOKEN_CA = 'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX'; // Replace with actual CA
@@ -104,7 +95,7 @@ export default function Home() {
           mode="softlogin"
           freePromptLimit={5}
           onClose={() => setAnonModalOpen(false)}
-          onSignIn={() => { sessionStorage.setItem('c0mpute_post_login_redirect', '1'); login(); setAnonModalOpen(false); }}
+          onSignIn={() => { login(); setAnonModalOpen(false); }}
         />
       )}
       {/* Header */}

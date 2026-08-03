@@ -137,7 +137,7 @@ export default function SiteNav() {
                 </div>
               ) : (
                 <button
-                  onClick={() => { sessionStorage.setItem('c0mpute_post_login_redirect', '1'); login(); }}
+                  onClick={() => login()}
                   className="pixel-serif-logo text-sm px-3 md:px-4 py-2 border border-white/20 rounded-lg text-white hover:bg-white/5 transition-colors">
                   Login
                 </button>
@@ -275,7 +275,7 @@ export default function SiteNav() {
                   </>
                 ) : (
                   <button
-                    onClick={() => { sessionStorage.setItem('c0mpute_post_login_redirect', '1'); login(); setMenuOpen(false); }}
+                    onClick={() => { login(); setMenuOpen(false); }}
                     className="pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide"
                   >
                     Login

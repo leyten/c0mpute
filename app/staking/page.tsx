@@ -77,7 +77,7 @@ function HowItWorks() {
 }
 
 export default function StakingPage() {
-  const { ready, authenticated, login, user, getAccessToken } = usePrivy();
+  const { ready, authenticated, user, getAccessToken } = usePrivy();
   const { linkWallet } = useLinkAccount();
   const { connectWallet } = useConnectWallet();
   const { wallets } = useWallets();
@@ -304,7 +304,7 @@ export default function StakingPage() {
                 <p className="pixel-sans text-white/60 text-sm mb-6 max-w-sm mx-auto">
                   Sign in to view your vault, stake <span className="dollar">$</span>ZERO, and claim <span className="dollar">$</span>USDC rewards.
                 </p>
-                <button onClick={login} className={`${btn} px-10`}>Log in</button>
+                <button onClick={() => window.location.assign('/login?next=/staking')} className={`${btn} px-10`}>Log in</button>
               </div>
               <HowItWorks />
             </>
