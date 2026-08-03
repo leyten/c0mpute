@@ -16,7 +16,9 @@ export async function POST(req: NextRequest) {
   // Global circuit breaker: once today's free-prompt budget is spent, don't hand
   // out anonymous sessions — the homepage shows the soft sign-in prompt instead.
   if (getTodayFreeSubsidyUsd() >= FREE_SUBSIDY_DAILY_CAP_USD) {
-    return NextResponse.json({ capReached: true });
+    // still carry the limit: the sign-in prompt this triggers names the number
+    // of free prompts an account gets, and that offer stands.
+    return NextResponse.json({ capReached: true, limit: ANON_FREE_PROMPT_LIMIT });
   }
 
   const ipHash = hashIp(clientIp(req));

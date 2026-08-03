@@ -17,6 +17,11 @@ const PLAN_OPTIONS: { id: PlanId; name: string; cost: string; features: string[]
 ];
 const planName = (id: PlanId): string => PLAN_OPTIONS.find(p => p.id === id)?.name ?? id;
 
+/* The ledger's own words for a transaction type. The subsidized kinds cost 0
+   credits and are there so a free prompt still shows up in the history. */
+const TX_LABELS: Record<string, string> = { free_prompt: 'welcome', staker_allowance: 'staking' };
+const txLabel = (type: string): string => TX_LABELS[type] ?? type;
+
 /* ---------- shared button styles ---------- */
 const btnPrimary = 'cursor-pointer pixel-sans text-[13px] font-medium px-4 py-2 rounded-lg bg-white text-black hover:bg-white/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed';
 const btnSecondary = 'cursor-pointer pixel-sans text-[13px] px-4 py-2 rounded-lg border border-white/20 text-white hover:bg-white/5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed';
@@ -254,7 +259,9 @@ export default function SettingsPage() {
     try {
       const t = await getAccessToken();
       if (!t) return;
-      const res = await fetch('/api/credits', { headers: { Authorization: `Bearer ${t}` } });
+      // wide enough that free prompts (0-credit rows) can't push the deposits
+      // and spends out of the history card below
+      const res = await fetch('/api/credits?tx=100', { headers: { Authorization: `Bearer ${t}` } });
       if (res.ok) {
         const data = await res.json();
         setCredits(data);
@@ -1048,12 +1055,12 @@ export default function SettingsPage() {
                                 tx.type === 'deposit' ? 'bg-emerald-400/10 text-emerald-400' :
                                 tx.type === 'refund' ? 'bg-[#80a0c1]/10 text-[#80a0c1]' :
                                 'bg-white/5 text-white/60'
-                              }`}>{tx.type}</span>
+                              }`}>{txLabel(tx.type)}</span>
                               <span className="pixel-sans text-white/60 text-xs truncate">{tx.description}</span>
                             </div>
                             <div className="flex items-baseline gap-3 flex-shrink-0">
-                              <span className={`pixel-sans text-sm tabular-nums ${tx.type === 'spend' ? 'text-white/60' : 'text-emerald-400/90'}`}>
-                                {tx.type === 'spend' ? '-' : '+'}{tx.amount}
+                              <span className={`pixel-sans text-sm tabular-nums ${tx.amount === 0 || tx.type === 'spend' ? 'text-white/60' : 'text-emerald-400/90'}`}>
+                                {tx.amount === 0 ? '0' : `${tx.type === 'spend' ? '-' : '+'}${tx.amount}`}
                               </span>
                               <span className="pixel-sans text-white/40 text-[11px] tabular-nums">{new Date(tx.created_at).toLocaleDateString()}</span>
                             </div>

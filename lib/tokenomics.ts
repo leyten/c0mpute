@@ -79,9 +79,9 @@ export const ANON_IP_DAILY_CAP = Number(process.env.ANON_IP_DAILY_CAP || 8);
 export const ACCOUNT_CREATE_IP_DAILY_CAP = Number(process.env.ACCOUNT_CREATE_IP_DAILY_CAP || 5);
 
 // ── Staker inference allowance (Venice-style "stake → daily free inference") ──
-// FLAGGED OFF by default. When on, matured-stake holders draw a daily pro-rata
-// allowance of FREE inference from the capped pool below before paying USDC.
-// See lib/staker-allowance.ts for the engine.
+// Gated by the STAKER_ALLOWANCE_ENABLED env flag (on in production). When on,
+// matured-stake holders draw a daily pro-rata allowance of FREE inference from
+// the capped pool below before paying USDC. See lib/staker-allowance.ts.
 export const STAKER_ALLOWANCE_ENABLED = (process.env.STAKER_ALLOWANCE_ENABLED || '').toLowerCase() === 'true';
 // Total free-inference credits handed to ALL stakers per UTC day — the hard cost
 // ceiling (worst-case worker subsidy = POOL × share ÷ CREDITS_PER_USD). Start
@@ -103,6 +103,14 @@ export const STAKER_ALLOWANCE_ALLOWLIST = (process.env.STAKER_ALLOWANCE_ALLOWLIS
   .split(',')
   .map((s) => s.trim())
   .filter(Boolean);
+
+// ── Prompt pricing ──
+
+// What one prompt costs the user, by tier. Deep thinking (Max only) costs more
+// because it generates ~2x the tokens and runs ~2x as long. The orchestrator
+// charges from here, and /api/credits hands the same numbers to the client, so
+// nothing in the UI has to guess what a prompt costs.
+export const TIER_CREDIT_COST = { pro: 10, max: 15, maxDeep: 20 } as const;
 
 // ── Worker revenue share ──
 
