@@ -114,3 +114,7 @@ data-site/network.json
 
 # untracked working notes
 scratchpad/
+
+# Local authoring artefacts — the pitch deck source and its build output
+pitch-script.tex
+pitch-script.pdf
