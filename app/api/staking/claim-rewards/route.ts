@@ -14,7 +14,8 @@ const lastAttempt: Map<string, number> = new Map();
 // POST /api/staking/claim-rewards { address, amount } — pay out accrued USDC
 // staking rewards to a Solana address. Same atomic debit-before-send pattern as
 // worker payouts: createRewardWithdrawal reserves the balance, sendUsdc moves
-// it, failure restores it.
+// it, and a failed send parks the payout for review (the balance stays debited
+// until it's confirmed not to have landed) rather than auto-restoring.
 export async function POST(req: NextRequest) {
   const authHeader = req.headers.get('authorization');
   if (!authHeader?.startsWith('Bearer ')) {
@@ -64,6 +65,6 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     markRewardPayoutFailed(result.payoutId);
     console.error('[StakingRewards] Transfer failed:', err);
-    return NextResponse.json({ error: 'Claim failed — your reward balance is unchanged' }, { status: 500 });
+    return NextResponse.json({ error: 'Claim could not be confirmed — it is being reviewed and your reward balance is held until it resolves.' }, { status: 500 });
   }
 }

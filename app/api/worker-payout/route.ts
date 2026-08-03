@@ -71,6 +71,6 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     markPayoutFailed(result.payoutId);
     console.error('[Payout] Transfer failed:', err);
-    return NextResponse.json({ error: 'Transfer failed — your balance is unchanged' }, { status: 500 });
+    return NextResponse.json({ error: 'Transfer could not be confirmed — it is being reviewed and your balance is held until it resolves.' }, { status: 500 });
   }
 }
