@@ -766,6 +766,12 @@ function ensureApiKeysTable() {
   if (!cols.some((c) => c.name === 'free_only')) {
     db.exec(`ALTER TABLE api_keys ADD COLUMN free_only INTEGER DEFAULT 0`);
   }
+  // key_prefix: first chars of the raw key ("sk-c0mpute-Ab3d") so the list can
+  // show something recognizable. Keys created before this stay NULL — the raw
+  // key was never stored, so their prefix is unrecoverable.
+  if (!cols.some((c) => c.name === 'key_prefix')) {
+    db.exec(`ALTER TABLE api_keys ADD COLUMN key_prefix TEXT`);
+  }
 }
 
 function generateApiKey(): string {
@@ -780,8 +786,8 @@ export function createApiKey(privyId: string, name?: string, freeOnly = false): 
   const id = crypto.randomUUID();
   const now = new Date().toISOString();
   db.prepare(
-    'INSERT INTO api_keys (id, privy_id, key_hash, name, created_at, free_only) VALUES (?, ?, ?, ?, ?, ?)'
-  ).run(id, privyId, hashToken(key), name || 'default', now, freeOnly ? 1 : 0);
+    'INSERT INTO api_keys (id, privy_id, key_hash, name, created_at, free_only, key_prefix) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).run(id, privyId, hashToken(key), name || 'default', now, freeOnly ? 1 : 0, key.slice(0, 15));
   return key;
 }
 
@@ -804,12 +810,12 @@ export function resolveApiKeyFull(rawKey: string): { privyId: string; keyId: str
   return { privyId: row.privy_id, keyId: row.id, freeOnly: row.free_only === 1 };
 }
 
-export function getApiKeys(privyId: string): { id: string; name: string; created_at: string; last_used_at: string | null; free_only: number; requests_today: number }[] {
+export function getApiKeys(privyId: string): { id: string; name: string; created_at: string; last_used_at: string | null; free_only: number; key_prefix: string | null; requests_today: number }[] {
   ensureApiKeysTable();
   const db = getDb();
   const day = new Date().toISOString().slice(0, 10);
   return db.prepare(
-    `SELECT k.id, k.name, k.created_at, k.last_used_at, k.free_only,
+    `SELECT k.id, k.name, k.created_at, k.last_used_at, k.free_only, k.key_prefix,
             COALESCE(u.requests, 0) AS requests_today
        FROM api_keys k
        LEFT JOIN api_key_usage u ON u.key_id = k.id AND u.day = ?

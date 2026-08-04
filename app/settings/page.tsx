@@ -188,7 +188,7 @@ export default function SettingsPage() {
   const [tokenGenerating, setTokenGenerating] = useState(false);
   const [tokenError, setTokenError] = useState<string | null>(null);
   // API keys (public inference API)
-  const [apiKeys, setApiKeys] = useState<{id: string; name: string; created_at: string; last_used_at: string | null; free_only?: number; requests_today?: number}[]>([]);
+  const [apiKeys, setApiKeys] = useState<{id: string; name: string; created_at: string; last_used_at: string | null; free_only?: number; key_prefix?: string | null; requests_today?: number}[]>([]);
   const [loadingApiKeys, setLoadingApiKeys] = useState(false);
   const [newApiKey, setNewApiKey] = useState<string | null>(null);
   const [apiKeyGenerating, setApiKeyGenerating] = useState(false);
@@ -874,7 +874,7 @@ export default function SettingsPage() {
                             {apiKeys.map(k => (
                               <div key={k.id} className="flex items-center justify-between gap-3 py-2.5">
                                 <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 min-w-0">
-                                  <span className="pixel-sans text-white/80 text-xs font-mono">{k.id.slice(0, 8)}...</span>
+                                  <span className="pixel-sans text-white/80 text-xs font-mono">{k.key_prefix ? `${k.key_prefix}...` : 'sk-c0mpute-...'}</span>
                                   {k.free_only ? (
                                     <span className="pixel-sans text-[#80a0c1] text-[10px] px-1.5 py-0.5 rounded border border-[#80a0c1]/30">resale</span>
                                   ) : null}
