@@ -35,15 +35,18 @@
     ".next/types/**/*.ts",
     ".next/dev/types/**/*.ts",
     "**/*.mts",
-    ".next-dev/types/**/*.ts",
-    ".next-dev/dev/types/**/*.ts",
     ".next-new/types/**/*.ts",
-    ".next-new/dev/types/**/*.ts",
-    ".next-rel/types/**/*.ts",
-    ".next-rel/dev/types/**/*.ts"
+    ".next-new/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",
-    "scripts"
+    "scripts",
+    ".next",
+    ".next-dev",
+    ".next-new",
+    ".next-rel",
+    ".next-rollback",
+    ".next-old",
+    ".next-broken"
   ]
 }
