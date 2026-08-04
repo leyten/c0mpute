@@ -8,15 +8,6 @@ import { useAuth } from '@/hooks/useAuth';
 
 type Tab = 'account' | 'worker' | 'developer' | 'usage' | 'referrals';
 
-// Selectable models (must mirror the chat composer + orchestrator catalog).
-type PlanId = 'pro' | 'max' | 'max-sg';
-const PLAN_OPTIONS: { id: PlanId; name: string; cost: string; features: string[] }[] = [
-  { id: 'pro', name: 'Pro', cost: '10 cr', features: ['Qwen3 8B', 'Browser-powered', 'Uncensored'] },
-  { id: 'max', name: 'Qwen3.5 27B', cost: '15 cr', features: ['Qwen3.5 27B', 'Native inference', 'Uncensored', 'Web search', 'Vision'] },
-  { id: 'max-sg', name: 'SuperGemma4 26B', cost: '15 cr', features: ['SuperGemma4 26B (MoE)', 'Native inference', 'Uncensored', 'Web search', 'Thinking'] },
-];
-const planName = (id: PlanId): string => PLAN_OPTIONS.find(p => p.id === id)?.name ?? id;
-
 /* The ledger's own words for a transaction type. The subsidized kinds cost 0
    credits and are there so a free prompt still shows up in the history. */
 const TX_LABELS: Record<string, string> = { free_prompt: 'welcome', staker_allowance: 'staking' };
@@ -209,9 +200,6 @@ export default function SettingsPage() {
   // Usage tab state
   const [credits, setCredits] = useState<{balance: number; totalDeposited?: number; totalSpent?: number; depositWallet?: string; recentTransactions?: {created_at: string; type: string; amount: number; description: string}[]; config?: {creditsPerUsd: number}} | null>(null);
   const [usage, setUsage] = useState<{totalRequests: number; totalTokens: number; byModel: {model: string; requests: number; tokens: number}[]} | null>(null);
-  const [activePlan, setActivePlan] = useState<PlanId>('pro');
-  const [planConfirm, setPlanConfirm] = useState<PlanId | null>(null);
-  const [planSwitching, setPlanSwitching] = useState(false);
   const [checkingDeposit, setCheckingDeposit] = useState(false);
   const [depositResult, setDepositResult] = useState<string | null>(null);
   const [topUpUsd, setTopUpUsd] = useState('');
@@ -293,14 +281,6 @@ export default function SettingsPage() {
     } else if (activeTab === 'usage') {
       fetchCredits();
       fetchUsage();
-      // Fetch active plan
-      getAccessToken().then(t => {
-        if (!t) return;
-        fetch('/api/plan', { headers: { Authorization: `Bearer ${t}` } })
-          .then(r => r.ok ? r.json() : null)
-          .then(data => { if (data?.plan) setActivePlan(data.plan); })
-          .catch(() => {});
-      });
     }
   }, [activeTab, isAuthenticated]);
 
@@ -313,23 +293,6 @@ export default function SettingsPage() {
   }, [isLoading, isAuthenticated, router]);
 
   const signedOut = !isLoading && !isAuthenticated;
-
-  const switchPlan = async (plan: PlanId) => {
-    setPlanSwitching(true);
-    try {
-      const t = await getAccessToken();
-      const res = await fetch('/api/plan', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ plan }),
-      });
-      if (res.ok) {
-        setActivePlan(plan);
-        setPlanConfirm(null);
-      }
-    } catch {}
-    finally { setPlanSwitching(false); }
-  };
 
   const generateToken = async () => {
     setTokenGenerating(true);
@@ -961,41 +924,6 @@ export default function SettingsPage() {
                     </div>
                   </Card>
 
-                  <Card title="Plan" description="The model used for your messages. Switching applies to all future messages.">
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                      {PLAN_OPTIONS.map((plan) => {
-                        const isActive = activePlan === plan.id;
-                        return (
-                          <button
-                            key={plan.id}
-                            onClick={() => { if (plan.id !== activePlan) setPlanConfirm(plan.id); }}
-                            className={`cursor-pointer relative p-4 rounded-xl border text-left transition-colors ${
-                              isActive
-                                ? 'border-[#80a0c1]/40 bg-[#80a0c1]/[0.06]'
-                                : 'border-white/10 bg-white/[0.02] hover:border-white/20'
-                            }`}
-                          >
-                            {isActive && (
-                              <span className="absolute top-3 right-3 pixel-sans text-[10px] px-1.5 py-0.5 bg-[#80a0c1]/20 text-[#80a0c1] rounded">
-                                Active
-                              </span>
-                            )}
-                            <div className="pixel-serif text-white text-lg">{plan.name}</div>
-                            <div className="pixel-sans text-white/50 text-xs mt-0.5 mb-3">{plan.cost} / message</div>
-                            <ul className="space-y-1.5">
-                              {plan.features.map((f, i) => (
-                                <li key={i} className="pixel-sans text-white/60 text-xs flex items-center gap-1.5">
-                                  <span className="text-[#80a0c1] flex-shrink-0"><IconCheck size={10} /></span>
-                                  {f}
-                                </li>
-                              ))}
-                            </ul>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </Card>
-
                   <Card
                     title="Top up"
                     description="Deposit USDC on Solana to add credits."
@@ -1070,23 +998,6 @@ export default function SettingsPage() {
                     </Card>
                   )}
 
-                  {/* Plan switch confirmation */}
-                  {planConfirm && (
-                    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[100] flex items-center justify-center p-4" onClick={() => setPlanConfirm(null)}>
-                      <div className="bg-[#0c0a09] border border-white/10 rounded-2xl p-6 max-w-sm w-full" onClick={ev => ev.stopPropagation()}>
-                        <h3 className="pixel-serif text-white text-lg">Switch to {planName(planConfirm)}?</h3>
-                        <p className="pixel-sans text-white/60 text-sm mt-2 mb-5 leading-relaxed">
-                          This will change the model used for all future messages.
-                        </p>
-                        <div className="flex gap-3">
-                          <button onClick={() => setPlanConfirm(null)} className={`${btnSecondary} flex-1`}>Cancel</button>
-                          <button onClick={() => switchPlan(planConfirm)} disabled={planSwitching} className={`${btnPrimary} flex-1`}>
-                            {planSwitching ? 'Switching' : 'Switch'}
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  )}
                 </>
               )}
 
