@@ -106,8 +106,8 @@ docs-site/build-preview/
 .next-new/
 
 # rollback snapshots of the served build (redesign deploy)
-.next-old/
-.next-rollback/
+.next-old
+.next-rollback
 
 # generated at runtime by c0mpute-networkmap.service
 data-site/network.json
