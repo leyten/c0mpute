@@ -36,6 +36,12 @@ export interface WorkerInfo {
   jobsSinceCanary?: number;
   // Epoch ms of the last canary dispatched to this worker.
   lastCanaryAt?: number;
+  // Context window the worker runs with, as reported at registration. Native
+  // workers self-tune it to their VRAM (8K on a small card, 32K on a 4090), so it
+  // varies across the pool. Undefined = unknown: browser/image workers never have
+  // one, and native workers from before this field existed (2.8.2 and older) never
+  // send it. Diagnostics only — dispatch does not consider it.
+  numCtx?: number;
 }
 
 // Tool calling types
@@ -143,7 +149,7 @@ export interface ServerToClientEvents {
 
 export interface ClientToServerEvents {
   'job:submit': (data: { messages?: ChatMessage[]; model?: string; authToken?: string; think?: boolean; privyUserId?: string; tools?: ToolDefinition[]; freeOnly?: boolean }, callback: (response: { jobId: string; freeRemaining?: number } | { error: string; code?: string }) => void) => void;
-  'worker:register': (data: { model: string; authToken?: string; tokPerSec?: number; type?: 'browser' | 'native' | 'image'; capabilities?: WorkerCapabilities }, callback: (response: { workerId: string } | { error: string }) => void) => void;
+  'worker:register': (data: { model: string; authToken?: string; tokPerSec?: number; type?: 'browser' | 'native' | 'image'; capabilities?: WorkerCapabilities; numCtx?: number }, callback: (response: { workerId: string } | { error: string }) => void) => void;
   'worker:unregister': () => void;
   'job:token': (data: { jobId: string; token: string }) => void;
   'job:complete': (data: { jobId: string; response: string; tokensGenerated: number }) => void;

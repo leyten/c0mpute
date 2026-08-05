@@ -93,6 +93,51 @@ function probeGarbagePrefix(
   }
 }
 
+// ── [ctx-exceeded] probe (diagnostics only) ────────────────────────────────
+// Native workers self-tune num_ctx to their VRAM (8K on a small card, 32K on a
+// 4090), but dispatch has never known a worker's window — so a long conversation
+// landing on a small worker truncates or dies with no trace. Workers now report
+// the window at registration; this counts how often we actually overrun one, so
+// we can size the problem before doing anything about it. MEASURE ONLY: nothing
+// here filters, reorders or influences dispatch.
+//
+// PRIVACY: logs sizes only. Never a prompt, never any message content.
+let ctxExceededHits = 0;
+
+/** Rough token count of what we're about to ship a worker: chars/4 over message
+ *  text. Attached images (base64) and the tool schemas are NOT counted, so this
+ *  under-estimates — a hit is a genuine overrun, not a false alarm. */
+function estimatePromptTokens(messages: ChatMessage[] | undefined): number {
+  let chars = 0;
+  for (const m of messages ?? []) {
+    if (typeof m?.content === 'string') chars += m.content.length;
+  }
+  return Math.ceil(chars / 4);
+}
+
+/** Read-only, exception-proof. Returns nothing and mutates nothing, so no call
+ *  site can change behaviour by adding it. Silent unless the worker's window is
+ *  KNOWN and the estimate clears it. */
+function probeCtxExceeded(
+  messages: ChatMessage[] | undefined,
+  jobId: string,
+  worker: { id: string; model: string; numCtx?: number },
+): void {
+  try {
+    const numCtx = worker.numCtx;
+    if (typeof numCtx !== 'number' || !(numCtx > 0)) return; // window unknown — nothing to compare
+    const estTokens = estimatePromptTokens(messages);
+    if (estTokens <= numCtx) return;
+    ctxExceededHits++;
+    console.warn(
+      `[Orchestrator] [ctx-exceeded] hit #${ctxExceededHits} job=${jobId} worker=${worker.id} ` +
+        `model=${worker.model} estTokens=${estTokens} numCtx=${numCtx}`
+    );
+  } catch {
+    // Diagnostics must never reach the hot path.
+  }
+}
+
 export class Orchestrator {
   private io: Server<ClientToServerEvents, ServerToClientEvents>;
   private swarmLoop!: ReturnType<typeof attachSwarmLoop>;   // the sharded-swarm control plane handle
@@ -436,11 +481,18 @@ export class Orchestrator {
           capabilities.vision = false;
           capabilities.tools = false;
         }
-        const workerId = this.registerWorker(socket, data.model, privyUserId, tokPerSec, workerType, capabilities, workerIp, accountAgeOk);
+        // Context window the worker runs with. Optional and untrusted: absent from
+        // browser/image workers and from natives older than 2.8.2, and a modified
+        // worker could send anything — so only a finite positive number is kept,
+        // everything else stays undefined ("window unknown"). Diagnostics only.
+        const numCtx = typeof data.numCtx === 'number' && Number.isFinite(data.numCtx) && data.numCtx > 0
+          ? Math.floor(data.numCtx)
+          : undefined;
+        const workerId = this.registerWorker(socket, data.model, privyUserId, tokPerSec, workerType, capabilities, workerIp, accountAgeOk, numCtx);
         if (workerId) {
           callback({ workerId });
           socket.emit('worker:registered', { workerId });
-          console.log(`[Orchestrator] Worker registered: ${workerId} (${data.model}) ${tokPerSec.toFixed(1)} tok/s type=${workerType} caps=${JSON.stringify(capabilities)} user=${privyUserId} ip=${workerIp} aged=${accountAgeOk}`);
+          console.log(`[Orchestrator] Worker registered: ${workerId} (${data.model}) ${tokPerSec.toFixed(1)} tok/s type=${workerType} caps=${JSON.stringify(capabilities)} user=${privyUserId} ip=${workerIp} aged=${accountAgeOk} ctx=${numCtx ?? 'unknown'}`);
           this.broadcastStats();
           // Both native (text) and image workers are user-run CLI workers, so both
           // drive the "your worker is online" card. Only 'browser' is excluded.
@@ -992,7 +1044,7 @@ export class Orchestrator {
     return accounts.size;
   }
 
-  private registerWorker(socket: Socket, model: string, privyUserId?: string, tokPerSec: number = 0, type: 'browser' | 'native' | 'image' = 'browser', capabilities: WorkerCapabilities = {}, ip?: string, accountAgeOk: boolean = false): string | null {
+  private registerWorker(socket: Socket, model: string, privyUserId?: string, tokPerSec: number = 0, type: 'browser' | 'native' | 'image' = 'browser', capabilities: WorkerCapabilities = {}, ip?: string, accountAgeOk: boolean = false, numCtx?: number): string | null {
     try {
       const workerId = uuidv4();
       const worker: WorkerInfo = {
@@ -1009,6 +1061,7 @@ export class Orchestrator {
         privyUserId,
         ip,
         accountAgeOk,
+        numCtx,
       };
       this.workers.set(socket.id, worker);
       return workerId;
@@ -1349,6 +1402,10 @@ export class Orchestrator {
           : undefined);
 
       workerSocket.emit('job:new', { jobId: job.id, messages, tools, think: job.think ?? false });
+
+      // Diagnostics: did we just hand this worker more prompt than its context
+      // window holds? Runs AFTER the emit so it cannot touch what was dispatched.
+      probeCtxExceeded(messages, job.id, idleWorker);
 
       if (idleWorker.type === 'native' && idleWorker.privyUserId) {
         this.pushNativeStatus(idleWorker.privyUserId);

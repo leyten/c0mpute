@@ -42,7 +42,11 @@ function pickNumCtx(vramMB: number): number {
 }
 
 const DETECTED_VRAM_MB = detectVramMB();
-const NUM_CTX = pickNumCtx(DETECTED_VRAM_MB);
+
+/** The context window this worker actually runs with — baked into the model below
+ *  (and rebuilt if it ever drifts, see modelConfigCurrent), so it's the effective
+ *  window, not an intent. Exported so registration can report it. */
+export const NUM_CTX = pickNumCtx(DETECTED_VRAM_MB);
 
 // Parameters baked into the custom model. Change any of these and updated
 // workers automatically rebuild their local model to match — no manual
