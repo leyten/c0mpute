@@ -564,8 +564,12 @@ export default function Chat() {
       />
 
       <main className="relative flex min-w-0 flex-1 flex-col">
-        {/* floating controls instead of a header bar */}
-        <div className="absolute left-3 top-3 z-20 flex items-center gap-1 md:hidden">
+        {/* floating controls instead of a header bar. They belong over the
+            thread, not over the composer: at z-20 they painted through the
+            instructions panel, which opens upward into this corner on a phone.
+            The same layer as the composer puts them behind it, since it comes
+            later in the tree. */}
+        <div className="absolute left-3 top-3 z-10 flex items-center gap-1 md:hidden">
           <button onClick={() => setRailOpen(true)} className="grid h-9 w-9 place-items-center rounded-xl text-white/55 hover:bg-white/[0.06]"><Panel /></button>
           <button onClick={startNew} className="grid h-9 w-9 place-items-center rounded-xl text-white/55 hover:bg-white/[0.06]"><Plus /></button>
         </div>

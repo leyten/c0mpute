@@ -274,6 +274,18 @@
   .cu-quiet { opacity: 1; }
 }
 
+/* ---------- short windows ----------
+   A phone held sideways has ~360px of height for everything. The slab is
+   sized for a tall window, and there it took nearly half the screen at rest
+   and almost all of it once a draft had grown — the conversation it belongs
+   to was gone. Only the height sees this, so it is the height that gates it:
+   trim the padding and hold the field to a share of the window. */
+@media (max-height: 520px) {
+  .cu .cu-composer { padding-top: 0; padding-bottom: 0.5rem; }
+  .cu-composer .cu-field { padding-top: 0.625rem; max-height: 6rem; }
+  .cu-composer .cu-bar { padding-bottom: 0.5rem; padding-top: 0.25rem; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .cu-fade, .cu-caret, .cu-dots span { animation: none !important; }
 }

@@ -46,11 +46,20 @@ export default function Composer({
   // and the send button is the way out. Read once; a pointer does not change.
   const [coarse] = useState(() => typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches);
 
+  // The height is measured, so it is only right for the width it was measured
+  // at. A phone rotating, or a keyboard opening, changes that width without
+  // touching `value` — and the field kept the old height, which is how a two
+  // line draft turned into a half-screen slab of empty space in landscape.
   useEffect(() => {
     const el = ta.current;
     if (!el) return;
-    el.style.height = 'auto';
-    el.style.height = Math.min(el.scrollHeight, 224) + 'px';
+    const fit = () => {
+      el.style.height = 'auto';
+      el.style.height = Math.min(el.scrollHeight, 224) + 'px';
+    };
+    fit();
+    window.addEventListener('resize', fit);
+    return () => window.removeEventListener('resize', fit);
   }, [value, ta]);
 
   useEffect(() => {
@@ -81,7 +90,7 @@ export default function Composer({
   const hasInstructions = instructions.trim().length > 0;
 
   return (
-    <div className={centered ? '' : 'pb-5 pt-2'}>
+    <div className={`cu-composer ${centered ? '' : 'pb-5 pt-2'}`}>
       <div className="relative mx-auto w-full max-w-[46rem] px-4">
         {instrOpen && (
           <Instructions
@@ -132,32 +141,37 @@ export default function Composer({
               if (imgs.length) { e.preventDefault(); void addFiles(e.clipboardData.files); }
             }}
             placeholder="Ask anything"
-            className="cu-scroll block w-full resize-none bg-transparent px-5 pt-4 text-[16px] leading-[1.6] outline-none placeholder:text-white/30"
+            className="cu-field cu-scroll block w-full resize-none bg-transparent px-5 pt-4 text-[16px] leading-[1.6] outline-none placeholder:text-white/30"
             style={{ color: 'var(--cu-text)' }}
           />
 
-          {/* controls live inside the slab */}
-          <div className="flex items-center gap-1.5 px-3 pb-3 pt-1.5">
+          {/* controls live inside the slab.
+              Everything here but the model name is a fixed size, so `shrink-0`
+              holds it: a phone-width row with a long model name used to squeeze
+              the icon buttons narrower than their own glyph, which is how the
+              paperclip ended up sitting on the model chip and the send arrow
+              ended up outside the slab. The name is the one thing that gives. */}
+          <div className="cu-bar flex items-center gap-1.5 px-3 pb-3 pt-1.5">
             <button
               onClick={() => file.current?.click()}
               disabled={!plan.vision || images.length >= 4}
               title={plan.vision ? 'Attach an image' : 'This model does not read images'}
-              className="grid h-9 w-9 place-items-center rounded-full text-white/45 transition-colors hover:text-white/85 disabled:opacity-30 disabled:hover:text-white/45"
+              className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-white/45 transition-colors hover:text-white/85 disabled:opacity-30 disabled:hover:text-white/45"
             ><Clip /></button>
             <input ref={file} type="file" accept="image/*" multiple hidden onChange={e => { void addFiles(e.target.files); e.target.value = ''; }} />
 
             {/* model */}
-            <div className="relative" data-model-menu>
+            <div className="relative min-w-0" data-model-menu>
               <button
                 onClick={() => setMenu(v => !v)}
-                className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[13px] transition-colors hover:bg-white/[0.06]"
+                className="flex w-full items-center gap-1.5 rounded-full px-3 py-1.5 text-[13px] transition-colors hover:bg-white/[0.06]"
                 style={{ color: 'var(--cu-dim)' }}
               >
                 {engine.workerCount(plan) > 0 && (
-                  <span className="h-1.5 w-1.5 rounded-full" style={{ background: 'var(--cu-live)' }} />
+                  <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: 'var(--cu-live)' }} />
                 )}
-                {plan.name}
-                <Chevron className="opacity-60" />
+                <span className="truncate">{plan.name}</span>
+                <Chevron className="shrink-0 opacity-60" />
               </button>
 
               {menu && (
@@ -173,11 +187,14 @@ export default function Composer({
             {plan.thinking && (
               <button
                 onClick={() => onThink(!think)}
-                className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[13px] transition-colors hover:bg-white/[0.06]"
+                aria-label="Thinking"
+                className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1.5 text-[13px] transition-colors hover:bg-white/[0.06]"
                 style={{ color: think ? 'var(--cu-steel)' : 'var(--cu-dim)' }}
               >
                 <Spark />
-                Thinking
+                {/* a phone-width row cannot carry the word as well as a long
+                    model name; the lit icon still says which state it is in */}
+                <span className="max-[460px]:hidden">Thinking</span>
               </button>
             )}
 
@@ -187,11 +204,11 @@ export default function Composer({
               onClick={() => onInstrOpen(!instrOpen)}
               title="Instructions for this conversation"
               aria-label="Instructions for this conversation"
-              className={`grid h-9 w-9 place-items-center rounded-full transition-colors ${hasInstructions ? 'hover:bg-white/[0.06]' : 'text-white/45 hover:text-white/85'}`}
+              className={`grid h-9 w-9 shrink-0 place-items-center rounded-full transition-colors ${hasInstructions ? 'hover:bg-white/[0.06]' : 'text-white/45 hover:text-white/85'}`}
               style={hasInstructions ? { color: 'var(--cu-steel)' } : undefined}
             ><Tune /></button>
 
-            <div className="ml-auto flex items-center gap-2.5">
+            <div className="ml-auto flex shrink-0 items-center gap-2.5">
               {value.length > MAX_CHARS - 200 && (
                 <span className="text-[12px] tabular-nums" style={{ color: over ? '#f87171' : 'var(--cu-faint)' }}>
                   {value.length}/{MAX_CHARS}

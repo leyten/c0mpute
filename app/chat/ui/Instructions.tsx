@@ -65,10 +65,13 @@ export default function Instructions({
     return () => { document.removeEventListener('mousedown', away); document.removeEventListener('keydown', esc); };
   }, [onClose]);
 
+  // The panel grows upward out of the composer, and on a phone it is taller
+  // than the room above it: the top ran off the screen, taking the box and the
+  // presets with it under the floating controls. Cap it and scroll inside.
   return (
     <div
       data-instr
-      className="cu-fade absolute bottom-[calc(100%+8px)] left-4 right-4 z-40 rounded-2xl p-4 shadow-[0_20px_60px_-15px_rgba(0,0,0,0.8)] md:right-auto md:w-[26rem]"
+      className="cu-fade absolute bottom-[calc(100%+8px)] left-4 right-4 z-40 rounded-2xl p-4 shadow-[0_20px_60px_-15px_rgba(0,0,0,0.8)] max-md:max-h-[40dvh] max-md:overflow-y-auto md:right-auto md:w-[26rem]"
       style={{ background: 'var(--cu-pop)' }}
     >
       <p className="text-[13px] leading-[1.5]" style={{ color: 'var(--cu-dim)' }}>
