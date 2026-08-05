@@ -68,9 +68,12 @@
     @media (max-width: 820px) { .node-panel { right: 20px; left: 20px; top: auto; bottom: 90px; width: auto; } }
 
     @media (max-width: 820px) {
-      .stats { top: auto; transform: none; flex-direction: row; gap: 18px; }
-      .stats-left { left: 20px; bottom: 92px; }
-      .stats-right { right: 20px; bottom: 92px; }
+      /* two bottom-anchored columns, not two rows: the groups are absolutely
+         positioned, so a row that outgrows the viewport paints over its twin
+         instead of pushing it away. Half the width each, stacked internally. */
+      .stats { top: auto; bottom: 92px; transform: none; gap: 16px; }
+      .stats-left { left: 20px; right: calc(50% + 8px); }
+      .stats-right { left: calc(50% + 8px); right: 20px; }
       .stat .v { font-size: 26px; }
       .ticker, .legend-hud { display: none; }
       .cmd-hud { left: 20px; right: 20px; bottom: 20px; max-width: none; }
