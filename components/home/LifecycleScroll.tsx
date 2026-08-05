@@ -138,9 +138,15 @@ export default function LifecycleScroll({ hero }: { hero: React.ReactNode }) {
         {/* finale — sits UNDER the canvas on a wide screen, where the globe is
             off to one side and uncovers it as it shrinks. On a phone the globe
             fills the screen, so the text has to sit above it or it is painted
-            over entirely. */}
+            over entirely.
+
+            It is mounted a chapter early so the globe can reveal it, which on a
+            wide screen is invisible — it is behind the canvas. On a phone both
+            blocks are lifted to z-20 and share the same bottom sheet, so the
+            early mount printed "One network." straight over step 08. Hold it
+            back there until the step text has left. */}
         {step >= CHAPTERS - 2 && (
-          <div className="absolute z-0 max-md:z-20 left-5 right-5 bottom-10 md:right-auto md:left-[26%] md:bottom-auto md:top-1/2 md:-translate-y-1/2 md:max-w-sm">
+          <div className={`absolute z-0 max-md:z-20 left-5 right-5 bottom-10 md:right-auto md:left-[26%] md:bottom-auto md:top-1/2 md:-translate-y-1/2 md:max-w-sm${finale ? '' : ' max-md:hidden'}`}>
             <h3 className="pixel-serif text-white text-3xl md:text-5xl">One network.</h3>
             <p className="pixel-sans text-white/60 text-sm md:text-base mt-2 md:mt-4 leading-relaxed max-w-xs md:max-w-sm">
               Too big for one machine, so it runs on all of them.
