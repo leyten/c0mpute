@@ -42,6 +42,9 @@ export default function Composer({
   const ta = inputRef ?? own;
   const file = useRef<HTMLInputElement>(null);
   const [menu, setMenu] = useState(false);
+  // Phone keyboards have no Shift+Enter, so there Enter has to write a newline
+  // and the send button is the way out. Read once; a pointer does not change.
+  const [coarse] = useState(() => typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches);
 
   useEffect(() => {
     const el = ta.current;
@@ -118,6 +121,7 @@ export default function Composer({
             onChange={e => onValue(e.target.value)}
             onKeyDown={e => {
               if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                if (coarse) return;
                 e.preventDefault();
                 if (canSend) onSend();
               }
