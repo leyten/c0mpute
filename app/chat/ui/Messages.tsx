@@ -46,7 +46,7 @@ function Answer({ content, streaming, liveSources }: { content: string; streamin
   const stillThinking = streaming && thinking !== null && !response.trim();
 
   return (
-    <div className="cu-answer-wrap">
+    <div className="cu-answer-wrap wrap-anywhere">
       {sources.length > 0 && <SourceStrip sources={sources} content={cleanContent} />}
       {thinking !== null && (
         <div className="mb-3">
@@ -439,7 +439,7 @@ function UserTurn({
           <>
             {msg.content && (
               <div
-                className="whitespace-pre-wrap rounded-[20px] px-4 py-2.5 text-[16px] leading-[1.6]"
+                className="wrap-anywhere whitespace-pre-wrap rounded-[20px] px-4 py-2.5 text-[16px] leading-[1.6]"
                 style={{ background: 'var(--cu-surface)', color: 'var(--cu-text)' }}
               >
                 {msg.content}
