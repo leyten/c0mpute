@@ -56,6 +56,43 @@ interface ImageJob {
   submittedAt: number;
 }
 
+// ── [garbage-prefix] probe (diagnostics only) ──────────────────────────────
+// Testers report answers that open with a machine-shaped fragment (`l_t:12-34]`).
+// The string exists nowhere in this codebase, so some worker's model emits it —
+// we don't yet know which. One line per offending job, tagged `[garbage-prefix]`
+// so `grep -c` gives counts per worker/model.
+//
+// PRIVACY: logs the first 40 chars of the RESPONSE only. Never a prompt, never
+// a full answer.
+const GARBAGE_PREFIX_RE = /^[a-z_]+:[\d-]+\]?/;
+let garbagePrefixHits = 0;
+
+/** Read-only, exception-proof. Returns nothing and mutates nothing, so no call
+ *  site can change behaviour by adding it. `identify` is a thunk resolved INSIDE
+ *  the try and only on a hit, so the clean path costs one regex test. */
+function probeGarbagePrefix(
+  response: unknown,
+  jobId: string,
+  identify: () => { workerId: string; model: string },
+): void {
+  try {
+    if (typeof response !== 'string' || response.length === 0) return;
+    // Look at what the user actually sees: the text after any reasoning block,
+    // with leading whitespace gone (the client trims before rendering).
+    const close = response.lastIndexOf('</think>');
+    const visible = (close === -1 ? response : response.slice(close + 8)).replace(/^\s+/, '');
+    if (!GARBAGE_PREFIX_RE.test(visible)) return;
+    const { workerId, model } = identify();
+    garbagePrefixHits++;
+    console.warn(
+      `[Orchestrator] [garbage-prefix] hit #${garbagePrefixHits} job=${jobId} worker=${workerId} ` +
+        `model=${model} head=${JSON.stringify(visible.slice(0, 40))}`
+    );
+  } catch {
+    // Diagnostics must never reach the hot path.
+  }
+}
+
 export class Orchestrator {
   private io: Server<ClientToServerEvents, ServerToClientEvents>;
   private swarmLoop!: ReturnType<typeof attachSwarmLoop>;   // the sharded-swarm control plane handle
@@ -1179,7 +1216,10 @@ export class Orchestrator {
       params: { maxNew: 512, reasoning: !!job.think, tools: job.toolPassthrough ? job.clientTools : undefined },
       revenue,
       onToken: (delta) => userSocket()?.emit('job:token', { jobId: job.id, token: delta }),
-      onDone: (response) => { userSocket()?.emit('job:complete', { jobId: job.id, response }); fin(); },
+      onDone: (response) => {
+        probeGarbagePrefix(response, job.id, () => ({ workerId: `swarm:${model}`, model }));
+        userSocket()?.emit('job:complete', { jobId: job.id, response }); fin();
+      },
       onError: (message) => {
         // a swarm that never served owes nothing — refund the charge (classic jobs already refund
         // on timeout; the swarm path used to just drop the job, silently keeping the user's credits).
@@ -1363,6 +1403,16 @@ export class Orchestrator {
       this.handleCanaryComplete(job, response);
       return;
     }
+
+    // Diagnostics: which worker/model is prepending `l_t:12-34]`? Placed before
+    // every early return below so no completion path is missed.
+    probeGarbagePrefix(response, jobId, () => {
+      const w = this.findWorkerById(job.assignedWorker ?? '');
+      return {
+        workerId: w?.id ?? job.assignedWorker ?? 'unknown',
+        model: w?.model ?? job.requestedModel ?? 'unknown',
+      };
+    });
 
     // Final output safety backstop (the streaming scan in handleJobToken is the
     // primary; this catches any worker that returns a full response without

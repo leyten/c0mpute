@@ -13,6 +13,7 @@ import katex from 'katex';
 // KaTeX positions every glyph from its own stylesheet.
 import 'katex/dist/katex.min.css';
 import { decodeTex, getUsedSources, mathToTags, type SourceRef } from '../lib';
+import { stripMachinePrefix } from '@/lib/strip-machine-prefix';
 import { Copy, Check } from './Icons';
 
 /* ---------- math ---------- */
@@ -143,7 +144,7 @@ function overrides(sources: SourceRef[]) {
 export function AnswerBody({ content, sources, trailing }: { content: string; sources: SourceRef[]; trailing?: React.ReactNode }) {
   return (
     <div className="cu-answer" data-answer>
-      <Markdown options={overrides(sources)}>{mathToTags(content)}</Markdown>
+      <Markdown options={overrides(sources)}>{mathToTags(stripMachinePrefix(content))}</Markdown>
       {trailing}
     </div>
   );
