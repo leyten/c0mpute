@@ -223,9 +223,13 @@ export function useSocket(authToken?: string | null): UseSocketReturn {
         if ('jobId' in response) {
           resolve({ jobId: response.jobId, freeRemaining: response.freeRemaining });
         } else {
-          // Surface the machine code (e.g. ANON_NO_PROMPTS) when present so the
-          // caller can show the right popup; fall back to the human message.
-          reject(new Error(response.code || response.error));
+          // The human message is what reaches the screen — the chat engine
+          // flattens this rejection to err.message — so it wins. The machine
+          // code (e.g. ANON_NO_PROMPTS) rides along as a property for callers
+          // that branch on it, instead of replacing the message.
+          const err = new Error(response.error || response.code) as Error & { code?: string };
+          err.code = response.code;
+          reject(err);
         }
       });
     });
