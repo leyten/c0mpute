@@ -185,9 +185,14 @@ export function useChatEngine(): ChatEngine {
         setBusy(false);
         cur.cb.onError?.('The network did not respond in time. Your credits were not spent, or will be refunded.');
         activeRef.current = null;
+        // Show the refund. The server restores the charge on its own timeout
+        // schedule, which can land after this stall fires — fetch now for the
+        // fast case and once more shortly after for the slow one.
+        refreshCredits();
+        setTimeout(refreshCredits, 5000);
       }
     }, JOB_STALL_MS);
-  }, []);
+  }, [refreshCredits]);
 
   const finishActive = useCallback(() => {
     const a = activeRef.current;
@@ -236,6 +241,9 @@ export function useChatEngine(): ChatEngine {
         setBusy(false);
         a.cb.onError?.(error || 'The job failed.');
         activeRef.current = null;
+        // Same as the stall path: make the refund visible without a reload.
+        refreshCredits();
+        setTimeout(refreshCredits, 5000);
       }
     });
     setOnJobSearching((jobId) => {
@@ -267,7 +275,7 @@ export function useChatEngine(): ChatEngine {
       setOnJobSearching(null); setOnJobSources(null); setOnJobGeneratingImage(null); setOnJobImage(null); setOnJobImageError(null);
       setOnJobFile(null);
     };
-  }, [setOnJobToken, setOnJobAssigned, setOnJobComplete, setOnJobError, setOnJobSearching, setOnJobSources, setOnJobGeneratingImage, setOnJobImage, setOnJobImageError, setOnJobFile, armStall, finishActive]);
+  }, [setOnJobToken, setOnJobAssigned, setOnJobComplete, setOnJobError, setOnJobSearching, setOnJobSources, setOnJobGeneratingImage, setOnJobImage, setOnJobImageError, setOnJobFile, armStall, finishActive, refreshCredits]);
 
   // queue positions flow to the active job's callback
   useEffect(() => {
