@@ -15,12 +15,12 @@ import {
   selectionWeight,
 } from './types';
 import { verifyPrivyToken } from '../privy-server';
-import { incrementPromptsSent, verifyWorkerToken, recordCompletedJob, recordEarning, spendCredits, getCreditBalance, refundCredits, isWorkerBanned, recordWorkerStrike, recordCanaryResult, consumeFreePrompt, recordSubsidizedPrompt, getTodayFreeSubsidyUsd, getThisHourFreeSubsidyUsd, anonGrantFreePrompt, profileHasLogin, getAccountAgeMs } from '../db';
+import { incrementPromptsSent, verifyWorkerToken, recordCompletedJob, recordEarning, spendCredits, getCreditBalance, refundCredits, isWorkerBanned, recordWorkerStrike, recordCanaryResult, consumeFreePrompt, restoreFreePrompt, recordSubsidizedPrompt, getTodayFreeSubsidyUsd, getThisHourFreeSubsidyUsd, anonGrantFreePrompt, profileHasLogin, getAccountAgeMs } from '../db';
 import { FREE_PROMPT_LIMIT, FREE_SUBSIDY_DAILY_CAP_USD, FREE_SUBSIDY_HOURLY_CAP_USD, STAKER_ALLOWANCE_ENABLED, ANON_FREE_PROMPT_LIMIT, ANON_IP_DAILY_CAP, WORKER_STAKED_REVENUE_SHARE, TIER_CREDIT_COST } from '../tokenomics';
 import { verifyAnonToken } from '../anon-auth';
 import { CREDITS_PER_USD } from '../token-price';
 import { getWorkerRevenueShare } from '../staking';
-import { consumeStakerAllowance, recordStakerRequest } from '../staker-allowance';
+import { consumeStakerAllowance, recordStakerRequest, refundStakerAllowance } from '../staker-allowance';
 import { scanOutput, BLOCKED_MESSAGE } from '../safety';
 import { AVAILABLE_TOOLS, executeToolCalls } from './tools';
 import { attachSwarmLoop } from './swarm-loop';
@@ -359,6 +359,32 @@ export class Orchestrator {
     return buildNetworkFeed(snapshot, this.swarmCounters, { layerCount, includeDial });
   }
 
+  /**
+   * Give back whatever a job was charged, whichever lane paid for it. A job that
+   * never produced an answer must cost the user nothing — and for a brand-new
+   * signup the welcome free prompt IS the currency, so refunding only the credit
+   * lane (creditsCharged is 0 for every subsidy lane) silently burned their whole
+   * onboarding grant on jobs the network never dispatched.
+   *
+   * One-shot: `refunded` is latched before any lane moves, so a job that reaches
+   * two failure paths (e.g. queue timeout racing a late worker error) is credited
+   * exactly once. Each lane's primitive is itself floored/idempotent-safe, but the
+   * latch is what makes the guarantee hold across paths.
+   */
+  private refundJobCharges(job: Job, reason: string) {
+    if (!job.privyUserId || job.refunded) return;
+    job.refunded = true;
+    if (job.creditsCharged) {
+      refundCredits(job.privyUserId, job.creditsCharged, reason);
+    } else if (job.subsidyKind === 'free') {
+      restoreFreePrompt(job.privyUserId);
+      console.log(`[Orchestrator] Free prompt restored to ${job.privyUserId} (${reason})`);
+    } else if (job.subsidyKind === 'allowance' && job.subsidyCredits) {
+      refundStakerAllowance(job.privyUserId, job.subsidyCredits);
+      console.log(`[Orchestrator] Staker allowance restored to ${job.privyUserId} (${job.subsidyCredits}cr, ${reason})`);
+    }
+  }
+
   private cleanupStaleJobs() {
     const now = Date.now();
     const JOB_TIMEOUT_MS = 180000; // 3 minutes
@@ -374,9 +400,7 @@ export class Orchestrator {
       const jobAge = now - job.createdAt.getTime();
       if (jobAge > JOB_TIMEOUT_MS) {
         userSocket.emit('job:error', { jobId, error: 'Job timed out' });
-        if (job.privyUserId && job.creditsCharged) {
-          refundCredits(job.privyUserId, job.creditsCharged, 'Job timed out in queue');
-        }
+        this.refundJobCharges(job, 'Job timed out in queue');
         this.jobs.delete(jobId);
         return false;
       }
@@ -391,9 +415,7 @@ export class Orchestrator {
           if (userSocket) {
             userSocket.emit('job:error', { jobId, error: 'Job timed out during processing' });
           }
-          if (job.privyUserId && job.creditsCharged) {
-            refundCredits(job.privyUserId, job.creditsCharged, 'Job timed out during processing');
-          }
+          this.refundJobCharges(job, 'Job timed out during processing');
           if (job.assignedWorker) {
             const worker = this.findWorkerById(job.assignedWorker);
             if (worker) worker.status = 'idle';
@@ -606,6 +628,8 @@ export class Orchestrator {
             console.log(`[Orchestrator] Anon free prompt used by ${privyUserId} (${requestedTierForCredits}), ${grant.remaining} left`);
             this.processQueue();
           } else {
+            // Grant was already consumed above and no job exists to refund later.
+            restoreFreePrompt(privyUserId);
             callback({ error: 'Failed to submit job' });
           }
           return;
@@ -685,8 +709,15 @@ export class Orchestrator {
           // a sharded model routes to its serving swarm; everything else to the whole-model workers
           if (!this.tryDispatchSwarm(job)) this.processQueue();
         } else {
+          // No job was created, so there is no record to refund later — give the
+          // charge back here, from whichever lane paid. Mirrors refundJobCharges;
+          // it can't run twice because this branch has no retry.
           if (creditCost > 0) {
             refundCredits(privyUserId, creditCost, 'Job submission failed');
+          } else if (usedFreePrompt) {
+            restoreFreePrompt(privyUserId);
+          } else if (usedStakerAllowance) {
+            refundStakerAllowance(privyUserId, listCredits);
           }
           callback({ error: 'Failed to submit job' });
         }
@@ -989,9 +1020,7 @@ export class Orchestrator {
     this.jobQueue = this.jobQueue.filter(jobId => {
       const job = this.jobs.get(jobId);
       if (job && job.userSocketId === userSocketId) {
-        if (job.privyUserId && job.creditsCharged) {
-          refundCredits(job.privyUserId, job.creditsCharged, 'User disconnected while queued');
-        }
+        this.refundJobCharges(job, 'User disconnected while queued');
         this.jobs.delete(jobId);
         return false;
       }
@@ -1268,18 +1297,21 @@ export class Orchestrator {
       messages: job.messages ?? [],
       params: { maxNew: 512, reasoning: !!job.think, tools: job.toolPassthrough ? job.clientTools : undefined },
       revenue,
-      onToken: (delta) => userSocket()?.emit('job:token', { jobId: job.id, token: delta }),
+      // The swarm's own deadline is longer than cleanupStaleJobs' JOB_TIMEOUT_MS, so a slow
+      // swarm job can be timed out (and refunded) while it is still serving. Once the charge
+      // has been given back the job is settled: stop streaming and don't deliver a late
+      // answer the user no longer paid for. The user was already sent job:error.
+      onToken: (delta) => { if (!job.refunded) userSocket()?.emit('job:token', { jobId: job.id, token: delta }); },
       onDone: (response) => {
+        if (job.refunded) { fin(); return; }
         probeGarbagePrefix(response, job.id, () => ({ workerId: `swarm:${model}`, model }));
         userSocket()?.emit('job:complete', { jobId: job.id, response }); fin();
       },
       onError: (message) => {
         // a swarm that never served owes nothing — refund the charge (classic jobs already refund
         // on timeout; the swarm path used to just drop the job, silently keeping the user's credits).
-        // creditsCharged is 0 for free/allowance jobs, so this only refunds real paid spend.
-        if (job.privyUserId && job.creditsCharged) {
-          refundCredits(job.privyUserId, job.creditsCharged, `Swarm ${model} unavailable: ${message}`);
-        }
+        // Covers the subsidy lanes too, not just paid credits.
+        this.refundJobCharges(job, `Swarm ${model} unavailable: ${message}`);
         userSocket()?.emit('job:error', { jobId: job.id, error: message }); fin();
       },
     });
@@ -1893,9 +1925,7 @@ export class Orchestrator {
 
     console.log(`[Orchestrator] Job ${jobId} failed: ${error}`);
 
-    if (job.privyUserId && job.creditsCharged) {
-      refundCredits(job.privyUserId, job.creditsCharged, 'Job failed: ' + error.slice(0, 50));
-    }
+    this.refundJobCharges(job, 'Job failed: ' + error.slice(0, 50));
 
     this.jobs.delete(jobId);
     setTimeout(() => this.processQueue(), 100);

@@ -82,6 +82,10 @@ export interface Job {
   // 'allowance' = the staker inference allowance (already pool-capped at consume
   // time, so the worker is paid unconditionally).
   subsidyKind?: 'free' | 'allowance';
+  // Set once the job's charge has been given back (credits, free prompt or
+  // allowance). Guards against a job that reaches two failure paths being
+  // credited twice.
+  refunded?: boolean;
   status: 'pending' | 'assigned' | 'processing' | 'completed' | 'failed';
   assignedWorker?: string;
   createdAt: Date;

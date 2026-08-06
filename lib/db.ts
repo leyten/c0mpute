@@ -1378,6 +1378,30 @@ export function consumeFreePrompt(privyId: string, limit: number): boolean {
   return txn() as boolean;
 }
 
+/**
+ * Give a free prompt back — the counterpart to consumeFreePrompt, for a job that
+ * consumed one and then never produced an answer (dispatch/job timeout, worker
+ * error, swarm failure). Without this the user is charged a free prompt for work
+ * the network never delivered, which is exactly the case the credit lane already
+ * handles via refundCredits.
+ *
+ * Cap-safe by construction: it only ever DECREMENTS, floors at 0, and updates an
+ * existing row rather than inserting one. So it can never lift an account above
+ * FREE_PROMPT_LIMIT remaining, and an id that never consumed a prompt (no row) is
+ * a no-op. Same shape as refundFreeImage below.
+ *
+ * Also serves the anonymous lane: those rows are keyed 'anon:<aid>', which is
+ * exactly the privyUserId an anon job carries. The per-IP daily counter
+ * (anon_ip_daily) is deliberately NOT rolled back — it is the abuse ceiling, and
+ * leaving it in place keeps forced failures from becoming a free-prompt farm.
+ */
+export function restoreFreePrompt(privyId: string): void {
+  ensureFreePromptTable();
+  const db = getDb();
+  db.prepare('UPDATE free_prompt_usage SET used = MAX(0, used - 1), updated_at = ? WHERE privy_id = ?')
+    .run(new Date().toISOString(), privyId);
+}
+
 // ── Free image generations (separate pool from free prompts) ──────────────
 function ensureFreeImageTable() {
   const db = getDb();
