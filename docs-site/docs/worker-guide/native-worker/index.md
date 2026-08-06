@@ -33,6 +33,12 @@ npx @c0mpute/worker --token <your-token>
 
 That's it. One command. ollama handles model download and GPU detection automatically.
 
+## Multi-GPU rigs
+
+More than one NVIDIA card? The worker detects them all and runs **one worker per GPU** automatically — no flags. Each card gets its own pinned ollama, logs are prefixed `[gpu N]`, and `--gpu 3` / `--gpu 0,2,5` narrows it to the cards you choose. One prerequisite: stop any ollama already running on the box first, or GPU 0's worker adopts it and that daemon sees every card.
+
+Full details, including the first-run download order and the 10-workers-per-IP cap: [Linux setup → Multi-GPU rigs](/worker-guide/native-worker/linux#multi-gpu-rigs).
+
 ## Choose a model
 
 A Max worker asks which model to run and shows how many workers are live on each, recommending the one with the fewest (so new supply balances the network). Skip the prompt with `--model`:
@@ -53,6 +59,17 @@ Only the chosen model is downloaded (~17GB). Get a token at [c0mpute.ai/earn](ht
 5. Copy and save the token — it's shown only once
 
 See [Worker tokens](/worker-guide/tokens) for more details.
+
+## Keeping the worker up to date
+
+The worker has **no auto-update**: it runs exactly the version you installed, and nothing self-upgrades at startup. Upgrading is an explicit step:
+
+```bash
+npm i -g @c0mpute/worker@latest                       # global install
+npx -y @c0mpute/worker@latest --token <your-token>    # or pin @latest in your npx command
+```
+
+Every start prints its version (`c0mpute worker v…`), so you can always tell what a box is running.
 
 ## Platform guides
 

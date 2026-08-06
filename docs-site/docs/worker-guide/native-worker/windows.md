@@ -80,6 +80,39 @@ If `nvcc` is not found, add `C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\
 npx @c0mpute/worker --token <your-token>
 ```
 
+## Multi-GPU rigs
+
+If the box has more than one NVIDIA card, the worker detects them all and runs **one worker per GPU** automatically — no flags. Each card is pinned with `CUDA_VISIBLE_DEVICES` and gets its own ollama on port `11434 + <index>`; child output is prefixed `[gpu N]`, and a card that dies is respawned after 30s. Narrow it to specific cards with `--gpu`:
+
+```bash
+npx @c0mpute/worker --token <your-token> --mode max --gpu 3      # only GPU 3
+npx @c0mpute/worker --token <your-token> --mode max --gpu 0,2,5  # only these three
+```
+
+**Stop any ollama already running first.** GPU 0's worker uses port 11434 — ollama's default — and it will adopt a daemon that is already there rather than restart it (that daemon then sees every card, not just GPU 0). The Ollama Windows app runs one in the background, so quit it from the tray, or:
+
+```powershell
+taskkill /F /IM ollama.exe
+```
+
+In WSL, kill the Linux-side daemon instead:
+
+```bash
+pkill -f "ollama serve"
+```
+
+On first run GPU 0 starts alone and the rest follow once the model is on disk — the per-card daemons share one model store and can't safely download the same model at once. The network accepts at most **10 workers per IP**. See [Linux setup → Multi-GPU rigs](/worker-guide/native-worker/linux#multi-gpu-rigs) for the full walkthrough.
+
+## Updating
+
+The worker never updates itself — it runs exactly the version you installed. Upgrade explicitly:
+
+```powershell
+npm i -g @c0mpute/worker@latest
+```
+
+Or pin `@latest` in the command you already use: `npx -y @c0mpute/worker@latest --token <your-token>`. Every start prints its version (`c0mpute worker v…`).
+
 ## Common issue: low tok/s on Windows
 
 If you see ~5 tok/s instead of 30+, **CUDA is not being detected**. ollama is falling back to CPU inference, which is extremely slow.

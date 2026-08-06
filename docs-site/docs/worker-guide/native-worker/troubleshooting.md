@@ -69,6 +69,23 @@ See the [Windows setup guide](/worker-guide/native-worker/windows) for full inst
 
 Key point: `nvidia-smi` should work **inside WSL**, not just in PowerShell. CUDA needs to be installed in the WSL environment.
 
+## Multi-GPU rig: only one card is working
+
+The worker starts one child per GPU on its own, but they all need their own ollama. If a box-wide `ollama serve` was already running on port 11434, GPU 0's worker adopts it instead of starting a pinned one — and that daemon sees every card, so the rig behaves like a single unpinned worker.
+
+Stop the pre-existing daemon, then start the worker again:
+
+```bash
+pkill -f "ollama serve"           # macOS/Linux (also: sudo systemctl stop ollama)
+taskkill /F /IM ollama.exe        # Windows
+```
+
+Then check the startup output. You should see `N GPUs detected — starting one worker per GPU`, and each child's lines prefixed `[gpu 0]`, `[gpu 1]`, … If you only want some cards, pass `--gpu 3` or `--gpu 0,2,5`. See [Multi-GPU rigs](/worker-guide/native-worker/linux#multi-gpu-rigs).
+
+## "Too many workers from this network (max 10 per IP)"
+
+The network caps concurrent workers at **10 per IP** and **10 per account**. On a rig with more than 10 GPUs the extra workers are refused at registration — run a subset with `--gpu 0,1,2,...` or split the rig across networks/accounts.
+
 ## Worker starts but gets no jobs
 
 - Check that your worker benchmarks above 5 tok/s (minimum threshold)
