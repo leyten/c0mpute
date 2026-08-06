@@ -1,34 +1,59 @@
-import { spawn, execSync } from 'child_process';
+import { spawn, spawnSync, execSync } from 'child_process';
 import { existsSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import os from 'os';
 import {
   OLLAMA_URL,
+  OLLAMA_PORT,
   OLLAMA_MODEL,
   OLLAMA_BASE_MODEL,
   SYSTEM_PROMPT,
 } from './config.js';
 import { checkOllama, modelExists } from './inference.js';
 
-// Detect total GPU VRAM (MB) so the worker self-tunes its context window to its
-// own hardware — a fixed num_ctx would OOM small cards and starve big ones.
-// Returns 0 if undetectable (e.g. Apple Silicon / no nvidia-smi) → safe default.
-function detectVramMB(): number {
-  try {
-    const out = execSync('nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits', {
-      timeout: 5000,
-      stdio: ['ignore', 'pipe', 'ignore'],
-    })
-      .toString()
-      .trim()
-      .split('\n')
-      .map((s) => parseInt(s.trim(), 10))
-      .filter((n) => !Number.isNaN(n));
-    return out.length ? Math.max(...out) : 0;
-  } catch {
-    return 0;
-  }
+/** The GPU this worker is pinned to, if any (`--gpu N` sets CUDA_VISIBLE_DEVICES,
+ *  which is what actually restricts the ollama we spawn to that one card). */
+const GPU_PIN = (process.env.CUDA_VISIBLE_DEVICES || '').trim();
+
+/** This worker owns a private per-GPU ollama (set by `--gpu`), rather than sharing
+ *  the box-wide daemon on 11434. Pinned workers must never pkill their siblings. */
+const PINNED = !!process.env.C0MPUTE_OLLAMA_PORT;
+
+// Total VRAM (MB) of each GPU we may use — one entry per GPU. nvidia-smi is an
+// NVML tool and does NOT honour CUDA_VISIBLE_DEVICES (that's a CUDA-runtime
+// variable), so a pinned worker would otherwise size itself against the BIGGEST
+// card in the rig instead of the one it actually runs on; we pass the pin through
+// with -i, which takes plain indices and full UUIDs. CUDA_VISIBLE_DEVICES can
+// also hold forms nvidia-smi rejects (abbreviated UUIDs, MIG ids, "-1") — those
+// just fail the query and we fall back below.
+// Empty if undetectable (Apple Silicon / no nvidia-smi) → safe defaults below.
+function queryVramMB(pin: string): number[] {
+  const args = ['--query-gpu=memory.total', '--format=csv,noheader,nounits'];
+  const r = spawnSync('nvidia-smi', pin ? ['-i', pin, ...args] : args, {
+    encoding: 'utf8',
+    timeout: 5000,
+  });
+  if (r.status !== 0 || !r.stdout) return [];
+  return r.stdout
+    .trim()
+    .split('\n')
+    .map((s) => parseInt(s.trim(), 10))
+    .filter((n) => !Number.isNaN(n));
 }
+
+function detectGpuVramMB(): number[] {
+  // Fall back to the whole box if the pin is something nvidia-smi won't take
+  // (e.g. a MIG id), so detection degrades to today's behaviour, never to 0.
+  // Never forward a flag-shaped value ("-1" = ollama's "no GPU" idiom) into the
+  // argument list.
+  if (GPU_PIN && !GPU_PIN.startsWith('-')) {
+    const pinned = queryVramMB(GPU_PIN);
+    if (pinned.length) return pinned;
+  }
+  return queryVramMB('');
+}
+
+const GPU_VRAM_MB = detectGpuVramMB();
 
 // Pick a safe context window for the 27B from VRAM. Weights are ~17GB (q4); the
 // KV cache grows with num_ctx. Measured on a 24GB 4090: 32K fits ~19GB, 100% on
@@ -41,7 +66,10 @@ function pickNumCtx(vramMB: number): number {
   return 8192;                       // small / undetectable → safe default
 }
 
-const DETECTED_VRAM_MB = detectVramMB();
+// The card the model actually lands on. Ollama loads a model that fits into ONE
+// GPU, so the window must be sized for a single card — never the sum of the rig.
+// On a mixed unpinned box that's the largest card (ollama's own pick).
+const DETECTED_VRAM_MB = GPU_VRAM_MB.length ? Math.max(...GPU_VRAM_MB) : 0;
 
 /** The context window this worker actually runs with — baked into the model below
  *  (and rebuilt if it ever drifts, see modelConfigCurrent), so it's the effective
@@ -67,9 +95,14 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 // alone. Set C0MPUTE_MANAGE_OLLAMA=0 to opt out (e.g. if you supervise ollama
 // yourself with these flags already set).
 function optimalOllamaEnv(): Record<string, string> {
-  return DETECTED_VRAM_MB > 0
+  const env: Record<string, string> = DETECTED_VRAM_MB > 0
     ? { OLLAMA_FLASH_ATTENTION: '1', OLLAMA_KV_CACHE_TYPE: 'q8_0' }
     : {};
+  // A pinned worker's daemon serves only this worker, so it must bind our own
+  // port — otherwise every per-GPU ollama would fight over 11434. The CUDA pin
+  // itself is already in process.env and inherited by the spawn.
+  if (PINNED) env.OLLAMA_HOST = `127.0.0.1:${OLLAMA_PORT}`;
+  return env;
 }
 
 function stopOllama(): void {
@@ -208,7 +241,8 @@ function spawnOllama(bin: string, env: Record<string, string>): void {
  */
 async function ensureOllamaRunning(): Promise<void> {
   const env = optimalOllamaEnv();
-  const manage = Object.keys(env).length > 0 && process.env.C0MPUTE_MANAGE_OLLAMA !== '0';
+  // NVIDIA-only tuning: on Metal/AMD/CPU there's nothing to restart ollama for.
+  const manage = DETECTED_VRAM_MB > 0 && process.env.C0MPUTE_MANAGE_OLLAMA !== '0';
   const up = await checkOllama();
 
   if (up && !manage) return; // already running, nothing to tune (non-NVIDIA or opted out)
@@ -227,6 +261,13 @@ async function ensureOllamaRunning(): Promise<void> {
   }
 
   if (up && manage) {
+    if (PINNED) {
+      // Something already serves our port. Every `ollama serve` looks identical to
+      // pkill, so we can't restart just ours — and killing them all would take the
+      // sibling per-GPU workers down with it. Use what's there.
+      console.log(`Ollama already serving on ${OLLAMA_URL} — using it as-is (--gpu never restarts ollama).`);
+      return;
+    }
     console.log('Restarting Ollama with flash-attention + q8 KV cache (NVIDIA detected)...');
     stopOllama();
     await sleep(2500);
@@ -253,6 +294,16 @@ export async function ensureSetup(): Promise<void> {
 
   console.log('Ollama: connected');
   console.log(`Context window: ${NUM_CTX} tokens (detected VRAM: ${DETECTED_VRAM_MB || 'unknown'} MB)`);
+  // Multi-GPU rigs: one worker drives ONE card (ollama puts a model that fits on a
+  // single GPU), so say so instead of printing one card's VRAM and looking blind.
+  if (GPU_PIN) {
+    console.log(`GPU: pinned to CUDA_VISIBLE_DEVICES=${GPU_PIN}`);
+  } else if (GPU_VRAM_MB.length > 1) {
+    console.log(
+      `GPUs detected: ${GPU_VRAM_MB.length} — this worker uses ONE of them. ` +
+      `Start one worker per GPU (--gpu 0 ... --gpu ${GPU_VRAM_MB.length - 1}) to use the whole rig.`
+    );
+  }
 
   // Check if our custom model exists
   const exists = await modelExists();

@@ -1,8 +1,14 @@
 /** Default orchestrator URL */
 export const DEFAULT_ORCHESTRATOR_URL = 'https://c0mpute.ai';
 
+/** Port of the ollama this worker talks to. Default is ollama's own 11434; a
+ *  worker pinned to one GPU (`--gpu N`) runs its own daemon on 11434+N so a
+ *  multi-GPU rig can host one worker per card. The CLI puts the port in the env
+ *  before this module loads (see index.ts). */
+export const OLLAMA_PORT = Number(process.env.C0MPUTE_OLLAMA_PORT) || 11434;
+
 /** Ollama API base URL */
-export const OLLAMA_URL = 'http://127.0.0.1:11434';
+export const OLLAMA_URL = `http://127.0.0.1:${OLLAMA_PORT}`;
 
 // A worker runs one model. The CLI picks the model and sets these env vars
 // before this module loads (see index.ts); when unset we fall back to the

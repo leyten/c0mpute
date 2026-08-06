@@ -162,6 +162,7 @@ program
   .option('--url <url>', 'Orchestrator URL', 'https://c0mpute.ai')
   .option('--mode <mode>', 'Worker mode: "max" (text) or "image" (image gen). Prompts on first run if omitted.')
   .option('--model <model>', `Max model to run: ${Object.keys(WORKER_MODELS).join(' | ')}. Prompts on first run if omitted.`)
+  .option('--gpu <index>', 'Multi-GPU rigs (max mode): pin this worker to one GPU and give it a private ollama on port 11434+<index>. Run one worker per card: --gpu 0 ... --gpu 7.')
   .option('--benchmark', 'Run benchmark only, then exit')
   .action(async (opts) => {
     console.log(`c0mpute worker v${pkg.version}`);
@@ -175,10 +176,28 @@ program
       const mode = await resolveMode(opts.mode);
       console.log(`Mode: ${mode === 'image' ? 'image generation' : 'max (text)'}`);
 
+      if (opts.gpu !== undefined && mode !== 'max') {
+        console.log('Note: --gpu is a max-mode flag (per-GPU ollama); ignored in this mode.');
+      }
+
       // Max workers pick a model; wire it into the env the config module reads.
       // This MUST happen before worker.js (-> config.js) is imported, so the
       // worker is loaded dynamically below rather than at the top of the file.
       if (mode === 'max') {
+        // One worker per GPU on a multi-GPU rig. CUDA_VISIBLE_DEVICES restricts the
+        // ollama we spawn to that card — ollama loads a model that fits on a SINGLE
+        // GPU, so without a pin per worker the other cards just idle — and the port
+        // offset gives each worker its own daemon instead of one shared 11434.
+        if (opts.gpu !== undefined) {
+          const gpu = Number(opts.gpu);
+          if (!Number.isInteger(gpu) || gpu < 0 || gpu > 15) {
+            throw new Error(`Invalid --gpu "${opts.gpu}" (expected a GPU index 0-15, e.g. --gpu 0).`);
+          }
+          process.env.CUDA_VISIBLE_DEVICES = String(gpu);
+          process.env.C0MPUTE_OLLAMA_PORT = String(11434 + gpu);
+          console.log(`GPU: pinned to GPU ${gpu} (private ollama on port ${11434 + gpu})`);
+        }
+
         const modelKey = await resolveModel(opts.model, opts.url, opts.token);
         const spec = WORKER_MODELS[modelKey];
         process.env.C0MPUTE_OLLAMA_MODEL = spec.ollamaModel;
