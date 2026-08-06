@@ -118,6 +118,32 @@ export function useChatEngine(): ChatEngine {
     return () => { cancelled = true; };
   }, [authLoading, isAuthenticated]);
 
+  // Re-read the anon lane's remaining count — the failed-job counterpart to
+  // refreshCredits, so a server-side free-prompt restore is visible without a
+  // reload. No-op for signed-in users (their lane is /api/credits).
+  const refreshAnonRemaining = useCallback(() => {
+    if (isAuthenticated) return;
+    const existing = localStorage.getItem(ANON_TOKEN_KEY);
+    if (!existing) return;
+    fetch('/api/anon', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: existing }),
+    })
+      .then(r => (r.ok ? r.json() : null))
+      .then(data => {
+        if (!data) return;
+        if (data.capReached || !data.token) {
+          setAnonCapReached(true);
+        } else {
+          localStorage.setItem(ANON_TOKEN_KEY, data.token);
+          setAnonToken(data.token);
+          setAnonRemaining(typeof data.remaining === 'number' ? data.remaining : null);
+        }
+      })
+      .catch(() => {});
+  }, [isAuthenticated]);
+
   // ---- socket ----
   const {
     isConnected,
@@ -189,10 +215,11 @@ export function useChatEngine(): ChatEngine {
         // schedule, which can land after this stall fires — fetch now for the
         // fast case and once more shortly after for the slow one.
         refreshCredits();
-        setTimeout(refreshCredits, 5000);
+        refreshAnonRemaining();
+        setTimeout(() => { refreshCredits(); refreshAnonRemaining(); }, 5000);
       }
     }, JOB_STALL_MS);
-  }, [refreshCredits]);
+  }, [refreshCredits, refreshAnonRemaining]);
 
   const finishActive = useCallback(() => {
     const a = activeRef.current;
@@ -243,7 +270,8 @@ export function useChatEngine(): ChatEngine {
         activeRef.current = null;
         // Same as the stall path: make the refund visible without a reload.
         refreshCredits();
-        setTimeout(refreshCredits, 5000);
+        refreshAnonRemaining();
+        setTimeout(() => { refreshCredits(); refreshAnonRemaining(); }, 5000);
       }
     });
     setOnJobSearching((jobId) => {
@@ -275,7 +303,7 @@ export function useChatEngine(): ChatEngine {
       setOnJobSearching(null); setOnJobSources(null); setOnJobGeneratingImage(null); setOnJobImage(null); setOnJobImageError(null);
       setOnJobFile(null);
     };
-  }, [setOnJobToken, setOnJobAssigned, setOnJobComplete, setOnJobError, setOnJobSearching, setOnJobSources, setOnJobGeneratingImage, setOnJobImage, setOnJobImageError, setOnJobFile, armStall, finishActive, refreshCredits]);
+  }, [setOnJobToken, setOnJobAssigned, setOnJobComplete, setOnJobError, setOnJobSearching, setOnJobSources, setOnJobGeneratingImage, setOnJobImage, setOnJobImageError, setOnJobFile, armStall, finishActive, refreshCredits, refreshAnonRemaining]);
 
   // queue positions flow to the active job's callback
   useEffect(() => {
