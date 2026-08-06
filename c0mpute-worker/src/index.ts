@@ -8,6 +8,7 @@ import { homedir } from 'os';
 import { createInterface } from 'readline';
 import { io } from 'socket.io-client';
 import { WORKER_MODELS, DEFAULT_WORKER_MODEL, isWorkerModelKey, recommendModel, WorkerModelKey } from './models.js';
+import { listGpuIndexes } from './gpus.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf-8'));
@@ -31,6 +32,10 @@ function readConfig(): SavedConfig {
 }
 
 function saveConfig(patch: SavedConfig): void {
+  // Supervisor children are told their mode and model on the command line; the
+  // parent already saved the operator's choice, and eight children rewriting one
+  // config file at once is only a way to corrupt it.
+  if (process.env.C0MPUTE_GPU_CHILD === '1') return;
   try {
     if (!existsSync(CONFIG_DIR)) mkdirSync(CONFIG_DIR, { recursive: true });
     const merged = { ...readConfig(), ...patch };
@@ -153,6 +158,43 @@ async function resolveModel(flag: string | undefined, url: string, token: string
   return chosen;
 }
 
+/** Highest card index we run: each one owns ollama's port 11434+index. */
+const MAX_GPU_INDEX = 15;
+
+// Which GPUs this invocation drives. `--gpu` names them explicitly (one index or
+// a comma list); without it, a rig with more than one card takes them all — one
+// worker per GPU is the only way to use a multi-GPU box, since ollama puts a
+// model that fits on a single card. An EMPTY list means "pin nothing", which is
+// the classic single-daemon path a one-GPU or non-NVIDIA box has always taken.
+function resolveGpus(flag: string | undefined, benchmarkOnly: boolean): number[] {
+  if (flag !== undefined) {
+    const list = flag.split(',').map((s) => s.trim()).filter(Boolean).map(Number);
+    if (!list.length || list.some((n) => !Number.isInteger(n) || n < 0 || n > MAX_GPU_INDEX)) {
+      throw new Error(`Invalid --gpu "${flag}" (expected GPU indexes 0-${MAX_GPU_INDEX}, e.g. --gpu 0 or --gpu 0,2,5).`);
+    }
+    const pins = [...new Set(list)];
+    if (benchmarkOnly && pins.length > 1) {
+      console.log(`Note: --benchmark measures one card; using GPU ${pins[0]}.`);
+      return [pins[0]];
+    }
+    return pins;
+  }
+  // --benchmark is a one-shot diagnostic, not a deployment: measure this box once
+  // rather than fanning out into children that would each exit and be restarted.
+  if (benchmarkOnly) return [];
+  const all = listGpuIndexes();
+  if (all.length < 2) return []; // one card or no NVIDIA GPU — nothing changes
+  // Each card gets a private ollama on 11434+index, so the same ceiling the flag
+  // enforces applies here — never auto-spawn a child whose own --gpu we'd reject.
+  const gpus = all.filter((n) => n <= MAX_GPU_INDEX);
+  if (gpus.length < all.length) {
+    console.log(`${all.length} GPUs detected, using the first ${gpus.length} (--gpu supports indexes 0-${MAX_GPU_INDEX}).`);
+  } else {
+    console.log(`${gpus.length} GPUs detected — starting one worker per GPU (use --gpu <n> to run a single card).`);
+  }
+  return gpus;
+}
+
 const program = new Command();
 
 program
@@ -163,7 +205,7 @@ program
   .option('--url <url>', 'Orchestrator URL', 'https://c0mpute.ai')
   .option('--mode <mode>', 'Worker mode: "max" (text), "image" (image gen) or "shard" (serve a model slice). Prompts on first run if omitted.')
   .option('--model <model>', `Max model to run: ${Object.keys(WORKER_MODELS).join(' | ')}. Prompts on first run if omitted.`)
-  .option('--gpu <index>', 'Multi-GPU rigs (max mode): pin this worker to one GPU and give it a private ollama on port 11434+<index>. Run one worker per card: --gpu 0 ... --gpu 7.')
+  .option('--gpu <indexes>', 'Max mode: run only these GPUs — one index (--gpu 3) or a comma list (--gpu 0,2,5). Omitted, a multi-GPU rig runs every card, one worker each.')
   .option('--benchmark', 'Run benchmark only, then exit')
   .action(async (opts) => {
     console.log(`c0mpute worker v${pkg.version}`);
@@ -195,22 +237,36 @@ program
       // This MUST happen before worker.js (-> config.js) is imported, so the
       // worker is loaded dynamically below rather than at the top of the file.
       if (mode === 'max') {
-        // One worker per GPU on a multi-GPU rig. CUDA_VISIBLE_DEVICES restricts the
-        // ollama we spawn to that card — ollama loads a model that fits on a SINGLE
-        // GPU, so without a pin per worker the other cards just idle — and the port
-        // offset gives each worker its own daemon instead of one shared 11434.
-        if (opts.gpu !== undefined) {
-          const gpu = Number(opts.gpu);
-          if (!Number.isInteger(gpu) || gpu < 0 || gpu > 15) {
-            throw new Error(`Invalid --gpu "${opts.gpu}" (expected a GPU index 0-15, e.g. --gpu 0).`);
-          }
+        const gpus = resolveGpus(opts.gpu, opts.benchmark);
+
+        const modelKey = await resolveModel(opts.model, opts.url, opts.token);
+        const spec = WORKER_MODELS[modelKey];
+
+        // More than one card: this process becomes a supervisor and runs a child
+        // per GPU through the single-card path below. Mode and model are already
+        // resolved, so the interactive prompts happen exactly once, here.
+        if (gpus.length > 1) {
+          console.log(`Model: ${spec.label} (${spec.modelName})`);
+          const { startGpuSupervisor } = await import('./supervisor.js');
+          startGpuSupervisor({ gpus, token: opts.token, url: opts.url, model: modelKey });
+          return;
+        }
+
+        // One card: pin it. CUDA_VISIBLE_DEVICES restricts the ollama we spawn to
+        // that GPU, and the port offset gives this worker its own daemon instead
+        // of one shared 11434 the siblings would fight over.
+        if (gpus.length === 1) {
+          const gpu = gpus[0];
+          // CUDA numbers devices fastest-first by default while nvidia-smi (and so
+          // our --gpu index and our VRAM query) numbers them by PCI bus, which can
+          // select different cards on a mixed rig. Make the two agree, unless the
+          // operator has already chosen an order.
+          if (!process.env.CUDA_DEVICE_ORDER) process.env.CUDA_DEVICE_ORDER = 'PCI_BUS_ID';
           process.env.CUDA_VISIBLE_DEVICES = String(gpu);
           process.env.C0MPUTE_OLLAMA_PORT = String(11434 + gpu);
           console.log(`GPU: pinned to GPU ${gpu} (private ollama on port ${11434 + gpu})`);
         }
 
-        const modelKey = await resolveModel(opts.model, opts.url, opts.token);
-        const spec = WORKER_MODELS[modelKey];
         process.env.C0MPUTE_OLLAMA_MODEL = spec.ollamaModel;
         process.env.C0MPUTE_BASE_MODEL = spec.baseModel;
         process.env.C0MPUTE_MODEL_NAME = spec.modelName;

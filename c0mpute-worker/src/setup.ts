@@ -1,4 +1,4 @@
-import { spawn, spawnSync, execSync } from 'child_process';
+import { spawn, execSync } from 'child_process';
 import { existsSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import os from 'os';
@@ -10,6 +10,7 @@ import {
   SYSTEM_PROMPT,
 } from './config.js';
 import { checkOllama, modelExists } from './inference.js';
+import { detectGpuVramMB } from './gpus.js';
 
 /** The GPU this worker is pinned to, if any (`--gpu N` sets CUDA_VISIBLE_DEVICES,
  *  which is what actually restricts the ollama we spawn to that one card). */
@@ -19,41 +20,9 @@ const GPU_PIN = (process.env.CUDA_VISIBLE_DEVICES || '').trim();
  *  the box-wide daemon on 11434. Pinned workers must never pkill their siblings. */
 const PINNED = !!process.env.C0MPUTE_OLLAMA_PORT;
 
-// Total VRAM (MB) of each GPU we may use — one entry per GPU. nvidia-smi is an
-// NVML tool and does NOT honour CUDA_VISIBLE_DEVICES (that's a CUDA-runtime
-// variable), so a pinned worker would otherwise size itself against the BIGGEST
-// card in the rig instead of the one it actually runs on; we pass the pin through
-// with -i, which takes plain indices and full UUIDs. CUDA_VISIBLE_DEVICES can
-// also hold forms nvidia-smi rejects (abbreviated UUIDs, MIG ids, "-1") — those
-// just fail the query and we fall back below.
-// Empty if undetectable (Apple Silicon / no nvidia-smi) → safe defaults below.
-function queryVramMB(pin: string): number[] {
-  const args = ['--query-gpu=memory.total', '--format=csv,noheader,nounits'];
-  const r = spawnSync('nvidia-smi', pin ? ['-i', pin, ...args] : args, {
-    encoding: 'utf8',
-    timeout: 5000,
-  });
-  if (r.status !== 0 || !r.stdout) return [];
-  return r.stdout
-    .trim()
-    .split('\n')
-    .map((s) => parseInt(s.trim(), 10))
-    .filter((n) => !Number.isNaN(n));
-}
-
-function detectGpuVramMB(): number[] {
-  // Fall back to the whole box if the pin is something nvidia-smi won't take
-  // (e.g. a MIG id), so detection degrades to today's behaviour, never to 0.
-  // Never forward a flag-shaped value ("-1" = ollama's "no GPU" idiom) into the
-  // argument list.
-  if (GPU_PIN && !GPU_PIN.startsWith('-')) {
-    const pinned = queryVramMB(GPU_PIN);
-    if (pinned.length) return pinned;
-  }
-  return queryVramMB('');
-}
-
-const GPU_VRAM_MB = detectGpuVramMB();
+/** VRAM of every GPU this worker may use — the pinned card when `--gpu` is set,
+ *  the whole box otherwise. Empty if undetectable → safe defaults below. */
+const GPU_VRAM_MB = detectGpuVramMB(GPU_PIN);
 
 // Pick a safe context window for the 27B from VRAM. Weights are ~17GB (q4); the
 // KV cache grows with num_ctx. Measured on a 24GB 4090: 32K fits ~19GB, 100% on
