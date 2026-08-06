@@ -14,7 +14,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import './ui.css';
 import { useChatEngine, type EngineMessage } from '../engine/useChatEngine';
-import { PLANS, parseThinking, parseSourcesFromContent, type FileRef, type Plan, type SourceRef } from '../lib';
+import { PENDING_PROMPT_KEY, PLANS, parseThinking, parseSourcesFromContent, type FileRef, type Plan, type SourceRef } from '../lib';
 import {
   load, save, uid, titleFrom, toWire, truncateAt,
   activeVersion, addImagesTo, addVersion, assistantMsg, makeVersion, selectVersion,
@@ -127,13 +127,36 @@ export default function Chat() {
   const liveFiles = useRef<FileRef[]>([]);
   const composerInput = useRef<HTMLTextAreaElement>(null);
 
+  /** A prompt typed into the hero input on the homepage, handed over through
+   *  localStorage. Read exactly once — `undefined` until hydrate has looked,
+   *  '' when there was nothing, so a StrictMode remount never re-reads the key
+   *  it just cleared and loses the prompt. */
+  const handoff = useRef<string | undefined>(undefined);
+  /** The stored conversations have reached state, not just this effect. The
+   *  handoff waits for it: sending off the mount pass would build the new
+   *  conversation on an empty list and write the visitor's history away. */
+  const [hydrated, setHydrated] = useState(false);
+
   // hydrate — localStorage can only be read after mount, so this one-shot
   // effect is the only way in; it runs once and settles.
   useEffect(() => {
     const list = load();
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setConvos(list);
-    if (list.length > 0) setActiveId(list[0].id);
+    setHydrated(true);
+    if (handoff.current === undefined) {
+      let text = '';
+      try {
+        text = (localStorage.getItem(PENDING_PROMPT_KEY) ?? '').trim();
+        if (text) localStorage.removeItem(PENDING_PROMPT_KEY);
+      } catch { /* no storage: nothing was handed over */ }
+      handoff.current = text;
+      if (text) setDraft(text);
+    }
+    // A hero prompt opens a conversation of its own: leaving activeId null is
+    // what makes the first send create one, instead of appending to whatever
+    // the visitor happened to ask last time.
+    if (!handoff.current && list.length > 0) setActiveId(list[0].id);
   }, []);
 
   const active = convos.find(c => c.id === activeId) ?? null;
@@ -429,6 +452,22 @@ export default function Chat() {
     setImages([]);
     void ask(text, images);
   }, [draft, images, busy, capped, engine, ask]);
+
+  // ---- the homepage handoff ----
+  // The hero prompt sends itself, once, as soon as the engine can carry it.
+  // Until then it waits in the composer: if the network never comes up, or the
+  // free lane is spent and a sign-in is owed, the visitor still has what they
+  // typed rather than an empty box.
+  const handoffSent = useRef(false);
+  useEffect(() => {
+    const text = handoff.current;
+    if (!hydrated || !text || handoffSent.current || busy) return;
+    if (engine.authLoading || !engine.connected || capped) return;
+    handoffSent.current = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setDraft('');
+    void ask(text, []);
+  }, [hydrated, busy, engine.authLoading, engine.connected, capped, ask]);
 
   const followUp = useCallback((text: string) => { void ask(text, []); }, [ask]);
 
