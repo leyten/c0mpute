@@ -15,7 +15,7 @@ import {
   selectionWeight,
 } from './types';
 import { verifyPrivyToken } from '../privy-server';
-import { incrementPromptsSent, verifyWorkerToken, recordCompletedJob, recordEarning, spendCredits, getCreditBalance, refundCredits, isWorkerBanned, recordWorkerStrike, recordCanaryResult, consumeFreePrompt, restoreFreePrompt, recordSubsidizedPrompt, getTodayFreeSubsidyUsd, getThisHourFreeSubsidyUsd, anonGrantFreePrompt, profileHasLogin, getAccountAgeMs } from '../db';
+import { incrementPromptsSent, verifyWorkerToken, recordCompletedJob, recordEarning, spendCredits, getCreditBalance, refundCredits, isWorkerBanned, recordWorkerStrike, recordCanaryResult, consumeFreePrompt, restoreFreePrompt, getFreePromptsUsed, recordSubsidizedPrompt, getTodayFreeSubsidyUsd, getThisHourFreeSubsidyUsd, anonGrantFreePrompt, getAnonRemaining, profileHasLogin, getAccountAgeMs } from '../db';
 import { FREE_PROMPT_LIMIT, FREE_SUBSIDY_DAILY_CAP_USD, FREE_SUBSIDY_HOURLY_CAP_USD, STAKER_ALLOWANCE_ENABLED, ANON_FREE_PROMPT_LIMIT, ANON_IP_DAILY_CAP, WORKER_STAKED_REVENUE_SHARE, TIER_CREDIT_COST } from '../tokenomics';
 import { verifyAnonToken } from '../anon-auth';
 import { CREDITS_PER_USD } from '../token-price';
@@ -137,6 +137,17 @@ function probeCtxExceeded(
     // Diagnostics must never reach the hot path.
   }
 }
+
+// Submit-time rejection for a free-lane job the dispatch loop provably cannot
+// place (see hasEligibleWorker). The anon variant adds the paid lane as the way
+// out; the signed-in one deliberately does NOT say "sign in", because a signup's
+// welcome prompts ride this exact same gated lane and would hit the same wall.
+// Both lead with "not used" — the whole point of rejecting here is that the
+// prompt is still in the user's pocket.
+const FREE_NO_CAPACITY_MESSAGE =
+  'No free capacity on the network right now. Your free prompt was not used. Try again in a bit.';
+const FREE_NO_CAPACITY_MESSAGE_ANON =
+  'No free capacity on the network right now. Your free prompt was not used. Try again in a bit, or sign in and top up to keep going.';
 
 export class Orchestrator {
   private io: Server<ClientToServerEvents, ServerToClientEvents>;
@@ -613,6 +624,16 @@ export class Orchestrator {
             callback({ error: "Free prompts are busy right now. Try again shortly or sign in to keep going.", code: 'ANON_CAP_HOURLY' });
             return;
           }
+          // Admission: refuse a free job no connected worker is eligible to serve,
+          // BEFORE the grant is consumed. Skipped when the session is already out
+          // of prompts so the grant below can give the accurate "you're out, sign
+          // in" reason instead of this one (that user must not be told to retry).
+          if (getAnonRemaining((socket as any).anonAid, ANON_FREE_PROMPT_LIMIT) > 0
+            && this.freeJobIsUnservable(data.model)) {
+            console.log(`[Orchestrator] Anon free prompt refused for ${privyUserId} (${requestedTierForCredits}): no eligible worker online`);
+            callback({ error: FREE_NO_CAPACITY_MESSAGE_ANON, code: 'FREE_NO_CAPACITY' });
+            return;
+          }
           const grant = anonGrantFreePrompt((socket as any).anonAid, (socket as any).anonIpHash, ANON_FREE_PROMPT_LIMIT, ANON_IP_DAILY_CAP);
           if (!grant.granted) {
             if (grant.reason === 'ip') {
@@ -650,7 +671,22 @@ export class Orchestrator {
           // keeps their free-prompt count rather than burning it on a job no worker
           // gets paid for. consumeFreePrompt is only called when there's room.
           const projectedSubsidyUsd = (listCredits / CREDITS_PER_USD) * WORKER_STAKED_REVENUE_SHARE;
-          if (getTodayFreeSubsidyUsd() + projectedSubsidyUsd <= FREE_SUBSIDY_DAILY_CAP_USD && consumeFreePrompt(privyUserId, FREE_PROMPT_LIMIT)) {
+          const subsidyCapHasRoom = getTodayFreeSubsidyUsd() + projectedSubsidyUsd <= FREE_SUBSIDY_DAILY_CAP_USD;
+          // Admission: this job is about to take the free lane (cap has room and
+          // the account still has a prompt), so refuse it up front if no connected
+          // worker is eligible to serve one — otherwise it queues until the 60s
+          // stall timer and the prompt is gone. The read is advisory only; the
+          // consume below stays the atomic authority, so a race just falls through
+          // to the paid lane exactly as before. Deliberately does NOT silently
+          // charge credits instead: the user asked for their free prompt.
+          if (subsidyCapHasRoom
+            && getFreePromptsUsed(privyUserId) < FREE_PROMPT_LIMIT
+            && this.freeJobIsUnservable(data.model)) {
+            console.log(`[Orchestrator] Free prompt refused for ${privyUserId} (${requestedTierForCredits}): no eligible worker online`);
+            callback({ error: FREE_NO_CAPACITY_MESSAGE, code: 'FREE_NO_CAPACITY' });
+            return;
+          }
+          if (subsidyCapHasRoom && consumeFreePrompt(privyUserId, FREE_PROMPT_LIMIT)) {
             creditCost = 0;
             usedFreePrompt = true;
             recordSubsidizedPrompt(privyUserId, 'free_prompt', `${requestedTierForCredits}${deepThinking ? ' deep-thinking' : ''} prompt (welcome grant)`);
@@ -1319,6 +1355,59 @@ export class Orchestrator {
     return true;   // a sharded model is served (or errored) here — never queued to a whole-model worker
   }
 
+  /**
+   * Can this worker serve this job at all? Dispatch's whole matching rule MINUS
+   * liveness (`status === 'idle'`), which is a right-now question the admission
+   * check must not ask — a busy worker is still capacity, it frees up in seconds.
+   *
+   * Extracted so processQueue and the submit-time admission check read the same
+   * rule and can never drift: if they disagree we either admit jobs nothing can
+   * serve (the hang this exists to kill) or refuse jobs the network would serve.
+   *
+   * Bans need no test here, for either caller: isWorkerBanned refuses at
+   * registration and kickWorker removes a worker mid-session, so anything still
+   * in `this.workers` is dispatchable by construction — and both callers read
+   * that one map.
+   */
+  private workerCanServe(worker: WorkerInfo, requestedModel: string | undefined, subsidyKind?: 'free' | 'allowance'): boolean {
+    if (!workerServesModel(worker, requestedModel)) return false;
+    // Subsidized free jobs (treasury pays the worker) only go to aged accounts,
+    // so a freshly-minted throwaway can't farm the free lane. Paid jobs are open.
+    if (subsidyKind === 'free' && !worker.accountAgeOk) return false;
+    return true;
+  }
+
+  /**
+   * Does the network hold ANY worker that could serve this job — busy ones
+   * included? Capacity, not availability.
+   *
+   * Only the free lanes ask. A free pro job needs a browser worker whose account
+   * cleared MIN_WORKER_ACCOUNT_AGE_MS; with none online it sat in the queue until
+   * the client's 60s stall timer gave up, having already burned the user's free
+   * prompt. Paid and staker-allowance jobs are never gated on this — they can
+   * afford to wait for a worker to show up.
+   */
+  private hasEligibleWorker(requestedModel: string | undefined, subsidyKind?: 'free' | 'allowance'): boolean {
+    for (const worker of this.workers.values()) {
+      if (this.workerCanServe(worker, requestedModel, subsidyKind)) return true;
+    }
+    return false;
+  }
+
+  /**
+   * The submit-time gate for the two subsidized free lanes: can the network
+   * provably not serve this job right now?
+   *
+   * Scoped to jobs that ride the whole-model queue. A sharded model is answered
+   * by its serving swarm via tryDispatchSwarm, which succeeds or fails it (with
+   * its own refund) independently of how many browser workers are connected —
+   * so judging it on worker capacity would refuse jobs the swarm would serve.
+   */
+  private freeJobIsUnservable(requestedModel: string | undefined): boolean {
+    if (requestedModel && specForModel(requestedModel)) return false;
+    return !this.hasEligibleWorker(requestedModel, 'free');
+  }
+
   private processQueue() {
     if (this.jobQueue.length === 0) return;
 
@@ -1353,10 +1442,7 @@ export class Orchestrator {
       let totalWeight = 0;
       for (const [socketId, worker] of this.workers) {
         if (worker.status !== 'idle') continue;
-        if (!workerServesModel(worker, j.requestedModel)) continue;
-        // Subsidized free jobs (treasury pays the worker) only go to aged accounts,
-        // so a freshly-minted throwaway can't farm the free lane. Paid jobs are open.
-        if (j.subsidyKind === 'free' && !worker.accountAgeOk) continue;
+        if (!this.workerCanServe(worker, j.requestedModel, j.subsidyKind)) continue;
         const samples = worker.measuredTokPerSec ?? [];
         const speed = samples.length
           ? samples.reduce((a, b) => a + b, 0) / samples.length
