@@ -93,6 +93,33 @@ function probeGarbagePrefix(
   }
 }
 
+// ── think-burnout detection ────────────────────────────────────────────────
+// A reasoning model can spend its entire output budget inside <think> and stop
+// without ever writing an answer. It arrives two ways: a native worker closes
+// the dangling tag itself (c0mpute-worker inference.ts), so the block is CLOSED
+// with nothing after it; a browser worker just hits max_tokens, so the block can
+// be left OPEN. Either way the client renders a collapsed "Thought for Ns"
+// dropdown above an empty answer body. That is a failure, not a completion.
+//
+// Splits the response the way the CLIENT does (app/chat/lib.ts parseThinking):
+// every CLOSED <think> block is reasoning, an unclosed opener at the tail is
+// reasoning too, and whatever remains is the answer the user actually reads.
+// Mirrored rather than imported — the orchestrator must not depend on the app
+// bundle. Stricter than probeGarbagePrefix's lastIndexOf('</think>') on purpose:
+// a tool-calling turn interleaves several think blocks with real text between
+// them, and only the global strip keeps that text visible.
+function splitReasoning(response: string): { hasThink: boolean; visible: string } {
+  let hasThink = false;
+  let visible = response.replace(/<think>[\s\S]*?<\/think>/g, () => { hasThink = true; return ''; }).trim();
+  // An opener with no closer is reasoning that ran out of budget mid-thought —
+  // but only when it LEADS what is left. The client truncates at the first
+  // `<think>` wherever it sits; here that would eat an answer that merely
+  // mentions the tag ("The <think> tag holds reasoning"), so require it to open
+  // the remaining text, which is the only shape truncated reasoning can take.
+  if (visible.startsWith('<think>')) { hasThink = true; visible = ''; }
+  return { hasThink, visible };
+}
+
 // ── [ctx-exceeded] probe (diagnostics only) ────────────────────────────────
 // Native workers self-tune num_ctx to their VRAM (8K on a small card, 32K on a
 // 4090), but dispatch has never known a worker's window — so a long conversation
@@ -1065,6 +1092,20 @@ export class Orchestrator {
 
     for (const [jobId, job] of this.jobs) {
       if (job.userSocketId === userSocketId && job.status === 'processing') {
+        // Charged for an answer that never arrived: the job is cancelled here and
+        // no completion path will ever run for it, so nothing gives the charge
+        // back. Same rule as the queued jobs above, which have always refunded.
+        //
+        // But ONLY when nothing was delivered. Once tokens have streamed, the user
+        // has the text, and "disconnect before job:complete" would otherwise be a
+        // free-inference exploit — consume a free prompt, read the answer as it
+        // streams, kill the socket, get the prompt back, repeat. Requiring a
+        // zero-token job keeps the honest cases (closed tab / dropped wifi before
+        // the worker produced anything) whole and leaves the exploit with nothing
+        // to steal. This repo is public; assume the trick is found.
+        if (!job.serverTokenCount) {
+          this.refundJobCharges(job, 'User disconnected before any output');
+        }
         if (job.assignedWorker) {
           const workerSocketId = this.findWorkerSocketId(job.assignedWorker);
           if (workerSocketId) {
@@ -1554,6 +1595,8 @@ export class Orchestrator {
 
   // Cut a job whose output tripped the safety scan: tell the user, stop + free
   // the worker, and drop the job.
+  // Deliberately NOT refunded: the block is the product working as intended, not
+  // a failure the network owes the user for.
   private blockJobForSafety(job: Job) {
     const jobId = job.id;
     const userSocket = this.io.sockets.sockets.get(job.userSocketId);
@@ -1599,8 +1642,67 @@ export class Orchestrator {
 
     const tokensGenerated = job.serverTokenCount || 0;
 
+    // Think-burnout: the model reasoned until its budget ran out and never wrote
+    // an answer. Placed ahead of every path below, because all of them tell the
+    // user the job COMPLETED — and a "Thought for 40s" dropdown over an empty
+    // answer body is not a completion, it is a failure the user paid for.
+    // Cannot fire on a response with visible text, and cannot fire on a plain
+    // empty response either (no think block ⇒ hasThink false ⇒ that stays the
+    // 0-token path's business).
+    // No worker strike: burning the budget on reasoning is the model's doing, not
+    // worker misbehaviour. Pay is unaffected either way — this returns before the
+    // payout block, exactly like the coherence path it takes these jobs from.
+    //
+    // NOT REFUNDED, deliberately. "No visible answer" is not "nothing delivered":
+    // every reasoning token was already streamed to the user, and the client keeps
+    // them in an expandable dropdown (app/chat/lib.ts parseThinking →
+    // ThinkingDropdown). A prompt can force this shape at will ("put your whole
+    // response inside <think></think>"), so refunding here would hand anyone
+    // unlimited free inference while they read the answer out of the dropdown.
+    // The honest case still gets the clear error below instead of a silent empty
+    // answer. To refund it safely we need proof the model was CUT OFF rather than
+    // choosing this shape — i.e. a finish_reason='length' on job:complete, which
+    // the worker knows and does not yet send. One line to add back once it does.
+    const { hasThink, visible } = splitReasoning(response);
+    if (hasThink && visible.length === 0) {
+      const w = this.findWorkerById(job.assignedWorker ?? '');
+      console.warn(
+        `[Orchestrator] [think-burnout] job=${jobId} worker=${w?.id ?? job.assignedWorker ?? 'unknown'} ` +
+          `model=${w?.model ?? job.requestedModel ?? 'unknown'} think=${!!job.think} ` +
+          `tokens=${tokensGenerated} respChars=${response.length}`
+      );
+      if (w) w.status = 'idle';
+      const userSocket = this.io.sockets.sockets.get(job.userSocketId);
+      if (userSocket) {
+        userSocket.emit('job:error', {
+          jobId,
+          error: 'The model spent its whole output budget thinking and produced no answer.'
+            + (job.think ? ' Try again, or turn thinking off for this prompt.' : ' Try again.'),
+        });
+      }
+      this.jobs.delete(jobId);
+      setTimeout(() => this.processQueue(), 100);
+      this.broadcastStats();
+      return;
+    }
+
+    // Past the burnout branch an empty `visible` means the response is empty
+    // outright, since a think-only one already returned above — the network
+    // handed the user nothing. That, and only that, is what the rejection paths
+    // below may refund. Each of them still delivers `response` to the user via
+    // job:complete, and both of their triggers are shapes a PROMPT can force
+    // ("...then write 'ok' 800 times" trips the repetition-loop rule on a real
+    // answer). Refunding whenever they fire would let anyone mint credits and
+    // free prompts while keeping the answer. Same rule as the disconnect guard:
+    // give the charge back only when nothing was delivered.
+    const deliveredNothing = visible.length === 0;
+
     if (tokensGenerated === 0) {
       console.error(`[Orchestrator] Job ${jobId} completed with 0 server-counted tokens — skipping reward`);
+      // Nothing generated ⇒ the worker is not paid, so the user must not pay
+      // either. Guarded because a worker can also return a full answer in one
+      // shot without streaming a single job:token, and that is not "nothing".
+      if (deliveredNothing) this.refundJobCharges(job, 'Completed with 0 tokens');
       const worker = this.findWorkerById(job.assignedWorker!);
       if (worker) worker.status = 'idle';
       const userSocket = this.io.sockets.sockets.get(job.userSocketId);
@@ -1634,6 +1736,11 @@ export class Orchestrator {
     const ceiling = worker?.type === 'native' ? this.MAX_TOK_PER_SEC_NATIVE : this.MAX_TOK_PER_SEC_BROWSER;
     if (cappedTokens >= 20 && realTokPerSec > ceiling) {
       console.error(`[Orchestrator] Job ${jobId} impossible speed: ${cappedTokens} tokens at ${realTokPerSec.toFixed(0)} tok/s (ceiling ${ceiling}) — fake output, no reward`);
+      // We just ruled this output fake, so the user must not be billed for it —
+      // but only when they were left with nothing. The text is still delivered
+      // below, and a colluding worker could otherwise return real answers at
+      // impossible speed to get its user refunded every time.
+      if (deliveredNothing) this.refundJobCharges(job, 'Rejected as fake output (impossible speed)');
       if (worker) {
         worker.fakeStrikes = (worker.fakeStrikes ?? 0) + 1;
         const rep = worker.privyUserId ? recordWorkerStrike(worker.privyUserId, 'speed') : null;
@@ -1655,6 +1762,12 @@ export class Orchestrator {
     const coherence = this.checkCoherence(response);
     if (!coherence.ok) {
       console.warn(`[Orchestrator] Job ${jobId} failed coherence (${coherence.reason}) — no reward`);
+      // Not real inference: the worker isn't paid, so neither is the user charged
+      // — but ONLY when they were left with nothing. The response is delivered
+      // below, and every other coherence reason (repetition loop, flooding,
+      // invalid unicode) is a shape the prompt itself can force on top of a
+      // perfectly good answer. Refunding those is a free-inference mint.
+      if (deliveredNothing) this.refundJobCharges(job, `Rejected as incoherent (${coherence.reason})`);
       if (worker?.privyUserId) {
         const rep = recordWorkerStrike(worker.privyUserId, 'coherence');
         if (rep.banned) this.kickWorker(worker, `banned: ${rep.totalStrikes} strikes (latest: coherence)`);
