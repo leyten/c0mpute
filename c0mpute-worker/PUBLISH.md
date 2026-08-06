@@ -1,5 +1,12 @@
 # Publishing `@c0mpute/worker` to npm — a GO-LIVE action, NOT a pre-launch step
 
+> **Release lines (since 2026-08-06):** this tree on `master` is the **betanet worker,
+> versioned `3.0.0-beta.x`**, and `prepublishOnly` refuses to publish it without
+> `C0MPUTE_BETANET_GOLIVE=1` — set that only during the coordinated flip below, where it
+> publishes as `3.0.0`. Fixes for the **live classic network** ship from the
+> `release/worker-classic` branch as `2.8.x` (shard-free tarball, its own PUBLISH.md).
+> Never publish a 2.8.x from master, never publish 3.x before go-live.
+
 > ⛔ **DO NOT publish before the coordinated betanet launch.** Publishing is a world-facing deploy:
 > the package your real, live operators install from. There is **no benefit** to publishing before
 > launch and real risk in doing so:

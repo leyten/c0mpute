@@ -1,6 +1,6 @@
 {
   "name": "@c0mpute/worker",
-  "version": "2.8.3",
+  "version": "3.0.0-beta.0",
   "description": "Native CLI worker for the c0mpute.ai distributed inference network. Runs LLM inference via ollama and connects to the orchestrator via Socket.io.",
   "license": "MIT",
   "type": "module",
@@ -12,7 +12,8 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "tsx src/index.ts",
-    "try-shard": "npm run build && bash ../scripts/try-shard.sh"
+    "try-shard": "npm run build && bash ../scripts/try-shard.sh",
+    "prepublishOnly": "node -e \"if (process.env.C0MPUTE_BETANET_GOLIVE !== '1') { console.error('BLOCKED: this tree is the betanet worker (3.x) and publishes only at the coordinated go-live with C0MPUTE_BETANET_GOLIVE=1. Classic (live network) releases publish from the release/worker-classic branch as 2.8.x.'); process.exit(1); }\""
   },
   "keywords": [
     "llm",
