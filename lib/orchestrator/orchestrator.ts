@@ -194,6 +194,11 @@ export class Orchestrator {
   private rateLimits: Map<string, number[]> = new Map();
   private jobs: Map<string, Job> = new Map();
   private jobQueue: string[] = [];
+  // Revenue frozen onto an in-flight swarm job (the same object the swarm loop holds and settles
+  // against), keyed by job id for as long as the swarm is serving it. Refunding a job voids its
+  // entry, which is what keeps "give the user their money back" and "pay the stages out of that
+  // money" mutually exclusive — settlement runs in the swarm loop, not on this job record.
+  private swarmRevenue: Map<string, JobRevenue> = new Map();
   // Image generation jobs (decentralized image gen). Separate, simple
   // request/response lane (no token streaming): submit -> dispatch to an idle
   // image worker -> single PNG result. Billing stays in the web API route.
@@ -412,6 +417,13 @@ export class Orchestrator {
   private refundJobCharges(job: Job, reason: string) {
     if (!job.privyUserId || job.refunded) return;
     job.refunded = true;
+    // A refunded job collected nothing, so its shards must not be paid out of that collection
+    // either. The swarm settles from the revenue frozen at dispatch, on its own timeline and
+    // without consulting this job record, so zeroing it here is the only thing standing between
+    // "user refunded" and "stages paid anyway" (settleJob attaches no revenue to an earning when
+    // there are no credits to split; the work is still counted, just not paid).
+    const swarmRevenue = this.swarmRevenue.get(job.id);
+    if (swarmRevenue) swarmRevenue.credits = 0;
     if (job.creditsCharged) {
       refundCredits(job.privyUserId, job.creditsCharged, reason);
     } else if (job.subsidyKind === 'free') {
@@ -445,10 +457,16 @@ export class Orchestrator {
       return true;
     });
 
+    // A swarm job's deadline belongs to the swarm loop (its own 300s timer, whose onError refunds
+    // and clears the job). This sweep is only the BACKSTOP for the case where no callback ever
+    // arrives — so it must fire well after that deadline, or it would refund a job that is still
+    // streaming, which is exactly the double-charge this lane is meant to avoid.
+    const SWARM_BACKSTOP_MS = 420000; // 7 minutes
     for (const [jobId, job] of this.jobs) {
       if (job.status === 'processing' && job.startedAt) {
+        const limit = this.swarmRevenue.has(jobId) ? SWARM_BACKSTOP_MS : JOB_TIMEOUT_MS;
         const processingTime = now - job.startedAt.getTime();
-        if (processingTime > JOB_TIMEOUT_MS) {
+        if (processingTime > limit) {
           const userSocket = this.io.sockets.sockets.get(job.userSocketId);
           if (userSocket) {
             userSocket.emit('job:error', { jobId, error: 'Job timed out during processing' });
@@ -459,6 +477,7 @@ export class Orchestrator {
             if (worker) worker.status = 'idle';
           }
           this.jobs.delete(jobId);
+          this.swarmRevenue.delete(jobId);
         }
       }
     }
@@ -674,7 +693,11 @@ export class Orchestrator {
           if (anonJob) {
             callback({ jobId: anonJob.id, freeRemaining: grant.remaining });
             console.log(`[Orchestrator] Anon free prompt used by ${privyUserId} (${requestedTierForCredits}), ${grant.remaining} left`);
-            this.processQueue();
+            // Same routing as the signed-in lane: a sharded model goes to its serving swarm.
+            // Without this an anon request for one is admitted (freeJobIsUnservable exempts
+            // sharded models precisely because the swarm answers them), then handed to a
+            // browser worker running a different model — or queued until the stale sweep.
+            if (!this.tryDispatchSwarm(anonJob)) this.processQueue();
           } else {
             // Grant was already consumed above and no job exists to refund later.
             restoreFreePrompt(privyUserId);
@@ -1360,7 +1383,11 @@ export class Orchestrator {
     const model = job.requestedModel;
     if (!model || !specForModel(model)) return false;
     const userSocket = () => this.io.sockets.sockets.get(job.userSocketId);
-    const fin = () => { this.jobs.delete(job.id); this.jobQueue = this.jobQueue.filter((id) => id !== job.id); };
+    const fin = () => {
+      this.jobs.delete(job.id);
+      this.jobQueue = this.jobQueue.filter((id) => id !== job.id);
+      this.swarmRevenue.delete(job.id);
+    };
     // The revenue the stages split at settlement = what THIS job collected: paid ⇒ creditsCharged
     // (real revenue); free/allowance ⇒ subsidyCredits (treasury-funded, booked subsidized). Frozen
     // now so payout is exactly a share of what was charged (self-solvent).
@@ -1369,16 +1396,32 @@ export class Orchestrator {
       subsidyKind: job.subsidyKind,
       payerPrivyId: job.privyUserId,
     };
+    // TAKEN BY THE SWARM — off the worker queue and marked processing BEFORE dispatch, exactly as
+    // processQueue does when a classic worker takes a job. A job left sitting in jobQueue while a
+    // swarm serves it is (a) handed to a browser worker as well by processQueue, since a sharded
+    // model id is pro-tier and every browser worker "matches" it, and (b) refunded unconditionally
+    // by cleanupUserJobs' queued branch the moment the user's socket drops — while the swarm goes
+    // on to finish and pay its stages. Marking it processing routes both sweeps to the delivery-
+    // aware branch instead, and `startedAt` puts it under cleanupStaleJobs' swarm backstop so a
+    // job the loop never calls back on still fails (and refunds) instead of hanging forever.
+    this.jobQueue = this.jobQueue.filter((id) => id !== job.id);
+    job.status = 'processing';
+    job.startedAt = new Date();
+    this.swarmRevenue.set(job.id, revenue);
     this.swarmLoop.serveRequest({
       model,
       messages: job.messages ?? [],
       params: { maxNew: 512, reasoning: !!job.think, tools: job.toolPassthrough ? job.clientTools : undefined },
       revenue,
-      // The swarm's own deadline is longer than cleanupStaleJobs' JOB_TIMEOUT_MS, so a slow
-      // swarm job can be timed out (and refunded) while it is still serving. Once the charge
-      // has been given back the job is settled: stop streaming and don't deliver a late
-      // answer the user no longer paid for. The user was already sent job:error.
-      onToken: (delta) => { if (!job.refunded) userSocket()?.emit('job:token', { jobId: job.id, token: delta }); },
+      // A job whose charge has already been given back (user vanished before a single token,
+      // swarm error) is settled: stop streaming and don't deliver an answer nobody paid for.
+      // The delivered-token count is what the disconnect sweep reads to decide whether this
+      // job owes the user a refund at all — a swarm stream never passes through handleJobToken.
+      onToken: (delta) => {
+        if (job.refunded) return;
+        job.serverTokenCount = (job.serverTokenCount ?? 0) + 1;
+        userSocket()?.emit('job:token', { jobId: job.id, token: delta });
+      },
       onDone: (response) => {
         if (job.refunded) { fin(); return; }
         probeGarbagePrefix(response, job.id, () => ({ workerId: `swarm:${model}`, model }));
@@ -1392,7 +1435,6 @@ export class Orchestrator {
         userSocket()?.emit('job:error', { jobId: job.id, error: message }); fin();
       },
     });
-    job.status = 'processing';
     return true;   // a sharded model is served (or errored) here — never queued to a whole-model worker
   }
 
@@ -1439,13 +1481,17 @@ export class Orchestrator {
    * The submit-time gate for the two subsidized free lanes: can the network
    * provably not serve this job right now?
    *
-   * Scoped to jobs that ride the whole-model queue. A sharded model is answered
-   * by its serving swarm via tryDispatchSwarm, which succeeds or fails it (with
-   * its own refund) independently of how many browser workers are connected —
-   * so judging it on worker capacity would refuse jobs the swarm would serve.
+   * A sharded model is answered by its serving swarm via tryDispatchSwarm, not by
+   * the worker pool, so judging it on worker capacity would refuse jobs the swarm
+   * would serve. Ask the swarm instead, with the SAME predicate serveRequest routes
+   * on (swarmForModel) so the two can never drift: with no ready ring the dispatch
+   * fails instantly, and admitting it anyway would spend the grant — and, for an
+   * anon visitor, one of their IP's daily slots, which no refund gives back.
    */
   private freeJobIsUnservable(requestedModel: string | undefined): boolean {
-    if (requestedModel && specForModel(requestedModel)) return false;
+    if (requestedModel && specForModel(requestedModel)) {
+      return !this.swarmLoop.manager.swarmForModel(requestedModel);
+    }
     return !this.hasEligibleWorker(requestedModel, 'free');
   }
 
@@ -1473,6 +1519,10 @@ export class Orchestrator {
     for (let i = 0; i < this.jobQueue.length; i++) {
       const j = this.jobs.get(this.jobQueue[i]);
       if (!j) continue;
+      // Only a job nobody is serving yet may be dispatched. Queue removal is the primary
+      // guard (tryDispatchSwarm / the splice below), this is the invariant behind it: a job
+      // already in flight must never be handed to a second worker.
+      if (j.status !== 'pending') continue;
       // Weighted-random pick among idle matching workers, weight = avg tok/s
       // (measured throughput, falling back to the registration benchmark). This
       // spreads earnings across the pool instead of always paying the single
