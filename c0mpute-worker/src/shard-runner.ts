@@ -250,7 +250,7 @@ export function pullRange(lo: number, hi: number, head: boolean, tail: boolean,
 /** The UNVERIFIED probe-slice pull (m25_pull_range) — measurement-only: the slice feeds
  *  `shard.probe --measure` and is never served. Serving pulls go through pullRange, always. */
 export function pullProbeSliceRaw(lo: number, hi: number, signal?: AbortSignal): Promise<void> {
-  return spawnPull([join('phase0', 'm25_pull_range.py'), '--lo', String(lo), '--hi', String(hi),
+  return spawnPull([join('engines', 'minimax_m25', 'm25_pull_range.py'), '--lo', String(lo), '--hi', String(hi),
     '--dir', MODEL_DIR], signal);
 }
 

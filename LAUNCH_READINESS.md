@@ -77,7 +77,7 @@ Every item verified missing in code, with build-shape:
 release (now published, current pin sidecar-v0.2.0) and the npm publish (below). `scripts/wsl-setup.sh` (one
 bootstrap: git + Node 20 + Python 3.11 → `npx @c0mpute/worker --mode shard`) + `c0mpute-worker/
 WINDOWS.md` (WSL install, Windows NVIDIA driver, mirrored networking, one command) make a Windows
-stranger's join turnkey. **Remaining:** (a) `npm publish @c0mpute/worker` at ≥2.8.3 — LEYTEN's npm
+stranger's join turnkey. **Remaining:** (a) `npm publish @c0mpute/worker` at ≥3.0.0 (package.json is 3.0.0-beta.0, publish gated on C0MPUTE_BETANET_GOLIVE=1; npm's current 2.8.3 is the classic ollama worker, NOT the shard build) — LEYTEN's npm
 creds (the bootstrap calls `npx @c0mpute/worker@latest`); (b) one end-to-end smoke from the Ghent
 home box (the only step that genuinely needs Windows hardware).
 6. **Transport authorization.** The libp2p sidecar pipes activation streams from ANY peer
