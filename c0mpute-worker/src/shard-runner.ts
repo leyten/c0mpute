@@ -45,6 +45,10 @@ export const SIDECAR_BIN = process.env.C0MPUTE_SIDECAR_BIN || join(SHARD_HOME, '
 // A shard checkout (or the flat runtime-artifact layout) to run `python -m shard.*` from.
 export const SHARD_REPO = process.env.C0MPUTE_SHARD_REPO || join(SHARD_HOME, 'shard');
 export const MODEL_DIR = process.env.C0MPUTE_SHARD_MODEL_DIR || join(SHARD_HOME, 'models', 'minimax-m2.5');
+// The EAGLE drafter head (coordinator-side g-lever). SIBLING of MODEL_DIR, never inside it:
+// shard.fetch quarantines any safetensors the manifest doesn't list, and the head is not manifest
+// content — it only shapes DRAFTS, every one of which the ring verifies against the base model.
+export const DRAFTER_DIR = join(SHARD_HOME, 'models', 'm25-eagle3');
 export const MANIFEST_FILE = join(SHARD_HOME, 'manifest.json');   // signed content-addressed weight manifest
 // The HF repo the probe slice + weights come from, and the model NAME the network places by.
 export const MODEL_REPO = process.env.C0MPUTE_SHARD_REPO_HF || 'nvidia/MiniMax-M2.5-NVFP4';
@@ -395,14 +399,17 @@ function connectMs(host: string, port: number, timeoutMs: number): Promise<numbe
   });
 }
 
-/** The graph-aux perf trio, defaulted ON for every engine process (stage + coordinator) unless
- *  the operator already set it. CUDA-graph + static-KV + SDPA are bit-exact and need no extra
- *  weights — a ~2× speedup over the eager path. WITHOUT this a stranger's `--mode shard` (no env)
- *  serves at the no-graph floor, so real rings would be ~2× slower than they should be. EAGLE is
- *  NOT defaulted here (it needs the drafter head; enable it explicitly once provisioned). */
+/** The perf env, defaulted ON for every engine process (stage + coordinator) unless the operator
+ *  already set it. CUDA-graph + static-KV + SDPA are bit-exact and need no extra weights — a ~2×
+ *  speedup over the eager path. M25_EAGLE arms the speculative g-lever: stages capture aux
+ *  hiddens, and the HEAD node's coordinator drafts with the checkpoint ensureDrafter() staged at
+ *  DRAFTER_DIR. Safe when the head is missing — eagle_armed() latches off and the coordinator
+ *  broadcasts eagle:0, so stages self-silence (the proven plain ring on the wire). The operator
+ *  kill-switch stands: M25_EAGLE=0 in the daemon env wins (the playbook's nuclear option). */
 function perfDefaults(): Record<string, string> {
   const out: Record<string, string> = {};
-  for (const [k, v] of Object.entries({ M25_CUDA_GRAPH: '1', M25_STATIC_KV: '1', M25_SDPA: '1' })) {
+  for (const [k, v] of Object.entries({ M25_CUDA_GRAPH: '1', M25_STATIC_KV: '1', M25_SDPA: '1',
+                                        M25_EAGLE: '1', M25_EAGLE_DIR: DRAFTER_DIR })) {
     if (process.env[k] === undefined) out[k] = v;   // operator env always wins
   }
   return out;
