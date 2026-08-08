@@ -250,7 +250,7 @@ export function pullRange(lo: number, hi: number, head: boolean, tail: boolean,
 /** The UNVERIFIED probe-slice pull (m25_pull_range) — measurement-only: the slice feeds
  *  `shard.probe --measure` and is never served. Serving pulls go through pullRange, always. */
 export function pullProbeSliceRaw(lo: number, hi: number, signal?: AbortSignal): Promise<void> {
-  return spawnPull([join('phase0', 'm25_pull_range.py'), '--lo', String(lo), '--hi', String(hi),
+  return spawnPull([join('engines', 'minimax_m25', 'm25_pull_range.py'), '--lo', String(lo), '--hi', String(hi),
     '--dir', MODEL_DIR], signal);
 }
 
@@ -637,9 +637,12 @@ export class CoordinatorProcess {
   start(opts: { degraded?: boolean; swarmToken?: string } = {}): void {
     // gateway-parity endpoints (phase0/m25_scatter_pipe.py layout): pipe = the LOCAL head
     // engine; tail = the head sidecar's return -forward that tunnels to the tail's engine.
+    // --max-ctx must mirror the stages' KV cap (M25_KV_MAXLEN, engine default 40960): the
+    // coordinate default is 131072, which admits generations the stages hard-fail mid-serve.
+    const maxCtx = Number(process.env.M25_KV_MAXLEN) || 40960;
     const args = ['-m', 'shard.coordinate',
       '--head', `127.0.0.1:${ENGINE_PORT}`, '--tail', `127.0.0.1:${RETURN_PORT}`,
-      '--dir', MODEL_DIR, '--receipts'];
+      '--dir', MODEL_DIR, '--receipts', '--max-ctx', String(maxCtx)];
     this.proc = spawn(pythonBin(), args, {
       cwd: shardCwd(),
       env: {

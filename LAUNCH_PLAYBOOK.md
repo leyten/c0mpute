@@ -14,7 +14,7 @@
 - [ ] **Manifest published:** `curl -s https://c0mpute.ai/manifests/m25-nvfp4-v1.json | jq .publisher_pubkey` (the daemon resolves these off the WEB origin — Next serves `public/`) == the baked `MANIFEST_PUBKEY`; the CID matches `MODEL_SPECS.manifestRef`.
 - [ ] **`relays.json` filled:** `curl -s https://c0mpute.ai/relays.json | jq '.relays|length'` ≥ 2.
 - [ ] **Sidecar release:** the pinned `SIDECAR_URL` in `c0mpute-worker/src/shard-setup.ts` returns 200 (`curl -sIL <SIDECAR_URL> | head -1`); its sha256 matches the `SIDECAR_SHA256` pin next to it (the pin and the release move as a pair — never check one without the other).
-- [ ] **npm published:** `npx @c0mpute/worker@latest --mode shard --help` runs (version ≥ 2.8.3).
+- [ ] **npm published:** `npx @c0mpute/worker@latest --mode shard --help` runs (version ≥ 3.0.0 — npm's 2.8.3 is the CLASSIC worker line with zero shard code; a ≥2.8.3 gate self-passes and green-lights a broken launch).
 - [ ] **Auditor box:** at least one we-run auditor announced (reputation/spot-check depends on it).
 - [ ] **Kill-switch rehearsed:** know how to flip `SWARM_PAYOUT_ENABLED=0`, take the swarm model out of `mapModel`, and drop `public/relays.json` back to `{"relays": []}` (the daemon validates the object shape) — each is a one-line revert.
 - [ ] **Dead-man switch armed** if any ops boxes are rented (pin iids, heartbeat cron).
