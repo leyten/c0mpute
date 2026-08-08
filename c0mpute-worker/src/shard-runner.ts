@@ -637,9 +637,12 @@ export class CoordinatorProcess {
   start(opts: { degraded?: boolean; swarmToken?: string } = {}): void {
     // gateway-parity endpoints (phase0/m25_scatter_pipe.py layout): pipe = the LOCAL head
     // engine; tail = the head sidecar's return -forward that tunnels to the tail's engine.
+    // --max-ctx must mirror the stages' KV cap (M25_KV_MAXLEN, engine default 40960): the
+    // coordinate default is 131072, which admits generations the stages hard-fail mid-serve.
+    const maxCtx = Number(process.env.M25_KV_MAXLEN) || 40960;
     const args = ['-m', 'shard.coordinate',
       '--head', `127.0.0.1:${ENGINE_PORT}`, '--tail', `127.0.0.1:${RETURN_PORT}`,
-      '--dir', MODEL_DIR, '--receipts'];
+      '--dir', MODEL_DIR, '--receipts', '--max-ctx', String(maxCtx)];
     this.proc = spawn(pythonBin(), args, {
       cwd: shardCwd(),
       env: {
