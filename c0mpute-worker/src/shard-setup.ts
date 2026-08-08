@@ -8,11 +8,14 @@
 
 import { spawn, spawnSync } from 'child_process';
 import { createHash } from 'crypto';
-import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'fs';
+import { chmodSync, copyFileSync, createWriteStream, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
+import { Readable } from 'stream';
+import { pipeline } from 'stream/promises';
 import {
-  MANIFEST_DEV_FILE, MANIFEST_FILE, MANIFEST_PUBKEY, MANIFEST_REF, MODEL_DIR, MODEL_REPO,
-  SHARD_HOME, SHARD_REPO, SIDECAR_BIN, manifestRefName, pullProbeSliceRaw, pullRange, pythonBin,
+  DRAFTER_DIR, MANIFEST_DEV_FILE, MANIFEST_FILE, MANIFEST_PUBKEY, MANIFEST_REF, MODEL_DIR,
+  MODEL_REPO, SHARD_HOME, SHARD_REPO, SIDECAR_BIN, manifestRefName, pullProbeSliceRaw, pullRange,
+  pythonBin,
 } from './shard-runner.js';
 
 const ENGINE_GIT_URL = process.env.C0MPUTE_SHARD_GIT || 'https://github.com/leyten/shard';
@@ -141,6 +144,46 @@ async function ensureSidecar(): Promise<void> {
   }
   throw new Error('no sidecar: the prebuilt release is not published yet and no Go toolchain is '
     + 'installed. Fix: install Go (sudo apt install golang-go) and re-run, or set C0MPUTE_SIDECAR_BIN.');
+}
+
+// The EAGLE-3 drafter head (thoughtworks/MiniMax-M2.5-Eagle3, Apache-2.0) — the coordinator-side
+// speculative g-lever. Pinned to an immutable revision + per-file sha256 (an upstream repo change
+// can never silently swap the checkpoint). Every node stages it (0.46 GB ≈ 1.5% of a weight
+// range) because ANY node can become head after a churn re-form; only the head's coordinator
+// loads it. Trust surface: the head only shapes DRAFTS, and the ring verifies every draft
+// against the base model — a wrong head costs speed, never correctness.
+const EAGLE_REV = 'fb4699b3d33913e6b5e2462dd7962775e44e5fea';
+const EAGLE_URL = `https://huggingface.co/thoughtworks/MiniMax-M2.5-Eagle3/resolve/${EAGLE_REV}`;
+const EAGLE_FILES: Array<{ name: string; sha256: string }> = [
+  { name: 'config.json', sha256: 'c9bca72dae76e2f2970143a55d46e1a798cfc3e0aa8be80b030454a12ce452b1' },
+  { name: 'model.safetensors', sha256: '29510581a9d8448063820fed2b0f99ed9d3f8ba3625d419f8132ddff62872ce1' },
+];
+
+/** The drafter head → DRAFTER_DIR, sha-verified (re-verified every boot: a truncated pull
+ *  re-downloads). NON-FATAL by design: a node without the head still enrolls and serves — if it
+ *  becomes head, eagle_armed() degrades the ring to the n-gram drafter (the pre-drafter world)
+ *  instead of blocking the join. */
+export async function ensureDrafter(): Promise<void> {
+  try {
+    mkdirSync(DRAFTER_DIR, { recursive: true });
+    for (const f of EAGLE_FILES) {
+      const dest = join(DRAFTER_DIR, f.name);
+      if (existsSync(dest) && sha256(dest) === f.sha256) continue;
+      log(`drafter: downloading ${f.name}`);
+      const res = await fetch(`${EAGLE_URL}/${f.name}`,
+        { signal: AbortSignal.timeout(600_000), redirect: 'follow' });
+      if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
+      const tmp = dest + '.part';
+      await pipeline(Readable.fromWeb(res.body as any), createWriteStream(tmp));
+      const got = sha256(tmp);
+      if (got !== f.sha256) { rmSync(tmp); throw new Error(`${f.name} sha256 mismatch (got ${got.slice(0, 12)}…)`); }
+      renameSync(tmp, dest);
+    }
+    log(`drafter: EAGLE head staged at ${DRAFTER_DIR} (sha256 verified)`);
+  } catch (e: any) {
+    log(`drafter: unavailable (${e.message}) — this node serves without the speculative lever; `
+      + 'a ring it heads runs the n-gram drafter (slower, never wrong)');
+  }
 }
 
 /** The probe slice (config + index + the probe layer's shards, ~2.4 GB) so `shard.probe
@@ -296,5 +339,6 @@ export async function ensureShardSetup(opts: { orchestratorUrl?: string } = {}):
   await ensureSidecar();
   await resolveManifest(opts.orchestratorUrl);      // before the probe slice: first byte verified
   await ensureProbeSlice();
-  log('provisioned: engine + venv + sidecar + manifest + probe slice');
+  await ensureDrafter();                            // non-fatal: enroll never blocks on the g-lever
+  log('provisioned: engine + venv + sidecar + manifest + probe slice + drafter');
 }
