@@ -248,7 +248,7 @@ export function useWorkerEngine(): WorkerEngine {
   const engineRef = useRef<MLCEngine | null>(null);
   const uptimeInterval = useRef<NodeJS.Timeout | null>(null);
   const statusRef = useRef(status);
-  const processJobRef = useRef<((jobId: string, messages?: ChatMessage[]) => Promise<void>) | null>(null);
+  const processJobRef = useRef<((jobId: string, messages?: ChatMessage[], think?: boolean) => Promise<void>) | null>(null);
   const selectedModelRef = useRef(selectedModel);
 
   // Keep status ref in sync
@@ -359,7 +359,7 @@ export function useWorkerEngine(): WorkerEngine {
   }, [nativeStatus?.online, nativeStatus?.connectedAt]);
 
   // Process incoming job — simple plaintext, search handled by orchestrator
-  const processJob = useCallback(async (jobId: string, messages?: ChatMessage[]) => {
+  const processJob = useCallback(async (jobId: string, messages?: ChatMessage[], think = false) => {
     if (!engineRef.current) {
       failJob(jobId, 'Engine not ready');
       return;
@@ -407,7 +407,12 @@ export function useWorkerEngine(): WorkerEngine {
         top_p: 0.95,
         max_tokens: MAX_OUTPUT_TOKENS,
         stream: true,
-      });
+        // Qwen3 reasons by default. The orchestrator says whether this job asked
+        // for it (job:new carries `think`); the Pro tier the browser serves says
+        // no, so without this every browser job spends its window on reasoning
+        // tokens the user never asked for.
+        extra_body: { enable_thinking: think },
+      } as any);
 
       let tokensGenerated = 0;
       let fullResponse = '';
@@ -459,9 +464,9 @@ export function useWorkerEngine(): WorkerEngine {
 
   // Register job handler (only once, uses ref to always get latest processJob)
   useEffect(() => {
-    setOnNewJob((jobId: string, messages?: ChatMessage[]) => {
+    setOnNewJob((jobId: string, messages?: ChatMessage[], think?: boolean) => {
       if (processJobRef.current) {
-        processJobRef.current(jobId, messages);
+        processJobRef.current(jobId, messages, think);
       } else {
         console.error('[Worker] processJobRef is null!');
         failJob(jobId, 'Worker not initialized');
@@ -568,6 +573,7 @@ export function useWorkerEngine(): WorkerEngine {
           messages: [{ role: 'user', content: 'Count from 1 to 20.' }],
           max_tokens: 32,
           temperature: 0.1,
+          extra_body: { enable_thinking: false },
         } as any);
         const benchMs = performance.now() - benchStart;
         if (benchResp?.usage?.completion_tokens) {

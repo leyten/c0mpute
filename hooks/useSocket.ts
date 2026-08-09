@@ -22,7 +22,7 @@ interface UseSocketReturn {
   
   submitJob: (data: { messages?: ChatMessage[]; model?: string; authToken: string; think?: boolean }) => Promise<{ jobId: string; freeRemaining?: number }>;
   
-  setOnNewJob: (handler: ((jobId: string, messages?: ChatMessage[]) => void) | null) => void;
+  setOnNewJob: (handler: ((jobId: string, messages?: ChatMessage[], think?: boolean) => void) | null) => void;
   setOnJobToken: (handler: ((jobId: string, token: string) => void) | null) => void;
   setOnJobComplete: (handler: ((jobId: string, response: string) => void) | null) => void;
   setOnJobError: (handler: ((jobId: string, error: string) => void) | null) => void;
@@ -44,7 +44,7 @@ export function useSocket(authToken?: string | null): UseSocketReturn {
   const [queuePosition, setQueuePosition] = useState<number | null>(null);
   const [nativeStatus, setNativeStatus] = useState<UseSocketReturn['nativeStatus']>(null);
   
-  const onNewJobRef = useRef<((jobId: string, messages?: ChatMessage[]) => void) | null>(null);
+  const onNewJobRef = useRef<((jobId: string, messages?: ChatMessage[], think?: boolean) => void) | null>(null);
   const onJobTokenRef = useRef<((jobId: string, token: string) => void) | null>(null);
   const onJobCompleteRef = useRef<((jobId: string, response: string) => void) | null>(null);
   const onJobErrorRef = useRef<((jobId: string, error: string) => void) | null>(null);
@@ -87,7 +87,7 @@ export function useSocket(authToken?: string | null): UseSocketReturn {
 
     socket.on('job:new', (data) => {
       if (onNewJobRef.current) {
-        onNewJobRef.current(data.jobId, data.messages);
+        onNewJobRef.current(data.jobId, data.messages, data.think);
       }
     });
 
@@ -247,7 +247,7 @@ export function useSocket(authToken?: string | null): UseSocketReturn {
     completeJob,
     failJob,
     submitJob,
-    setOnNewJob: useCallback((handler: ((jobId: string, messages?: ChatMessage[]) => void) | null) => { onNewJobRef.current = handler; }, []),
+    setOnNewJob: useCallback((handler: ((jobId: string, messages?: ChatMessage[], think?: boolean) => void) | null) => { onNewJobRef.current = handler; }, []),
     setOnJobToken: useCallback((handler: ((jobId: string, token: string) => void) | null) => { onJobTokenRef.current = handler; }, []),
     setOnJobComplete: useCallback((handler: ((jobId: string, response: string) => void) | null) => { onJobCompleteRef.current = handler; }, []),
     setOnJobError: useCallback((handler: ((jobId: string, error: string) => void) | null) => { onJobErrorRef.current = handler; }, []),
