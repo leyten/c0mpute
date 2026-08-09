@@ -372,9 +372,7 @@ export function useWorkerEngine(): WorkerEngine {
       }
 
       // Reset chat context between jobs to prevent context leakage
-      if (typeof (engineRef.current as any).resetChat === 'function') {
-        await (engineRef.current as any).resetChat();
-      }
+      await engineRef.current.resetChat();
 
       const modelConfig = AVAILABLE_MODELS.find(m => m.id === selectedModelRef.current);
       const systemPrompt = modelConfig?.tier === 'premium' ? SYSTEM_PROMPT_UNCENSORED : SYSTEM_PROMPT_STANDARD;
@@ -407,7 +405,7 @@ export function useWorkerEngine(): WorkerEngine {
         // no, so without this every browser job spends its window on reasoning
         // tokens the user never asked for.
         extra_body: { enable_thinking: think },
-      } as any);
+      });
 
       let tokensGenerated = 0;
       let fullResponse = '';
@@ -480,9 +478,9 @@ export function useWorkerEngine(): WorkerEngine {
   // Handle job cancellation (user disconnected mid-inference)
   useEffect(() => {
     setOnJobCancel((jobId: string) => {
-      if (engineRef.current && typeof (engineRef.current as any).interruptGenerate === 'function') {
+      if (engineRef.current) {
         try {
-          (engineRef.current as any).interruptGenerate();
+          engineRef.current.interruptGenerate();
         } catch (err) {
           console.error('[Worker] Error interrupting generation:', err);
         }
@@ -581,12 +579,12 @@ export function useWorkerEngine(): WorkerEngine {
       try {
         const benchStart = performance.now();
         let benchTokens = 0;
-        const benchResp: any = await engine.chat.completions.create({
+        const benchResp = await engine.chat.completions.create({
           messages: [{ role: 'user', content: 'Count from 1 to 20.' }],
           max_tokens: 64,
           temperature: 0.1,
           extra_body: { enable_thinking: false },
-        } as any);
+        });
         const benchMs = performance.now() - benchStart;
         if (benchResp?.usage?.completion_tokens) {
           benchTokens = benchResp.usage.completion_tokens;
@@ -609,9 +607,7 @@ export function useWorkerEngine(): WorkerEngine {
         setBenchmarkTokPerSec(tokPerSec);
 
         // Reset chat context after benchmark
-        if (typeof (engine as any).resetChat === 'function') {
-          await (engine as any).resetChat();
-        }
+        await engine.resetChat();
       } catch (benchErr) {
         console.warn('[Worker] Benchmark failed, continuing anyway:', benchErr);
       }
@@ -689,7 +685,7 @@ export function useWorkerEngine(): WorkerEngine {
         // unload() disposes the pipeline without taking the generation lock, so
         // stopping mid-job can pull memory out from under a decode step still in
         // flight. Interrupt first and let the generation unwind.
-        engineRef.current.interruptGenerate?.();
+        engineRef.current.interruptGenerate();
       } catch (err) {
         console.error('[Worker] Error interrupting generation:', err);
       }
