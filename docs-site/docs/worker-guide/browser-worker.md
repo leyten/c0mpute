@@ -11,8 +11,9 @@ Turn your browser tab into a GPU worker and start earning USDC. No installation 
 
 1. Go to [c0mpute.ai/earn](https://c0mpute.ai/earn)
 2. Log in with your X (Twitter) account
-3. Browser workers run **Qwen3 8B Uncensored** — ~4.3GB download, needs ~6GB VRAM, serves Pro tier
-4. Click **Start Worker**
+3. **On a laptop, point Chrome at your real GPU first.** Open `chrome://flags/#force-high-performance-gpu`, set it to **Enabled** and restart the browser. On Windows laptops Chrome generally runs on the integrated GPU, and a page asking for a high-performance adapter does not change that — so without this flag a machine with a discrete card can end up doing all the work on integrated graphics, many times slower.
+4. Browser workers run **Qwen3 8B Uncensored** — ~4.3GB download, needs ~6GB VRAM, serves Pro tier
+5. Click **Start Worker**
 
 The first time you start, the model downloads to your browser's cache. This takes a few minutes depending on your connection. After that, subsequent starts are instant.
 
@@ -32,7 +33,7 @@ Keep the tab open and active. If you close it or navigate away, the worker stops
 - **Use Chrome or Edge** — they have the best WebGPU support
 - **Don't minimize the tab** — some browsers throttle background tabs, which kills performance
 - **Check your GPU** — open `chrome://gpu` to verify WebGPU is enabled and using your discrete GPU
-- **Multiple tabs don't help** — one worker per browser instance. Running two will fight over VRAM.
+- **A second tab fits on a large card, but don't count on it** — each worker needs roughly 5.2GB (4.3GB of weights, ~576MB of KV cache at 4k context, ~160MB of workspace), so a 24GB card has room for three. They still share one GPU, and we have not measured whether two tabs together out-earn one. On an 8GB card there is only room for one.
 
 ## Requirements
 
