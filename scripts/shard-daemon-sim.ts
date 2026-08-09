@@ -328,15 +328,15 @@ const LONG_CTX = Array.from({ length: 220 }, (_, i) =>
 interface PromptClass { key: string; label: string; messages: unknown[]; maxNew: number; coherence?: RegExp; reasoning?: boolean }
 const PROMPTS: PromptClass[] = [
   { key: 'A-prose', label: 'unique prose (worst case for spec-decode)',
-    messages: [{ role: 'user', content: 'Write an original short story about a lighthouse keeper who discovers a message in a bottle. Make it vivid and unpredictable.' }], maxNew: 256 },
+    messages: [{ role: 'user', content: 'Write an original short story about a lighthouse keeper who discovers a message in a bottle. Make it vivid and unpredictable.' }], maxNew: 1024 },
   { key: 'B-chat', label: 'multi-turn chat (realistic traffic)',
     messages: [
       { role: 'user', content: 'I am planning a trip to Japan in spring. Any tips?' },
       { role: 'assistant', content: 'Spring is cherry-blossom season — book early, and consider Kyoto and Nara.' },
       { role: 'user', content: 'Earlier you mentioned Kyoto. What are three must-see temples there, and why?' },
-    ], maxNew: 256 },
+    ], maxNew: 1024 },
   { key: 'C-code', label: 'code/reasoning (best case for spec-decode)',
-    messages: [{ role: 'user', content: `Refactor this Python function to be more efficient and explain each change step by step:\n\n${CODE_CTX}` }], maxNew: 384 },
+    messages: [{ role: 'user', content: `Refactor this Python function to be more efficient and explain each change step by step:\n\n${CODE_CTX}` }], maxNew: 1536 },
   { key: 'D-longctx', label: 'long-context needle (~8k ctx, short answer)',
     messages: [{ role: 'user', content: `${LONG_CTX}\n\nQuestion: what is the secret access code mentioned in the document? Answer with just the code.` }], maxNew: 32, coherence: /PLUM-7731-QX/,
     // reasoning off: a 32-token budget is an answer budget, not a thinking budget — the realistic
@@ -368,12 +368,22 @@ function measureServe(p: PromptClass): Promise<RepResult> {
             + '— check the head daemon log for the failJob reason)'));
           return;
         }
+        // Since the think-split (shard #171) a job can generate its FULL budget and still show the
+        // user nothing: the model never closed its think block, response is honestly ''. That is a
+        // FAILED rep — the budget was too small for think+answer — and it must never score green
+        // (the empty-equality coherence let exactly this shape read `coherent=true`).
+        if (!response) {
+          reject(new Error(`generated ${tokens} tokens but ZERO visible content in `
+            + `${tDone - tDispatch}ms — the whole budget was chain-of-thought (raise maxNew or `
+            + 'send reasoning:false)'));
+          return;
+        }
         const decodeS = tFirst ? (tDone - tFirst) / 1000 : 0;
         resolve({
           ttftMs: tFirst ? tFirst - tDispatch : (tDone - tDispatch),
           tokS: decodeS > 0 && tokens > 1 ? (tokens - 1) / decodeS : 0,
           tokens, wallMs: tDone - tDispatch,
-          coherent: (response === full || response === '') && (!p.coherence || p.coherence.test(response || full)),
+          coherent: response === full && (!p.coherence || p.coherence.test(response)),
         });
       },
       onError: (m: string) => { clearTimeout(to); reject(new Error(m)); },
