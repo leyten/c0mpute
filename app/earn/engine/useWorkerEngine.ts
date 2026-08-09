@@ -251,6 +251,7 @@ export function useWorkerEngine(): WorkerEngine {
   const engineRef = useRef<MLCEngine | null>(null);
   const uptimeInterval = useRef<NodeJS.Timeout | null>(null);
   const statusRef = useRef(status);
+  const busyRef = useRef(false);
   const processJobRef = useRef<((jobId: string, messages?: ChatMessage[], think?: boolean) => Promise<void>) | null>(null);
   const selectedModelRef = useRef(selectedModel);
 
@@ -349,6 +350,16 @@ export function useWorkerEngine(): WorkerEngine {
       return;
     }
 
+    // One generation at a time. The orchestrator only dispatches to idle
+    // workers, but nothing on this side enforced it — and a second job entering
+    // here mid-stream would resetChat() the KV cache out from under the first,
+    // returning garbage for both.
+    if (busyRef.current) {
+      failJob(jobId, 'Worker busy');
+      return;
+    }
+    busyRef.current = true;
+
     setStatus('working');
     setCurrentJobId(jobId);
     const startedAt = Date.now();
@@ -436,7 +447,11 @@ export function useWorkerEngine(): WorkerEngine {
       failJob(jobId, err instanceof Error ? err.message : 'Inference failed');
       setSessionJobs(prev => [{ id: jobId, at: Date.now(), tokens: 0, ms: Date.now() - startedAt, status: 'failed' as const }, ...prev].slice(0, 20));
     } finally {
-      setStatus('ready');
+      busyRef.current = false;
+      // stopWorker sets statusRef to 'offline' the instant it is called, for
+      // exactly this case: a job that finishes afterwards must not put a
+      // torn-down worker back on screen as ready.
+      if (statusRef.current !== 'offline') setStatus('ready');
       setCurrentJobId(null);
     }
   }, [sendToken, completeJob, failJob, refreshEarnings]);
@@ -493,6 +508,19 @@ export function useWorkerEngine(): WorkerEngine {
       setError('Not connected to orchestrator. Please wait...');
       setStatus('error');
       return;
+    }
+
+    // Never build a second engine on top of a live one. A failed registration
+    // leaves status 'error' with the weights still resident, and the page offers
+    // "Start earning" again from there — so every retry used to strand another
+    // ~4.3GB on the GPU until the tab was closed.
+    if (engineRef.current) {
+      try {
+        await engineRef.current.unload();
+      } catch (err) {
+        console.error('[Worker] Error unloading previous engine:', err);
+      }
+      engineRef.current = null;
     }
 
     setStatus('initializing');
@@ -658,6 +686,14 @@ export function useWorkerEngine(): WorkerEngine {
 
     if (engineRef.current) {
       try {
+        // unload() disposes the pipeline without taking the generation lock, so
+        // stopping mid-job can pull memory out from under a decode step still in
+        // flight. Interrupt first and let the generation unwind.
+        engineRef.current.interruptGenerate?.();
+      } catch (err) {
+        console.error('[Worker] Error interrupting generation:', err);
+      }
+      try {
         await engineRef.current.unload();
       } catch (err) {
         console.error('[Worker] Error unloading engine:', err);
@@ -770,7 +806,9 @@ export function useWorkerEngine(): WorkerEngine {
     benchmarkTokPerSec,
     start: demo ? startDemo : () => { void initializeEngine(); },
     stop,
-    reset: () => { setStatus('offline'); setError(null); },
+    // 'offline' is what the UI reads as "no engine", so it has to actually free
+    // one. Setting the status alone left the weights resident and unreachable.
+    reset: () => { void stopWorker(); setError(null); },
     session: stats,
     sessionJobs,
     uptimeSeconds: nativeStatus?.online && nativeStatus.connectedAt
