@@ -325,7 +325,7 @@ const LONG_CTX = Array.from({ length: 220 }, (_, i) =>
   `Section ${i}: the quarterly metric for unit ${i} was ${(i * 37) % 100}. `).join('') +
   '\nThe secret access code is PLUM-7731-QX. \n' +
   Array.from({ length: 220 }, (_, i) => `Note ${i}: routine status nominal for subsystem ${i}. `).join('');
-interface PromptClass { key: string; label: string; messages: unknown[]; maxNew: number; coherence?: RegExp }
+interface PromptClass { key: string; label: string; messages: unknown[]; maxNew: number; coherence?: RegExp; reasoning?: boolean }
 const PROMPTS: PromptClass[] = [
   { key: 'A-prose', label: 'unique prose (worst case for spec-decode)',
     messages: [{ role: 'user', content: 'Write an original short story about a lighthouse keeper who discovers a message in a bottle. Make it vivid and unpredictable.' }], maxNew: 256 },
@@ -338,7 +338,11 @@ const PROMPTS: PromptClass[] = [
   { key: 'C-code', label: 'code/reasoning (best case for spec-decode)',
     messages: [{ role: 'user', content: `Refactor this Python function to be more efficient and explain each change step by step:\n\n${CODE_CTX}` }], maxNew: 384 },
   { key: 'D-longctx', label: 'long-context needle (~8k ctx, short answer)',
-    messages: [{ role: 'user', content: `${LONG_CTX}\n\nQuestion: what is the secret access code mentioned in the document? Answer with just the code.` }], maxNew: 32, coherence: /PLUM-7731-QX/ },
+    messages: [{ role: 'user', content: `${LONG_CTX}\n\nQuestion: what is the secret access code mentioned in the document? Answer with just the code.` }], maxNew: 32, coherence: /PLUM-7731-QX/,
+    // reasoning off: a 32-token budget is an answer budget, not a thinking budget — the realistic
+    // API shape for short-answer retrieval (with reasoning on, the whole budget is chain-of-thought
+    // and the visible answer is empty by design; see shard fix/coordinate-think-split)
+    reasoning: false },
 ];
 
 interface RepResult { ttftMs: number; tokS: number; tokens: number; coherent: boolean; wallMs: number }
@@ -348,7 +352,7 @@ function measureServe(p: PromptClass): Promise<RepResult> {
     let tFirst = 0; let full = '';
     const to = setTimeout(() => reject(new Error('serve timeout 240s')), 240_000);
     const r = loop.serveRequest({
-      model: 'minimax-m2.5', messages: p.messages, params: { maxNew: p.maxNew }, timeoutMs: 240_000,
+      model: 'minimax-m2.5', messages: p.messages, params: { maxNew: p.maxNew, ...(p.reasoning === undefined ? {} : { reasoning: p.reasoning }) }, timeoutMs: 240_000,
       onToken: (d: string) => { if (!tFirst) tFirst = Date.now(); full += d; },
       onDone: (response: string, tokens: number) => {
         clearTimeout(to);
