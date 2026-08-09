@@ -474,7 +474,15 @@ export class Orchestrator {
           this.refundJobCharges(job, 'Job timed out during processing');
           if (job.assignedWorker) {
             const worker = this.findWorkerById(job.assignedWorker);
-            if (worker) worker.status = 'idle';
+            if (worker) {
+              // Tell the worker to stop before freeing it. Without this the
+              // browser keeps decoding a job nobody is waiting for — on the very
+              // GPU we just advertised as idle and are about to hand the next
+              // job to — and streams tokens for a job id that no longer exists.
+              const ws = this.io.sockets.sockets.get(worker.socketId);
+              if (ws) ws.emit('job:cancel', { jobId });
+              worker.status = 'idle';
+            }
           }
           this.jobs.delete(jobId);
           this.swarmRevenue.delete(jobId);
