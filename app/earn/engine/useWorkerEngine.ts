@@ -416,8 +416,11 @@ export function useWorkerEngine(): WorkerEngine {
           fullResponse += token;
           tokensGenerated++;
 
-          // Safety scan on accumulated output
-          const safetyResult = scanOutput(fullResponse);
+          // Safety scan on the rolling tail, matching the orchestrator's own
+          // scan in handleJobToken. Rescanning the whole accumulated string on
+          // every token is quadratic and buys nothing: a blocked phrase can only
+          // form at the end.
+          const safetyResult = scanOutput(fullResponse.slice(-600));
           if (!safetyResult.safe) {
             sendToken(jobId, BLOCKED_MESSAGE);
             completeJob(jobId, BLOCKED_MESSAGE, tokensGenerated);
