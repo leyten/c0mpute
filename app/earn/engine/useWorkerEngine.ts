@@ -289,8 +289,11 @@ export function useWorkerEngine(): WorkerEngine {
           if (adapter) {
             setWebGPUSupported(true);
 
-            // Try to get GPU info
-            const info = await adapter.requestAdapterInfo?.();
+            // Try to get GPU info. adapter.info (synchronous) replaced
+            // requestAdapterInfo(), which Chrome removed in 131. The optional
+            // chaining meant the old call quietly resolved undefined instead of
+            // throwing, so every worker on a current browser reported no GPU.
+            const info = adapter.info ?? (await adapter.requestAdapterInfo?.());
             if (info) {
               const gpuName = info.device || info.description || 'Unknown GPU';
               setGpuInfo(gpuName);
