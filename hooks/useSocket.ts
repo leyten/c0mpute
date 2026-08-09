@@ -14,7 +14,7 @@ interface UseSocketReturn {
   networkStats: NetworkStats | null;
   queuePosition: number | null;
   
-  registerWorker: (model: string, authToken: string, tokPerSec?: number) => Promise<string>;
+  registerWorker: (model: string, authToken: string, tokPerSec?: number, numCtx?: number) => Promise<string>;
   unregisterWorker: () => void;
   sendToken: (jobId: string, token: string) => void;
   completeJob: (jobId: string, response: string, tokensGenerated: number) => void;
@@ -178,13 +178,13 @@ export function useSocket(authToken?: string | null): UseSocketReturn {
     };
   }, [authToken]);
 
-  const registerWorker = useCallback(async (model: string, authToken: string, tokPerSec?: number): Promise<string> => {
+  const registerWorker = useCallback(async (model: string, authToken: string, tokPerSec?: number, numCtx?: number): Promise<string> => {
     return new Promise((resolve, reject) => {
       if (!socketRef.current) {
         reject(new Error('Socket not connected'));
         return;
       }
-      socketRef.current.emit('worker:register', { model, authToken, tokPerSec }, (response) => {
+      socketRef.current.emit('worker:register', { model, authToken, tokPerSec, numCtx }, (response) => {
         if ('workerId' in response) {
           resolve(response.workerId);
         } else {

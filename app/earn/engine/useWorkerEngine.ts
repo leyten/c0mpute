@@ -11,7 +11,7 @@ import { CreateMLCEngine, MLCEngine, InitProgressReport } from '@mlc-ai/web-llm'
 import { useAuth } from '@/hooks/useAuth';
 import { useSocket } from '@/hooks/useSocket';
 import { scanOutput, BLOCKED_MESSAGE } from '@/lib/safety';
-import { ChatMessage, MAX_OUTPUT_TOKENS, type NetworkStats } from '@/lib/orchestrator/types';
+import { ChatMessage, type NetworkStats } from '@/lib/orchestrator/types';
 import {
   DEMO_MODE,
   DEMO_DEVICE,
@@ -57,6 +57,17 @@ const CUSTOM_MODELS = {
     wasm: 'https://raw.githubusercontent.com/mlc-ai/binary-mlc-llm-libs/main/web-llm-models/v0_2_80/Qwen3-8B-q4f16_1-ctx4k_cs1k-webgpu.wasm',
   },
 };
+
+// The model lib above is ctx4k (see the wasm filename): prompt AND output share
+// one 4096-token window. Asking for 4096 output tokens therefore leaves nothing
+// for the ~166-token system prompt or any history, so long conversations get
+// truncated or refused. Half the window is what the browser path asks for. It
+// also keeps a worst-case generation inside the orchestrator's 180s
+// JOB_TIMEOUT_MS: 4096 tokens at the ~20 tok/s a browser worker manages is
+// 205s, so a maximum-length answer could never be delivered before the job was
+// timed out and refunded.
+const BROWSER_MODEL_CTX = 4096;
+const BROWSER_MAX_OUTPUT_TOKENS = 2048;
 
 // Available models with VRAM requirements
 export const AVAILABLE_MODELS = [
@@ -405,7 +416,7 @@ export function useWorkerEngine(): WorkerEngine {
         messages: messagesWithSystem,
         temperature: 0.6,
         top_p: 0.95,
-        max_tokens: MAX_OUTPUT_TOKENS,
+        max_tokens: BROWSER_MAX_OUTPUT_TOKENS,
         stream: true,
         // Qwen3 reasons by default. The orchestrator says whether this job asked
         // for it (job:new carries `think`); the Pro tier the browser serves says
@@ -606,7 +617,7 @@ export function useWorkerEngine(): WorkerEngine {
           setStatus('error');
           return;
         }
-        const id = await registerWorker(selectedModel, authToken, tokPerSec);
+        const id = await registerWorker(selectedModel, authToken, tokPerSec, BROWSER_MODEL_CTX);
         setWorkerId(id);
         setStatus('ready');
         setLoadingText('');
@@ -642,7 +653,7 @@ export function useWorkerEngine(): WorkerEngine {
       try {
         const authToken = await getAccessToken();
         if (!authToken) throw new Error('Failed to get authentication token. Please log in again.');
-        const id = await registerWorker(selectedModelRef.current, authToken, benchmarkTokPerSec);
+        const id = await registerWorker(selectedModelRef.current, authToken, benchmarkTokPerSec, BROWSER_MODEL_CTX);
         setWorkerId(id);
         setStatus('ready');
       } catch (err) {

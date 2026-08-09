@@ -38,9 +38,10 @@ export interface WorkerInfo {
   lastCanaryAt?: number;
   // Context window the worker runs with, as reported at registration. Native
   // workers self-tune it to their VRAM (8K on a small card, 32K on a 4090), so it
-  // varies across the pool. Undefined = unknown: browser/image workers never have
-  // one, and native workers from before this field existed (2.8.2 and older) never
-  // send it. Diagnostics only — dispatch does not consider it.
+  // varies across the pool; browser workers report the fixed 4096 of their ctx4k
+  // model lib. Undefined = unknown: image workers never have one, and native
+  // workers from before this field existed (2.8.2 and older) never send it.
+  // Diagnostics only — dispatch does not consider it.
   numCtx?: number;
 }
 
