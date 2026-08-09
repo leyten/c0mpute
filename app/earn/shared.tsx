@@ -58,9 +58,8 @@ export function Button({ onClick, disabled, kind = 'solid', children }: {
 
 /** What the browser worker costs the visitor, in one sentence. */
 export function browserNote(engine: Engine): string {
-  const { device, model, modelFits } = engine;
+  const { device, model } = engine;
   if (device.webGPUSupported === false) return 'This browser cannot run a worker. It needs WebGPU.';
-  if (!modelFits && device.detectedVRAM !== null) return `This browser estimates ${device.detectedVRAM} GB of video memory, below the ${model.vram} the model needs.`;
   return `${model.name}, ${model.size} downloaded once. The tab stays open while it serves.`;
 }
 

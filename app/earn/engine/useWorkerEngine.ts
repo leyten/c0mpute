@@ -69,16 +69,10 @@ const CUSTOM_MODELS = {
 const BROWSER_MODEL_CTX = 4096;
 const BROWSER_MAX_OUTPUT_TOKENS = 2048;
 
-// Available models with VRAM requirements
+// Available models
 export const AVAILABLE_MODELS = [
-  { id: 'Qwen3-8B-c0mpute-q4f16_1-MLC', name: 'Qwen3 8B Uncensored', size: '~4.3GB', vram: '6GB', vramRequired: 6, speed: 'Medium', quality: 7, tier: 'premium', note: 'Uncensored', isCustom: true, payout: '$0.07/job' },
+  { id: 'Qwen3-8B-c0mpute-q4f16_1-MLC', name: 'Qwen3 8B Uncensored', size: '~4.3GB', speed: 'Medium', quality: 7, tier: 'premium', note: 'Uncensored', isCustom: true, payout: '$0.07/job' },
 ];
-
-// Check if a model can run on the current hardware
-const canRunModel = (modelVramRequired: number, detectedVRAM: number | null): boolean => {
-  if (detectedVRAM === null) return true; // Allow if we couldn't detect
-  return detectedVRAM >= modelVramRequired;
-};
 
 export type WorkerStatus = 'offline' | 'initializing' | 'downloading' | 'connecting' | 'ready' | 'working' | 'error';
 
@@ -109,7 +103,6 @@ export interface WorkerLifetimeStats {
 
 export interface WorkerDevice {
   webGPUSupported: boolean | null;
-  detectedVRAM: number | null;
   gpuInfo: string | null;
   gpuVendor: string | null;
   gpuArchitecture: string | null;
@@ -147,7 +140,6 @@ export interface WorkerEngine {
   selectedModel: string;
   recommendedModel: string | null;
   selectModel: (id: string) => void;
-  modelFits: boolean;
   // worker lifecycle
   status: WorkerStatus;
   error: string | null;
@@ -272,9 +264,8 @@ export function useWorkerEngine(): WorkerEngine {
     selectedModelRef.current = selectedModel;
   }, [selectedModel]);
 
-  // Check WebGPU support and detect VRAM
+  // Check WebGPU support and read what the adapter will tell us
   const [webGPUSupported, setWebGPUSupported] = useState<boolean | null>(null);
-  const [detectedVRAM, setDetectedVRAM] = useState<number | null>(null); // in GB
   const [gpuInfo, setGpuInfo] = useState<string | null>(null);
 
   const [gpuVendor, setGpuVendor] = useState<string | null>(null);
@@ -301,23 +292,16 @@ export function useWorkerEngine(): WorkerEngine {
               if (info.architecture) setGpuArchitecture(info.architecture);
             }
 
-            // Estimate VRAM from maxBufferSize (rough approximation)
-            // maxBufferSize is typically ~25% of total VRAM
-            const maxBufferSize = adapter.limits?.maxBufferSize || 0;
-            const estimatedVRAM = Math.round((maxBufferSize / (1024 * 1024 * 1024)) * 4 * 10) / 10; // Convert to GB and multiply by ~4
-
-            // Clamp to reasonable values (1GB - 24GB)
-            const clampedVRAM = Math.max(1, Math.min(24, estimatedVRAM));
-            setDetectedVRAM(clampedVRAM);
-
-            // Auto-recommend the best model for detected VRAM
-            const compatible = AVAILABLE_MODELS
-              .filter(m => canRunModel(m.vramRequired, clampedVRAM))
-              .sort((a, b) => b.quality - a.quality);
-            if (compatible.length > 0) {
-              setRecommendedModel(compatible[0].id);
-            }
-
+            // No VRAM reading. WebGPU deliberately exposes none, and the old
+            // maxBufferSize * 4 estimate was not an approximation of one:
+            // maxBufferSize is a hardcoded tier (Dawn pins it on D3D12, Chrome
+            // buckets it against fingerprinting), so essentially every Windows
+            // discrete GPU reports 2GiB and the formula printed exactly "8 GB"
+            // for all of them. A 4GB card passed the 6GB check on that number,
+            // downloaded 4.3GB of weights and only then ran out of memory. The
+            // honest signals are the tok/s benchmark and a load that fails.
+            const best = [...AVAILABLE_MODELS].sort((a, b) => b.quality - a.quality)[0];
+            if (best) setRecommendedModel(best.id);
           } else {
             setWebGPUSupported(false);
           }
@@ -330,20 +314,6 @@ export function useWorkerEngine(): WorkerEngine {
     };
     checkWebGPU();
   }, []);
-
-  // Auto-select the best compatible model based on detected VRAM
-  useEffect(() => {
-    if (detectedVRAM !== null && status === 'offline') {
-      const currentModel = AVAILABLE_MODELS.find(m => m.id === selectedModel);
-      if (currentModel && !canRunModel(currentModel.vramRequired, detectedVRAM)) {
-        // Current model can't run — switch to recommended or best compatible
-        const target = recommendedModel || AVAILABLE_MODELS.find(m => canRunModel(m.vramRequired, detectedVRAM))?.id;
-        if (target) {
-          setSelectedModel(target);
-        }
-      }
-    }
-  }, [detectedVRAM, status, selectedModel, recommendedModel]);
 
   // Uptime counter
   useEffect(() => {
@@ -771,7 +741,7 @@ export function useWorkerEngine(): WorkerEngine {
   const deviceDetected = webGPUSupported === true;
   const device: WorkerDevice = demo && !deviceDetected
     ? DEMO_DEVICE
-    : { webGPUSupported, detectedVRAM, gpuInfo, gpuVendor, gpuArchitecture };
+    : { webGPUSupported, gpuInfo, gpuVendor, gpuArchitecture };
 
   const model = AVAILABLE_MODELS.find(m => m.id === selectedModel) ?? AVAILABLE_MODELS[0];
 
@@ -791,7 +761,6 @@ export function useWorkerEngine(): WorkerEngine {
     selectedModel,
     recommendedModel,
     selectModel: setSelectedModel,
-    modelFits: canRunModel(model.vramRequired, device.detectedVRAM),
     status,
     error,
     loadProgress,

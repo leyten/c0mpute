@@ -12,7 +12,6 @@ export const DEMO_MODE = process.env.NEXT_PUBLIC_PREVIEW_MODE === '1';
 // the preview. Demo-only, behind basic auth; never ships.
 export const DEMO_DEVICE: WorkerDevice = {
   webGPUSupported: true,
-  detectedVRAM: 11.8,
   gpuInfo: 'NVIDIA GeForce RTX 4070',
   gpuVendor: 'nvidia',
   gpuArchitecture: 'ada-lovelace',
