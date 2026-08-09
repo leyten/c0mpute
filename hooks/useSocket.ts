@@ -64,7 +64,9 @@ export function useSocket(authToken?: string | null): UseSocketReturn {
     const socket: TypedSocket = io(SOCKET_URL, {
       transports: ['websocket', 'polling'],
       reconnection: true,
-      reconnectionAttempts: 5,
+      // A worker tab is meant to be left open for hours. Giving up after 5
+      // attempts (~5s) turns any blip into a permanently offline worker.
+      reconnectionAttempts: Infinity,
       reconnectionDelay: 1000,
       auth: { token: authToken },
     });

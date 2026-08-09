@@ -623,6 +623,36 @@ export function useWorkerEngine(): WorkerEngine {
     }
   }, [selectedModel, webGPUSupported, isConnected, registerWorker, getAccessToken]);
 
+  // Re-register after a socket reconnect. Registration is keyed to the socket,
+  // and the orchestrator drops the worker record on disconnect — so a loaded
+  // engine that lost its connection stays "ready" on screen while the network
+  // has forgotten it, and it never gets another job. Take a fresh auth token:
+  // the one captured at start is a Privy JWT that expires in about an hour, and
+  // the orchestrator verifies it on every handshake.
+  const wasConnected = useRef(false);
+  useEffect(() => {
+    const reconnected = isConnected && !wasConnected.current;
+    wasConnected.current = isConnected;
+    // Only re-register from the states that HAD a registration to lose. In
+    // particular 'connecting' is initializeEngine about to register itself —
+    // doing it here too would spend a second worker slot on a duplicate.
+    if (!reconnected || !engineRef.current) return;
+    if (statusRef.current !== 'ready' && statusRef.current !== 'working') return;
+    void (async () => {
+      try {
+        const authToken = await getAccessToken();
+        if (!authToken) throw new Error('Failed to get authentication token. Please log in again.');
+        const id = await registerWorker(selectedModelRef.current, authToken, benchmarkTokPerSec);
+        setWorkerId(id);
+        setStatus('ready');
+      } catch (err) {
+        console.error('[Worker] Failed to re-register after reconnect:', err);
+        setError(err instanceof Error ? err.message : 'Failed to re-register with orchestrator');
+        setStatus('error');
+      }
+    })();
+  }, [isConnected, registerWorker, getAccessToken, benchmarkTokPerSec]);
+
   // Stop worker
   const stopWorker = useCallback(async () => {
 
