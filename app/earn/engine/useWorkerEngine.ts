@@ -582,7 +582,7 @@ export function useWorkerEngine(): WorkerEngine {
         let benchTokens = 0;
         const benchResp: any = await engine.chat.completions.create({
           messages: [{ role: 'user', content: 'Count from 1 to 20.' }],
-          max_tokens: 32,
+          max_tokens: 64,
           temperature: 0.1,
           extra_body: { enable_thinking: false },
         } as any);
@@ -594,7 +594,15 @@ export function useWorkerEngine(): WorkerEngine {
         } else {
           benchTokens = 20; // fallback
         }
-        if (benchTokens > 0 && benchMs > 0) {
+        // WebLLM measures the decode rate itself and reports it on the response.
+        // Prefer it: the wall clock around create() also contains tokenizer
+        // encode, prefill and the first-ever WebGPU shader compilation, which on
+        // a cold engine dwarf decode and can drag a perfectly capable device
+        // under the orchestrator's MIN_TOK_PER_SEC floor.
+        const decodeTokPerSec = benchResp?.usage?.extra?.decode_tokens_per_s;
+        if (typeof decodeTokPerSec === 'number' && decodeTokPerSec > 0) {
+          tokPerSec = decodeTokPerSec;
+        } else if (benchTokens > 0 && benchMs > 0) {
           tokPerSec = (benchTokens / benchMs) * 1000;
         }
         setBenchmarkTokPerSec(tokPerSec);
