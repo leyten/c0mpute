@@ -328,13 +328,16 @@ const LONG_CTX = Array.from({ length: 220 }, (_, i) =>
 interface PromptClass { key: string; label: string; messages: unknown[]; maxNew: number; coherence?: RegExp; reasoning?: boolean }
 const PROMPTS: PromptClass[] = [
   { key: 'A-prose', label: 'unique prose (worst case for spec-decode)',
-    messages: [{ role: 'user', content: 'Write an original short story about a lighthouse keeper who discovers a message in a bottle. Make it vivid and unpredictable.' }], maxNew: 1024 },
+    messages: [{ role: 'user', content: 'Write an original short story about a lighthouse keeper who discovers a message in a bottle. Make it vivid and unpredictable.' }], maxNew: 1024 },   // serve-path default: reasoning off
   { key: 'B-chat', label: 'multi-turn chat (realistic traffic)',
     messages: [
       { role: 'user', content: 'I am planning a trip to Japan in spring. Any tips?' },
       { role: 'assistant', content: 'Spring is cherry-blossom season — book early, and consider Kyoto and Nara.' },
       { role: 'user', content: 'Earlier you mentioned Kyoto. What are three must-see temples there, and why?' },
-    ], maxNew: 1024 },
+      // the reasoning-path canary: opt-in thinking exercises the think-split end to end (chat
+      // closes its think reliably; creative/code under greedy decode can loop — the reason
+      // reasoning defaults OFF on the serve path)
+    ], maxNew: 1024, reasoning: true },
   { key: 'C-code', label: 'code/reasoning (best case for spec-decode)',
     messages: [{ role: 'user', content: `Refactor this Python function to be more efficient and explain each change step by step:\n\n${CODE_CTX}` }], maxNew: 1536 },
   { key: 'D-longctx', label: 'long-context needle (~8k ctx, short answer)',

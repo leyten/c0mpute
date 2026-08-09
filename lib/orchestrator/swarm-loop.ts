@@ -183,7 +183,11 @@ export function attachSwarmLoop(io: Server, opts: SwarmLoopOptions) {
       onToken: a.onToken, onDone: a.onDone, onError: a.onError, timer });
     io.to(swarm.coordinatorNodeId).emit('swarm:job' as never, {
       swarmId: swarm.id, jobId, messages: a.messages, nonce,
-      maxNew: a.params?.maxNew ?? 512, reasoning: a.params?.reasoning ?? true, tools: a.params?.tools,
+      // reasoning DEFAULTS OFF on the serve path: the network decodes greedily, and greedy long-form
+      // thinking degenerates (measured live 08-09: 1536 tokens of looping chain-of-thought, zero
+      // visible answer). Callers opt in per request; the engine's think-split (shard #171) then
+      // separates the channels correctly.
+      maxNew: a.params?.maxNew ?? 512, reasoning: a.params?.reasoning ?? false, tools: a.params?.tools,
     } as never);
     log(`swarm job ${jobId} -> ${swarm.id} coordinator ${swarm.coordinatorNodeId} (${a.model})`);
     return { jobId };
