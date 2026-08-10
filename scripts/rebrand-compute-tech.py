@@ -16,7 +16,7 @@ would break a real caller. Code blocks are excluded wholesale for the same
 reason; the sole exception is the API base URL, which genuinely moves.
 
 Usage:
-    rebrand-compute-tech.py <src-dir> <dst-dir>
+    rebrand-compute-tech.py <src-dir> <dst-dir> [--paper]
 
 Copies the tree, transforming .md/.html/.css/.js by content and passing every
 other file (fonts, images, JSON) through byte for byte.
@@ -157,15 +157,21 @@ CODE_REGIONS = [
 _SENTINEL = "\x00CODE%d\x00"
 
 
-def rebrand(text: str) -> str:
-    """Apply the compute.tech rebrand to one file's contents."""
+def rebrand(text: str, paper: bool = False) -> str:
+    """Apply the compute.tech rebrand to one file's contents.
+
+    ``paper`` also converts the site to the light ground. It is off by default:
+    these sites were written for a dark ground and read better on one, so only
+    a site explicitly asked for on the command line gets converted.
+    """
     # Both of these are intentional inside code too: the API base is a real
     # endpoint change, and a wordmark is never inside a code block.
     text = API_BASE.sub(lambda m: (m.group(1) or "") + "api.compute.tech/v1", text)
     text = FAVICON.sub("/favicon.svg", text)
-    # Only stylesheets carry a :root; paper_override no-ops on anything else.
-    text = paper_override(text)
-    text = ink_for_paper(text)
+    if paper:
+        # Only stylesheets carry a :root; paper_override no-ops on anything else.
+        text = paper_override(text)
+        text = ink_for_paper(text)
     text = own_links(text)
     text = WORDMARK_UPPER.sub(BRAND_UPPER, text)
     text = WORDMARK_LOWER.sub(BRAND, text)
@@ -190,7 +196,7 @@ def rebrand(text: str) -> str:
     return page_titles(text)
 
 
-def main(src: str, dst: str) -> None:
+def main(src: str, dst: str, paper: bool = False) -> None:
     if os.path.exists(dst):
         shutil.rmtree(dst)
     os.makedirs(dst)
@@ -205,12 +211,12 @@ def main(src: str, dst: str) -> None:
                 with open(src_path, encoding="utf-8") as fh:
                     content = fh.read()
                 with open(out_path, "w", encoding="utf-8") as fh:
-                    fh.write(rebrand(content))
+                    fh.write(rebrand(content, paper))
             else:
                 shutil.copy2(src_path, out_path)
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 3:
+    if len(sys.argv) not in (3, 4):
         sys.exit(__doc__)
-    main(sys.argv[1], sys.argv[2])
+    main(sys.argv[1], sys.argv[2], "--paper" in sys.argv)

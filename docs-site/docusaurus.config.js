@@ -69,8 +69,9 @@ const config = {
     /** @type {import('@docusaurus/preset-classic').ThemeConfig} */
     ({
       colorMode: {
-          // Compute Network is a light site, c0mpute.ai is dark. One env var,
-          // one source, so the docs match the domain that sent the reader.
+          // The docs read on a dark ground on both domains. disableSwitch
+          // below means this is not a default the reader can leave — it is the
+          // only mode the site has.
           defaultMode: process.env.DOCS_COLOR_MODE || 'dark',
         disableSwitch: true,
         respectPrefersColorScheme: false,
