@@ -36,21 +36,21 @@ export default function Earn() {
     <Screen>
       <div className="flex flex-1 items-center justify-center px-6 py-12">
         <div className="w-full max-w-[38rem]">
-          <h1 className="pixel-serif text-center text-[30px] leading-tight text-white md:text-[36px]">
+          <h1 className="pixel-serif text-center text-[30px] leading-tight text-fg md:text-[36px]">
             Put your GPU to work.
           </h1>
-          <p className="mt-3 text-center text-[14.5px] text-white/55">
+          <p className="mt-3 text-center text-[14.5px] text-fg-55">
             Paid in USDC for every job your machine finishes.
           </p>
 
           {/* the choice */}
-          <div className="mx-auto mt-8 flex w-fit rounded-full border border-white/10 bg-white/[0.03] p-1">
+          <div className="mx-auto mt-8 flex w-fit rounded-full border border-fg/10 bg-fg/[0.03] p-1">
             {([['browser', 'In this browser'], ['machine', 'On my machine']] as const).map(([key, label]) => (
               <button
                 key={key}
                 onClick={() => setTab(key)}
                 className={`cursor-pointer rounded-full px-5 py-2 text-[13.5px] transition-colors ${
-                  tab === key ? 'bg-white text-black' : 'text-white/55 hover:text-white/85'
+                  tab === key ? 'bg-fg text-on-fg' : 'text-fg-55 hover:text-fg-85'
                 }`}
               >
                 {label}
@@ -59,21 +59,21 @@ export default function Earn() {
             ))}
           </div>
 
-          <div className="mt-8 rounded-3xl border border-white/[0.07] bg-white/[0.02] p-7 md:p-8">
+          <div className="mt-8 rounded-3xl border border-fg/[0.07] bg-fg/[0.02] p-7 md:p-8">
             {tab === 'browser' ? (
               <>
                 <div className="flex flex-wrap items-baseline justify-between gap-2">
-                  <span className="pixel-serif text-[24px] text-white">{engine.model.payout.split('/')[0]} <span className="text-[13px] text-white/45">per job</span></span>
-                  {running && <span className="text-[12.5px] text-white/45"><Dot on={engine.status === 'ready' || engine.status === 'working'} /> {PHASE[engine.status]}</span>}
+                  <span className="pixel-serif text-[24px] text-fg">{engine.model.payout.split('/')[0]} <span className="text-[13px] text-fg-45">per job</span></span>
+                  {running && <span className="text-[12.5px] text-fg-45"><Dot on={engine.status === 'ready' || engine.status === 'working'} /> {PHASE[engine.status]}</span>}
                 </div>
-                <p className="mt-3 text-[14.5px] leading-relaxed text-white/55">{browserNote(engine)}</p>
+                <p className="mt-3 text-[14.5px] leading-relaxed text-fg-55">{browserNote(engine)}</p>
 
                 {engine.status === 'downloading' && (
                   <div className="mt-5">
-                    <div className="h-[2px] w-full overflow-hidden rounded-full bg-white/10">
-                      <div className="h-full transition-[width] duration-300" style={{ width: `${Math.round(engine.loadProgress * 100)}%`, background: '#80a0c1' }} />
+                    <div className="h-[2px] w-full overflow-hidden rounded-full bg-fg/10">
+                      <div className="h-full transition-[width] duration-300" style={{ width: `${Math.round(engine.loadProgress * 100)}%`, background: 'var(--steel)' }} />
                     </div>
-                    <div className="mt-2 text-[12px] tabular-nums text-white/40">{Math.round(engine.loadProgress * 100)}%</div>
+                    <div className="mt-2 text-[12px] tabular-nums text-fg-40">{Math.round(engine.loadProgress * 100)}%</div>
                   </div>
                 )}
 
@@ -85,7 +85,7 @@ export default function Earn() {
                   </div>
                 )}
 
-                {engine.error && <p className="mt-4 text-[13px]" style={{ color: '#fca5a5' }}>{engine.error}</p>}
+                {engine.error && <p className="mt-4 text-[13px]" style={{ color: 'var(--danger-soft)' }}>{engine.error}</p>}
 
                 <div className="mt-7">
                   {!engine.isAuthenticated
@@ -98,10 +98,10 @@ export default function Earn() {
             ) : (
               <>
                 <div className="flex flex-wrap items-baseline justify-between gap-2">
-                  <span className="pixel-serif text-[24px] text-white">{NATIVE_RATE} <span className="text-[13px] text-white/45">per job</span></span>
-                  {online && <span className="text-[12.5px] text-white/45"><Dot on /> Connected</span>}
+                  <span className="pixel-serif text-[24px] text-fg">{NATIVE_RATE} <span className="text-[13px] text-fg-45">per job</span></span>
+                  {online && <span className="text-[12.5px] text-fg-45"><Dot on /> Connected</span>}
                 </div>
-                <p className="mt-3 text-[14.5px] leading-relaxed text-white/55">
+                <p className="mt-3 text-[14.5px] leading-relaxed text-fg-55">
                   A 27B model on your own GPU, in the background. Up to 10x a browser worker.
                   Needs Node.js 18 and an NVIDIA, AMD or Apple Silicon GPU.
                 </p>
@@ -114,7 +114,7 @@ export default function Earn() {
                   </div>
                 )}
 
-                {cmd.failed && <p className="mt-4 text-[13px]" style={{ color: '#fca5a5' }}>{cmd.failed}</p>}
+                {cmd.failed && <p className="mt-4 text-[13px]" style={{ color: 'var(--danger-soft)' }}>{cmd.failed}</p>}
 
                 <div className="mt-7">
                   {!engine.isAuthenticated
@@ -124,13 +124,13 @@ export default function Earn() {
                       : <Button onClick={() => void cmd.issue()} disabled={cmd.busy}>{cmd.busy ? 'Issuing…' : 'Get my command'}</Button>}
                 </div>
 
-                <div className="mt-4 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-white/35">
+                <div className="mt-4 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-fg-35">
                   <span>No Node.js?</span>
-                  <code className="font-mono text-white/45">{NODE_INSTALL[os]}</code>
-                  {cmd.token && <Link href="/settings#worker" className="underline underline-offset-2 hover:text-white/60">Manage tokens</Link>}
+                  <code className="font-mono text-fg-45">{NODE_INSTALL[os]}</code>
+                  {cmd.token && <Link href="/settings#worker" className="underline underline-offset-2 hover:text-fg-60">Manage tokens</Link>}
                 </div>
 
-                <p className="mt-4 text-[12.5px] text-white/35">{SWARM_NOTE}</p>
+                <p className="mt-4 text-[12.5px] text-fg-35">{SWARM_NOTE}</p>
               </>
             )}
           </div>
