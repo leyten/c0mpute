@@ -43,6 +43,24 @@ export interface Brand {
     ogImage: string;
     appleIcon: string;
   };
+  /**
+   * Sibling properties, per brand. Both domains run the same four static
+   * subdomains, so a link hardcoded to c0mpute.ai would walk a compute.tech
+   * visitor off the brand mid-session. These keep every in-network link on the
+   * domain the visitor arrived on.
+   *
+   * External destinations (GitHub, X, Telegram) are deliberately absent — those
+   * accounts exist once and are not per-brand.
+   */
+  urls: {
+    origin: string;
+    docs: string;
+    blog: string;
+    data: string;
+    shard: string;
+    /** OpenAI-compatible API base, as advertised to integrators. */
+    api: string;
+  };
 }
 
 const COMPUTE: Brand = {
@@ -60,6 +78,14 @@ const COMPUTE: Brand = {
     ogImage: '/brand/compute-og.png',
     appleIcon: '/brand/apple-touch-icon.png',
   },
+  urls: {
+    origin: 'https://compute.tech',
+    docs: 'https://docs.compute.tech',
+    blog: 'https://blog.compute.tech',
+    data: 'https://data.compute.tech',
+    shard: 'https://shard.compute.tech',
+    api: 'https://api.compute.tech/v1',
+  },
 };
 
 const LEGACY: Brand = {
@@ -72,6 +98,14 @@ const LEGACY: Brand = {
   mark: false,
   legalFooter: false,
   icon: '/favicon.ico',
+  urls: {
+    origin: 'https://c0mpute.ai',
+    docs: 'https://docs.c0mpute.ai',
+    blog: 'https://blog.c0mpute.ai',
+    data: 'https://data.c0mpute.ai',
+    shard: 'https://shard.c0mpute.ai',
+    api: 'https://c0mpute.ai/api/v1',
+  },
 };
 
 /** Hosts that always get the new brand, regardless of the default. */

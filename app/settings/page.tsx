@@ -5,6 +5,7 @@ import SiteNav from '@/components/SiteNav';
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
+import { useBrand } from '@/components/BrandProvider';
 
 type Tab = 'account' | 'worker' | 'developer' | 'usage' | 'referrals';
 
@@ -134,6 +135,7 @@ function Notice({ tone, children }: { tone: 'error' | 'success' | 'info'; childr
 }
 
 export default function SettingsPage() {
+  const brand = useBrand();
   const router = useRouter();
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
@@ -818,7 +820,7 @@ export default function SettingsPage() {
                       <div className="bg-white/[0.03] border border-white/10 rounded-xl p-3 space-y-1.5">
                         <div className="flex items-baseline gap-3">
                           <span className="pixel-sans text-white/40 text-[10px] uppercase tracking-[0.14em] w-16 flex-shrink-0">base url</span>
-                          <code className="font-mono text-xs text-white/70 select-all overflow-x-auto whitespace-nowrap">https://c0mpute.ai/api/v1</code>
+                          <code className="font-mono text-xs text-white/70 select-all overflow-x-auto whitespace-nowrap">{brand.urls.api}</code>
                         </div>
                         <div className="flex items-baseline gap-3">
                           <span className="pixel-sans text-white/40 text-[10px] uppercase tracking-[0.14em] w-16 flex-shrink-0">models</span>

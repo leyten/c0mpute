@@ -4,6 +4,7 @@
 import BuildIdle from './BuildIdle';
 import CoinsIdle from './CoinsIdle';
 import GlobeMini from './GlobeMini';
+import { useBrand } from '@/components/BrandProvider';
 
 function Panel({
   id, eyebrow, title, body, links, cta, art, flip,
@@ -50,6 +51,7 @@ function Panel({
 }
 
 export default function Doors() {
+  const brand = useBrand();
   return (
     <section id="doors" className="bg-black py-16 md:py-24 border-t border-white/5">
       <div className="max-w-6xl mx-auto px-4 md:px-6">
@@ -64,9 +66,9 @@ export default function Doors() {
             body="One API, served by a network instead of a data center. Every response is backed by the receipts underneath it. The v1 endpoint answers today, and the betanet API opens at launch."
             links={[
               { href: '/chat', text: 'Try it live →' },
-              { href: 'https://docs.c0mpute.ai/api', text: 'Betanet API →', external: true },
+              { href: `${brand.urls.docs}/api`, text: 'Betanet API →', external: true },
             ]}
-            cta={{ href: 'https://docs.c0mpute.ai', text: 'Read the docs', external: true }}
+            cta={{ href: brand.urls.docs, text: 'Read the docs', external: true }}
             art={<div className="w-full h-[210px] md:h-[250px]"><BuildIdle /></div>}
           />
           <Panel
@@ -76,7 +78,7 @@ export default function Doors() {
             body="Your idle hardware earns USDC for real work: from a browser tab today, a full node when the betanet opens. Leave whenever you want."
             links={[
               { href: '/earn', text: 'Earn in your browser →' },
-              { href: 'https://docs.c0mpute.ai', text: 'Run a full node →', external: true },
+              { href: brand.urls.docs, text: 'Run a full node →', external: true },
             ]}
             cta={{ href: '/earn', text: 'Start earning' }}
             art={<div className="w-full h-[200px] md:h-[240px]"><CoinsIdle /></div>}
@@ -89,7 +91,7 @@ export default function Doors() {
             body={<>Open models need open infrastructure to run on. Network revenue funds the treasury: half burns <span className="dollar">$</span>ZERO, half pays the people who stake it.</>}
             links={[
               { href: '/treasury', text: 'Treasury →' },
-              { href: 'https://data.c0mpute.ai', text: 'Network data →', external: true },
+              { href: brand.urls.data, text: 'Network data →', external: true },
             ]}
             cta={{ href: '/staking', text: <>Explore <span className="dollar">$</span>ZERO</> }}
             art={<div className="w-full h-[240px] md:h-[280px]"><GlobeMini /></div>}
