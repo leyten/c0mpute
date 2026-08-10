@@ -332,6 +332,36 @@
      gives it the accent, so that if a focus ring is ever switched on it is
      visible on paper rather than a pale grey on pale grey. */
   --ring: #3a5a7d;
+
+  /* ── Tailwind palette, remapped for paper ──────────────────────────────────
+     A handful of status colours are still written as Tailwind palette classes
+     rather than tokens: amber for warnings, green/emerald for healthy, red for
+     failed. Tailwind v4 compiles those to var(--color-amber-400) and friends,
+     so redefining the variables here fixes every call site at once — including
+     the /80 and /[0.06] opacity variants — without editing a single component.
+
+     Why not convert them to tokens instead: on v4 the palette moved to oklch
+     and these are no longer the hexes the tokens carry. text-green-400 renders
+     rgb(5,223,114); --success is rgb(74,222,128). Swapping the class for the
+     token would silently repaint c0mpute.ai, which is the one thing that must
+     not happen. Leaving the class and moving the variable keeps dark identical
+     by construction.
+
+     Values solved against #faf8f6, not flipped: amber-300 measured 1.33:1 on
+     paper and green-400 1.68:1 — both effectively invisible. The ramp also
+     inverts, because on ink a lower number means lighter, while on paper the
+     emphasis has to get darker. */
+  --color-amber-200: #78350f;
+  --color-amber-300: #92400e;
+  --color-amber-400: #b45309;
+  --color-amber-500: #a16207;
+  --color-green-400: #15803d;
+  --color-green-500: #166534;
+  --color-emerald-400: #047857;
+  --color-red-300: #b42318;
+  --color-red-400: #b42318;
+  --color-red-500: #991b1b;
+
 }
 
 @layer base {

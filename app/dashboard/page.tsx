@@ -76,7 +76,7 @@ function Chip({ tone = 'neutral', title, children }: {
   children: React.ReactNode;
 }) {
   const cls =
-    tone === 'positive' ? 'bg-success/10 text-success' :
+    tone === 'positive' ? 'bg-emerald-400/10 text-emerald-400' :
     tone === 'negative' ? 'bg-danger/10 text-danger' :
     tone === 'accent' ? 'bg-steel/10 text-steel' :
     'bg-fg/5 text-fg-60';
@@ -498,7 +498,7 @@ export default function DashboardPage() {
                           <div className="pixel-sans text-fg-40 text-[10px] font-mono">{r.privy_id.slice(-16)}</div>
                         </td>
                         <td className="pixel-sans text-xs py-3 pr-4 text-right tabular-nums whitespace-nowrap">
-                          <span className="text-success">{r.canary_passed}</span>
+                          <span className="text-emerald-400">{r.canary_passed}</span>
                           <span className="text-fg-30"> / </span>
                           <span className={r.canary_failed > 0 ? 'text-danger' : 'text-fg-50'}>{r.canary_failed}</span>
                         </td>

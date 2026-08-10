@@ -47,14 +47,6 @@
 
 /* warm near-black instead of pure black */
 body.v-b { background: var(--background); }
-/* These three repaint every bg-black on the site warm — which is why #000 has
-   not actually been on screen for as long as the editorial theme has existed.
-   They are literal on purpose: they have to keep matching the old rendering
-   exactly until the last bg-black call site has been moved onto the token,
-   and they are deleted in the same commit that moves it. */
-.v-b.bg-black, .v-b .bg-black { background-color: #0c0a09; }
-.v-b .bg-black\/80 { background-color: rgba(12, 10, 9, 0.8); }
-.v-b .bg-black\/95 { background-color: rgba(12, 10, 9, 0.95); }
 
 .v-b .step-num { font-style: italic; }
 

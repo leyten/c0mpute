@@ -68,7 +68,7 @@ function Stat({ label, value, tone = 'default' }: {
   value: React.ReactNode;
   tone?: 'default' | 'dim' | 'positive';
 }) {
-  const color = tone === 'positive' ? 'text-success' : tone === 'dim' ? 'text-fg-70' : 'text-fg';
+  const color = tone === 'positive' ? 'text-emerald-400' : tone === 'dim' ? 'text-fg-70' : 'text-fg';
   return (
     <div className="border border-fg/[0.06] bg-fg/[0.02] rounded-xl px-4 py-3.5 min-w-0">
       <div className="pixel-sans text-fg-40 text-[10px] uppercase tracking-[0.14em] whitespace-nowrap">{label}</div>
@@ -86,7 +86,7 @@ function CopyValue({ text, display }: { text: string; display: string }) {
       className="cursor-pointer pixel-sans font-mono text-sm text-fg-70 hover:text-fg inline-flex items-center gap-1.5 transition-colors"
     >
       {display}
-      <span className={copied ? 'text-success' : 'text-fg-40'}>{copied ? <IconCheck /> : <IconCopy />}</span>
+      <span className={copied ? 'text-emerald-400' : 'text-fg-40'}>{copied ? <IconCheck /> : <IconCopy />}</span>
     </button>
   );
 }
@@ -125,7 +125,7 @@ function CopyField({ text, display, accent = false, wrap = false }: {
 function Notice({ tone, children }: { tone: 'error' | 'success' | 'info'; children: React.ReactNode }) {
   const cls =
     tone === 'error' ? 'border-danger/25 bg-danger/[0.06] text-danger' :
-    tone === 'success' ? 'border-success/25 bg-success/[0.06] text-success' :
+    tone === 'success' ? 'border-emerald-400/25 bg-emerald-400/[0.06] text-emerald-400' :
     'border-fg/10 bg-fg/[0.03] text-fg-60';
   return (
     <div className={`border rounded-lg px-3 py-2 ${cls}`}>
@@ -591,7 +591,7 @@ export default function SettingsPage() {
                         </div>
                         {hasTwitter ? (
                           <span className="pixel-sans text-xs text-fg-40 flex items-center gap-1.5">
-                            <span className="text-success"><IconCheck size={12} /></span>
+                            <span className="text-emerald-400"><IconCheck size={12} /></span>
                             Connected
                           </span>
                         ) : (
@@ -632,7 +632,7 @@ export default function SettingsPage() {
                           </button>
                         ) : (
                           <span className="pixel-sans text-xs text-fg-40 flex items-center gap-1.5">
-                            <span className="text-success"><IconCheck size={12} /></span>
+                            <span className="text-emerald-400"><IconCheck size={12} /></span>
                             Connected
                           </span>
                         )}
@@ -982,14 +982,14 @@ export default function SettingsPage() {
                           <div key={i} className="flex items-center justify-between gap-3 py-2.5">
                             <div className="flex items-center gap-3 min-w-0">
                               <span className={`pixel-sans text-[10px] px-2 py-0.5 rounded flex-shrink-0 ${
-                                tx.type === 'deposit' ? 'bg-success/10 text-success' :
+                                tx.type === 'deposit' ? 'bg-emerald-400/10 text-emerald-400' :
                                 tx.type === 'refund' ? 'bg-steel/10 text-steel' :
                                 'bg-fg/5 text-fg-60'
                               }`}>{txLabel(tx.type)}</span>
                               <span className="pixel-sans text-fg-60 text-xs truncate">{tx.description}</span>
                             </div>
                             <div className="flex items-baseline gap-3 flex-shrink-0">
-                              <span className={`pixel-sans text-sm tabular-nums ${tx.amount === 0 || tx.type === 'spend' ? 'text-fg-60' : 'text-success'}`}>
+                              <span className={`pixel-sans text-sm tabular-nums ${tx.amount === 0 || tx.type === 'spend' ? 'text-fg-60' : 'text-emerald-400'}`}>
                                 {tx.amount === 0 ? '0' : `${tx.type === 'spend' ? '-' : '+'}${tx.amount}`}
                               </span>
                               <span className="pixel-sans text-fg-40 text-[11px] tabular-nums">{new Date(tx.created_at).toLocaleDateString()}</span>
@@ -1036,7 +1036,7 @@ export default function SettingsPage() {
                               <span className="pixel-sans text-fg-50 text-xs">
                                 {new Date(r.created_at).toLocaleDateString()} · {r.tier}
                               </span>
-                              <span className="pixel-sans text-success text-xs tabular-nums">${r.usd.toFixed(4)}</span>
+                              <span className="pixel-sans text-emerald-400 text-xs tabular-nums">${r.usd.toFixed(4)}</span>
                             </div>
                           ))}
                         </div>
