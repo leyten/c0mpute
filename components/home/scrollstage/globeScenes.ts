@@ -3,8 +3,8 @@
 // measured, pulls its slice from peers, forms an EU ring, serves, settles,
 // gets paid — then the camera pulls back and more rings light the map.
 import {
-  clamp01, seg, easeIO, easeOut, lerp, w, green,
-  ripple, coinStack, receipt, meter, label, cardBox,
+  seg, easeIO, easeOut, lerp, w, green,
+  ripple, coinStack, receipt, meter, label, cardBox, BG,
   drawGlobe, drawArc, buildArc, project, rotv, sph, GlobeView, V3,
 } from './art';
 
@@ -122,95 +122,128 @@ export function drawGlobeStory(ctx: CanvasRenderingContext2D, W: number, H: numb
     }
   }
 
-  // ---------- 03 place: the model as a measure, your slice marked on it ----------
-  // Rebuilt. It used to be twenty-four outlined rectangles with a progress fill
-  // — the same widget vocabulary the meters were carrying, and it read as a
-  // loading bar for a download rather than a passage marked in a work. The
-  // model is now one continuous rule with the layers ticked off along it, and
-  // the slice is a weight laid over its own span, the way a passage gets marked
-  // in a margin. Peers' spans sit on the same rule so the whole thing is
-  // visibly one object shared out, not three separate bars.
-  const barA = easeIO(seg(q2, 0, 0.3)) * (1 - easeIO(seg(q4, 0.3, 0.7)));
-  if (barA > 0.01) {
-    const n = 24, hiLo = 8, hiHi = 14;
-    const bw2 = Math.min(W * 0.72, 660);
-    const bx = (desktop ? W * 0.58 : W * 0.5) - bw2 / 2;
-    const by = H * 0.86;
-    const unit = bw2 / n;
-    const hiA = easeIO(seg(q2, 0.3, 0.6));
-    cardBox(ctx, bx - 26, by - 52, bw2 + 52, 116, barA);
+  // ---------- 03 place: one volume, gathered ----------
+  // The model is drawn as the fore-edge of a bound text block — thirty-two
+  // leaves in order, one object with a head and a foot. It then parts at two
+  // points into gatherings, and a brace is struck in the margin beside each
+  // one; a gathering is what a single machine holds, and the braces abut so
+  // every leaf is inside exactly one of them. Nothing traverses and nothing
+  // fills: an allocation is a division that settles, not a run that advances.
+  const placeA = easeIO(seg(q2, 0.05, 0.35)) * (1 - easeIO(seg(q3, 0.7, 1)));
+  if (placeA > 0.01) {
+    const N = 32;
+    const RUNS: [number, number][] = [[0, 8], [8, 12], [20, 12]];
+    const MINE = 2; // layers 20-31, the role scene 02 just handed out
+    const open = easeOut(seg(q2, 0.36, 0.62));
+    const peerK = easeOut(seg(q2, 0.48, 0.74));
+    const mineK = easeOut(seg(q2, 0.62, 0.9));
 
-    const yRule = Math.round(by + 6) + 0.5;
-    ctx.lineCap = 'butt';
+    // A portrait plate in the left margin where the page is wide enough to
+    // spare one; anywhere else it lies in the top band, which is the only
+    // strip no other scene and neither text block is using.
+    const tall = W >= 1200 && H >= 620;
+    const pad = tall ? 22 : 14;
+    // A text block is dense, so the leaf pitch is fixed and the plate is cut to
+    // fit it — stretching thirty-two leaves over a tall card gives ruled
+    // notepaper, not a volume.
+    const hdr = tall ? 40 : 26, cap = tall ? 24 : 13;
+    // A whole-pixel pitch on the plate: at 5.5 the rounding merged every other
+    // pair of leaves and the block came out visibly uneven.
+    const pitchMax = tall ? 6 : 4, gapU = tall ? 9 : 5;
+    const cw = tall ? Math.min(W * 0.21, 300) : Math.min(W - 2 * Math.max(16, W * 0.045), 500);
+    // The short plate takes the band between the floating header and scene 02's
+    // card, which hangs over the middle of a phone screen well into this
+    // chapter; that band is the only strip nothing else is using.
+    const band = H * 0.44 - 104 - 86;
+    const chh = tall
+      ? N * pitchMax + gapU * 2 + hdr + cap + 2 * pad
+      : Math.min(H * 0.25, 250, Math.max(172, band));
+    const cx0 = tall ? W * 0.028 : (desktop ? W * 0.6 : W * 0.5) - cw / 2;
+    const cy0 = tall ? (H - chh) / 2 : 86;
+    // A plate is opaque. cardBox leaves 8% of the ground showing, which is
+    // nothing on a wide screen where the globe is faint here, but on a phone the
+    // land dots sit right behind it and printed through the lighter leaves.
+    ctx.save();
+    ctx.globalAlpha = placeA;
+    ctx.beginPath();
+    ctx.roundRect(cx0, cy0, cw, chh, 24);
+    ctx.fillStyle = BG;
+    ctx.fill();
+    ctx.restore();
+    cardBox(ctx, cx0, cy0, cw, chh, placeA);
 
-    // the model: one hairline rule, ticked once per layer
-    ctx.strokeStyle = w(0.20 * barA);
-    ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(bx, yRule); ctx.lineTo(bx + bw2, yRule); ctx.stroke();
-    for (let i = 0; i <= n; i++) {
-      const x = Math.round(bx + i * unit) + 0.5;
-      const major = i % 6 === 0;
-      ctx.strokeStyle = w((major ? 0.24 : 0.12) * barA);
-      ctx.beginPath();
-      ctx.moveTo(x, yRule);
-      ctx.lineTo(x, yRule + (major ? 7 : 4));
-      ctx.stroke();
-    }
+    const braceW = 15, labW = tall ? 92 : 100, gapL = 10, gapR = 12;
+    const stackW = Math.min(cw - 2 * pad - braceW - gapL - gapR - labW, tall ? 132 : 150);
+    const gx = tall ? cx0 + pad : cx0 + (cw - (braceW + gapL + stackW + gapR + labW)) / 2;
+    const sx3 = gx + braceW + gapL;
+    const lx3 = sx3 + stackW + gapR;
+    const availH = chh - 2 * pad - hdr - cap;
+    const pitch = Math.min(pitchMax, (availH - gapU * 2) / N);
+    const leafH = tall ? 2 : 1;
+    const gap = gapU * open;
+    // The block is pinned at its centre, so the gatherings part outward as they
+    // are handed out rather than sliding off in one direction.
+    const startY = cy0 + pad + hdr + availH / 2 - (N * pitch + 2 * gap) / 2;
+    const yOf = (i: number, r: number) => startY + i * pitch + r * gap;
 
-    // ringmates hold their own spans of the same rule
-    ([[14, 20], [2, 8]] as [number, number][]).forEach(([lo, hi]) => {
-      ctx.strokeStyle = w(0.22 * barA * hiA);
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(bx + lo * unit, yRule);
-      ctx.lineTo(bx + hi * unit, yRule);
-      ctx.stroke();
+    label(ctx, 'the model', gx, cy0 + pad + (tall ? 6 : 4), placeA, tall ? 12 : 10.5, 'left');
+    label(ctx, '32 layers · 64 gb', gx, cy0 + pad + (tall ? 23 : 18), placeA * 0.6, tall ? 9.5 : 8.5, 'left');
+
+    // the leaves — a fore-edge is never flush, so the right end wanders a little
+    RUNS.forEach(([s0, len], r) => {
+      const k = r === MINE ? mineK : peerK;
+      ctx.fillStyle = w(lerp(0.32, r === MINE ? 0.95 : 0.52, k) * placeA);
+      for (let i = s0; i < s0 + len; i++)
+        // Rounded only where the pitch is a whole number; on the short plate the
+        // pitch is fractional and snapping it would stripe unevenly.
+        ctx.fillRect(Math.round(sx3), pitch % 1 ? yOf(i, r) : Math.round(yOf(i, r)),
+          Math.round(stackW - (((i * 37) % 11) / 11) * (tall ? 4 : 3)), leafH);
     });
 
-    // your slice: laid down one layer at a time, left to right
-    const nSlice = hiHi - hiLo;
-    const step = 0.92 / nSlice;
-    let laid = 0;
-    for (let i = 0; i < nSlice; i++) {
-      laid += clamp01(seg(q3, 0.04 + i * step, 0.04 + i * step + step * 0.82));
-    }
-    const run = (laid / nSlice) * (hiHi - hiLo) * unit;
-    ctx.strokeStyle = w(0.9 * barA * hiA);
-    ctx.lineWidth = 4;
-    if (run > 0.5) {
+    // the margin braces, struck outward from the middle of each gathering
+    const braceX = Math.round(gx + braceW) - 0.5;
+    RUNS.forEach(([s0, len], r) => {
+      const k = r === MINE ? mineK : peerK;
+      if (k <= 0.01) return;
+      const y0 = yOf(s0, r) - pitch * 0.3, y1 = yOf(s0 + len - 1, r) + pitch * 0.3;
+      const mid = (y0 + y1) / 2, half = ((y1 - y0) / 2) * easeOut(Math.min(1, k * 1.2));
+      const a = (r === MINE ? 0.85 : 0.32) * placeA * k;
+      ctx.strokeStyle = w(a);
+      ctx.lineWidth = r === MINE ? 2 : 1;
       ctx.beginPath();
-      ctx.moveTo(bx + hiLo * unit, yRule);
-      ctx.lineTo(bx + hiLo * unit + run, yRule);
+      ctx.moveTo(braceX, mid - half);
+      ctx.lineTo(braceX, mid + half);
       ctx.stroke();
-    }
-    ctx.lineWidth = 1;
-
-    // a bracket under the span, and the two labels
-    const x0 = bx + hiLo * unit, x1 = bx + hiHi * unit;
-    const yB = yRule + 15.5;
-    ctx.strokeStyle = w(0.5 * barA * hiA);
-    ctx.beginPath();
-    ctx.moveTo(x0, yB - 4); ctx.lineTo(x0, yB);
-    ctx.lineTo(x1, yB); ctx.lineTo(x1, yB - 4);
-    ctx.stroke();
-    label(ctx, 'your slice', (x0 + x1) / 2, yB + 14, barA * hiA, 11);
-    label(ctx, 'the model', bx + bw2 / 2, yRule - 22, barA, 11);
-
-    // one quiet leader up to the home node, and only while the slice settles
-    if (hiA > 0.05 && home) {
-      const fade = barA * hiA * (1 - seg(q3, 0, 0.25));
-      if (fade > 0.02) {
-        ctx.strokeStyle = w(0.22 * fade);
-        ctx.setLineDash([2, 5]);
+      if (k > 0.6) {
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = w(a * ((k - 0.6) / 0.4));
         ctx.beginPath();
-        ctx.moveTo((x0 + x1) / 2, yRule - 30);
-        ctx.lineTo(home.x, home.y + 8);
+        for (const e of [mid - half, mid + half]) {
+          ctx.moveTo(braceX - 5, Math.round(e) + 0.5);
+          ctx.lineTo(braceX, Math.round(e) + 0.5);
+        }
         ctx.stroke();
-        ctx.setLineDash([]);
       }
-    }
-  }
+      ctx.lineWidth = 1;
+    });
 
+    // who holds what, set in the margin beside its brace
+    RUNS.forEach(([s0, len], r) => {
+      const k = r === MINE ? mineK : peerK;
+      if (k <= 0.02) return;
+      const mid = (yOf(s0, r) + yOf(s0 + len - 1, r)) / 2;
+      if (r === MINE) {
+        label(ctx, 'your box', lx3, mid - (tall ? 12 : 10), placeA * k, tall ? 10.5 : 9.5, 'left');
+        label(ctx, 'layers 20–31', lx3, mid + (tall ? 1 : 0), placeA * k * 0.6, tall ? 8.5 : 8, 'left');
+        label(ctx, '24 gb', lx3, mid + (tall ? 14 : 11), placeA * k * 0.6, tall ? 8.5 : 8, 'left');
+      } else {
+        label(ctx, 'another box', lx3, mid, placeA * k * 0.5, tall ? 9 : 8.5, 'left');
+      }
+    });
+
+    label(ctx, 'every layer held once', cx0 + cw / 2, cy0 + chh - pad - (tall ? 8 : 4),
+      placeA * Math.min(peerK, mineK) * 0.55, tall ? 9 : 8.5);
+  }
 
   // ---------- 04 pull: peers seed the slice over arcs ----------
   if (q3 > 0 && q3 < 1 && seedArcs) {
