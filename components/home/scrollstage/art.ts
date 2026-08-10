@@ -111,20 +111,19 @@ export function pcIcon(ctx: CanvasRenderingContext2D, cx: number, cy: number, s:
 // canvas overlays read as cards, not floating black boxes.
 export function cardBox(ctx: CanvasRenderingContext2D, x: number, y: number, wd: number, ht: number, alpha: number) {
   if (alpha <= 0.01) return;
-  // 14px corners and a full border made this a UI card floating on the map.
-  // A near-square plate with a hairline and a single rule under the head reads
-  // as something printed on the page instead.
+  // Same surface as the panels at the foot of the page: border-fg/10 over
+  // bg-fg/[0.02], 24px corners. Those cards are the page's established plate,
+  // so the stage's diagrams should be cut from it rather than invent a third
+  // treatment. The ground has to be painted first — the map runs underneath,
+  // and a 2% ink wash alone would let it show through.
   ctx.beginPath();
-  ctx.roundRect(x, y, wd, ht, 3);
-  ctx.fillStyle = rgba(BG_RGB, 0.9 * alpha);
+  ctx.roundRect(x, y, wd, ht, 24);
+  ctx.fillStyle = rgba(BG_RGB, 0.92 * alpha);
   ctx.fill();
-  ctx.strokeStyle = w(0.14 * alpha);
+  ctx.fillStyle = w(0.02 * alpha);
+  ctx.fill();
+  ctx.strokeStyle = w(0.10 * alpha);
   ctx.lineWidth = 1;
-  ctx.stroke();
-  ctx.strokeStyle = w(0.08 * alpha);
-  ctx.beginPath();
-  ctx.moveTo(x + 12, Math.round(y + 26) + 0.5);
-  ctx.lineTo(x + wd - 12, Math.round(y + 26) + 0.5);
   ctx.stroke();
 }
 
@@ -256,37 +255,6 @@ export function receipt(ctx: CanvasRenderingContext2D, cx: number, cy: number, s
   }
 }
 
-// Stack of model layer blocks; hi range highlighted; fills show pull progress.
-export function layerStack(
-  ctx: CanvasRenderingContext2D, cx: number, cy: number, n: number, bw: number, bh: number, gap: number,
-  alpha: number, hiLo: number, hiHi: number, hiAlpha: number, fills?: number[],
-) {
-  if (alpha <= 0.01) return;
-  const total = n * bh + (n - 1) * gap;
-  for (let i = 0; i < n; i++) {
-    const y = cy - total / 2 + i * (bh + gap);
-    const inSlice = i >= hiLo && i < hiHi;
-    const a = inSlice ? alpha * (0.35 + 0.65 * hiAlpha) : alpha * 0.3;
-    ctx.strokeStyle = w(a);
-    ctx.lineWidth = 1;
-    ctx.strokeRect(Math.round(cx - bw / 2) + 0.5, Math.round(y) + 0.5, Math.round(bw), Math.round(bh));
-    const f = fills && inSlice ? clamp01(fills[i - hiLo] ?? 0) : 0;
-    if (f > 0) {
-      ctx.fillStyle = w(a * 0.85);
-      ctx.fillRect(cx - bw / 2 + 1.5, y + 1.5, (bw - 3) * f, bh - 3);
-    }
-    if (f >= 1) {
-      // verified tick to the right of the block
-      ctx.strokeStyle = green(alpha);
-      ctx.lineWidth = 1.4;
-      ctx.beginPath();
-      ctx.moveTo(cx + bw / 2 + 5, y + bh * 0.55);
-      ctx.lineTo(cx + bw / 2 + 8, y + bh * 0.85);
-      ctx.lineTo(cx + bw / 2 + 13, y + bh * 0.2);
-      ctx.stroke();
-    }
-  }
-}
 
 // Measured-capability bar (admit scene), named — card-attached text stays.
 export function meter(ctx: CanvasRenderingContext2D, x: number, y: number, wd: number, name: string, fill: number, alpha: number) {

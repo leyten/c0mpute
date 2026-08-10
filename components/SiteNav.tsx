@@ -46,24 +46,43 @@ export default function SiteNav() {
             {/* Center: Navigation - Hidden on mobile */}
             <div className="hidden md:flex items-center gap-8">
               <a href="/chat" className="cursor-pointer pixel-sans text-fg-70 hover:text-fg transition-colors text-sm tracking-wide">Chat</a>
+              <a href="/create" className="cursor-pointer pixel-sans text-fg-70 hover:text-fg transition-colors text-sm tracking-wide">Create</a>
               <a href="/earn" className="cursor-pointer pixel-sans text-fg-70 hover:text-fg transition-colors text-sm tracking-wide">Earn</a>
               {/* Token dropdown: staking / treasury / data */}
               <div className="relative group">
                 <span className="cursor-pointer pixel-sans text-fg-70 group-hover:text-fg transition-colors text-sm tracking-wide inline-flex items-center gap-1.5">
                   Token
                   {/* A hairline chevron rather than a filled triangle: the solid
-                      arrowhead reads as a 2000s form control next to a serif. */}
+                      arrowhead reads as a 2000s form control next to a serif.
+                      It does not move on hover — the panel opening is the
+                      feedback, and a shifting glyph just makes the row twitch. */}
                   <svg width="9" height="6" viewBox="0 0 9 6" fill="none" aria-hidden="true"
-                       className="mt-px transition-transform duration-200 group-hover:translate-y-px">
+                       className="mt-px">
                     <path d="M1 1.25 4.5 4.75 8 1.25" stroke="currentColor" strokeWidth="1.25"
                           strokeLinecap="round" strokeLinejoin="round" />
                   </svg>
                 </span>
+                {/* Opens on hover with the pointer bridged across the gap by the
+                    padding, so the panel does not vanish on the way to it. Rows
+                    light on hover rather than only their text, which is what
+                    makes it read as a menu instead of three stacked links. */}
                 <div className="absolute left-1/2 -translate-x-1/2 top-full pt-3 hidden group-hover:block">
-                  <div className="bg-background/95 border border-fg/10 rounded-xl px-5 py-3 flex flex-col gap-3 whitespace-nowrap">
-                    <a href="/staking" className="cursor-pointer pixel-sans text-fg-70 hover:text-fg transition-colors text-sm tracking-wide">Staking</a>
-                    <a href="/treasury" className="cursor-pointer pixel-sans text-fg-70 hover:text-fg transition-colors text-sm tracking-wide">Treasury</a>
-                    <a href={brand.urls.data} target="_blank" rel="noopener noreferrer" className="cursor-pointer pixel-sans text-fg-70 hover:text-fg transition-colors text-sm tracking-wide">Data</a>
+                  <div className="min-w-[168px] rounded-2xl border border-fg/10 bg-fg/[0.02] backdrop-blur-md p-1.5 flex flex-col">
+                    {[
+                      { href: '/staking', label: 'Staking', note: 'Stake and earn' },
+                      { href: '/treasury', label: 'Treasury', note: 'Buybacks and burns' },
+                      { href: brand.urls.data, label: 'Data', note: 'Live network stats', ext: true },
+                    ].map(item => (
+                      <a
+                        key={item.label}
+                        href={item.href}
+                        {...(item.ext ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
+                        className="cursor-pointer rounded-xl px-3 py-2 hover:bg-fg/[0.06] transition-colors"
+                      >
+                        <span className="block pixel-sans text-fg text-sm tracking-wide">{item.label}</span>
+                        <span className="block pixel-sans text-fg-45 text-xs mt-0.5">{item.note}</span>
+                      </a>
+                    ))}
                   </div>
                 </div>
               </div>
