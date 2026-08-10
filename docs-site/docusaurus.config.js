@@ -1,9 +1,11 @@
 // @ts-check
 
-// Branding is env-driven so one source tree builds both domains. Every default
-// below is the live c0mpute.ai value, so an unset environment reproduces the
-// c0mpute.ai docs exactly; scripts/build-compute-tech.sh overrides them (and
-// points DOCS_CONTENT_DIR at rebranded markdown) to build docs.compute.tech.
+// Branding is env-driven so one source tree builds both domains. Each default
+// below is the live c0mpute.ai value, so an unset environment builds the
+// c0mpute.ai docs; scripts/build-compute-tech.sh overrides them (and points
+// DOCS_CONTENT_DIR at rebranded markdown) to build docs.compute.tech.
+// Anything not read from env here — the page title, the favicon — is shared,
+// and changing it moves both domains at once on their next build.
 const brand = process.env.DOCS_BRAND || 'c0mpute';
 const wordmark = process.env.DOCS_WORDMARK || 'C0MPUTE';
 
