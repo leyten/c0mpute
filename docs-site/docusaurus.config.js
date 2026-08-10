@@ -4,14 +4,19 @@
 // below is the live c0mpute.ai value, so an unset environment builds the
 // c0mpute.ai docs; scripts/build-compute-tech.sh overrides them (and points
 // DOCS_CONTENT_DIR at rebranded markdown) to build docs.compute.tech.
-// Anything not read from env here — the page title, the favicon — is shared,
-// and changing it moves both domains at once on their next build.
+// Anything not read from env here is shared, and changing it moves both
+// domains at once on their next build.
 const brand = process.env.DOCS_BRAND || 'c0mpute';
 const wordmark = process.env.DOCS_WORDMARK || 'C0MPUTE';
 
 /** @type {import('@docusaurus/types').Config} */
 const config = {
-  title: 'Documentation',
+  // Compute Network names every surface `Compute Network / <Page>`, so its docs
+  // are `Compute Network / Docs`. Docusaurus composes a page's tab title as
+  // `<Page> | <site title>`, but src/clientModules/fixTitle.js then pins the tab
+  // to this string alone, so this is what a reader sees on every docs page.
+  // c0mpute.ai keeps the plain default.
+  title: process.env.DOCS_TITLE || 'Documentation',
   tagline: 'AI powered by people, not data centers.',
   favicon: process.env.DOCS_FAVICON || 'img/favicon.ico',
   url: process.env.DOCS_URL || 'https://docs.c0mpute.ai',
