@@ -10,15 +10,14 @@ import { STEPS } from './steps';
 import { setLabelFont, clamp01 } from './scrollstage/art';
 import { drawGlobeStory } from './scrollstage/globeScenes';
 import LifecycleList from './LifecycleList';
-import { useBrand } from '@/components/BrandProvider';
 
 const CHAPTERS = 10; // hero prologue + 8 lifecycle steps + the finale
 
 export default function LifecycleScroll({ hero }: { hero: React.ReactNode }) {
-  const brand = useBrand();
   const wrapRef = useRef<HTMLElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const heroRef = useRef<HTMLDivElement>(null);
+  const closeRef = useRef<HTMLDivElement>(null);
   const [step, setStep] = useState(0);
   const [reduced, setReduced] = useState(false);
 
@@ -65,6 +64,15 @@ export default function LifecycleScroll({ hero }: { hero: React.ReactNode }) {
         h.style.opacity = heroA.toFixed(3);
         h.style.transform = `translateY(${((1 - heroA) * -40).toFixed(1)}px)`;
         h.style.pointerEvents = heroA > 0.5 ? 'auto' : 'none';
+      }
+      // and the closing block rises as the camera finishes pulling back — the
+      // mirror of that fade, so the story hands the prompt back rather than
+      // cutting to it
+      const c = closeRef.current;
+      if (c) {
+        const closeA = clamp01((p * CHAPTERS - 9.68) / 0.3);
+        c.style.opacity = closeA.toFixed(3);
+        c.style.pointerEvents = closeA > 0.5 ? 'auto' : 'none';
       }
       ctx.clearRect(0, 0, W, H);
       drawGlobeStory(ctx, W, H, p, t);
@@ -140,32 +148,23 @@ export default function LifecycleScroll({ hero }: { hero: React.ReactNode }) {
           </div>
         )}
 
-        {/* finale — sits UNDER the canvas on a wide screen, where the globe is
-            off to one side and uncovers it as it shrinks. On a phone the globe
-            fills the screen, so the text has to sit above it or it is painted
-            over entirely.
+        {/* finale — the block the page opened with, handed back to the reader:
+            the story ends where it started, at the prompt.
 
-            It is mounted a chapter early so the globe can reveal it, which on a
-            wide screen is invisible — it is behind the canvas. On a phone both
-            blocks are lifted to z-20 and share the same bottom sheet, so the
-            early mount printed "One network." straight over step 08. Hold it
-            back there until the step text has left. */}
-        {step >= CHAPTERS - 2 && (
-          <div className={`absolute z-0 max-md:z-20 left-5 right-5 bottom-10 md:right-auto md:left-[26%] md:bottom-auto md:top-1/2 md:-translate-y-1/2 md:max-w-sm${finale ? '' : ' max-md:hidden'}`}>
-            <h3 className="pixel-serif text-fg text-3xl md:text-5xl">One network.</h3>
-            <p className="pixel-sans text-fg-60 text-sm md:text-base mt-2 md:mt-4 leading-relaxed max-w-xs md:max-w-sm">
-              Too big for one machine, so it runs on all of them.
-            </p>
-            <div className="mt-4 md:mt-6 flex flex-col gap-2">
-              <a href={brand.urls.shard} target="_blank" rel="noopener noreferrer"
-                className="cursor-pointer pixel-sans text-steel-50 light:text-steel hover:text-steel text-sm transition-colors">
-                Network map (testbed preview) →
-              </a>
-              <a href="https://github.com/leyten/shard" target="_blank" rel="noopener noreferrer"
-                className="cursor-pointer pixel-sans text-steel-50 light:text-steel hover:text-steel text-sm transition-colors">
-                Engine source →
-              </a>
-            </div>
+            The old "One network." text sat UNDER the canvas from a chapter
+            early and let the shrinking globe uncover it, which cost it a
+            hidden guard: on a phone both blocks share the bottom sheet, so the
+            early mount printed over step 08. A composer cannot be under the
+            canvas anyway — on a 1280–1600 desktop the globe comes to rest with
+            its left rim across the send button, and it would paint dots over a
+            live control. So this sits ABOVE the canvas, mounts only once the
+            story is over, and is revealed by the scrub instead of by the globe:
+            opacity starts at 0 and closeRef rides it up as the camera settles.
+            Nothing is on screen before its own chapter, at any width. */}
+        {finale && (
+          <div ref={closeRef} style={{ opacity: 0 }}
+            className="absolute z-20 inset-x-0 bottom-10 md:top-0 md:bottom-0 md:flex md:items-center">
+            {hero}
           </div>
         )}
 
