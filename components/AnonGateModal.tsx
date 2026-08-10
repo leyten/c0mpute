@@ -1,5 +1,7 @@
 'use client';
 
+import { useBrand } from '@/components/BrandProvider';
+
 // Popup shown to anonymous (not-logged-in) visitors at the three free-prompt
 // boundaries:
 //   nudge     — they have 1 free prompt left (dismissible, gentle).
@@ -35,7 +37,9 @@ const COPY = {
 } as const;
 
 export default function AnonGateModal({ mode, freePromptLimit, onClose, onSignIn }: AnonGateModalProps) {
+  const brand = useBrand();
   const c = COPY[mode];
+  const title = mode === 'softlogin' ? `Try ${brand.short} free` : c.title;
   const body = mode === 'softlogin'
     ? `Sign in with X to get ${freePromptLimit} free prompts.`
     : c.body;
@@ -43,7 +47,7 @@ export default function AnonGateModal({ mode, freePromptLimit, onClose, onSignIn
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
       <div className="w-full max-w-sm rounded-2xl border border-white/10 bg-[#141210] p-7 shadow-2xl">
-        <div className="pixel-serif text-white text-2xl mb-3">{c.title}</div>
+        <div className="pixel-serif text-white text-2xl mb-3">{title}</div>
         <p className="pixel-sans text-white/70 text-sm leading-relaxed mb-6">{body}</p>
         <button
           onClick={onSignIn}

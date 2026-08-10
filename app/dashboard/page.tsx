@@ -1,6 +1,8 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { LogoMark } from '@/components/Logo';
+import { useBrand } from '@/components/BrandProvider';
 
 interface Overview {
   totalUsers: number;
@@ -109,6 +111,7 @@ const thCls = 'pixel-sans text-white/40 text-[10px] uppercase tracking-[0.14em] 
 const thNumCls = `${thCls} text-right`;
 
 export default function DashboardPage() {
+  const brand = useBrand();
   const [token, setToken] = useState('');
   const [authed, setAuthed] = useState(false);
   const [tab, setTab] = useState<AdminTab>('overview');
@@ -206,7 +209,7 @@ export default function DashboardPage() {
     return (
       <div className="min-h-screen bg-black flex items-center justify-center px-4">
         <div className="border border-white/10 bg-white/[0.02] rounded-2xl p-8 max-w-sm w-full">
-          <div className="pixel-serif-logo text-white/40 text-sm mb-6">c0mpute</div>
+          <div className="pixel-serif-logo text-white/40 text-sm mb-6">{brand.name}</div>
           <h1 className="pixel-serif text-white text-2xl">Admin console</h1>
           <p className="pixel-sans text-white/50 text-sm mt-1.5 mb-6">Enter the admin key to continue.</p>
           <input
@@ -240,7 +243,16 @@ export default function DashboardPage() {
         <div className="max-w-6xl mx-auto px-4 md:px-6 h-16 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 min-w-0">
             <a href="/" className="cursor-pointer pixel-serif-logo text-white text-lg flex items-center flex-shrink-0">
-              c<span className="pixel-serif-logo" style={{ fontSize: '1.8em', display: 'inline-block', verticalAlign: 'baseline', lineHeight: '1', marginTop: '-0.3em' }}>0</span>mpute
+              {brand.mark ? (
+                <span className="flex items-center gap-2">
+                  <LogoMark className="w-5 h-5 shrink-0" />
+                  <span>Compute Network</span>
+                </span>
+              ) : (
+                <>
+                  c<span className="pixel-serif-logo" style={{ fontSize: '1.8em', display: 'inline-block', verticalAlign: 'baseline', lineHeight: '1', marginTop: '-0.3em' }}>0</span>mpute
+                </>
+              )}
             </a>
             <span className="pixel-sans text-white/40 text-[10px] uppercase tracking-[0.14em] border border-white/10 rounded px-1.5 py-0.5">
               admin
