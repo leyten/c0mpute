@@ -1,26 +1,31 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="14 11 76 76" role="img" aria-label="Compute Network">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="Compute Network">
   <title>Compute Network</title>
   <!--
-    Theme-aware favicon. A favicon cannot inherit the page's colour, so the
-    adaptation lives inside the file: the mark is dark by default and flips to
-    light when the browser reports a dark colour scheme.
+    One tile, one colour, everywhere: ink on paper, rounded, opaque. The same
+    file is the icon for the app and for docs/blog/data/shard, so a reader
+    moving between them never sees the tab icon change identity.
 
-    The mapping is deliberately the inverse of the page theme, because the tab
-    strip is the opposite of the page: light mode gives a light chrome, so the
-    mark must be dark to be visible there, and vice versa. Background stays
-    transparent in both.
+    It carries its own ground on purpose. Earlier this file was a bare mark with
+    a colour-scheme media query, flipping dark and light to stay legible against
+    whichever tab strip it landed on. An icon that changes with a browser
+    setting is not an identity. An opaque tile needs no flip — it is legible on
+    a light strip and on a dark one because it brings its own background.
 
-    Geometry is identical to compute-mark.svg — viewBox cropped tight so the
-    artwork fills the box. At 16px, padding is what kills legibility, not
-    stroke weight.
+    Colours are the site's light palette, not new values: #faf8f6 is the light
+    theme's background token and #141210 its ink, both from app/globals.css.
+    Neither is pure — #fff reads clinical and #000 reads as a hole, which is as
+    true at 16px as it is on the page.
+
+    Geometry: the tile is 100 square with a 20% corner radius, which reads as
+    rounded at 16px without softening toward a circle. compute-mark.svg draws
+    the artwork edge to edge across the same 100 box (bbox 14,14 76x70); here it
+    is scaled to 62% of the tile width and centred on its bounding box, so the
+    mark has optical margin instead of bleeding into the corners. Checked as
+    rendered at 16px and 32px, not just in source: 68% crowded the rounded
+    corners and 56% went timid.
   -->
-  <style>
-    .mark { fill: #0B0B0C; }
-    @media (prefers-color-scheme: dark) {
-      .mark { fill: #FAFAF8; }
-    }
-  </style>
-  <g class="mark">
+  <rect width="100" height="100" rx="20" fill="#faf8f6"/>
+  <g transform="translate(7.579 10.026) scale(0.81579)" fill="#141210">
     <path d="M29.93 74.20 L56.62 23.47 L51.38 20.53 L22.07 69.80 Z"/>
     <path d="M51.45 23.58 L76.81 65.97 L83.19 62.03 L56.55 20.42 Z"/>
     <path d="M79.45 60.29 L25.34 67.55 L26.66 76.45 L80.55 67.71 Z"/>

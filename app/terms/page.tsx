@@ -1,9 +1,12 @@
 import LegalPage from '@/components/legal/LegalPage';
+import { pageMetadata } from '@/lib/page-title';
 
-export const metadata = {
-  title: 'Terms of Service',
-  description: 'The agreement between you and Compute Network Inc.',
-};
+export async function generateMetadata() {
+  return {
+    ...(await pageMetadata('Terms', 'Terms of Service')),
+    description: 'The agreement between you and Compute Network Inc.',
+  };
+}
 
 export default function Terms() {
   return (

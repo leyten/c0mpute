@@ -1,9 +1,12 @@
 import LegalPage from '@/components/legal/LegalPage';
+import { pageMetadata } from '@/lib/page-title';
 
-export const metadata = {
-  title: 'Acceptable Use Policy',
-  description: 'What is and is not permitted on the Compute Network.',
-};
+export async function generateMetadata() {
+  return {
+    ...(await pageMetadata('Acceptable Use', 'Acceptable Use Policy')),
+    description: 'What is and is not permitted on the Compute Network.',
+  };
+}
 
 export default function AcceptableUse() {
   return (

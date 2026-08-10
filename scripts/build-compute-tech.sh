@@ -49,6 +49,7 @@ DOCS_URL="https://docs.compute.tech" \
 DOCS_BASE_URL=/ \
   DOCS_COLOR_MODE=light \
   DOCS_FAVICON=img/favicon.svg \
+  DOCS_TITLE="Compute Network / Docs" \
   npx docusaurus build --out-dir "$OUT/docs"
 
 # ── blog.compute.tech ────────────────────────────────────────────────────────

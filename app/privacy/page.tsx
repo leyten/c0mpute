@@ -1,9 +1,12 @@
 import LegalPage from '@/components/legal/LegalPage';
+import { pageMetadata } from '@/lib/page-title';
 
-export const metadata = {
-  title: 'Privacy Policy',
-  description: 'What Compute Network Inc. collects, what it does not, and why.',
-};
+export async function generateMetadata() {
+  return {
+    ...(await pageMetadata('Privacy', 'Privacy Policy')),
+    description: 'What Compute Network Inc. collects, what it does not, and why.',
+  };
+}
 
 export default function PrivacyPolicy() {
   return (

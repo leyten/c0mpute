@@ -96,6 +96,37 @@ API_BASE = re.compile(r"(https?://)?c0mpute\.ai/api/v1")
 # served from this domain rather than borrowed from the other.
 FAVICON = re.compile(r"https?://c0mpute\.ai/favicon\.ico")
 
+# ── one title per surface ─────────────────────────────────────────────────────
+# Compute Network names every tab "Compute Network / <Page>" -- the app, the
+# docs and these three static sites -- so a reader with a row of tabs open can
+# see which network they belong to. The c0mpute.ai sources keep the titles they
+# have; only these generated copies are renamed.
+#
+# Which site a file belongs to is legible from the title it already carries: the
+# blog suffixes the brand ("blog -- c0mpute"), while data and shard prefix it
+# ("c0mpute / data"). These run after the word rename, so by now the brand in
+# those strings reads "Compute Network".
+BLOG_TITLE = re.compile(r"<title>[^<]*—\s*Compute Network</title>")
+
+# "data" and "network" are the labels those two sites give themselves, and each
+# says it twice: once in the tab, once in the header lockup beside the wordmark
+# -- the tab as a single string, the lockup as a "/ label" span next to it.
+# Rewrite both, or the tab and the page it names disagree. "network" becomes
+# "Map" because the page is the network map, and "Compute Network / network"
+# says the word twice.
+SUB_LABELS = {"data": "Data", "network": "Map"}
+TITLE_LABEL = re.compile(r"(Compute Network / )(data|network)\b")
+LOCKUP_LABEL = re.compile(r'(<span class="brand-sub">\s*/\s*)(data|network)(\s*</span>)')
+
+
+def page_titles(text):
+    text = BLOG_TITLE.sub("<title>Compute Network / Blog</title>", text)
+    text = TITLE_LABEL.sub(lambda m: m.group(1) + SUB_LABELS[m.group(2)], text)
+    return LOCKUP_LABEL.sub(
+        lambda m: m.group(1) + SUB_LABELS[m.group(2)] + m.group(3), text
+    )
+
+
 # The wordmark is markup, not text: the zero is wrapped in a span that scales it
 # to match the surrounding glyphs. "Compute Network" has no zero to style, so
 # the span goes with it. The class stays on the parent, so size/font/colour are
@@ -154,7 +185,9 @@ def rebrand(text: str) -> str:
 
     for i, original in enumerate(stash):
         text = text.replace(_SENTINEL % i, original)
-    return text
+
+    # Last, because it reads the brand name the rename above just wrote in.
+    return page_titles(text)
 
 
 def main(src: str, dst: str) -> None:
