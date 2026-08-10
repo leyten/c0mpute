@@ -878,7 +878,7 @@ function ensureImagesTable() {
       credits_charged INTEGER NOT NULL,
       nsfw INTEGER DEFAULT 0,
       blocked INTEGER DEFAULT 0,
-      public INTEGER DEFAULT 1,
+      public INTEGER DEFAULT 0,
       created_at TEXT NOT NULL
     );
   `);
@@ -923,7 +923,9 @@ export function recordImage(rec: {
   ).run(
     rec.id, rec.privyId, rec.prompt, rec.negativePrompt || null, rec.model,
     rec.seed ?? null, rec.width ?? null, rec.height ?? null, rec.creditsCharged,
-    rec.nsfw ? 1 : 0, rec.isPublic === false ? 0 : 1, new Date().toISOString()
+    // Private unless the caller explicitly opts in. Publishing someone's prompt
+    // is not something to arrive at by leaving a field unset.
+    rec.nsfw ? 1 : 0, rec.isPublic === true ? 1 : 0, new Date().toISOString()
   );
 }
 

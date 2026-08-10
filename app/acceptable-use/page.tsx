@@ -53,8 +53,7 @@ export default function AcceptableUse() {
 
       <h2>6. Reporting abuse</h2>
       <p>
-        If you have seen something on this network that breaches this policy &mdash; including content on the
-        public image gallery &mdash; report it to{' '}
+        If you have seen something on this network that breaches this policy, report it to{' '}
         <a href="mailto:abuse@compute.tech">abuse@compute.tech</a>. Include enough detail to locate it.
         Reports about section 2 are treated as urgent.
       </p>

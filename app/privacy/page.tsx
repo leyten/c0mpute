@@ -18,7 +18,7 @@ export default function PrivacyPolicy() {
       <h2>1. The short version</h2>
       <ul>
         <li><strong>Text prompts and responses are not stored.</strong> They exist in memory for the life of the request and are discarded when it completes. No database table holds them.</li>
-        <li><strong>Image prompts are stored</strong>, are linked to your account, and by default appear on a public gallery. This is the one place where the service is less private than the text side. See section 4.</li>
+        <li><strong>Image prompts are not stored either.</strong> One caveat applies to the machine that renders them, described in section 4.</li>
         <li><strong>Prompts are not end-to-end encrypted.</strong> They are protected by TLS in transit, but our orchestrator processes them in readable form in order to route them.</li>
         <li><strong>We do not sell personal information</strong> and we do not use your prompts to train models.</li>
       </ul>
@@ -39,11 +39,9 @@ export default function PrivacyPolicy() {
       </ul>
       <p>Operational logs used for debugging and billing may contain account and job identifiers, timing, and error information. They do not contain prompt or response text.</p>
 
-      <h2>4. Image generation is different</h2>
-      <p>Image generation does not work like text inference, and we want this to be unambiguous.</p>
-      <p>When you generate an image we store the <strong>prompt text</strong> and any negative prompt, the model, seed and dimensions, the credits charged, whether the result was flagged as adult content, and the time of creation. This record is linked to your account.</p>
-      <p><strong>By default these images are marked public.</strong> Images that are marked public, are not flagged as adult content, and have not been blocked may appear on a public gallery visible to anyone. The gallery displays the prompt, model, dimensions and date. It does not display your account identifier, wallet, or username &mdash; entries are unattributed.</p>
-      <p>If you do not want an image prompt to be public, do not generate it on the public setting. Contact us to have specific records removed.</p>
+      <h2>4. Image generation</h2>
+      <p>Image generation follows the same pattern as text. Your prompt is screened, dispatched to a machine that renders it, and the finished image is returned to you directly. <strong>We do not write the prompt or the image to our database.</strong> There is no gallery, and no image you generate is shown to anyone else.</p>
+      <p>The honest caveat is the rendering machine. The image software running on a contributor&rsquo;s hardware writes the file it produces to that machine&rsquo;s own local disk as part of how it works. Those machines are operated by independent people, not by us, and we cannot guarantee what remains on them or for how long. If that matters for a particular image, it is a reason not to generate it here.</p>
 
       <h2>5. Service providers</h2>
       <p>We use a small number of processors, each for a specific function:</p>
