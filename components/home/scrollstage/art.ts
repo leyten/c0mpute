@@ -316,11 +316,11 @@ export function buildArc(a: V3, b: V3, N = 28, lift = 0.06): Float32Array {
 
 const _t: V3 = [0, 0, 0];
 
-export interface GlobeView { cx: number; cy: number; R: number; yaw: number; tilt: number; alpha: number; dense?: boolean; coarse?: boolean; stride?: number; bodyAlpha?: number; }
+export interface GlobeView { cx: number; cy: number; R: number; yaw: number; tilt: number; alpha: number; bodyAlpha?: number; }
 
 // Land-dot globe, exactly the shard-map recipe: edge circle + depth-lit 2px
-// dots. dense switches to the 0.5-degree grid for close-up camera work, with
-// screen culling so the extra points stay cheap.
+// dots. The grid is chosen from the radius (see below), with screen culling so
+// the close-up grids stay cheap.
 export function drawGlobe(ctx: CanvasRenderingContext2D, v: GlobeView) {
   if (v.alpha <= 0.01) return;
   // solid sphere body: invisible against the page bg, but it occludes layers
@@ -339,19 +339,29 @@ export function drawGlobe(ctx: CanvasRenderingContext2D, v: GlobeView) {
   ctx.beginPath();
   ctx.arc(v.cx, v.cy, v.R, 0, Math.PI * 2);
   ctx.stroke();
-  const L = v.dense ? landDense() : v.coarse ? landCoarse() : land();
+  // Dot density follows the globe's size on screen. The land grids are angular
+  // — 2, 1 and 0.5 degrees — so any fixed choice is only right at one radius:
+  // the same 1-degree grid that reads as texture on a 340px desktop sphere
+  // packs to roughly 3px spacing on a 187px phone one and fills in solid.
+  //
+  // So solve for the grid instead. Pick whichever one puts neighbouring dots
+  // near a constant pixel distance apart, then dither with a stride for the
+  // gaps between grids — a stride drops points across the whole sphere, so it
+  // thins both axes at once and n points removed is about sqrt(n) in spacing.
+  const TARGET_PX = 6.5;
+  const idealDeg = TARGET_PX / (Math.max(24, v.R) * (Math.PI / 180));
+  const gridDeg = idealDeg >= 1.7 ? 2 : idealDeg >= 0.7 ? 1 : 0.5;
+  const L = gridDeg === 2 ? landCoarse() : gridDeg === 1 ? land() : landDense();
+  const stride = Math.max(1, Math.round((idealDeg / gridDeg) ** 2));
   const n = L.length / 3;
   const wpx = ctx.canvas.clientWidth || ctx.canvas.width;
   const hpx = ctx.canvas.clientHeight || ctx.canvas.height;
-  const aScale = v.dense ? 0.7 : 1;
-  // The paper weighting below is calibrated for the full-stage globe. The same
-  // ink on a card-sized one packs into a solid blot, so scale it back with the
-  // radius and drop every other dot under ~90px — fewer, lighter marks read as
-  // a sphere where more of them read as a smudge.
-  const small = ON_PAPER ? clamp01((v.R - 55) / 95) : 1;
-  const paperK = ON_PAPER ? 0.45 + 0.55 * small : 1;
-  const thin = ON_PAPER && v.R < 90 ? 2 : 1;
-  const stride = (v.stride ?? 1) * thin;
+  // Ink per unit area is now the same at every radius, so the old corrections
+  // for it — a lighter ramp on the dense grid, and a further paper-only
+  // knockdown under 150px — are gone. They were compensating for the density
+  // problem this replaces, and applied on top of it they wash a small globe out.
+  const aScale = 1;
+  const paperK = 1;
   for (let i = 0; i < n; i += stride) {
     rotv(L, i * 3, v.yaw, v.tilt, _t);
     if (_t[2] <= 0.02) continue;

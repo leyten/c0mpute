@@ -89,7 +89,6 @@ export function drawGlobeStory(ctx: CanvasRenderingContext2D, W: number, H: numb
     yaw: lerp(sYaw, hYaw, heroT),
     tilt: lerp(sTilt, 0.32, heroT),
     alpha: 1,
-    dense: R > minD * 0.7,
   };
   drawGlobe(ctx, gv);
 
