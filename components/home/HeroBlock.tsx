@@ -34,7 +34,7 @@ export default function HeroBlock({ onSubmit }: { onSubmit: (prompt: string) => 
               type="text"
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
-              placeholder="Ask anything"
+              placeholder="Ask the impossible."
               className="min-w-0 flex-1 bg-transparent py-1.5 text-[16px] leading-[1.6] outline-none placeholder:text-fg-30"
               style={{ color: 'var(--chat-text)' }}
             />
