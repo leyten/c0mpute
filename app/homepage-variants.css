@@ -46,7 +46,12 @@
 }
 
 /* warm near-black instead of pure black */
-body.v-b { background: #0c0a09; }
+body.v-b { background: var(--background); }
+/* These three repaint every bg-black on the site warm — which is why #000 has
+   not actually been on screen for as long as the editorial theme has existed.
+   They are literal on purpose: they have to keep matching the old rendering
+   exactly until the last bg-black call site has been moved onto the token,
+   and they are deleted in the same commit that moves it. */
 .v-b.bg-black, .v-b .bg-black { background-color: #0c0a09; }
 .v-b .bg-black\/80 { background-color: rgba(12, 10, 9, 0.8); }
 .v-b .bg-black\/95 { background-color: rgba(12, 10, 9, 0.95); }
@@ -61,15 +66,15 @@ body.v-b { background: #0c0a09; }
   font-size: 10px;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.45);
+  color: var(--fg-45);
 }
 .badge-chip .badge-dot {
   width: 6px;
   height: 6px;
   border-radius: 9999px;
-  background: rgba(52, 211, 153, 0.9);
+  background: var(--live);
 }
-.badge-chip.badge-live { color: rgba(110, 231, 183, 0.9); }
+.badge-chip.badge-live { color: var(--live-text); }
 
 /* ---------- scroll-stage step text crossfade ---------- */
 .fade-step { animation: fadeStep 0.55s ease both; }
