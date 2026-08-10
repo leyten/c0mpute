@@ -21,10 +21,10 @@ export default function Receipts() {
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6">
       {RECEIPTS.map((r) => (
-        <div key={r.title} className="border border-white/10 bg-white/[0.02] rounded-2xl p-6">
-          <div className="pixel-sans text-white/40 text-xs tracking-widest mb-3">{r.tag}</div>
-          <h4 className="pixel-serif text-white text-lg mb-2">{r.title}</h4>
-          <p className="pixel-sans text-white/70 text-sm leading-relaxed">{r.body}</p>
+        <div key={r.title} className="border border-fg/10 bg-fg/[0.02] rounded-2xl p-6">
+          <div className="pixel-sans text-fg-40 text-xs tracking-widest mb-3">{r.tag}</div>
+          <h4 className="pixel-serif text-fg text-lg mb-2">{r.title}</h4>
+          <p className="pixel-sans text-fg-70 text-sm leading-relaxed">{r.body}</p>
         </div>
       ))}
     </div>

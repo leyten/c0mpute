@@ -14,7 +14,7 @@ const PCIcon = ({ className = '' }: { className?: string }) => (
   <svg width="24" height="22" viewBox="0 0 24 22" fill="none" className={className}>
     {/* Monitor */}
     <rect x="2" y="0" width="20" height="14" fill="currentColor" />
-    <rect x="4" y="2" width="16" height="10" fill="black" />
+    <rect x="4" y="2" width="16" height="10" className="fill-background" />
     {/* Screen content - little dots */}
     <rect x="6" y="4" width="2" height="2" fill="currentColor" />
     <rect x="10" y="4" width="4" height="2" fill="currentColor" />
@@ -29,7 +29,7 @@ const QueueIcon = ({ className = '' }: { className?: string }) => (
   <svg width="32" height="32" viewBox="0 0 32 32" fill="none" className={className}>
     {/* Outer frame */}
     <rect x="4" y="4" width="24" height="24" fill="currentColor" />
-    <rect x="6" y="6" width="20" height="20" fill="black" />
+    <rect x="6" y="6" width="20" height="20" className="fill-background" />
     {/* Queue bars inside */}
     <rect x="8" y="9" width="16" height="3" fill="currentColor" />
     <rect x="8" y="14" width="12" height="3" fill="currentColor" />
@@ -69,7 +69,7 @@ const SingleFlow = ({
     <>
       {/* Step 1: User → Queue */}
       <motion.div
-        className="absolute w-2 h-2 bg-white"
+        className="absolute w-2 h-2 bg-fg"
         style={{ left: -4, top: -4 }}
         animate={{ 
           x: [user.x + 10, centerX],
@@ -88,7 +88,7 @@ const SingleFlow = ({
       
       {/* Step 2: Queue → Worker */}
       <motion.div
-        className="absolute w-2 h-2 bg-white"
+        className="absolute w-2 h-2 bg-fg"
         style={{ left: -4, top: -4 }}
         animate={{ 
           x: [centerX, worker.x - 12],
@@ -107,7 +107,7 @@ const SingleFlow = ({
       
       {/* Step 3: Worker → Queue */}
       <motion.div
-        className="absolute w-2 h-2 bg-white"
+        className="absolute w-2 h-2 bg-fg"
         style={{ left: -4, top: -4 }}
         animate={{ 
           x: [worker.x - 12, centerX],
@@ -126,7 +126,7 @@ const SingleFlow = ({
       
       {/* Step 4: Queue → User */}
       <motion.div
-        className="absolute w-2 h-2 bg-white"
+        className="absolute w-2 h-2 bg-fg"
         style={{ left: -4, top: -4 }}
         animate={{ 
           x: [centerX, user.x + 10],
@@ -145,7 +145,7 @@ const SingleFlow = ({
       
       {/* User highlight */}
       <motion.div
-        className="absolute w-6 h-6 border border-white/50"
+        className="absolute w-6 h-6 border border-fg/50"
         style={{ left: user.x - 13, top: user.y - 13 }}
         animate={{ opacity: [0, 1, 1, 0] }}
         transition={{
@@ -159,7 +159,7 @@ const SingleFlow = ({
       
       {/* Worker highlight */}
       <motion.div
-        className="absolute w-7 h-7 border border-white/50"
+        className="absolute w-7 h-7 border border-fg/50"
         style={{ left: worker.x - 15, top: worker.y - 14 }}
         animate={{ opacity: [0, 1, 1, 0] }}
         transition={{
@@ -215,7 +215,7 @@ export default function OrchestratorFlow() {
                 y1={user.y} 
                 x2={centerX} 
                 y2={centerY} 
-                stroke="rgba(255,255,255,0.1)" 
+                className="stroke-fg/10"
                 strokeWidth="1"
               />
             </svg>
@@ -229,7 +229,7 @@ export default function OrchestratorFlow() {
                 y1={centerY} 
                 x2={worker.x - 10} 
                 y2={worker.y} 
-                stroke="rgba(255,255,255,0.1)" 
+                className="stroke-fg/10"
                 strokeWidth="1"
               />
             </svg>
@@ -252,7 +252,7 @@ export default function OrchestratorFlow() {
           {users.map((user, i) => (
             <div
               key={`user-${i}`}
-              className="absolute text-white"
+              className="absolute text-fg"
               style={{ left: user.x - 10, top: user.y - 10 }}
             >
               <UserIcon />
@@ -261,7 +261,7 @@ export default function OrchestratorFlow() {
 
           {/* Central orchestrator/queue */}
           <motion.div
-            className="absolute text-white"
+            className="absolute text-fg"
             style={{ left: centerX - 16, top: centerY - 16 }}
             animate={{ 
               scale: [1, 1.03, 1],
@@ -279,7 +279,7 @@ export default function OrchestratorFlow() {
           {workers.map((worker, i) => (
             <div
               key={`worker-${i}`}
-              className="absolute text-white"
+              className="absolute text-fg"
               style={{ left: worker.x - 12, top: worker.y - 11 }}
             >
               <PCIcon />
@@ -287,13 +287,13 @@ export default function OrchestratorFlow() {
           ))}
 
           {/* Labels */}
-          <span className="absolute pixel-sans text-white/60 text-[10px] tracking-wider" style={{ left: 8, top: 145 }}>
+          <span className="absolute pixel-sans text-fg-60 text-[10px] tracking-wider" style={{ left: 8, top: 145 }}>
             USERS
           </span>
-          <span className="absolute pixel-sans text-white/60 text-[10px] tracking-wider" style={{ left: centerX - 12, top: 145 }}>
+          <span className="absolute pixel-sans text-fg-60 text-[10px] tracking-wider" style={{ left: centerX - 12, top: 145 }}>
             QUEUE
           </span>
-          <span className="absolute pixel-sans text-white/60 text-[10px] tracking-wider" style={{ left: 280, top: 145 }}>
+          <span className="absolute pixel-sans text-fg-60 text-[10px] tracking-wider" style={{ left: 280, top: 145 }}>
             WORKERS
           </span>
         </div>

@@ -1,9 +1,58 @@
 // Shared drawing vocabulary for the scroll stage — the bento-card art style
-// (blocky white-on-dark pixel icons, halftone dot fills, 1px strokes, 2-3px
+// (blocky ink-on-ground pixel icons, halftone dot fills, 1px strokes, 2-3px
 // square packets) reproduced on canvas, plus timeline + globe helpers.
 import { land, landDense, landCoarse, sph } from './land';
 
-export const BG = '#0c0a09'; // the editorial theme's warm near-black
+// ---------- palette ----------
+// A canvas has no cascade, so `var(--fg)` means nothing to fillStyle: the four
+// colours this vocabulary paints with are read off <html> as literal values
+// instead, and re-read whenever `data-theme` flips. Reading at module scope is
+// safe and correct on the client — the attribute is stamped in <head> by the
+// no-flash script before any bundle evaluates, so the very first frame already
+// has the right ground. `BG` stays an exported binding rather than a getter so
+// the idle-card canvases that import it need no change; ES module bindings are
+// live, so reassigning it here updates them too.
+type RGB = [number, number, number];
+
+let FG: RGB = [255, 255, 255];
+let LIVE: RGB = [52, 211, 153];
+let STEEL: RGB = [128, 160, 193];
+let BG_RGB: RGB = [12, 10, 9];
+export let BG = '#0c0a09'; // the page ground, whichever theme is showing
+
+const rgba = (c: RGB, a: number) => `rgba(${c[0]},${c[1]},${c[2]},${a.toFixed(3)})`;
+
+// Custom properties come back exactly as authored (`#fff`, `rgba(…)`), so a
+// throwaway 2D context does the normalising rather than a hand-rolled parser.
+let _norm: CanvasRenderingContext2D | null = null;
+function toRGB(value: string, fallback: RGB): RGB {
+  const v = value.trim();
+  if (!v) return fallback;
+  if (!_norm) _norm = document.createElement('canvas').getContext('2d');
+  if (!_norm) return fallback;
+  _norm.fillStyle = v;
+  const s = _norm.fillStyle as string;
+  if (s[0] === '#') return [parseInt(s.slice(1, 3), 16), parseInt(s.slice(3, 5), 16), parseInt(s.slice(5, 7), 16)];
+  const m = s.match(/[\d.]+/g);
+  return m && m.length >= 3 ? [+m[0], +m[1], +m[2]] : fallback;
+}
+
+function readTheme() {
+  const cs = getComputedStyle(document.documentElement);
+  FG = toRGB(cs.getPropertyValue('--fg'), FG);
+  // --live carries its own alpha; only the hue is wanted here, since every
+  // call site supplies the alpha it needs.
+  LIVE = toRGB(cs.getPropertyValue('--live'), LIVE);
+  STEEL = toRGB(cs.getPropertyValue('--steel'), STEEL);
+  const bg = cs.getPropertyValue('--background').trim();
+  BG_RGB = toRGB(bg, BG_RGB);
+  BG = bg || BG;
+  _coinPats = new WeakMap(); // the cached halftone tiles are painted in FG
+}
+
+// The first read and the observer are armed at the very bottom of this file:
+// readTheme() drops the coin-pattern cache, which is declared further down,
+// and calling it from here would hit that binding in its dead zone.
 
 // ---------- timeline ----------
 export const clamp01 = (x: number) => Math.max(0, Math.min(1, x));
@@ -12,9 +61,9 @@ export const easeIO = (x: number) => (x < 0.5 ? 2 * x * x : 1 - Math.pow(-2 * x 
 export const easeOut = (x: number) => 1 - Math.pow(1 - x, 3);
 export const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 
-export const w = (a: number) => `rgba(255,255,255,${a.toFixed(3)})`;
-export const green = (a: number) => `rgba(52,211,153,${a.toFixed(3)})`;
-export const steel = (a: number) => `rgba(128,160,193,${a.toFixed(3)})`;
+export const w = (a: number) => rgba(FG, a);
+export const green = (a: number) => rgba(LIVE, a);
+export const steel = (a: number) => rgba(STEEL, a);
 
 let FONT = 'monospace';
 export function setLabelFont(family: string) { FONT = family || 'monospace'; }
@@ -58,7 +107,7 @@ export function cardBox(ctx: CanvasRenderingContext2D, x: number, y: number, wd:
   if (alpha <= 0.01) return;
   ctx.beginPath();
   ctx.roundRect(x, y, wd, ht, 14);
-  ctx.fillStyle = `rgba(12,10,9,${(0.85 * alpha).toFixed(3)})`;
+  ctx.fillStyle = rgba(BG_RGB, 0.85 * alpha);
   ctx.fill();
   ctx.strokeStyle = w(0.12 * alpha);
   ctx.lineWidth = 1;
@@ -91,7 +140,7 @@ export function halftone(ctx: CanvasRenderingContext2D, x: number, y: number, wd
 // band with an elliptical bottom bulge (halftone-patterned) plus a stroked
 // top ellipse; lower faces carry the fine surface pattern, the top coin is
 // dark with a $. Patterns are cached per-context tile canvases.
-const _coinPats = new WeakMap<CanvasRenderingContext2D, Map<number, { side: CanvasPattern | null; surface: CanvasPattern | null }>>();
+let _coinPats = new WeakMap<CanvasRenderingContext2D, Map<number, { side: CanvasPattern | null; surface: CanvasPattern | null }>>();
 function coinPatterns(ctx: CanvasRenderingContext2D, s: number) {
   let m = _coinPats.get(ctx);
   if (!m) { m = new Map(); _coinPats.set(ctx, m); }
@@ -103,7 +152,7 @@ function coinPatterns(ctx: CanvasRenderingContext2D, s: number) {
       c.width = size;
       c.height = size;
       const g = c.getContext('2d')!;
-      g.fillStyle = '#ffffff';
+      g.fillStyle = w(1);
       g.beginPath();
       g.arc(size / 2, size / 2, r, 0, Math.PI * 2);
       g.fill();
@@ -143,7 +192,7 @@ export function coinStack(ctx: CanvasRenderingContext2D, cx: number, yBottom: nu
     ctx.lineTo(cx - rx, y);
     ctx.ellipse(cx, y, rx, ry, 0, Math.PI, 0, true);
     ctx.lineTo(cx + rx, yT);
-    ctx.fillStyle = isTop ? 'rgba(255,255,255,0.12)' : ((pats.side as CanvasPattern) ?? w(0.3));
+    ctx.fillStyle = isTop ? w(0.12) : ((pats.side as CanvasPattern) ?? w(0.3));
     ctx.fill();
     ctx.strokeStyle = w(1);
     ctx.stroke();
@@ -341,10 +390,21 @@ export function drawArc(ctx: CanvasRenderingContext2D, pts: Float32Array, v: Glo
     const idx = Math.floor(clamp01(pulseT) * (upto - 1));
     rotv(pts, idx * 3, v.yaw, v.tilt, _t);
     if (_t[2] > 0) {
-      ctx.fillStyle = '#fff';
+      ctx.fillStyle = w(1);
       ctx.fillRect(((v.cx + _t[0] * v.R) | 0) - 1, ((v.cy - _t[1] * v.R) | 0) - 1, 3, 3);
     }
   }
 }
 
 export { sph };
+
+// Arm the palette. Last in the file so every binding readTheme() touches is
+// initialised; the module only ever evaluates in the browser after <head> has
+// stamped data-theme, so the first frame is already the right theme.
+if (typeof document !== 'undefined') {
+  readTheme();
+  new MutationObserver(readTheme).observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ['data-theme'],
+  });
+}
