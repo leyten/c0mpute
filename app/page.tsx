@@ -184,7 +184,6 @@ export default function Home() {
             <div>
               <div className="pixel-sans text-fg-40 text-xs tracking-widest mb-3">NETWORK</div>
               <div className="flex flex-col gap-2">
-                <a href="/#network" className="pixel-sans text-fg-60 hover:text-fg transition-colors text-sm">Lifecycle</a>
                 <a href={brand.urls.shard} target="_blank" rel="noopener noreferrer" className="pixel-sans text-fg-60 hover:text-fg transition-colors text-sm">Map</a>
                 <a href="https://github.com/leyten/shard" target="_blank" rel="noopener noreferrer" className="pixel-sans text-fg-60 hover:text-fg transition-colors text-sm">Engine</a>
                 <a href={brand.urls.docs} target="_blank" rel="noopener noreferrer" className="pixel-sans text-fg-60 hover:text-fg transition-colors text-sm">Protocol</a>

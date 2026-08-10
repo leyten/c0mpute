@@ -129,7 +129,13 @@ export function drawGlobeStory(ctx: CanvasRenderingContext2D, W: number, H: numb
     cardBox(ctx, bx - 18, by - 40, bw2 + 36, 104, barA);
     const hiLo = 8, hiHi = 14;
     const hiA = easeIO(seg(q2, 0.3, 0.6));
-    const fills = Array.from({ length: hiHi - hiLo }, (_, i) => seg(q3, 0.08 + i * 0.12, 0.36 + i * 0.12));
+    // One block at a time. Each window used to run 0.28 long on a 0.12 stride,
+    // so four filled at once and it read as one wash rather than a sequence —
+    // the point is that the slice arrives block by block.
+    const nSlice = hiHi - hiLo;
+    const step = 0.92 / nSlice;
+    const fills = Array.from({ length: nSlice }, (_, i) =>
+      seg(q3, 0.04 + i * step, 0.04 + i * step + step * 0.82));
     for (let i = 0; i < n; i++) {
       const inSlice = i >= hiLo && i < hiHi;
       const a = (inSlice ? 0.35 + 0.65 * hiA : 0.28) * barA;

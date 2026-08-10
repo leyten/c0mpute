@@ -46,14 +46,18 @@ export default function SiteNav() {
             {/* Center: Navigation - Hidden on mobile */}
             <div className="hidden md:flex items-center gap-8">
               <a href="/chat" className="cursor-pointer pixel-sans text-fg-70 hover:text-fg transition-colors text-sm tracking-wide">Chat</a>
-              <a href="/create" className="cursor-pointer pixel-sans text-fg-70 hover:text-fg transition-colors text-sm tracking-wide">Create</a>
               <a href="/earn" className="cursor-pointer pixel-sans text-fg-70 hover:text-fg transition-colors text-sm tracking-wide">Earn</a>
-              <a href="/#network" className="cursor-pointer pixel-sans text-fg-70 hover:text-fg transition-colors text-sm tracking-wide">Network</a>
-              {/* $ZERO dropdown: staking / treasury / data */}
+              {/* Token dropdown: staking / treasury / data */}
               <div className="relative group">
-                <span className="cursor-pointer pixel-sans text-fg-70 group-hover:text-fg transition-colors text-sm tracking-wide inline-flex items-center gap-1">
-                  <span className="dollar">$</span>ZERO
-                  <svg width="8" height="6" viewBox="0 0 8 6" fill="currentColor" className="mt-0.5"><path d="M0 0h8L4 6z" /></svg>
+                <span className="cursor-pointer pixel-sans text-fg-70 group-hover:text-fg transition-colors text-sm tracking-wide inline-flex items-center gap-1.5">
+                  Token
+                  {/* A hairline chevron rather than a filled triangle: the solid
+                      arrowhead reads as a 2000s form control next to a serif. */}
+                  <svg width="9" height="6" viewBox="0 0 9 6" fill="none" aria-hidden="true"
+                       className="mt-px transition-transform duration-200 group-hover:translate-y-px">
+                    <path d="M1 1.25 4.5 4.75 8 1.25" stroke="currentColor" strokeWidth="1.25"
+                          strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
                 </span>
                 <div className="absolute left-1/2 -translate-x-1/2 top-full pt-3 hidden group-hover:block">
                   <div className="bg-background/95 border border-fg/10 rounded-xl px-5 py-3 flex flex-col gap-3 whitespace-nowrap">
@@ -63,8 +67,6 @@ export default function SiteNav() {
                   </div>
                 </div>
               </div>
-              <a href={brand.urls.docs} target="_blank" rel="noopener noreferrer" className="cursor-pointer pixel-sans text-fg-70 hover:text-fg transition-colors text-sm tracking-wide">Docs</a>
-              <a href={brand.urls.blog} target="_blank" rel="noopener noreferrer" className="cursor-pointer pixel-sans text-fg-70 hover:text-fg transition-colors text-sm tracking-wide">Blog</a>
             </div>
             
             {/* Right: X + Login (desktop) + Hamburger (mobile) */}
@@ -176,13 +178,6 @@ export default function SiteNav() {
           {menuOpen && (
             <div className="md:hidden bg-background/95 border border-fg/10 border-t-0 rounded-b-2xl px-4 py-4 flex flex-col gap-4">
               <a
-                href="/create"
-                className="cursor-pointer pixel-sans text-fg-70 hover:text-fg transition-colors text-sm tracking-wide"
-                onClick={() => setMenuOpen(false)}
-              >
-                Create
-              </a>
-              <a
                 href="/chat"
                 className="cursor-pointer pixel-sans text-fg-70 hover:text-fg transition-colors text-sm tracking-wide"
                 onClick={() => setMenuOpen(false)}
@@ -195,13 +190,6 @@ export default function SiteNav() {
                 onClick={() => setMenuOpen(false)}
               >
                 Earn
-              </a>
-              <a
-                href="/#network"
-                className="cursor-pointer pixel-sans text-fg-70 hover:text-fg transition-colors text-sm tracking-wide"
-                onClick={() => setMenuOpen(false)}
-              >
-                Network
               </a>
               <a
                 href="/staking"
