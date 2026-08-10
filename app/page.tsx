@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import AnonGateModal from '@/components/AnonGateModal';
 import SiteNav from '@/components/SiteNav';
 import LifecycleScroll from '@/components/home/LifecycleScroll';
+import HeroBlock from '@/components/home/HeroBlock';
 import Doors from '@/components/home/Doors';
 import { LogoMark } from '@/components/Logo';
 import { useBrand } from '@/components/BrandProvider';
@@ -19,7 +20,6 @@ const REF_KEY = 'c0mpute_ref';
 
 export default function Home() {
   const router = useRouter();
-  const [prompt, setPrompt] = useState('');
   const [copied, setCopied] = useState(false);
   const [anonModalOpen, setAnonModalOpen] = useState(false);
   // How many free prompts we advertise. Server-configured (ANON_FREE_PROMPT_LIMIT);
@@ -59,8 +59,7 @@ export default function Home() {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (prompt: string) => {
     if (!prompt.trim()) return;
 
     // Store the prompt for the user page to pick up
@@ -109,51 +108,7 @@ export default function Home() {
       <SiteNav />
 
       {/* Hero + the scroll story: one continuous globe stage */}
-      <LifecycleScroll
-        hero={
-          <div className="w-full max-w-6xl mx-auto px-5 md:px-6">
-            <div className="max-w-2xl mx-auto md:mx-0 text-center md:text-left space-y-6">
-              <h1 className="pixel-serif text-fg text-3xl md:text-5xl lg:text-6xl font-bold leading-tight tracking-tight">
-                The founding layer<br />of decentralized AI
-              </h1>
-              <p className="pixel-sans text-fg-90 text-sm md:text-lg max-w-lg mx-auto md:mx-0">
-                A permissionless network of user-owned GPUs doing verifiable AI work.
-              </p>
-            {/* The same slab as the chat composer, not a bordered input with a
-                button bolted to its side: one rounded surface, the field
-                transparent inside it, the arrow living in the slab. The hero is
-                a preview of the product, so it should use the product's control. */}
-            <form onSubmit={handleSubmit} className="w-full max-w-xl mx-auto md:mx-0 pt-2">
-              <div
-                className="flex items-center gap-1.5 rounded-[26px] pl-5 pr-2.5 py-2.5"
-                style={{ background: 'var(--chat-surface)' }}
-              >
-                <input
-                  type="text"
-                  value={prompt}
-                  onChange={(e) => setPrompt(e.target.value)}
-                  placeholder="Ask anything"
-                  className="min-w-0 flex-1 bg-transparent py-1.5 text-[16px] leading-[1.6] outline-none placeholder:text-fg-30"
-                  style={{ color: 'var(--chat-text)' }}
-                />
-                <button
-                  type="submit"
-                  aria-label="Send"
-                  disabled={!prompt.trim()}
-                  className="grid h-9 w-9 shrink-0 place-items-center rounded-lg transition-all duration-150 hover:bg-[var(--chat-row-on)] active:scale-95 disabled:hover:bg-transparent"
-                  style={{ color: prompt.trim() ? 'var(--chat-text)' : 'var(--chat-faint)' }}
-                >
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                    <path d="M12 19V5M12 5l-6 6M12 5l6 6" stroke="currentColor"
-                          strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                </button>
-              </div>
-            </form>
-            </div>
-          </div>
-        }
-      />
+      <LifecycleScroll hero={<HeroBlock onSubmit={handleSubmit} />} />
 
 
 
