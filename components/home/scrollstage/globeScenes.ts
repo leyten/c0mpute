@@ -15,7 +15,11 @@ const ch = (i: number, p: number) => seg(p, (i + 1) * CH, (i + 2) * CH);
 const RING: { name: string; lon: number; lat: number }[] = [
   { name: 'brussels', lon: 4.35, lat: 50.85 },
   { name: 'amsterdam', lon: 4.9, lat: 52.37 },
-  { name: 'frankfurt', lon: 8.7, lat: 50.1 },
+  // Nudged north of the real 50.1. At the true latitude it sits 6.5 degrees of
+  // arc from prague as seen from the ring's centre, which lands it on top of
+  // the centre-to-prague path and breaks the circle. No name is drawn, so the
+  // shape wins.
+  { name: 'frankfurt', lon: 8.7, lat: 52.9 },
   { name: 'prague', lon: 14.4, lat: 50.1 },
   { name: 'paris', lon: 2.35, lat: 48.85 },
   { name: 'london', lon: -0.13, lat: 51.5 },
@@ -118,62 +122,95 @@ export function drawGlobeStory(ctx: CanvasRenderingContext2D, W: number, H: numb
     }
   }
 
-  // ---------- 03 place: the model bar assigned across the region ----------
+  // ---------- 03 place: the model as a measure, your slice marked on it ----------
+  // Rebuilt. It used to be twenty-four outlined rectangles with a progress fill
+  // — the same widget vocabulary the meters were carrying, and it read as a
+  // loading bar for a download rather than a passage marked in a work. The
+  // model is now one continuous rule with the layers ticked off along it, and
+  // the slice is a weight laid over its own span, the way a passage gets marked
+  // in a margin. Peers' spans sit on the same rule so the whole thing is
+  // visibly one object shared out, not three separate bars.
   const barA = easeIO(seg(q2, 0, 0.3)) * (1 - easeIO(seg(q4, 0.3, 0.7)));
   if (barA > 0.01) {
-    // horizontal layer bar across the bottom of the stage
-    const n = 24, bw2 = Math.min(W * 0.72, 660);
+    const n = 24, hiLo = 8, hiHi = 14;
+    const bw2 = Math.min(W * 0.72, 660);
     const bx = (desktop ? W * 0.58 : W * 0.5) - bw2 / 2;
     const by = H * 0.86;
-    const bwUnit = bw2 / n;
-    cardBox(ctx, bx - 18, by - 40, bw2 + 36, 104, barA);
-    const hiLo = 8, hiHi = 14;
+    const unit = bw2 / n;
     const hiA = easeIO(seg(q2, 0.3, 0.6));
-    // One block at a time. Each window used to run 0.28 long on a 0.12 stride,
-    // so four filled at once and it read as one wash rather than a sequence —
-    // the point is that the slice arrives block by block.
+    cardBox(ctx, bx - 26, by - 52, bw2 + 52, 116, barA);
+
+    const yRule = Math.round(by + 6) + 0.5;
+    ctx.lineCap = 'butt';
+
+    // the model: one hairline rule, ticked once per layer
+    ctx.strokeStyle = w(0.20 * barA);
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(bx, yRule); ctx.lineTo(bx + bw2, yRule); ctx.stroke();
+    for (let i = 0; i <= n; i++) {
+      const x = Math.round(bx + i * unit) + 0.5;
+      const major = i % 6 === 0;
+      ctx.strokeStyle = w((major ? 0.24 : 0.12) * barA);
+      ctx.beginPath();
+      ctx.moveTo(x, yRule);
+      ctx.lineTo(x, yRule + (major ? 7 : 4));
+      ctx.stroke();
+    }
+
+    // ringmates hold their own spans of the same rule
+    ([[14, 20], [2, 8]] as [number, number][]).forEach(([lo, hi]) => {
+      ctx.strokeStyle = w(0.22 * barA * hiA);
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(bx + lo * unit, yRule);
+      ctx.lineTo(bx + hi * unit, yRule);
+      ctx.stroke();
+    });
+
+    // your slice: laid down one layer at a time, left to right
     const nSlice = hiHi - hiLo;
     const step = 0.92 / nSlice;
-    const fills = Array.from({ length: nSlice }, (_, i) =>
-      seg(q3, 0.04 + i * step, 0.04 + i * step + step * 0.82));
-    for (let i = 0; i < n; i++) {
-      const inSlice = i >= hiLo && i < hiHi;
-      const a = (inSlice ? 0.35 + 0.65 * hiA : 0.28) * barA;
-      ctx.strokeStyle = w(a);
-      ctx.lineWidth = 1;
-      ctx.strokeRect(Math.round(bx + i * bwUnit) + 0.5, Math.round(by) + 0.5, Math.round(bwUnit - 2), 19);
-      const f = inSlice && q3 > 0 ? clamp01(fills[i - hiLo]) : 0;
-      if (f > 0) {
-        ctx.fillStyle = w(a * 0.9);
-        ctx.fillRect(bx + i * bwUnit + 1.5, by + 1.5, (bwUnit - 5) * f, 16);
-      }
+    let laid = 0;
+    for (let i = 0; i < nSlice; i++) {
+      laid += clamp01(seg(q3, 0.04 + i * step, 0.04 + i * step + step * 0.82));
     }
-    label(ctx, 'the model', bx + bw2 / 2, by + 40, barA, 12);
-    // your-slice bracket + line up to the home node
-    if (hiA > 0.05 && home) {
-      const x0 = bx + hiLo * bwUnit, x1 = bx + hiHi * bwUnit - 2;
-      label(ctx, 'your slice', (x0 + x1) / 2, by - 20, barA * hiA, 12);
-      ctx.strokeStyle = w(0.25 * barA * hiA * (1 - seg(q3, 0, 0.25)));
-      ctx.setLineDash([3, 4]);
+    const run = (laid / nSlice) * (hiHi - hiLo) * unit;
+    ctx.strokeStyle = w(0.9 * barA * hiA);
+    ctx.lineWidth = 4;
+    if (run > 0.5) {
       ctx.beginPath();
-      ctx.moveTo((x0 + x1) / 2, by - 28);
-      ctx.lineTo(home.x, home.y + 8);
+      ctx.moveTo(bx + hiLo * unit, yRule);
+      ctx.lineTo(bx + hiLo * unit + run, yRule);
       ctx.stroke();
-      ctx.setLineDash([]);
-      // neighbouring slices assigned to ringmates
-      [[2, 14, 20], [4, 2, 8]].forEach(([ci, lo, hi]) => {
-        const c = scr[ci];
-        if (!c) return;
-        ctx.strokeStyle = w(0.12 * barA * hiA);
+    }
+    ctx.lineWidth = 1;
+
+    // a bracket under the span, and the two labels
+    const x0 = bx + hiLo * unit, x1 = bx + hiHi * unit;
+    const yB = yRule + 15.5;
+    ctx.strokeStyle = w(0.5 * barA * hiA);
+    ctx.beginPath();
+    ctx.moveTo(x0, yB - 4); ctx.lineTo(x0, yB);
+    ctx.lineTo(x1, yB); ctx.lineTo(x1, yB - 4);
+    ctx.stroke();
+    label(ctx, 'your slice', (x0 + x1) / 2, yB + 14, barA * hiA, 11);
+    label(ctx, 'the model', bx + bw2 / 2, yRule - 22, barA, 11);
+
+    // one quiet leader up to the home node, and only while the slice settles
+    if (hiA > 0.05 && home) {
+      const fade = barA * hiA * (1 - seg(q3, 0, 0.25));
+      if (fade > 0.02) {
+        ctx.strokeStyle = w(0.22 * fade);
         ctx.setLineDash([2, 5]);
         ctx.beginPath();
-        ctx.moveTo(bx + ((lo + hi) / 2) * bwUnit, by - 4);
-        ctx.lineTo(c.x, c.y + 6);
+        ctx.moveTo((x0 + x1) / 2, yRule - 30);
+        ctx.lineTo(home.x, home.y + 8);
         ctx.stroke();
         ctx.setLineDash([]);
-      });
+      }
     }
   }
+
 
   // ---------- 04 pull: peers seed the slice over arcs ----------
   if (q3 > 0 && q3 < 1 && seedArcs) {
@@ -248,9 +285,9 @@ export function drawGlobeStory(ctx: CanvasRenderingContext2D, W: number, H: numb
           const pr = project(sph(lon, lat) as V3, gv);
           if (pr) {
             ctx.fillStyle = green(0.2 * reveal);
-            ctx.fillRect((pr.x | 0) - 4, (pr.y | 0) - 4, 8, 8);
+            ctx.beginPath(); ctx.arc(pr.x, pr.y, 4, 0, Math.PI * 2); ctx.fill();
             ctx.fillStyle = green(Math.min(1, pr.z + 0.2) * reveal);
-            ctx.fillRect((pr.x | 0) - 2, (pr.y | 0) - 2, 4, 4);
+            ctx.beginPath(); ctx.arc(pr.x, pr.y, 2, 0, Math.PI * 2); ctx.fill();
           }
         });
       }
@@ -267,17 +304,17 @@ export function drawGlobeStory(ctx: CanvasRenderingContext2D, W: number, H: numb
     const a = (isHome ? 1 : p < 2 * CH ? 0.35 : 0.35 + 0.65 * easeIO(seg(ch(2, p), 0.3, 0.8))) * cityBase * Math.min(1, c.z + 0.25);
     if (serving) {
       ctx.fillStyle = green(0.2 * a);
-      ctx.fillRect((c.x | 0) - 4, (c.y | 0) - 4, 8, 8);
+      ctx.beginPath(); ctx.arc(c.x, c.y, 4, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = green(a);
-      ctx.fillRect((c.x | 0) - 2, (c.y | 0) - 2, 4, 4);
+      ctx.beginPath(); ctx.arc(c.x, c.y, 2, 0, Math.PI * 2); ctx.fill();
     } else {
       ctx.fillStyle = w(a);
-      ctx.fillRect((c.x | 0) - 2, (c.y | 0) - 2, 4, 4);
+      ctx.beginPath(); ctx.arc(c.x, c.y, 2, 0, Math.PI * 2); ctx.fill();
     }
     if (isHome && p < 6 * CH) {
       ctx.strokeStyle = w(0.5 * cityBase);
       ctx.lineWidth = 1;
-      ctx.strokeRect((c.x | 0) - 6.5, (c.y | 0) - 6.5, 13, 13);
+      ctx.beginPath(); ctx.arc(c.x, c.y, 7, 0, Math.PI * 2); ctx.stroke();
     }
   });
 }

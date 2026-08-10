@@ -119,27 +119,37 @@ export default function Home() {
               <p className="pixel-sans text-fg-90 text-sm md:text-lg max-w-lg mx-auto md:mx-0">
                 A permissionless network of user-owned GPUs doing verifiable AI work.
               </p>
-              <form onSubmit={handleSubmit} className="w-full max-w-xl mx-auto md:mx-0 pt-2">
-                <div className="flex gap-2 md:gap-3 items-stretch">
-                  <input
-                    type="text"
-                    value={prompt}
-                    onChange={(e) => setPrompt(e.target.value)}
-                    placeholder="Ask the impossible..."
-                    className="flex-1 pixel-sans bg-background border border-field rounded-xl text-fg placeholder:text-fg-50 px-3 md:px-4 py-3 focus:outline-none focus:border-field-focus transition-colors text-sm md:text-lg"
-                  />
-                  <button
-                    type="submit"
-                    className="cursor-pointer bg-background text-fg border border-field rounded-xl px-3 md:px-4 py-3 flex items-center justify-center"
-                    aria-label="Send"
-                  >
-                    {/* The asset is a white glyph, so on paper it is invisible.
-                        Inverting is the whole fix: it is flat white on
-                        transparent, and invert(1) makes it flat ink. */}
-                    <img src="/PixelSendIcon.png" alt="Send" width={20} height={20} className="light:invert" />
-                  </button>
-                </div>
-              </form>
+            {/* The same slab as the chat composer, not a bordered input with a
+                button bolted to its side: one rounded surface, the field
+                transparent inside it, the arrow living in the slab. The hero is
+                a preview of the product, so it should use the product's control. */}
+            <form onSubmit={handleSubmit} className="w-full max-w-xl mx-auto md:mx-0 pt-2">
+              <div
+                className="flex items-center gap-1.5 rounded-[26px] pl-5 pr-2.5 py-2.5"
+                style={{ background: 'var(--chat-surface)' }}
+              >
+                <input
+                  type="text"
+                  value={prompt}
+                  onChange={(e) => setPrompt(e.target.value)}
+                  placeholder="Ask anything"
+                  className="min-w-0 flex-1 bg-transparent py-1.5 text-[16px] leading-[1.6] outline-none placeholder:text-fg-30"
+                  style={{ color: 'var(--chat-text)' }}
+                />
+                <button
+                  type="submit"
+                  aria-label="Send"
+                  disabled={!prompt.trim()}
+                  className="grid h-9 w-9 shrink-0 place-items-center rounded-lg transition-all duration-150 hover:bg-[var(--chat-row-on)] active:scale-95 disabled:hover:bg-transparent"
+                  style={{ color: prompt.trim() ? 'var(--chat-text)' : 'var(--chat-faint)' }}
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path d="M12 19V5M12 5l-6 6M12 5l6 6" stroke="currentColor"
+                          strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </button>
+              </div>
+            </form>
             </div>
           </div>
         }
