@@ -37,7 +37,7 @@ export default function GlobeMini() {
       const gv: GlobeView = {
         cx: W / 2, cy: H / 2, R: Math.min(W, H) * 0.42,
         yaw: -0.3 + (still ? 0 : t * 0.00004), tilt: 0.35, alpha: 1,
-        coarse: true, bodyAlpha: 0.05,
+        bodyAlpha: 0.05,
       };
       drawGlobe(ctx, gv);
       arcs.forEach((a, ai) => drawArc(ctx, a, gv, green(0.7), 1, still ? -1 : (t * 0.00022 + ai * 0.37) % 1));
