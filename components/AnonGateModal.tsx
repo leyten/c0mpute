@@ -45,19 +45,19 @@ export default function AnonGateModal({ mode, freePromptLimit, onClose, onSignIn
     : c.body;
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-      <div className="w-full max-w-sm rounded-2xl border border-white/10 bg-[#141210] p-7 shadow-2xl">
-        <div className="pixel-serif text-white text-2xl mb-3">{title}</div>
-        <p className="pixel-sans text-white/70 text-sm leading-relaxed mb-6">{body}</p>
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-scrim-strong backdrop-blur-sm p-4">
+      <div className="w-full max-w-sm rounded-2xl border border-fg/10 bg-raise p-7 shadow-2xl">
+        <div className="pixel-serif text-fg text-2xl mb-3">{title}</div>
+        <p className="pixel-sans text-fg-70 text-sm leading-relaxed mb-6">{body}</p>
         <button
           onClick={onSignIn}
-          className="w-full pixel-serif py-3 rounded-xl bg-white text-black hover:bg-white/90 transition-colors cursor-pointer mb-2"
+          className="w-full pixel-serif py-3 rounded-xl bg-fg text-on-fg hover:bg-fg/90 transition-colors cursor-pointer mb-2"
         >
           {c.primary}
         </button>
         <button
           onClick={onClose}
-          className="w-full pixel-sans py-2 text-white/40 hover:text-white/70 text-sm transition-colors cursor-pointer"
+          className="w-full pixel-sans py-2 text-fg-40 hover:text-fg-70 text-sm transition-colors cursor-pointer"
         >
           {c.secondary}
         </button>
