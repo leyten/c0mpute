@@ -58,12 +58,12 @@ export default function SiteNav() {
                   <div className="bg-black/95 border border-white/10 rounded-xl px-5 py-3 flex flex-col gap-3 whitespace-nowrap">
                     <a href="/staking" className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide">Staking</a>
                     <a href="/treasury" className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide">Treasury</a>
-                    <a href="https://data.c0mpute.ai" target="_blank" rel="noopener noreferrer" className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide">Data</a>
+                    <a href={brand.urls.data} target="_blank" rel="noopener noreferrer" className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide">Data</a>
                   </div>
                 </div>
               </div>
-              <a href="https://docs.c0mpute.ai" target="_blank" rel="noopener noreferrer" className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide">Docs</a>
-              <a href="https://blog.c0mpute.ai" target="_blank" rel="noopener noreferrer" className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide">Blog</a>
+              <a href={brand.urls.docs} target="_blank" rel="noopener noreferrer" className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide">Docs</a>
+              <a href={brand.urls.blog} target="_blank" rel="noopener noreferrer" className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide">Blog</a>
             </div>
             
             {/* Right: X + Login (desktop) + Hamburger (mobile) */}
@@ -214,7 +214,7 @@ export default function SiteNav() {
                 Treasury
               </a>
               <a
-                href="https://data.c0mpute.ai"
+                href={brand.urls.data}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide"
@@ -223,7 +223,7 @@ export default function SiteNav() {
                 Data
               </a>
               <a
-                href="https://docs.c0mpute.ai"
+                href={brand.urls.docs}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide"
@@ -232,7 +232,7 @@ export default function SiteNav() {
                 Docs
               </a>
               <a
-                href="https://blog.c0mpute.ai"
+                href={brand.urls.blog}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide"

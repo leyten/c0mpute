@@ -10,10 +10,12 @@ import { STEPS } from './steps';
 import { setLabelFont, clamp01 } from './scrollstage/art';
 import { drawGlobeStory } from './scrollstage/globeScenes';
 import LifecycleList from './LifecycleList';
+import { useBrand } from '@/components/BrandProvider';
 
 const CHAPTERS = 10; // hero prologue + 8 lifecycle steps + the finale
 
 export default function LifecycleScroll({ hero }: { hero: React.ReactNode }) {
+  const brand = useBrand();
   const wrapRef = useRef<HTMLElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const heroRef = useRef<HTMLDivElement>(null);
@@ -152,7 +154,7 @@ export default function LifecycleScroll({ hero }: { hero: React.ReactNode }) {
               Too big for one machine, so it runs on all of them.
             </p>
             <div className="mt-4 md:mt-6 flex flex-col gap-2">
-              <a href="https://shard.c0mpute.ai" target="_blank" rel="noopener noreferrer"
+              <a href={brand.urls.shard} target="_blank" rel="noopener noreferrer"
                 className="cursor-pointer pixel-sans text-[#80a0c1]/50 hover:text-[#80a0c1] text-sm transition-colors">
                 Network map (testbed preview) →
               </a>
