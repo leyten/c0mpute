@@ -9,8 +9,8 @@ export default function RefRedirect({ target }: { target: string }) {
     window.location.replace(target);
   }, [target]);
   return (
-    <div className="min-h-screen bg-black flex items-center justify-center">
-      <a href={target} className="pixel-sans text-white/70">{`entering ${brand.name}...`}</a>
+    <div className="min-h-screen bg-background flex items-center justify-center">
+      <a href={target} className="pixel-sans text-fg-70">{`entering ${brand.name}...`}</a>
     </div>
   );
 }
