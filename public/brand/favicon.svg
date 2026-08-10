@@ -1,9 +1,26 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="14 11 76 76" role="img" aria-label="Compute Network">
   <title>Compute Network</title>
-  <!-- Same geometry as compute-mark.svg, cropped tight to the artwork so it
-       fills a favicon box. Tested at 16px: filling the frame is what keeps the
-       counter open — adding stroke weight closes it and the mark blobs. -->
-  <g fill="currentColor">
+  <!--
+    Theme-aware favicon. A favicon cannot inherit the page's colour, so the
+    adaptation lives inside the file: the mark is dark by default and flips to
+    light when the browser reports a dark colour scheme.
+
+    The mapping is deliberately the inverse of the page theme, because the tab
+    strip is the opposite of the page: light mode gives a light chrome, so the
+    mark must be dark to be visible there, and vice versa. Background stays
+    transparent in both.
+
+    Geometry is identical to compute-mark.svg — viewBox cropped tight so the
+    artwork fills the box. At 16px, padding is what kills legibility, not
+    stroke weight.
+  -->
+  <style>
+    .mark { fill: #0B0B0C; }
+    @media (prefers-color-scheme: dark) {
+      .mark { fill: #FAFAF8; }
+    }
+  </style>
+  <g class="mark">
     <path d="M29.93 74.20 L56.62 23.47 L51.38 20.53 L22.07 69.80 Z"/>
     <path d="M51.45 23.58 L76.81 65.97 L83.19 62.03 L56.55 20.42 Z"/>
     <path d="M79.45 60.29 L25.34 67.55 L26.66 76.45 L80.55 67.71 Z"/>

@@ -1,7 +1,7 @@
 import LegalPage from '@/components/legal/LegalPage';
 
 export const metadata = {
-  title: 'Privacy Policy — Compute Network',
+  title: 'Privacy Policy',
   description: 'What Compute Network Inc. collects, what it does not, and why.',
 };
 

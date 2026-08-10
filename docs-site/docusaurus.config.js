@@ -9,7 +9,7 @@ const wordmark = process.env.DOCS_WORDMARK || 'C0MPUTE';
 
 /** @type {import('@docusaurus/types').Config} */
 const config = {
-  title: `${brand} — docs`,
+  title: 'Documentation',
   tagline: 'AI powered by people, not data centers.',
   favicon: 'img/favicon.ico',
   url: process.env.DOCS_URL || 'https://docs.c0mpute.ai',
