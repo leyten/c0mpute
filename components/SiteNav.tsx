@@ -5,8 +5,11 @@
 // right — which is why the app read as a set of unrelated screens.
 import { useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
+import { LogoMark } from '@/components/Logo';
+import { useBrand } from '@/components/BrandProvider';
 
 export default function SiteNav() {
+  const brand = useBrand();
   const { isLoading, isAuthenticated, login, logout, xUsername, walletAddress } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
@@ -25,8 +28,17 @@ export default function SiteNav() {
           <nav className="bg-black/80 backdrop-blur-sm border border-white/10 rounded-2xl px-4 md:px-6 py-3 flex items-center justify-between">
             {/* Left: Logo */}
             <div className="flex-1">
-              <a href="/" className="cursor-pointer pixel-serif-logo text-white text-lg md:text-xl font-bold flex items-center">
-                c<span className="pixel-serif-logo" style={{ fontSize: '1.8em', display: 'inline-block', verticalAlign: 'baseline', lineHeight: '1', marginTop: '-0.3em' }}>0</span>mpute
+              <a href="/" className="cursor-pointer pixel-serif-logo text-white text-lg md:text-xl font-bold flex items-center gap-2 md:gap-2.5">
+                {brand.mark ? (
+                  <>
+                    <LogoMark className="w-6 h-6 md:w-7 md:h-7 shrink-0" />
+                    <span>Compute<span className="hidden sm:inline"> Network</span></span>
+                  </>
+                ) : (
+                  <span>
+                    c<span className="pixel-serif-logo" style={{ fontSize: '1.8em', display: 'inline-block', verticalAlign: 'baseline', lineHeight: '1', marginTop: '-0.3em' }}>0</span>mpute
+                  </span>
+                )}
               </a>
             </div>
             

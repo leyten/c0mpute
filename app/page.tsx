@@ -6,6 +6,8 @@ import AnonGateModal from '@/components/AnonGateModal';
 import SiteNav from '@/components/SiteNav';
 import LifecycleScroll from '@/components/home/LifecycleScroll';
 import Doors from '@/components/home/Doors';
+import { LogoMark } from '@/components/Logo';
+import { useBrand } from '@/components/BrandProvider';
 import { useAuth } from '@/hooks/useAuth';
 
 // Key for passing prompt to user page
@@ -35,6 +37,7 @@ export default function Home() {
     }
   }, []);
 
+  const brand = useBrand();
   const { isLoading, isAuthenticated, login } = useAuth();
   
   // Post-login routing moved to /login (?next=). If an authenticated user
@@ -150,8 +153,17 @@ export default function Home() {
         <div className="max-w-6xl mx-auto px-4 md:px-6 py-10 md:py-14">
           <div className="grid grid-cols-2 md:grid-cols-5 gap-8">
             <div>
-              <a href="/" className="pixel-serif-logo text-white text-lg">
-                c<span className="pixel-serif-logo" style={{ fontSize: '1.8em', display: 'inline-block', verticalAlign: 'baseline', lineHeight: '1', marginTop: '-0.3em' }}>0</span>mpute
+              <a href="/" className="pixel-serif-logo text-white text-lg flex items-center gap-2">
+                {brand.mark ? (
+                  <>
+                    <LogoMark className="w-6 h-6 shrink-0" />
+                    <span>Compute Network</span>
+                  </>
+                ) : (
+                  <span>
+                    c<span className="pixel-serif-logo" style={{ fontSize: '1.8em', display: 'inline-block', verticalAlign: 'baseline', lineHeight: '1', marginTop: '-0.3em' }}>0</span>mpute
+                  </span>
+                )}
               </a>
               <p className="pixel-sans text-white/40 text-xs mt-3 max-w-[220px]">
                 AI infrastructure should be open, verifiable, and owned by the people who run it.
@@ -193,6 +205,21 @@ export default function Home() {
               </div>
             </div>
           </div>
+
+          {/* Operating entity + legal links. Reviewers look for the corporation by
+              name, so this is not decorative. New brand only until cutover. */}
+          {brand.legalFooter && (
+            <div className="mt-10 pt-6 border-t border-white/10 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+              <div className="pixel-sans text-white/40 text-xs">
+                &copy; {new Date().getFullYear()} Compute Network Inc.
+              </div>
+              <div className="flex items-center gap-5">
+                <a href="/terms" className="pixel-sans text-white/40 hover:text-white transition-colors text-xs">Terms</a>
+                <a href="/privacy" className="pixel-sans text-white/40 hover:text-white transition-colors text-xs">Privacy</a>
+                <a href="/acceptable-use" className="pixel-sans text-white/40 hover:text-white transition-colors text-xs">Acceptable Use</a>
+              </div>
+            </div>
+          )}
         </div>
       </footer>
     </div>

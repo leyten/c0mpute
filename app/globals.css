@@ -623,3 +623,18 @@ input[type='number'] {
   font-size: 11px;
   color: rgba(255, 255, 255, 0.45);
 }
+
+/* Legal pages (/terms, /privacy, /acceptable-use). Plain, readable, no ornament —
+   these are read by counsel and reviewers rather than browsed. */
+.legal-body h2 {
+  color: #fff;
+  font-size: 1.05rem;
+  margin: 2.25rem 0 0.75rem;
+  letter-spacing: 0.01em;
+}
+.legal-body p { margin: 0 0 1rem; }
+.legal-body ul { margin: 0 0 1rem; padding-left: 1.15rem; list-style: disc; }
+.legal-body li { margin: 0 0 0.5rem; }
+.legal-body strong { color: rgba(255, 255, 255, 0.92); font-weight: 500; }
+.legal-body a { color: #fff; text-decoration: underline; text-underline-offset: 2px; }
+.legal-body a:hover { opacity: 0.75; }
