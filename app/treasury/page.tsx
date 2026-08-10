@@ -142,30 +142,6 @@ function ChartCard({ title, last, sub, points, color, fmt, prefix, suffix }: {
   );
 }
 
-// The mechanic, stated rather than drawn. Boxes with arrows between them add
-// nothing a sentence does not already carry.
-function Flywheel() {
-  return (
-    <div className="mb-10">
-      <div className={`${secLabel} mb-3`}>How value flows</div>
-      <p className="pixel-serif text-fg text-xl md:text-2xl leading-snug max-w-[46rem]">
-        The compute margin and a share of <span className="dollar">$</span>ZERO trading fees
-        accumulate here in <span className="dollar">$</span>USDC, then split in half.
-      </p>
-      <div className="mt-6 grid gap-px sm:grid-cols-2 max-w-[46rem]">
-        <div className="pt-4 border-t border-fg/10 sm:pr-8">
-          <div className="pixel-sans text-fg text-sm">Half buys <span className="dollar">$</span>ZERO and burns it</div>
-          <div className="pixel-sans text-fg-45 text-[12.5px] mt-1">Supply shrinks permanently, on-chain.</div>
-        </div>
-        <div className="pt-4 border-t border-fg/10 sm:pl-8">
-          <div className="pixel-sans text-fg text-sm">Half is paid to stakers</div>
-          <div className="pixel-sans text-fg-45 text-[12.5px] mt-1">In <span className="dollar">$</span>USDC, claimable from the staking page.</div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export default function TreasuryPage() {
   const [data, setData] = useState<Treasury | null>(null);
   const [hist, setHist] = useState<History | null>(null);
@@ -200,13 +176,10 @@ export default function TreasuryPage() {
           <div className="mb-8">
             <h1 className="pixel-serif text-fg text-4xl md:text-5xl mb-3">Treasury</h1>
             <p className="pixel-sans text-fg-70 text-sm max-w-2xl">
-              100% of the compute margin and a share of <span className="dollar">$</span>ZERO trading fees flow into this treasury.
+              The compute margin and a share of <span className="dollar">$</span>ZERO trading fees accumulate here.
               Half buys back and burns <span className="dollar">$</span>ZERO; half is paid to stakers in <span className="dollar">$</span>USDC.
-              Everything below updates live.
             </p>
           </div>
-
-          <Flywheel />
 
           {data && !data.launched && (
             <div className="border border-steel/30 bg-steel/10 rounded-2xl p-6 mb-8">
