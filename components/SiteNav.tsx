@@ -65,9 +65,13 @@ export default function SiteNav() {
                 {/* Opens on hover with the pointer bridged across the gap by the
                     padding, so the panel does not vanish on the way to it. Rows
                     light on hover rather than only their text, which is what
-                    makes it read as a menu instead of three stacked links. */}
+                    makes it read as a menu instead of three stacked links.
+
+                    Opaque, unlike every other plate on the page: this one hangs
+                    over the header's own border and the hero behind it, and a 2%
+                    wash let both read straight through the menu. */}
                 <div className="absolute left-1/2 -translate-x-1/2 top-full pt-3 hidden group-hover:block">
-                  <div className="min-w-[168px] rounded-2xl border border-fg/10 bg-fg/[0.02] backdrop-blur-md p-1.5 flex flex-col">
+                  <div className="min-w-[168px] rounded-2xl border border-fg/10 bg-background p-1.5 flex flex-col shadow-lg shadow-black/5">
                     {[
                       { href: '/staking', label: 'Staking', note: 'Stake and earn' },
                       { href: '/treasury', label: 'Treasury', note: 'Buybacks and burns' },
