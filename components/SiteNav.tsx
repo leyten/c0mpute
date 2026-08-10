@@ -7,6 +7,7 @@ import { useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { LogoMark } from '@/components/Logo';
 import { useBrand } from '@/components/BrandProvider';
+import ThemeToggle from '@/components/ThemeToggle';
 
 export default function SiteNav() {
   const brand = useBrand();
@@ -25,10 +26,10 @@ export default function SiteNav() {
   return (
       <header className="pointer-events-none fixed top-0 left-0 right-0 z-50 py-4 [&_a]:pointer-events-auto [&_button]:pointer-events-auto [&_nav]:pointer-events-auto">
         <div className="max-w-6xl mx-auto px-4 md:px-6">
-          <nav className="bg-black/80 backdrop-blur-sm border border-white/10 rounded-2xl px-4 md:px-6 py-3 flex items-center justify-between">
+          <nav className="bg-background/80 backdrop-blur-sm border border-fg/10 rounded-2xl px-4 md:px-6 py-3 flex items-center justify-between">
             {/* Left: Logo */}
             <div className="flex-1">
-              <a href="/" className="cursor-pointer pixel-serif-logo text-white text-lg md:text-xl font-bold flex items-center gap-2 md:gap-2.5">
+              <a href="/" className="cursor-pointer pixel-serif-logo text-fg text-lg md:text-xl font-bold flex items-center gap-2 md:gap-2.5">
                 {brand.mark ? (
                   <>
                     <LogoMark className="w-6 h-6 md:w-7 md:h-7 shrink-0" />
@@ -44,26 +45,26 @@ export default function SiteNav() {
             
             {/* Center: Navigation - Hidden on mobile */}
             <div className="hidden md:flex items-center gap-8">
-              <a href="/chat" className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide">Chat</a>
-              <a href="/create" className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide">Create</a>
-              <a href="/earn" className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide">Earn</a>
-              <a href="/#network" className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide">Network</a>
+              <a href="/chat" className="cursor-pointer pixel-sans text-fg-70 hover:text-fg transition-colors text-sm tracking-wide">Chat</a>
+              <a href="/create" className="cursor-pointer pixel-sans text-fg-70 hover:text-fg transition-colors text-sm tracking-wide">Create</a>
+              <a href="/earn" className="cursor-pointer pixel-sans text-fg-70 hover:text-fg transition-colors text-sm tracking-wide">Earn</a>
+              <a href="/#network" className="cursor-pointer pixel-sans text-fg-70 hover:text-fg transition-colors text-sm tracking-wide">Network</a>
               {/* $ZERO dropdown: staking / treasury / data */}
               <div className="relative group">
-                <span className="cursor-pointer pixel-sans text-white/70 group-hover:text-white transition-colors text-sm tracking-wide inline-flex items-center gap-1">
+                <span className="cursor-pointer pixel-sans text-fg-70 group-hover:text-fg transition-colors text-sm tracking-wide inline-flex items-center gap-1">
                   <span className="dollar">$</span>ZERO
                   <svg width="8" height="6" viewBox="0 0 8 6" fill="currentColor" className="mt-0.5"><path d="M0 0h8L4 6z" /></svg>
                 </span>
                 <div className="absolute left-1/2 -translate-x-1/2 top-full pt-3 hidden group-hover:block">
-                  <div className="bg-black/95 border border-white/10 rounded-xl px-5 py-3 flex flex-col gap-3 whitespace-nowrap">
-                    <a href="/staking" className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide">Staking</a>
-                    <a href="/treasury" className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide">Treasury</a>
-                    <a href={brand.urls.data} target="_blank" rel="noopener noreferrer" className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide">Data</a>
+                  <div className="bg-background/95 border border-fg/10 rounded-xl px-5 py-3 flex flex-col gap-3 whitespace-nowrap">
+                    <a href="/staking" className="cursor-pointer pixel-sans text-fg-70 hover:text-fg transition-colors text-sm tracking-wide">Staking</a>
+                    <a href="/treasury" className="cursor-pointer pixel-sans text-fg-70 hover:text-fg transition-colors text-sm tracking-wide">Treasury</a>
+                    <a href={brand.urls.data} target="_blank" rel="noopener noreferrer" className="cursor-pointer pixel-sans text-fg-70 hover:text-fg transition-colors text-sm tracking-wide">Data</a>
                   </div>
                 </div>
               </div>
-              <a href={brand.urls.docs} target="_blank" rel="noopener noreferrer" className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide">Docs</a>
-              <a href={brand.urls.blog} target="_blank" rel="noopener noreferrer" className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide">Blog</a>
+              <a href={brand.urls.docs} target="_blank" rel="noopener noreferrer" className="cursor-pointer pixel-sans text-fg-70 hover:text-fg transition-colors text-sm tracking-wide">Docs</a>
+              <a href={brand.urls.blog} target="_blank" rel="noopener noreferrer" className="cursor-pointer pixel-sans text-fg-70 hover:text-fg transition-colors text-sm tracking-wide">Blog</a>
             </div>
             
             {/* Right: X + Login (desktop) + Hamburger (mobile) */}
@@ -73,7 +74,7 @@ export default function SiteNav() {
                 href="https://github.com/leyten/c0mpute"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="cursor-pointer text-white/70 hover:text-white transition-colors p-2"
+                className="cursor-pointer text-fg-70 hover:text-fg transition-colors p-2"
                 aria-label="View source on GitHub"
               >
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
@@ -86,7 +87,7 @@ export default function SiteNav() {
                 href="https://x.com/c0mputeAI"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="cursor-pointer text-white/70 hover:text-white transition-colors p-2"
+                className="cursor-pointer text-fg-70 hover:text-fg transition-colors p-2"
                 aria-label="Follow us on X"
               >
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
@@ -99,7 +100,7 @@ export default function SiteNav() {
                 href="https://t.me/c0mputeAI"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="cursor-pointer text-white/70 hover:text-white transition-colors p-2"
+                className="cursor-pointer text-fg-70 hover:text-fg transition-colors p-2"
                 aria-label="Join us on Telegram"
               >
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
@@ -107,15 +108,18 @@ export default function SiteNav() {
                 </svg>
               </a>
 
+              {/* Compute Network only — renders null on c0mpute.ai. */}
+              <ThemeToggle className="cursor-pointer text-fg-70 hover:text-fg transition-colors p-2" />
+
               {isLoading ? (
-                <div className="pixel-serif-logo text-sm px-3 md:px-4 py-2 border border-white/20 rounded-lg text-white/50">
+                <div className="pixel-serif-logo text-sm px-3 md:px-4 py-2 border border-fg/20 rounded-lg text-fg-50">
                   ...
                 </div>
               ) : isAuthenticated ? (
                 <div className="relative">
                   <button 
                     onClick={() => setUserMenuOpen(!userMenuOpen)}
-                    className="cursor-pointer pixel-serif-logo text-sm px-3 md:px-4 py-2 border border-white/20 rounded-lg text-white hover:bg-white/5 transition-colors flex items-center gap-2">
+                    className="cursor-pointer pixel-serif-logo text-sm px-3 md:px-4 py-2 border border-fg/20 rounded-lg text-fg hover:bg-fg/5 transition-colors flex items-center gap-2">
                     {userDisplay}
                     <svg 
                       width="10" 
@@ -130,17 +134,17 @@ export default function SiteNav() {
                   
                   {/* User Dropdown Menu */}
                   {userMenuOpen && (
-                    <div className="absolute right-0 top-full mt-1 bg-black border border-white/20 rounded-lg min-w-[150px] z-50">
+                    <div className="absolute right-0 top-full mt-1 bg-background border border-fg/20 rounded-lg min-w-[150px] z-50">
                       <a
                         href="/settings"
                         onClick={() => setUserMenuOpen(false)}
-                        className="cursor-pointer pixel-sans text-sm w-full px-4 py-3 text-left text-white/70 hover:text-white hover:bg-white/5 transition-colors block"
+                        className="cursor-pointer pixel-sans text-sm w-full px-4 py-3 text-left text-fg-70 hover:text-fg hover:bg-fg/5 transition-colors block"
                       >
                         Settings
                       </a>
                       <button
                         onClick={() => { logout(); setUserMenuOpen(false); }}
-                        className="cursor-pointer pixel-sans text-sm w-full px-4 py-3 text-left text-white/70 hover:text-white hover:bg-white/5 transition-colors border-t border-white/10"
+                        className="cursor-pointer pixel-sans text-sm w-full px-4 py-3 text-left text-fg-70 hover:text-fg hover:bg-fg/5 transition-colors border-t border-fg/10"
                       >
                         Logout
                       </button>
@@ -150,7 +154,7 @@ export default function SiteNav() {
               ) : (
                 <button
                   onClick={() => login()}
-                  className="pixel-serif-logo text-sm px-3 md:px-4 py-2 border border-white/20 rounded-lg text-white hover:bg-white/5 transition-colors">
+                  className="pixel-serif-logo text-sm px-3 md:px-4 py-2 border border-fg/20 rounded-lg text-fg hover:bg-fg/5 transition-colors">
                   Login
                 </button>
               )}
@@ -161,54 +165,54 @@ export default function SiteNav() {
                 onClick={() => setMenuOpen(!menuOpen)}
                 aria-label="Toggle menu"
               >
-                <span className={`block w-5 h-0.5 bg-white transition-transform ${menuOpen ? 'rotate-45 translate-y-2' : ''}`} />
-                <span className={`block w-5 h-0.5 bg-white transition-opacity ${menuOpen ? 'opacity-0' : ''}`} />
-                <span className={`block w-5 h-0.5 bg-white transition-transform ${menuOpen ? '-rotate-45 -translate-y-2' : ''}`} />
+                <span className={`block w-5 h-0.5 bg-fg transition-transform ${menuOpen ? 'rotate-45 translate-y-2' : ''}`} />
+                <span className={`block w-5 h-0.5 bg-fg transition-opacity ${menuOpen ? 'opacity-0' : ''}`} />
+                <span className={`block w-5 h-0.5 bg-fg transition-transform ${menuOpen ? '-rotate-45 -translate-y-2' : ''}`} />
               </button>
             </div>
           </nav>
           
           {/* Mobile Menu Dropdown */}
           {menuOpen && (
-            <div className="md:hidden bg-black/95 border border-white/10 border-t-0 rounded-b-2xl px-4 py-4 flex flex-col gap-4">
+            <div className="md:hidden bg-background/95 border border-fg/10 border-t-0 rounded-b-2xl px-4 py-4 flex flex-col gap-4">
               <a
                 href="/create"
-                className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide"
+                className="cursor-pointer pixel-sans text-fg-70 hover:text-fg transition-colors text-sm tracking-wide"
                 onClick={() => setMenuOpen(false)}
               >
                 Create
               </a>
               <a
                 href="/chat"
-                className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide"
+                className="cursor-pointer pixel-sans text-fg-70 hover:text-fg transition-colors text-sm tracking-wide"
                 onClick={() => setMenuOpen(false)}
               >
                 Chat
               </a>
               <a
                 href="/earn"
-                className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide"
+                className="cursor-pointer pixel-sans text-fg-70 hover:text-fg transition-colors text-sm tracking-wide"
                 onClick={() => setMenuOpen(false)}
               >
                 Earn
               </a>
               <a
                 href="/#network"
-                className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide"
+                className="cursor-pointer pixel-sans text-fg-70 hover:text-fg transition-colors text-sm tracking-wide"
                 onClick={() => setMenuOpen(false)}
               >
                 Network
               </a>
               <a
                 href="/staking"
-                className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide"
+                className="cursor-pointer pixel-sans text-fg-70 hover:text-fg transition-colors text-sm tracking-wide"
                 onClick={() => setMenuOpen(false)}
               >
                 Staking
               </a>
               <a
                 href="/treasury"
-                className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide"
+                className="cursor-pointer pixel-sans text-fg-70 hover:text-fg transition-colors text-sm tracking-wide"
                 onClick={() => setMenuOpen(false)}
               >
                 Treasury
@@ -217,7 +221,7 @@ export default function SiteNav() {
                 href={brand.urls.data}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide"
+                className="cursor-pointer pixel-sans text-fg-70 hover:text-fg transition-colors text-sm tracking-wide"
                 onClick={() => setMenuOpen(false)}
               >
                 Data
@@ -226,7 +230,7 @@ export default function SiteNav() {
                 href={brand.urls.docs}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide"
+                className="cursor-pointer pixel-sans text-fg-70 hover:text-fg transition-colors text-sm tracking-wide"
                 onClick={() => setMenuOpen(false)}
               >
                 Docs
@@ -235,7 +239,7 @@ export default function SiteNav() {
                 href={brand.urls.blog}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide"
+                className="cursor-pointer pixel-sans text-fg-70 hover:text-fg transition-colors text-sm tracking-wide"
                 onClick={() => setMenuOpen(false)}
               >
                 Blog
@@ -244,7 +248,7 @@ export default function SiteNav() {
                 href="https://x.com/c0mpute" 
                 target="_blank"
                 rel="noopener noreferrer"
-                className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide flex items-center gap-2"
+                className="cursor-pointer pixel-sans text-fg-70 hover:text-fg transition-colors text-sm tracking-wide flex items-center gap-2"
                 onClick={() => setMenuOpen(false)}
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
@@ -256,7 +260,7 @@ export default function SiteNav() {
                 href="https://t.me/c0mputeAI"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide flex items-center gap-2"
+                className="cursor-pointer pixel-sans text-fg-70 hover:text-fg transition-colors text-sm tracking-wide flex items-center gap-2"
                 onClick={() => setMenuOpen(false)}
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
@@ -264,23 +268,28 @@ export default function SiteNav() {
                 </svg>
                 Join on Telegram
               </a>
-              
+
+              <ThemeToggle
+                withLabel
+                className="cursor-pointer pixel-sans text-fg-70 hover:text-fg transition-colors text-sm tracking-wide flex items-center gap-2"
+              />
+
               {/* Auth section in mobile menu */}
-              <div className="border-t border-white/10 pt-4 mt-2">
+              <div className="border-t border-fg/10 pt-4 mt-2">
                 {isAuthenticated ? (
                   <>
-                    <div className="pixel-sans text-white/70 text-xs mb-2">Logged in as</div>
-                    <div className="pixel-sans text-white text-sm mb-4">{userDisplay}</div>
+                    <div className="pixel-sans text-fg-70 text-xs mb-2">Logged in as</div>
+                    <div className="pixel-sans text-fg text-sm mb-4">{userDisplay}</div>
                     <a 
                       href="/settings"
                       onClick={() => setMenuOpen(false)}
-                      className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide block mb-3"
+                      className="cursor-pointer pixel-sans text-fg-70 hover:text-fg transition-colors text-sm tracking-wide block mb-3"
                     >
                       Settings
                     </a>
                     <button 
                       onClick={() => { logout(); setMenuOpen(false); }}
-                      className="cursor-pointer pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide block"
+                      className="cursor-pointer pixel-sans text-fg-70 hover:text-fg transition-colors text-sm tracking-wide block"
                     >
                       Logout
                     </button>
@@ -288,7 +297,7 @@ export default function SiteNav() {
                 ) : (
                   <button
                     onClick={() => { login(); setMenuOpen(false); }}
-                    className="pixel-sans text-white/70 hover:text-white transition-colors text-sm tracking-wide"
+                    className="pixel-sans text-fg-70 hover:text-fg transition-colors text-sm tracking-wide"
                   >
                     Login
                   </button>

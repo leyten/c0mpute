@@ -376,6 +376,19 @@
   }
 }
 
+/* Eases the theme swap instead of hard-cutting every colour on the page at
+   once. Gated on an attribute the toggle sets only in response to a click, so
+   it is absent on first paint and nothing animates on load — and gated again
+   on the visitor not having asked for less motion. The `*` is deliberate:
+   nothing else expresses "every painted colour", and it is live for 200ms per
+   click. Unreachable on c0mpute.ai, which renders no toggle to set it. */
+@media (prefers-reduced-motion: no-preference) {
+  :root[data-theme-switching] * {
+    transition: background-color 0.18s ease, border-color 0.18s ease,
+      color 0.18s ease, fill 0.18s ease, stroke 0.18s ease;
+  }
+}
+
 /* Custom minimal scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
