@@ -138,6 +138,13 @@ export default function LifecycleScroll({ hero }: { hero: React.ReactNode }) {
         {/* step text — left rail on desktop, bottom sheet on mobile */}
         {step >= 1 && !finale && (
           <div className="absolute z-20 left-5 right-5 bottom-10 md:right-auto md:left-[26%] md:bottom-auto md:top-1/2 md:-translate-y-1/2 md:max-w-sm">
+            {/* A wash of paper under the copy. At 1440 the globe comes to rest
+                clear of this column, but on a 1152-wide laptop its dot field
+                runs straight under the lines, and dots showing between the
+                letterforms shred the text. Same colour as the page, so where
+                there is nothing behind it this is invisible. */}
+            <div aria-hidden className="pointer-events-none absolute -z-10 -inset-x-10 -inset-y-8"
+              style={{ background: 'radial-gradient(ellipse at center, var(--background) 58%, transparent 100%)' }} />
             <div key={step} className="fade-step">
               <div className="pixel-serif step-num text-fg-40 text-lg md:text-2xl">{STEPS[railStep].n}</div>
               <h3 className="pixel-serif text-fg text-3xl md:text-5xl mt-1 md:mt-2">{STEPS[railStep].title}</h3>

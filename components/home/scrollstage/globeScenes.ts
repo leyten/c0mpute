@@ -143,10 +143,14 @@ export function drawGlobeStory(ctx: CanvasRenderingContext2D, W: number, H: numb
     const peerK = easeOut(seg(q2, 0.48, 0.74));
     const mineK = easeOut(seg(q2, 0.62, 0.9));
 
-    // A portrait plate in the left margin where the page is wide enough to
-    // spare one; anywhere else it lies in the top band, which is the only
-    // strip no other scene and neither text block is using.
-    const tall = W >= 1200 && H >= 620;
+    // A portrait plate in the left margin on every desktop, which is where the
+    // story's other diagrams sit. This used to demand W>=1200 AND H>=620, and a
+    // laptop at 1152x720 failed it: the plate dropped into the top band, landing
+    // to the RIGHT of the step text and straight through scene 02's card, with
+    // the leaves crushed to a 4px fractional pitch that read as fractured type
+    // rather than a text block. The compact form is a phone layout; it should
+    // never have been catching a MacBook.
+    const tall = desktop;
     const pad = tall ? 22 : 14;
     // A text block is dense, so the leaf pitch is fixed and the plate is cut to
     // fit it — stretching thirty-two leaves over a tall card gives ruled
@@ -155,15 +159,22 @@ export function drawGlobeStory(ctx: CanvasRenderingContext2D, W: number, H: numb
     // A whole-pixel pitch on the plate: at 5.5 the rounding merged every other
     // pair of leaves and the block came out visibly uneven.
     const pitchMax = tall ? 6 : 4, gapU = tall ? 9 : 5;
-    const cw = tall ? Math.min(W * 0.21, 300) : Math.min(W - 2 * Math.max(16, W * 0.045), 500);
-    // The short plate takes the band between the floating header and scene 02's
-    // card, which hangs over the middle of a phone screen well into this
-    // chapter; that band is the only strip nothing else is using.
+    // Sized from the gap it actually has to live in rather than a flat fraction
+    // of the viewport: the step text starts at 26% on desktop, so the plate runs
+    // from the left margin to just short of that. A flat 21% overran the text
+    // column on a laptop.
+    const plateX = Math.max(14, W * 0.028);
+    const cw = tall
+      ? Math.max(196, Math.min(300, W * 0.26 - plateX - 26))
+      : Math.min(W - 2 * Math.max(16, W * 0.045), 500);
+    // The phone plate takes the band between the floating header and scene 02's
+    // card, which hangs over the middle of the screen well into this chapter;
+    // that band is the only strip nothing else is using.
     const band = H * 0.44 - 104 - 86;
     const chh = tall
       ? N * pitchMax + gapU * 2 + hdr + cap + 2 * pad
       : Math.min(H * 0.25, 250, Math.max(172, band));
-    const cx0 = tall ? W * 0.028 : (desktop ? W * 0.6 : W * 0.5) - cw / 2;
+    const cx0 = tall ? plateX : W * 0.5 - cw / 2;
     const cy0 = tall ? (H - chh) / 2 : 86;
     // A plate is opaque. cardBox leaves 8% of the ground showing, which is
     // nothing on a wide screen where the globe is faint here, but on a phone the
@@ -177,7 +188,10 @@ export function drawGlobeStory(ctx: CanvasRenderingContext2D, W: number, H: numb
     ctx.restore();
     cardBox(ctx, cx0, cy0, cw, chh, placeA);
 
-    const braceW = 15, labW = tall ? 92 : 100, gapL = 10, gapR = 12;
+    // The label column only has to hold 'another box' and 'layers 20-31'; at 92
+    // it was eating the stack on a narrower laptop, where every pixel the
+    // margin gives back goes to the leaves.
+    const braceW = 15, labW = tall ? 72 : 100, gapL = 10, gapR = 12;
     const stackW = Math.min(cw - 2 * pad - braceW - gapL - gapR - labW, tall ? 132 : 150);
     const gx = tall ? cx0 + pad : cx0 + (cw - (braceW + gapL + stackW + gapR + labW)) / 2;
     const sx3 = gx + braceW + gapL;
