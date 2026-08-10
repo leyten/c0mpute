@@ -7,6 +7,8 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Captcha, usePrivy, useLoginWithOAuth, useLoginWithSiws } from '@privy-io/react-auth';
 import { getWallets } from '@wallet-standard/app';
+import { LogoMark } from '@/components/Logo';
+import { useBrand } from '@/components/BrandProvider';
 
 const NEXT_KEY = 'c0mpute_login_next';
 
@@ -30,6 +32,7 @@ function isSolanaSignInWallet(w: StandardWallet): boolean {
 
 
 function LoginInner() {
+  const brand = useBrand();
   const router = useRouter();
   const searchParams = useSearchParams();
   const { ready, authenticated } = usePrivy();
@@ -196,11 +199,20 @@ function LoginInner() {
         {/* Wordmark */}
         <div className="flex justify-center mb-6">
           <a href="/" className="cursor-pointer pixel-serif-logo text-white text-xl font-bold flex items-center">
-            c<span className="pixel-serif-logo" style={{ fontSize: '1.8em', display: 'inline-block', verticalAlign: 'baseline', lineHeight: '1', marginTop: '-0.3em' }}>0</span>mpute
+            {brand.mark ? (
+              <span className="flex items-center gap-2">
+                <LogoMark className="w-5 h-5 shrink-0" />
+                <span>Compute Network</span>
+              </span>
+            ) : (
+              <>
+                c<span className="pixel-serif-logo" style={{ fontSize: '1.8em', display: 'inline-block', verticalAlign: 'baseline', lineHeight: '1', marginTop: '-0.3em' }}>0</span>mpute
+              </>
+            )}
           </a>
         </div>
 
-        <h1 className="pixel-serif text-white text-2xl text-center mb-2">Sign in to c0mpute</h1>
+        <h1 className="pixel-serif text-white text-2xl text-center mb-2">{`Sign in to ${brand.name}`}</h1>
         <p className="pixel-sans text-white/50 text-xs text-center mb-7 leading-relaxed">
           Sign in with X to start. Your first prompts are free.
         </p>

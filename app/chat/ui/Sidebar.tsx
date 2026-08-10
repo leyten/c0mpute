@@ -7,6 +7,8 @@ import type { ChatEngine } from '../engine/useChatEngine';
 import { groupByDay, type Convo } from './store';
 import { isMac } from './search';
 import { Plus, Dots, Pencil, Trash, X, Search } from './Icons';
+import { LogoMark } from '@/components/Logo';
+import { useBrand } from '@/components/BrandProvider';
 
 // The shortcut label is a client-only fact, so the server renders nothing for
 // it and the client fills it in without a hydration mismatch.
@@ -30,6 +32,7 @@ export default function Sidebar({
   /** Opens the usage panel from the account line at the foot of the rail. */
   onUsage: () => void;
 }) {
+  const brand = useBrand();
   const [menuFor, setMenuFor] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
@@ -57,7 +60,16 @@ export default function Sidebar({
       >
         <div className="flex items-center justify-between px-4 pb-2 pt-4">
           <a href="/" className="pixel-serif text-[17px]" style={{ color: 'var(--cu-text)' }}>
-            c<span className="pixel-serif">0</span>mpute
+            {brand.mark ? (
+              <span className="flex items-center gap-2">
+                <LogoMark className="h-4 w-4 shrink-0" />
+                <span>Compute Network</span>
+              </span>
+            ) : (
+              <>
+                c<span className="pixel-serif">0</span>mpute
+              </>
+            )}
           </a>
           <button onClick={onClose} className="grid h-8 w-8 place-items-center rounded-lg text-white/40 hover:bg-white/[0.06] md:hidden"><X /></button>
         </div>

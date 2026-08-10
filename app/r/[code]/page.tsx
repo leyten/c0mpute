@@ -1,4 +1,6 @@
 import type { Metadata } from 'next';
+import { headers } from 'next/headers';
+import { brandForHost } from '@/lib/brand';
 import { REFERRAL_CODE_RE } from '@/lib/referrals';
 import RefRedirect from './redirect';
 
@@ -8,7 +10,6 @@ import RefRedirect from './redirect';
 // Humans are bounced client-side; the homepage stores the code (30 days) so
 // attribution survives the anonymous try-first phase and binds at signup.
 
-const OG_TITLE = "you've been invited to c0mpute";
 const OG_DESCRIPTION = 'private, uncensored AI in a browser tab. no account tracking, no content police, no install.';
 const OG_IMAGE = 'https://c0mpute.ai/og-referral.png';
 
@@ -17,21 +18,23 @@ export async function generateMetadata(
 ): Promise<Metadata> {
   const { code } = await params;
   const clean = (code || '').toLowerCase().trim();
+  const brand = brandForHost((await headers()).get('host'));
+  const title = `you've been invited to ${brand.name}`;
   const url = REFERRAL_CODE_RE.test(clean) ? `https://c0mpute.ai/r/${clean}` : 'https://c0mpute.ai';
   return {
-    title: OG_TITLE,
+    title,
     description: OG_DESCRIPTION,
     openGraph: {
-      title: OG_TITLE,
+      title,
       description: OG_DESCRIPTION,
       url,
-      siteName: 'c0mpute',
+      siteName: brand.name,
       type: 'website',
       images: [{ url: OG_IMAGE, width: 1200, height: 630 }],
     },
     twitter: {
       card: 'summary_large_image',
-      title: OG_TITLE,
+      title,
       description: OG_DESCRIPTION,
       images: [OG_IMAGE],
     },
