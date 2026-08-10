@@ -359,15 +359,23 @@ export function drawGlobe(ctx: CanvasRenderingContext2D, v: GlobeView) {
   // the same 1-degree grid that reads as texture on a 340px desktop sphere
   // packs to roughly 3px spacing on a 187px phone one and fills in solid.
   //
-  // So solve for the grid instead. Pick whichever one puts neighbouring dots
-  // near a constant pixel distance apart, then dither with a stride for the
-  // gaps between grids — a stride drops points across the whole sphere, so it
-  // thins both axes at once and n points removed is about sqrt(n) in spacing.
+  // So solve for the grid instead: pick whichever one puts neighbouring dots
+  // near a constant pixel distance apart.
+  //
+  // Nothing is strided. A stride is only safe on a uniform field, and this is a
+  // coastline — dropping half its samples does not thin the texture, it eats
+  // the shape, which is what left the card-sized globe with Africa in pieces.
+  // Where the grid alone lands short of the target the dot is sized to match
+  // the spacing instead, so ink per unit area comes out even without touching
+  // the geography.
   const TARGET_PX = 6.5;
   const idealDeg = TARGET_PX / (Math.max(24, v.R) * (Math.PI / 180));
   const gridDeg = idealDeg >= 1.7 ? 2 : idealDeg >= 0.7 ? 1 : 0.5;
   const L = gridDeg === 2 ? landCoarse() : gridDeg === 1 ? land() : landDense();
-  const stride = Math.max(1, Math.round((idealDeg / gridDeg) ** 2));
+  const spacing = v.R * gridDeg * (Math.PI / 180);
+  // Light on ink blooms where ink on paper does not, so the dark ground takes
+  // one pixel less for the same read.
+  const d = Math.max(1, Math.min(3, Math.round(spacing * 0.5)) - (ON_PAPER ? 0 : 1));
   const n = L.length / 3;
   const wpx = ctx.canvas.clientWidth || ctx.canvas.width;
   const hpx = ctx.canvas.clientHeight || ctx.canvas.height;
@@ -377,7 +385,7 @@ export function drawGlobe(ctx: CanvasRenderingContext2D, v: GlobeView) {
   // problem this replaces, and applied on top of it they wash a small globe out.
   const aScale = 1;
   const paperK = 1;
-  for (let i = 0; i < n; i += stride) {
+  for (let i = 0; i < n; i++) {
     rotv(L, i * 3, v.yaw, v.tilt, _t);
     if (_t[2] <= 0.02) continue;
     const sx = v.cx + _t[0] * v.R, sy = v.cy - _t[1] * v.R;
@@ -389,7 +397,6 @@ export function drawGlobe(ctx: CanvasRenderingContext2D, v: GlobeView) {
         ? (0.30 + 0.55 * _t[2]) * v.alpha * aScale * paperK
         : (0.06 + 0.34 * _t[2]) * v.alpha * aScale;
       ctx.fillStyle = w(a);
-      const d = ON_PAPER && v.R >= 90 ? 3 : 2;
       ctx.fillRect(sx | 0, sy | 0, d, d);
   }
 }
