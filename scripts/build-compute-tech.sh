@@ -47,7 +47,7 @@ DOCS_BRAND="Compute Network" \
 DOCS_WORDMARK="COMPUTE NETWORK" \
 DOCS_URL="https://docs.compute.tech" \
 DOCS_BASE_URL=/ \
-  DOCS_COLOR_MODE=light \
+  DOCS_COLOR_MODE=dark \
   DOCS_FAVICON=img/favicon.svg \
   DOCS_TITLE="Compute Network / Docs" \
   npx docusaurus build --out-dir "$OUT/docs"
@@ -64,7 +64,7 @@ ln -sfn "$DATA_SRC/network.json" "$OUT/data/network.json"
 
 # ── shard.compute.tech ───────────────────────────────────────────────────────
 echo "==> shard"
-python3 "$REBRAND" "$SHARD_SRC" "$OUT/shard"
+python3 "$REBRAND" "$SHARD_SRC" "$OUT/shard" --paper
 ln -sfn "$SHARD_SRC/network.json" "$OUT/shard/network.json"
 
 # ── the mark, at every site root ─────────────────────────────────────────────
