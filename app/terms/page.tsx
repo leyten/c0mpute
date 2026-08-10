@@ -1,7 +1,7 @@
 import LegalPage from '@/components/legal/LegalPage';
 
 export const metadata = {
-  title: 'Terms of Service — Compute Network',
+  title: 'Terms of Service',
   description: 'The agreement between you and Compute Network Inc.',
 };
 

@@ -1,7 +1,7 @@
 import LegalPage from '@/components/legal/LegalPage';
 
 export const metadata = {
-  title: 'Acceptable Use Policy — Compute Network',
+  title: 'Acceptable Use Policy',
   description: 'What is and is not permitted on the Compute Network.',
 };
 

@@ -1,11 +1,18 @@
 // @ts-check
 
+// Branding is env-driven so one source tree builds both domains. Every default
+// below is the live c0mpute.ai value, so an unset environment reproduces the
+// c0mpute.ai docs exactly; scripts/build-compute-tech.sh overrides them (and
+// points DOCS_CONTENT_DIR at rebranded markdown) to build docs.compute.tech.
+const brand = process.env.DOCS_BRAND || 'c0mpute';
+const wordmark = process.env.DOCS_WORDMARK || 'C0MPUTE';
+
 /** @type {import('@docusaurus/types').Config} */
 const config = {
-  title: 'c0mpute — docs',
+  title: 'Documentation',
   tagline: 'AI powered by people, not data centers.',
   favicon: 'img/favicon.ico',
-  url: 'https://docs.c0mpute.ai',
+  url: process.env.DOCS_URL || 'https://docs.c0mpute.ai',
   // '/' in production; the review copy is built under a path with
   // DOCS_BASE_URL so it can be served beside the rest of the preview.
   baseUrl: process.env.DOCS_BASE_URL || '/',
@@ -26,6 +33,10 @@ const config = {
 
   clientModules: [require.resolve('./src/clientModules/fixTitle.js')],
 
+  // Read by the swizzled navbar logo, which is a React component and so cannot
+  // reach process.env at render time.
+  customFields: { wordmark },
+
   presets: [
     [
       'classic',
@@ -33,6 +44,10 @@ const config = {
       ({
         docs: {
           routeBasePath: '/',
+          // The rebranded build points this at a generated mirror of ./docs.
+          // Filenames are preserved there, so doc ids, routes and the sidebar
+          // are identical between the two builds.
+          path: process.env.DOCS_CONTENT_DIR || 'docs',
           sidebarPath: require.resolve('./sidebars.js'),
         },
         blog: false,
@@ -55,6 +70,10 @@ const config = {
         title: '',
         items: [
           {
+            // Both builds link the canonical app. compute.tech serves the same
+            // app and could be linked here instead, but where compute.tech
+            // visitors should land is a product decision, not part of the
+            // rebrand — and the blog/data/shard chrome links here too.
             href: 'https://c0mpute.ai',
             label: 'App',
             position: 'right',
@@ -72,6 +91,8 @@ const config = {
                 href: 'https://c0mpute.ai',
               },
               {
+                // A real account handle, not a brand string — same class of
+                // identifier as the npm package below, so both domains link it.
                 label: '@c0mputeAI',
                 href: 'https://x.com/c0mputeAI',
               },
@@ -82,7 +103,7 @@ const config = {
             ],
           },
         ],
-        copyright: `c0mpute — AI powered by people, not data centers.`,
+        copyright: `${brand} — AI powered by people, not data centers.`,
       },
       prism: {
         theme: require('prism-react-renderer').themes.vsDark,

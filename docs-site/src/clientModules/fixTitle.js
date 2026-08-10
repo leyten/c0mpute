@@ -1,7 +1,11 @@
+import siteConfig from '@generated/docusaurus.config';
+
+const TITLE = siteConfig.title;
+
 if (typeof window !== 'undefined') {
   const observer = new MutationObserver(() => {
-    if (document.title !== 'c0mpute — docs') {
-      document.title = 'c0mpute — docs';
+    if (document.title !== TITLE) {
+      document.title = TITLE;
     }
   });
   observer.observe(document.querySelector('title') || document.head, {
@@ -9,5 +13,5 @@ if (typeof window !== 'undefined') {
     subtree: true,
     characterData: true,
   });
-  document.title = 'c0mpute — docs';
+  document.title = TITLE;
 }
