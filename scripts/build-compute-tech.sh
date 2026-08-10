@@ -15,6 +15,11 @@
 #
 # Live data (data-site/stats.json, network.json) is symlinked rather than
 # copied, so the generated sites keep showing current numbers between builds.
+# Those symlinks are READ-ONLY BY CONVENTION: they point back into the
+# c0mpute.ai sources, so anything that WRITES to
+# /var/www/compute.tech/{data,shard}/*.json writes through into data.c0mpute.ai
+# and shard.c0mpute.ai. Generators must keep writing to the c0mpute.ai paths
+# and let the links follow.
 
 set -euo pipefail
 
@@ -42,6 +47,8 @@ DOCS_BRAND="Compute Network" \
 DOCS_WORDMARK="COMPUTE NETWORK" \
 DOCS_URL="https://docs.compute.tech" \
 DOCS_BASE_URL=/ \
+  DOCS_COLOR_MODE=light \
+  DOCS_FAVICON=img/favicon.svg \
   npx docusaurus build --out-dir "$OUT/docs"
 
 # ── blog.compute.tech ────────────────────────────────────────────────────────
@@ -58,5 +65,29 @@ ln -sfn "$DATA_SRC/network.json" "$OUT/data/network.json"
 echo "==> shard"
 python3 "$REBRAND" "$SHARD_SRC" "$OUT/shard"
 ln -sfn "$SHARD_SRC/network.json" "$OUT/shard/network.json"
+
+# ── the mark, at every site root ─────────────────────────────────────────────
+# The rebrand pass rewrites each site's favicon href to /favicon.svg; this puts
+# the file there. Same mark on the app, the docs and all three static sites, so
+# a reader moving between them never sees the tab icon change identity.
+echo "==> favicon"
+for d in docs blog data shard; do
+  cp "$REPO/public/brand/favicon.svg" "$OUT/$d/favicon.svg"
+done
+
+# ── cache-bust the stylesheets ───────────────────────────────────────────────
+# Cloudflare caches these static sites for 4 hours, so a rebuild that changes
+# style.css keeps serving the old one until the TTL lapses — which is exactly
+# how a theme change appears to "not work". Stamping the href with a hash of
+# the file means a changed stylesheet is a different URL and can never be
+# served stale, and an unchanged one keeps its cache. No purge, no waiting.
+echo "==> cache-bust"
+for d in blog data shard; do
+  css="$OUT/$d/style.css"
+  [ -f "$css" ] || continue
+  h=$(md5sum "$css" | cut -c1-8)
+  find "$OUT/$d" -name '*.html' -exec \
+    sed -i -E "s|(href=\"[^\"]*style\\.css)(\\?v=[a-f0-9]+)?\"|\\1?v=$h\"|g" {} +
+done
 
 echo "==> done: $OUT"

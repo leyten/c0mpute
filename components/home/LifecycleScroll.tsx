@@ -10,10 +10,12 @@ import { STEPS } from './steps';
 import { setLabelFont, clamp01 } from './scrollstage/art';
 import { drawGlobeStory } from './scrollstage/globeScenes';
 import LifecycleList from './LifecycleList';
+import { useBrand } from '@/components/BrandProvider';
 
 const CHAPTERS = 10; // hero prologue + 8 lifecycle steps + the finale
 
 export default function LifecycleScroll({ hero }: { hero: React.ReactNode }) {
+  const brand = useBrand();
   const wrapRef = useRef<HTMLElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const heroRef = useRef<HTMLDivElement>(null);
@@ -80,17 +82,17 @@ export default function LifecycleScroll({ hero }: { hero: React.ReactNode }) {
   if (reduced) {
     return (
       <>
-        <section className="relative bg-black min-h-screen flex items-center border-b border-white/5">
+        <section className="relative bg-background min-h-screen flex items-center border-b border-fg/5">
           {hero}
         </section>
-        <section id="network" className="bg-black py-16 md:py-24 border-t border-white/5">
+        <section id="network" className="bg-background py-16 md:py-24 border-t border-fg/5">
           <div className="max-w-6xl mx-auto px-4 md:px-6">
             <div className="text-center mb-10 md:mb-14">
-              <div className="pixel-sans text-white/40 text-xs tracking-widest mb-3 flex items-center justify-center gap-2">
+              <div className="pixel-sans text-fg-40 text-xs tracking-widest mb-3 flex items-center justify-center gap-2">
                 <span>THE NETWORK</span>
                 <StatusBadge state="launching" />
               </div>
-              <h2 className="pixel-serif text-white text-3xl md:text-4xl lg:text-5xl">Torrent, but for compute</h2>
+              <h2 className="pixel-serif text-fg text-3xl md:text-4xl lg:text-5xl">Torrent, but for compute</h2>
             </div>
             <LifecycleList />
           </div>
@@ -103,20 +105,23 @@ export default function LifecycleScroll({ hero }: { hero: React.ReactNode }) {
   const railStep = Math.min(Math.max(step - 1, 0), 7);
 
   return (
-    <section id="network" ref={wrapRef} className="relative bg-black" style={{ height: '1000vh' }}>
+    <section id="network" ref={wrapRef} className="relative bg-background" style={{ height: '1000vh' }}>
       <div className="sticky top-0 h-screen overflow-hidden">
         <canvas ref={canvasRef} className="absolute inset-0 w-full h-full z-10 pointer-events-none" />
 
         {/* readability gradient behind the mobile text block */}
         <div className="absolute inset-x-0 bottom-0 h-56 md:hidden pointer-events-none z-20"
-          style={{ background: 'linear-gradient(to top, rgba(12,10,9,0.92), rgba(12,10,9,0))' }} />
+          style={{
+            background:
+              'linear-gradient(to top, color-mix(in oklab, var(--background) 92%, transparent), transparent)',
+          }} />
 
         {/* hero overlay — chapter zero; fades into the story on scroll */}
         <div ref={heroRef} className="absolute inset-0 z-0 max-md:z-20 flex items-center">
           {hero}
           <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2">
-            <span className="pixel-sans text-white/60 text-xs tracking-widest uppercase">Scroll</span>
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="text-white/60">
+            <span className="pixel-sans text-fg-60 text-xs tracking-widest uppercase">Scroll</span>
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="text-fg-60">
               <path d="M8 2v12M3 9l5 5 5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="square" />
             </svg>
           </div>
@@ -126,9 +131,9 @@ export default function LifecycleScroll({ hero }: { hero: React.ReactNode }) {
         {step >= 1 && !finale && (
           <div className="absolute z-20 left-5 right-5 bottom-10 md:right-auto md:left-[26%] md:bottom-auto md:top-1/2 md:-translate-y-1/2 md:max-w-sm">
             <div key={step} className="fade-step">
-              <div className="pixel-serif step-num text-white/40 text-lg md:text-2xl">{STEPS[railStep].n}</div>
-              <h3 className="pixel-serif text-white text-3xl md:text-5xl mt-1 md:mt-2">{STEPS[railStep].title}</h3>
-              <p className="pixel-sans text-white/60 text-sm md:text-base mt-2 md:mt-4 leading-relaxed max-w-xs md:max-w-sm">
+              <div className="pixel-serif step-num text-fg-40 text-lg md:text-2xl">{STEPS[railStep].n}</div>
+              <h3 className="pixel-serif text-fg text-3xl md:text-5xl mt-1 md:mt-2">{STEPS[railStep].title}</h3>
+              <p className="pixel-sans text-fg-60 text-sm md:text-base mt-2 md:mt-4 leading-relaxed max-w-xs md:max-w-sm">
                 {STEPS[railStep].line}
               </p>
             </div>
@@ -147,17 +152,17 @@ export default function LifecycleScroll({ hero }: { hero: React.ReactNode }) {
             back there until the step text has left. */}
         {step >= CHAPTERS - 2 && (
           <div className={`absolute z-0 max-md:z-20 left-5 right-5 bottom-10 md:right-auto md:left-[26%] md:bottom-auto md:top-1/2 md:-translate-y-1/2 md:max-w-sm${finale ? '' : ' max-md:hidden'}`}>
-            <h3 className="pixel-serif text-white text-3xl md:text-5xl">One network.</h3>
-            <p className="pixel-sans text-white/60 text-sm md:text-base mt-2 md:mt-4 leading-relaxed max-w-xs md:max-w-sm">
+            <h3 className="pixel-serif text-fg text-3xl md:text-5xl">One network.</h3>
+            <p className="pixel-sans text-fg-60 text-sm md:text-base mt-2 md:mt-4 leading-relaxed max-w-xs md:max-w-sm">
               Too big for one machine, so it runs on all of them.
             </p>
             <div className="mt-4 md:mt-6 flex flex-col gap-2">
-              <a href="https://shard.c0mpute.ai" target="_blank" rel="noopener noreferrer"
-                className="cursor-pointer pixel-sans text-[#80a0c1]/50 hover:text-[#80a0c1] text-sm transition-colors">
+              <a href={brand.urls.shard} target="_blank" rel="noopener noreferrer"
+                className="cursor-pointer pixel-sans text-steel-50 light:text-steel hover:text-steel text-sm transition-colors">
                 Network map (testbed preview) →
               </a>
               <a href="https://github.com/leyten/shard" target="_blank" rel="noopener noreferrer"
-                className="cursor-pointer pixel-sans text-[#80a0c1]/50 hover:text-[#80a0c1] text-sm transition-colors">
+                className="cursor-pointer pixel-sans text-steel-50 light:text-steel hover:text-steel text-sm transition-colors">
                 Engine source →
               </a>
             </div>
@@ -169,7 +174,7 @@ export default function LifecycleScroll({ hero }: { hero: React.ReactNode }) {
           <div className="absolute z-20 right-5 md:right-10 top-1/2 -translate-y-1/2 flex flex-col gap-2.5">
             {STEPS.map((s, i) => (
               <span key={s.n}
-                className={`w-1.5 h-1.5 rounded-full transition-colors duration-300 ${i <= railStep ? 'bg-white' : 'bg-white/20'}`} />
+                className={`w-1.5 h-1.5 rounded-full transition-colors duration-300 ${i <= railStep ? 'bg-fg' : 'bg-fg/20'}`} />
             ))}
           </div>
         )}

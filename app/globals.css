@@ -1,7 +1,12 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
-@custom-variant dark (&:is(.dark *));
+/* The theme is a `data-theme` attribute on <html>: rendered server-side from
+   the brand, then overridden before first paint by the inline script in the
+   document head. Never a media query — the site has to be able to serve one
+   brand permanently dark while the other defaults light. */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+@custom-variant light (&:where([data-theme="light"], [data-theme="light"] *));
 
 @theme inline {
   --radius-sm: calc(var(--radius) - 4px);
@@ -11,106 +16,352 @@
   --radius-2xl: calc(var(--radius) + 8px);
   --radius-3xl: calc(var(--radius) + 12px);
   --radius-4xl: calc(var(--radius) + 16px);
+
   --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-card: var(--card);
-  --color-card-foreground: var(--card-foreground);
-  --color-popover: var(--popover);
-  --color-popover-foreground: var(--popover-foreground);
-  --color-primary: var(--primary);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-secondary: var(--secondary);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-muted: var(--muted);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-accent: var(--accent);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-destructive: var(--destructive);
+  --color-raise: var(--raise);
+
+  /* Ink. `fg` is both the text colour and the wash the translucent surfaces
+     and hairlines are mixed from, so `bg-fg/[0.06]` and `border-fg/10` carry
+     over unchanged from the `bg-white/[0.06]` / `border-white/10` they
+     replace. The numbered steps exist because text is the one place a linear
+     inversion does not survive: see the ladder note below. */
+  --color-fg: var(--fg);
+  --color-fg-90: var(--fg-90);
+  --color-fg-85: var(--fg-85);
+  --color-fg-80: var(--fg-80);
+  --color-fg-70: var(--fg-70);
+  --color-fg-60: var(--fg-60);
+  --color-fg-55: var(--fg-55);
+  --color-fg-50: var(--fg-50);
+  --color-fg-45: var(--fg-45);
+  --color-fg-40: var(--fg-40);
+  --color-fg-35: var(--fg-35);
+  --color-fg-30: var(--fg-30);
+  --color-fg-25: var(--fg-25);
+  --color-fg-20: var(--fg-20);
+  /* What sits on top of an fg-coloured fill (the primary button). */
+  --color-on-fg: var(--on-fg);
+
+  --color-steel: var(--steel);
+  --color-steel-70: var(--steel-70);
+  --color-steel-60: var(--steel-60);
+  --color-steel-50: var(--steel-50);
+
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-success: var(--success);
+  --color-live: var(--live);
+  --color-stone: var(--stone);
+
+  --color-field: var(--field);
+  --color-field-focus: var(--field-focus);
+
+  /* Grounds that are not the page. `bg-black/N` was doing six unrelated jobs,
+     and homepage-variants.css only repaints three of those alphas warm — so
+     the call sites cannot collapse onto one token without changing what
+     c0mpute.ai renders. Each job gets its own token, and each dark value is
+     exactly the colour its call site resolves to today:
+
+       scrim        bg-black/50  modal backdrop             rgba(0,0,0,.5)
+       scrim-strong bg-black/80  modal backdrop + blur      rgba(12,10,9,.8)
+       tooltip      bg-black/90  chart tooltip              rgba(0,0,0,.9)
+       recess       bg-black/40  inset button on a card     rgba(0,0,0,.4)
+       recess-soft  bg-black/30  inset strip on the page    rgba(0,0,0,.3)
+       img-veil     bg-black/70  chip sitting over a photo  rgba(0,0,0,.7)
+
+     The nav and the dashboard header are not in this list: they are the page
+     colour at an alpha, so they stay `bg-background/80` and /95. The veil is
+     the one that does NOT invert — a chip over a generated image needs a dark
+     ground in both themes, because the image behind it is not a theme. */
+  --color-scrim: var(--scrim);
+  --color-scrim-strong: var(--scrim-strong);
+  --color-tooltip: var(--tooltip);
+  --color-recess: var(--recess);
+  --color-recess-soft: var(--recess-soft);
+  --color-img-veil: var(--img-veil);
+  --color-img-veil-hi: var(--img-veil-hi);
+
   --color-border: var(--border);
-  --color-input: var(--input);
   --color-ring: var(--ring);
-  --color-chart-1: var(--chart-1);
-  --color-chart-2: var(--chart-2);
-  --color-chart-3: var(--chart-3);
-  --color-chart-4: var(--chart-4);
-  --color-chart-5: var(--chart-5);
-  --color-sidebar: var(--sidebar);
-  --color-sidebar-foreground: var(--sidebar-foreground);
-  --color-sidebar-primary: var(--sidebar-primary);
-  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-  --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-ring: var(--sidebar-ring);
 }
 
-:root {
+/* ── dark ──────────────────────────────────────────────────────────────────
+   Every value here is what c0mpute.ai already renders, stated as a token.
+   The ladder is written as color-mix so it computes byte-identically to the
+   `text-white/N` it replaces — `oklab(0.999994 … / 0.N)`, not `rgba()`.
+   The ground is #0c0a09, NOT #000: `body.v-b` and `.v-b .bg-black` in
+   homepage-variants.css have been repainting the page warm near-black for
+   as long as the editorial theme has existed. */
+:root,
+[data-theme="dark"] {
   --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
+
+  --background: #0c0a09;
+  --raise: #141210;
+
+  --fg: #ffffff;
+  --fg-90: color-mix(in oklab, #fff 90%, transparent);
+  --fg-85: color-mix(in oklab, #fff 85%, transparent);
+  --fg-80: color-mix(in oklab, #fff 80%, transparent);
+  --fg-70: color-mix(in oklab, #fff 70%, transparent);
+  --fg-60: color-mix(in oklab, #fff 60%, transparent);
+  --fg-55: color-mix(in oklab, #fff 55%, transparent);
+  --fg-50: color-mix(in oklab, #fff 50%, transparent);
+  --fg-45: color-mix(in oklab, #fff 45%, transparent);
+  --fg-40: color-mix(in oklab, #fff 40%, transparent);
+  --fg-35: color-mix(in oklab, #fff 35%, transparent);
+  --fg-30: color-mix(in oklab, #fff 30%, transparent);
+  --fg-25: color-mix(in oklab, #fff 25%, transparent);
+  --fg-20: color-mix(in oklab, #fff 20%, transparent);
+  --on-fg: #000000;
+
+  --steel: #80a0c1;
+  --steel-70: color-mix(in oklab, #80a0c1 70%, transparent);
+  --steel-60: color-mix(in oklab, #80a0c1 60%, transparent);
+  --steel-50: color-mix(in oklab, #80a0c1 50%, transparent);
+
+  --danger: #f87171;
+  --danger-soft: #fca5a5;
+  --success: #4ade80;
+  --live: rgba(52, 211, 153, 0.9);
+  --live-text: rgba(110, 231, 183, 0.9);
+  --stone: #d6d3d1;
+
+  --field: #2a2a2a;
+  --field-focus: #3a3a3a;
+
+  /* Pure #000, not the warm ground: homepage-variants.css repaints only
+     .bg-black, .bg-black\/80 and .bg-black\/95, so every other alpha has
+     always composited actual black and has to keep doing so. */
+  --scrim: rgba(0, 0, 0, 0.5);
+  --scrim-strong: rgba(12, 10, 9, 0.8);
+  --tooltip: rgba(0, 0, 0, 0.9);
+  --recess: rgba(0, 0, 0, 0.4);
+  --recess-soft: rgba(0, 0, 0, 0.3);
+  --img-veil: rgba(0, 0, 0, 0.7);
+  --img-veil-hi: #0c0a09;
+
+  --scroll-thumb: rgba(255, 255, 255, 0.15);
+  --scroll-thumb-hover: rgba(255, 255, 255, 0.25);
+
+  /* Surfaces the tokens above cannot express because the rule that uses them
+     is not a utility class. */
+  --text-halo: rgba(255, 255, 255, 0.15);
+  --legal-strong: rgba(255, 255, 255, 0.92);
+  --answer-body: #d9d9d9;
+  --answer-strong: #ffffff;
+  --answer-bullets: #b8b8b8;
+  --answer-counters: #cfcfcf;
+  --answer-rule: rgba(255, 255, 255, 0.12);
+  --answer-th-fill: rgba(255, 255, 255, 0.05);
+  --privy-surround: rgba(255, 255, 255, 0.2);
+
+  /* /chat. Its own scale because that surface separates regions by value
+     rather than by hairlines, so the steps between bg / rail / surface / pop
+     have to be tuned as a set — see app/chat/ui/ui.css. */
+  --chat-bg: #0c0a09;
+  --chat-rail: #0a0908;
+  --chat-surface: rgba(255, 255, 255, 0.045);
+  --chat-surface-hi: rgba(255, 255, 255, 0.075);
+  --chat-pop: #17140f;
+  --chat-text: rgba(255, 255, 255, 0.92);
+  --chat-dim: rgba(255, 255, 255, 0.58);
+  --chat-faint: rgba(255, 255, 255, 0.38);
+  --chat-line: rgba(255, 255, 255, 0.08);
+  --chat-strong: #ffffff;
+  --chat-selection: rgba(128, 160, 193, 0.28);
+  --chat-link-rule: rgba(128, 160, 193, 0.35);
+  --chat-scroll: rgba(255, 255, 255, 0.14);
+  --chat-scroll-thumb: rgba(255, 255, 255, 0.12);
+  --chat-scroll-thumb-hi: rgba(255, 255, 255, 0.2);
+  --chat-code-inline: rgba(255, 255, 255, 0.07);
+  --chat-code-block: rgba(255, 255, 255, 0.035);
+  --chat-code-hover: rgba(255, 255, 255, 0.06);
+  --chat-code-fg: rgba(255, 255, 255, 0.88);
+  --chat-th-fill: rgba(255, 255, 255, 0.025);
+  --chat-cite: rgba(255, 255, 255, 0.1);
+  --chat-cite-hi: rgba(255, 255, 255, 0.18);
+  --chat-caret: rgba(255, 255, 255, 0.75);
+  --chat-row-on: rgba(255, 255, 255, 0.06);
+
+  /* Consumed only by the two base-layer defaults (`* { border-border }` and
+     `outline-ring/50`). An audit of every page found no element that paints
+     with either, so they are held at exactly their previous values rather
+     than "improved" — dark has to stay byte-for-byte what it was. */
   --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
 }
 
-.dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+/* ── light ─────────────────────────────────────────────────────────────────
+   compute.tech only. Selector is `:root[data-theme="light"]`, not
+   `[data-theme="light"]`: the dark block above is anchored on `:root`, which
+   matches <html> whatever the attribute says, so light has to outrank it on
+   specificity rather than on source order. Everything the dark block declares
+   is redeclared here for the same reason — an omission inherits a dark value
+   onto a white page, which is the one failure mode that looks like nothing in
+   review and like a hole in production.
+
+   Not an inversion. The values were solved, not flipped: for each dark token
+   the contrast ratio it renders against #0c0a09 was measured, then the light
+   value was chosen to hit that same ratio against #faf8f6. Two results came
+   out of that and they are why this file is not a find-and-replace:
+
+   1. TEXT does not invert. `text-white/40` is a 3.77:1 mid-grey on the dark
+      ground; `text-black/40` is 2.7:1 on paper and fails. Matching the ratio
+      needs 53% ink, not 40%. Every rung of the ladder is off the diagonal,
+      and the gap widens the dimmer the step.
+   2. HAIRLINES AND SURFACES do invert, near enough. `border-white/10` is
+      1.25:1; 10.8% ink on paper is also 1.25:1. sRGB gamma is steep near
+      white, so a small ink fraction buys the luminance drop that the same
+      alpha of white buys near black. That is why the surfaces stay written as
+      `bg-fg/[0.06]` and `border-fg/10` at the call site and simply follow --fg
+      across themes, while the text ladder had to be tabulated. */
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  /* Warm paper, the tonal mirror of #0c0a09 — same R>G>B lean, opposite pole.
+     Not #fff: pure white under the Newsreader/Inter pairing reads clinical,
+     and it leaves --raise nowhere to go. */
+  --background: #faf8f6;
+  /* Raise means "toward the light pole" in both themes. Dark lifts #0c0a09 to
+     #141210, a 1.057:1 step; white on this paper is 1.059:1 — the same lift. */
+  --raise: #ffffff;
+
+  /* Ink, and the wash every translucent surface is mixed from. #141210 is the
+     dark theme's --raise used as ink: 17.6:1, a warm near-black rather than
+     #000, which on paper reads as a hole. */
+  --fg: #141210;
+  --fg-90: color-mix(in oklab, #141210 95%, transparent);
+  --fg-85: color-mix(in oklab, #141210 91%, transparent);
+  --fg-80: color-mix(in oklab, #141210 87%, transparent);
+  --fg-70: color-mix(in oklab, #141210 80%, transparent);
+  --fg-60: color-mix(in oklab, #141210 72%, transparent);
+  --fg-55: color-mix(in oklab, #141210 68%, transparent);
+  --fg-50: color-mix(in oklab, #141210 63%, transparent);
+  --fg-45: color-mix(in oklab, #141210 58%, transparent);
+  --fg-40: color-mix(in oklab, #141210 53%, transparent);
+  --fg-35: color-mix(in oklab, #141210 47%, transparent);
+  --fg-30: color-mix(in oklab, #141210 40%, transparent);
+  --fg-25: color-mix(in oklab, #141210 33%, transparent);
+  --fg-20: color-mix(in oklab, #141210 26%, transparent);
+  /* The primary button inverts with the theme: white-on-black becomes
+     ink-on-paper, so what sits on an --fg fill is the page colour. */
+  --on-fg: #faf8f6;
+
+  /* #80a0c1 is 7.26:1 on the dark ground and 2.57:1 on paper — it cannot
+     survive the move. Same hue and saturation, dropped in lightness until it
+     lands back at 6.75:1, which keeps it recognisably the brand blue while
+     making it legible as link text. */
+  --steel: #3a5a7d;
+  --steel-70: color-mix(in oklab, #3a5a7d 70%, transparent);
+  --steel-60: color-mix(in oklab, #3a5a7d 60%, transparent);
+  --steel-50: color-mix(in oklab, #3a5a7d 50%, transparent);
+
+  /* Tuned for a dark ground, #f87171 and #4ade80 go neon and illegible on
+     paper (2.6:1 and 1.6:1). These are the same hues taken down to AA.
+     --danger-soft is the one token that deliberately does NOT mirror its dark
+     relationship: on black, "soft" means lighter; on paper a lighter red on a
+     pale red tint disappears, so soft means marginally deeper instead. */
+  --danger: #b42318;
+  --danger-soft: #a13328;
+  --success: #15803d;
+  --live: #0f7a52;
+  --live-text: #0b6b48;
+  --stone: #2d2b29;
+
+  --field: #d6d3d0;
+  /* Dark's focus step (#2a2a2a -> #3a3a3a) is barely perceptible; on paper the
+     same nudge would vanish, so focus darkens decisively. This is the one
+     place light is intentionally louder than dark. */
+  --field-focus: #8f8b87;
+
+  /* Modal backdrops stay dark on a light page — a pale scrim over pale content
+     stops reading as a scrim. The recesses do invert: they are insets on a
+     card, not overlays. The image veil does not invert at all; the thing
+     behind it is a generated photo, which has no theme. */
+  --scrim: rgba(20, 18, 16, 0.45);
+  --scrim-strong: rgba(20, 18, 16, 0.55);
+  --tooltip: rgba(255, 255, 255, 0.94);
+  --recess: rgba(20, 18, 16, 0.045);
+  --recess-soft: rgba(20, 18, 16, 0.035);
+  --img-veil: rgba(0, 0, 0, 0.7);
+  --img-veil-hi: rgba(0, 0, 0, 0.88);
+
+  --scroll-thumb: rgba(20, 18, 16, 0.22);
+  --scroll-thumb-hover: rgba(20, 18, 16, 0.32);
+
+  --text-halo: rgba(20, 18, 16, 0.10);
+  --legal-strong: #1b1917;
+  --answer-body: #292725;
+  --answer-strong: #141210;
+  --answer-bullets: #413f3d;
+  --answer-counters: #312f2d;
+  --answer-rule: rgba(20, 18, 16, 0.14);
+  --answer-th-fill: rgba(20, 18, 16, 0.04);
+  --privy-surround: rgba(20, 18, 16, 0.14);
+
+  /* /chat separates regions by value rather than by hairlines, so the set has
+     to keep its internal order: rail recedes from bg, pop lifts above it. */
+  --chat-bg: #faf8f6;
+  --chat-rail: #f3f0ed;
+  --chat-surface: rgba(20, 18, 16, 0.045);
+  --chat-surface-hi: rgba(20, 18, 16, 0.075);
+  --chat-pop: #ffffff;
+  --chat-text: #1b1917;
+  --chat-dim: #585654;
+  --chat-faint: #868482;
+  --chat-line: rgba(20, 18, 16, 0.10);
+  --chat-strong: #141210;
+  --chat-selection: rgba(58, 90, 125, 0.20);
+  --chat-link-rule: rgba(58, 90, 125, 0.35);
+  --chat-scroll: rgba(20, 18, 16, 0.14);
+  --chat-scroll-thumb: rgba(20, 18, 16, 0.16);
+  --chat-scroll-thumb-hi: rgba(20, 18, 16, 0.26);
+  --chat-code-inline: rgba(20, 18, 16, 0.06);
+  --chat-code-block: rgba(20, 18, 16, 0.035);
+  --chat-code-hover: rgba(20, 18, 16, 0.06);
+  --chat-code-fg: #23211f;
+  --chat-th-fill: rgba(20, 18, 16, 0.03);
+  --chat-cite: rgba(20, 18, 16, 0.10);
+  --chat-cite-hi: rgba(20, 18, 16, 0.18);
+  --chat-caret: #3a3836;
+  --chat-row-on: rgba(20, 18, 16, 0.06);
+
+  --border: rgba(20, 18, 16, 0.14);
+  /* Dark leaves --ring at a grey nothing because nothing paints with it. Light
+     gives it the accent, so that if a focus ring is ever switched on it is
+     visible on paper rather than a pale grey on pale grey. */
+  --ring: #3a5a7d;
+
+  /* ── Tailwind palette, remapped for paper ──────────────────────────────────
+     A handful of status colours are still written as Tailwind palette classes
+     rather than tokens: amber for warnings, green/emerald for healthy, red for
+     failed. Tailwind v4 compiles those to var(--color-amber-400) and friends,
+     so redefining the variables here fixes every call site at once — including
+     the /80 and /[0.06] opacity variants — without editing a single component.
+
+     Why not convert them to tokens instead: on v4 the palette moved to oklch
+     and these are no longer the hexes the tokens carry. text-green-400 renders
+     rgb(5,223,114); --success is rgb(74,222,128). Swapping the class for the
+     token would silently repaint c0mpute.ai, which is the one thing that must
+     not happen. Leaving the class and moving the variable keeps dark identical
+     by construction.
+
+     Values solved against #faf8f6, not flipped: amber-300 measured 1.33:1 on
+     paper and green-400 1.68:1 — both effectively invisible. The ramp also
+     inverts, because on ink a lower number means lighter, while on paper the
+     emphasis has to get darker. */
+  --color-amber-200: #78350f;
+  --color-amber-300: #92400e;
+  --color-amber-400: #b45309;
+  --color-amber-500: #a16207;
+  --color-green-400: #15803d;
+  --color-green-500: #166534;
+  --color-emerald-400: #047857;
+  --color-red-300: #b42318;
+  --color-red-400: #b42318;
+  --color-red-500: #991b1b;
+
 }
 
 @layer base {
@@ -141,8 +392,8 @@
     padding: 0;
     width: 100%;
     min-height: 100vh;
-    @apply text-foreground;
-    background: #000000;
+    color: var(--fg);
+    background: var(--background);
     /* clip, not hidden: overflow-x hidden + overflow-y auto made body a
        scroll container, which broke position:sticky (the homepage scroll
        stage pins against body instead of the viewport). clip does not
@@ -152,6 +403,19 @@
     font-smooth: never;
     -webkit-font-smoothing: none;
     -moz-osx-font-smoothing: unset;
+  }
+}
+
+/* Eases the theme swap instead of hard-cutting every colour on the page at
+   once. Gated on an attribute the toggle sets only in response to a click, so
+   it is absent on first paint and nothing animates on load — and gated again
+   on the visitor not having asked for less motion. The `*` is deliberate:
+   nothing else expresses "every painted colour", and it is live for 200ms per
+   click. Unreachable on c0mpute.ai, which renders no toggle to set it. */
+@media (prefers-reduced-motion: no-preference) {
+  :root[data-theme-switching] * {
+    transition: background-color 0.18s ease, border-color 0.18s ease,
+      color 0.18s ease, fill 0.18s ease, stroke 0.18s ease;
   }
 }
 
@@ -166,18 +430,18 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.15);
+  background: var(--scroll-thumb);
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.25);
+  background: var(--scroll-thumb-hover);
 }
 
 /* Firefox scrollbar */
 * {
   scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+  scrollbar-color: var(--scroll-thumb) transparent;
 }
 
 /* Minecraft font for the 0 */
@@ -267,8 +531,8 @@
 .pixel-sans b {
   font-weight: 700;
   letter-spacing: 0.03em;
-  color: #fff;
-  text-shadow: 0 0 1px rgba(255, 255, 255, 0.15);
+  color: var(--fg);
+  text-shadow: 0 0 1px var(--text-halo);
   font-smooth: never;
   -webkit-font-smoothing: none;
   -moz-osx-font-smoothing: unset;
@@ -315,13 +579,15 @@
 }
 .chat-answer {
   /* body a step dimmer than bold (leyten 2026-06-12) — keeps bold/headings
-     popping at pure white while regular text stops glaring */
-  color: #d9d9d9;
-  --tw-prose-invert-body: #d9d9d9;
-  --tw-prose-invert-bold: #ffffff;
-  --tw-prose-invert-headings: #ffffff;
-  --tw-prose-invert-bullets: #b8b8b8;
-  --tw-prose-invert-counters: #cfcfcf;
+     popping at pure white while regular text stops glaring. The light theme
+     mirrors the relationship rather than the values: body a step lighter than
+     the headings, headings at full ink. */
+  color: var(--answer-body);
+  --tw-prose-invert-body: var(--answer-body);
+  --tw-prose-invert-bold: var(--answer-strong);
+  --tw-prose-invert-headings: var(--answer-strong);
+  --tw-prose-invert-bullets: var(--answer-bullets);
+  --tw-prose-invert-counters: var(--answer-counters);
   /* Courier renders hairline-thin on black; a subtle text-stroke fakes the
      medium weight the font doesn't have, +1px size for presence. Approved by
      leyten 2026-06-12 over font swaps — the font itself is brand. */
@@ -353,13 +619,13 @@
   padding: 0.5rem 1.1rem !important;
   text-align: left;
   vertical-align: top;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid var(--answer-rule);
   white-space: nowrap;
 }
 .chat-answer th {
   font-weight: 700;
-  color: #ffffff;
-  background: rgba(255, 255, 255, 0.05);
+  color: var(--answer-strong);
+  background: var(--answer-th-fill);
 }
 
 .chat-response strong,
@@ -440,6 +706,39 @@
   --privy-color-error-light: rgba(239, 68, 68, 0.2) !important;
 }
 
+/* The same modal on paper. Privy renders in our DOM, so an unthemed login
+   sheet would come up as a black slab in the middle of a white page — the
+   single most visible way this conversion could look unfinished. The dark
+   block above stays byte-for-byte what it was; this only outranks it when
+   the attribute is present. `:root[data-theme="light"]` for the same reason
+   as the palette: the block above is anchored on `:root`, which matches
+   <html> whatever the attribute says.
+
+   The pole swaps, the roles do not: dark points background at #000 and both
+   accent tokens at #fff, so light points background at the paper and both
+   accent tokens at the ink. */
+:root[data-theme="light"] {
+  --privy-color-background: #ffffff !important;
+  --privy-color-background-2: #faf8f6 !important;
+  --privy-color-background-3: #f3f0ed !important;
+
+  --privy-color-foreground: #141210 !important;
+  --privy-color-foreground-2: #292725 !important;
+  --privy-color-foreground-3: #585654 !important;
+  --privy-color-foreground-4: #868482 !important;
+  --privy-color-foreground-accent: #141210 !important;
+
+  --privy-color-accent: #141210 !important;
+  --privy-color-accent-light: rgba(20, 18, 16, 0.2) !important;
+  --privy-color-accent-lightest: rgba(20, 18, 16, 0.1) !important;
+  --privy-color-accent-dark: #3a3836 !important;
+  --privy-color-accent-darkest: #585654 !important;
+
+  --privy-color-success: #15803d !important;
+  --privy-color-error: #b42318 !important;
+  --privy-color-error-light: rgba(180, 35, 24, 0.15) !important;
+}
+
 /* Force no rounded corners on ALL Privy elements */
 #privy-dialog,
 #privy-dialog *,
@@ -483,7 +782,7 @@ div[role="dialog"] h3 {
   letter-spacing: 0 !important;
   -webkit-font-smoothing: antialiased !important;
   text-rendering: optimizeLegibility !important;
-  color: #ffffff !important;
+  color: var(--fg) !important;
 }
 
 /* Buttons follow the site font; their radius is Privy's own. */
@@ -501,7 +800,7 @@ div[role="dialog"] button {
    content div — that inner border was the "box inside a box" and it crowded
    the buttons against the edges. One border, one element. */
 #privy-modal-content {
-  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+  border: 1px solid var(--privy-surround) !important;
 }
 
 /* Remove border from Privy footer/branding area */
@@ -627,7 +926,7 @@ input[type='number'] {
 /* Legal pages (/terms, /privacy, /acceptable-use). Plain, readable, no ornament —
    these are read by counsel and reviewers rather than browsed. */
 .legal-body h2 {
-  color: #fff;
+  color: var(--fg);
   font-size: 1.05rem;
   margin: 2.25rem 0 0.75rem;
   letter-spacing: 0.01em;
@@ -635,6 +934,6 @@ input[type='number'] {
 .legal-body p { margin: 0 0 1rem; }
 .legal-body ul { margin: 0 0 1rem; padding-left: 1.15rem; list-style: disc; }
 .legal-body li { margin: 0 0 0.5rem; }
-.legal-body strong { color: rgba(255, 255, 255, 0.92); font-weight: 500; }
-.legal-body a { color: #fff; text-decoration: underline; text-underline-offset: 2px; }
+.legal-body strong { color: var(--legal-strong); font-weight: 500; }
+.legal-body a { color: var(--fg); text-decoration: underline; text-underline-offset: 2px; }
 .legal-body a:hover { opacity: 0.75; }

@@ -4,17 +4,19 @@
    no header bar, large radii, 16px/1.7 answers, motion only as fade. */
 
 .cu {
-  --cu-bg: #0c0a09;          /* the page */
-  --cu-rail: #0a0908;        /* sidebar, a half-step down — no border needed */
-  --cu-surface: rgba(255, 255, 255, 0.045);   /* composer, user bubble */
-  --cu-surface-hi: rgba(255, 255, 255, 0.075); /* hover */
-  --cu-pop: #17140f;         /* menus sit above everything, solid */
-  --cu-text: rgba(255, 255, 255, 0.92);
-  --cu-dim: rgba(255, 255, 255, 0.58);
-  --cu-faint: rgba(255, 255, 255, 0.38);
-  --cu-line: rgba(255, 255, 255, 0.08);
-  --cu-steel: #80a0c1;
-  --cu-live: rgba(52, 211, 153, 0.9);
+  /* Values live in globals.css so both themes are defined in one place; the
+     names stay because the whole chat surface is written against them. */
+  --cu-bg: var(--chat-bg);              /* the page */
+  --cu-rail: var(--chat-rail);          /* sidebar, a half-step away — no border needed */
+  --cu-surface: var(--chat-surface);    /* composer, user bubble */
+  --cu-surface-hi: var(--chat-surface-hi); /* hover */
+  --cu-pop: var(--chat-pop);            /* menus sit above everything, solid */
+  --cu-text: var(--chat-text);
+  --cu-dim: var(--chat-dim);
+  --cu-faint: var(--chat-faint);
+  --cu-line: var(--chat-line);
+  --cu-steel: var(--steel);
+  --cu-live: var(--live);
   --cu-ease: cubic-bezier(0.2, 0, 0, 1);
 }
 
@@ -25,7 +27,7 @@
   letter-spacing: 0;
 }
 
-.cu ::selection { background: rgba(128, 160, 193, 0.28); }
+.cu ::selection { background: var(--chat-selection); }
 
 /* globals.css skins the Privy modal with `div[role="dialog"] { font-family:
    argent-pixel-cf … !important }`. That selector catches any accessible
@@ -44,10 +46,10 @@
 @keyframes cuFade { from { opacity: 0 } to { opacity: 1 } }
 
 /* thin, quiet scrollbars — visible only while scrolling feels dated */
-.cu-scroll { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.14) transparent; }
+.cu-scroll { scrollbar-width: thin; scrollbar-color: var(--chat-scroll) transparent; }
 .cu-scroll::-webkit-scrollbar { width: 10px; }
-.cu-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 99px; border: 3px solid transparent; background-clip: content-box; }
-.cu-scroll::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); background-clip: content-box; }
+.cu-scroll::-webkit-scrollbar-thumb { background: var(--chat-scroll-thumb); border-radius: 99px; border: 3px solid transparent; background-clip: content-box; }
+.cu-scroll::-webkit-scrollbar-thumb:hover { background: var(--chat-scroll-thumb-hi); background-clip: content-box; }
 
 /* ---------- answer typography ----------
    Owned outright: no typography plugin is registered in this app, and the
@@ -63,14 +65,14 @@
 .cu-answer > :first-child { margin-top: 0; }
 .cu-answer > :last-child { margin-bottom: 0; }
 
-.cu-answer strong { font-weight: 600; color: #fff; }
+.cu-answer strong { font-weight: 600; color: var(--chat-strong); }
 .cu-answer em { font-style: italic; }
-.cu-answer a { color: var(--cu-steel); text-decoration: none; border-bottom: 1px solid rgba(128,160,193,0.35); }
+.cu-answer a { color: var(--cu-steel); text-decoration: none; border-bottom: 1px solid var(--chat-link-rule); }
 .cu-answer a:hover { border-bottom-color: var(--cu-steel); }
 
 .cu-answer h1, .cu-answer h2, .cu-answer h3, .cu-answer h4 {
   font-weight: 600;
-  color: #fff;
+  color: var(--chat-strong);
   line-height: 1.35;
   letter-spacing: -0.01em;
 }
@@ -99,7 +101,7 @@
 .cu-answer :not(pre) > code {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.875em;
-  background: rgba(255, 255, 255, 0.07);
+  background: var(--chat-code-inline);
   padding: 0.15em 0.4em;
   border-radius: 5px;
 }
@@ -109,7 +111,7 @@
   margin-top: 1.3em;
   margin-bottom: 1.3em;
   border-radius: 14px;
-  background: rgba(255, 255, 255, 0.035);
+  background: var(--chat-code-block);
   overflow: hidden;
 }
 .cu-code-bar {
@@ -132,7 +134,7 @@
 }
 .cu-code:hover .cu-code-copy,
 .cu-code-copy:focus-visible { opacity: 1; }
-.cu-code-copy:hover { color: var(--cu-text); background: rgba(255, 255, 255, 0.06); }
+.cu-code-copy:hover { color: var(--cu-text); background: var(--chat-code-hover); }
 @media (hover: none) { .cu-code-copy { opacity: 1; } }
 .cu-code pre {
   margin: 0;
@@ -143,7 +145,7 @@
 .cu-code pre code {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 13.5px;
-  color: rgba(255, 255, 255, 0.88);
+  color: var(--chat-code-fg);
 }
 
 /* ---------- tables ----------
@@ -168,8 +170,8 @@
 }
 .cu-answer th {
   font-weight: 600;
-  color: #fff;
-  background: rgba(255, 255, 255, 0.025);
+  color: var(--chat-strong);
+  background: var(--chat-th-fill);
   white-space: nowrap;
 }
 .cu-answer tbody tr:last-child td { border-bottom: 0; }
@@ -199,13 +201,13 @@
   margin: 0 2px;
   border: 0;
   border-radius: 99px;
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--chat-cite);
   color: var(--cu-dim);
   font-size: 10px;
   vertical-align: super;
   transition: background 150ms var(--cu-ease), color 150ms var(--cu-ease);
 }
-.cu-cite:hover { background: rgba(255, 255, 255, 0.18); color: #fff; }
+.cu-cite:hover { background: var(--chat-cite-hi); color: var(--chat-strong); }
 .cu-src {
   display: inline-flex;
   align-items: center;
@@ -229,7 +231,7 @@
   vertical-align: -0.16em;
   margin-left: 2px;
   border-radius: 2px;
-  background: rgba(255, 255, 255, 0.75);
+  background: var(--chat-caret);
   animation: cuBlink 1.1s steps(2, start) infinite;
 }
 @keyframes cuBlink { 0%, 50% { opacity: 1 } 50.01%, 100% { opacity: 0.15 } }

@@ -16,7 +16,7 @@ interface ResultImage {
 
 const IMAGE_CREDITS = 20; // keep in sync with lib/image-gen IMAGE_CREDITS
 const NSFW_ACK_KEY = 'c0mpute_nsfw_ack';
-const ACCENT = '#80a0c1';
+const ACCENT = 'var(--steel)';
 
 // Style presets: `pos` is appended to the prompt, `neg` to the negative prompt
 // (on top of the server-side baseline anti-slop negative). Written in real-photo
@@ -268,11 +268,11 @@ export default function CreatePage() {
 
   const chip = (active: boolean) =>
     `cursor-pointer pixel-sans text-xs px-3 py-1.5 rounded-lg border transition-colors ${
-      active ? 'bg-white text-black border-white' : 'bg-transparent text-white/60 border-white/15 hover:text-white hover:border-white/35'
+      active ? 'bg-fg text-on-fg border-fg' : 'bg-transparent text-fg-60 border-fg/15 hover:text-fg hover:border-fg/35'
     }`;
 
   return (
-    <div className="ui-readable flex h-dvh flex-col overflow-hidden bg-black">
+    <div className="ui-readable flex h-dvh flex-col overflow-hidden bg-background">
       <SiteNav />
 
       {/* the nav is fixed, so the studio starts below it */}
@@ -281,12 +281,14 @@ export default function CreatePage() {
         {history.length > 0 && (
           <aside className="flex shrink-0 gap-2 overflow-x-auto pb-1 md:w-[88px] md:flex-col md:overflow-y-auto md:overflow-x-hidden md:pb-0">
             {history.map((g) => (
-              <div key={g.id} className="group relative aspect-square h-16 w-16 shrink-0 overflow-hidden rounded-xl border border-white/10 md:h-auto md:w-full">
+              <div key={g.id} className="group relative aspect-square h-16 w-16 shrink-0 overflow-hidden rounded-xl border border-fg/10 md:h-auto md:w-full">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={g.url} alt={g.prompt} loading="lazy" onClick={() => setCurrent(g)}
                   className={`h-full w-full cursor-pointer object-cover transition-opacity ${current?.url === g.url ? 'opacity-100' : 'opacity-60 hover:opacity-100'}`} />
+                {/* the veil never inverts — it sits on a generated image, which
+                    has no theme — so the glyph on it stays white in both */}
                 <button onClick={() => deleteImage(g.id)} aria-label="Delete image"
-                  className="absolute right-1 top-1 grid h-5 w-5 cursor-pointer place-items-center rounded-md bg-black/70 text-white/70 opacity-0 transition-opacity hover:bg-black hover:text-white group-hover:opacity-100">
+                  className="absolute right-1 top-1 grid h-5 w-5 cursor-pointer place-items-center rounded-md bg-img-veil text-white/70 opacity-0 transition-opacity hover:bg-img-veil-hi hover:text-white group-hover:opacity-100">
                   <IconX />
                 </button>
               </div>
@@ -299,24 +301,24 @@ export default function CreatePage() {
               front of you and the page never scrolls to reach it. */}
           <section className="grid min-h-0 flex-1 place-items-center">
             <div style={canvasShape}
-              className={`overflow-hidden rounded-2xl border bg-white/[0.02] ${loading ? 'border-white/15' : 'border-white/10'}`}>
+              className={`overflow-hidden rounded-2xl border bg-fg/[0.02] ${loading ? 'border-fg/15' : 'border-fg/10'}`}>
               {loading ? (
                 <div className="flex h-full w-full flex-col items-center justify-center gap-4 p-8" role="status">
-                  <div className="h-1 w-48 max-w-full overflow-hidden rounded-full bg-white/10">
+                  <div className="h-1 w-48 max-w-full overflow-hidden rounded-full bg-fg/10">
                     <div className="h-full rounded-full transition-all duration-300" style={{ width: `${progressPct}%`, background: ACCENT }} />
                   </div>
-                  <p className="pixel-sans text-xs tabular-nums text-white/70">
+                  <p className="pixel-sans text-xs tabular-nums text-fg-70">
                     {elapsed}s elapsed{elapsed > 45 ? ', taking longer than usual' : ' · typically about 30s'}
                   </p>
-                  <p className="pixel-sans line-clamp-2 max-w-sm text-center text-xs text-white/35">{prompt.trim()}</p>
+                  <p className="pixel-sans line-clamp-2 max-w-sm text-center text-xs text-fg-35">{prompt.trim()}</p>
                 </div>
               ) : current ? (
                 /* eslint-disable-next-line @next/next/no-img-element */
                 <img src={current.url} alt={current.prompt} className="block h-full w-full object-contain" />
               ) : (
                 <div className="flex h-full w-full flex-col items-center justify-center gap-1.5 p-8 text-center">
-                  <p className="pixel-sans text-sm text-white/55">Your image appears here</p>
-                  <p className="pixel-sans text-xs text-white/30">Describe it below and press Generate</p>
+                  <p className="pixel-sans text-sm text-fg-55">Your image appears here</p>
+                  <p className="pixel-sans text-xs text-fg-30">Describe it below and press Generate</p>
                 </div>
               )}
             </div>
@@ -324,17 +326,17 @@ export default function CreatePage() {
 
           {current && !loading && (
             <div className="mt-3 flex shrink-0 items-center justify-between gap-4">
-              <span className="pixel-sans truncate text-xs tabular-nums text-white/45">
+              <span className="pixel-sans truncate text-xs tabular-nums text-fg-45">
                 {current.width && current.height ? `${current.width} x ${current.height}` : ''}
                 {current.seed ? ` · seed ${current.seed}` : ''}
               </span>
               <div className="flex flex-shrink-0 items-center gap-2">
                 <button onClick={() => copyPrompt(current.prompt)}
-                  className="pixel-sans inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-white/15 px-3 py-1.5 text-xs text-white/70 transition-colors hover:border-white/35 hover:text-white">
+                  className="pixel-sans inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-fg/15 px-3 py-1.5 text-xs text-fg-70 transition-colors hover:border-fg/35 hover:text-fg">
                   <IconCopy /> {copied ? 'Copied' : 'Copy prompt'}
                 </button>
                 <a href={current.url} download={`c0mpute-${current.seed || 'image'}.png`}
-                  className="pixel-sans inline-flex cursor-pointer items-center gap-1.5 rounded-lg bg-white px-3 py-1.5 text-xs text-black transition-colors hover:bg-white/90">
+                  className="pixel-sans inline-flex cursor-pointer items-center gap-1.5 rounded-lg bg-fg px-3 py-1.5 text-xs text-on-fg transition-colors hover:bg-fg/90">
                   <IconDownload /> Download
                 </a>
               </div>
@@ -349,55 +351,55 @@ export default function CreatePage() {
             </div>
           )}
           {error && (
-            <div role="alert" className="pixel-sans mt-3 shrink-0 rounded-xl border border-red-400/20 bg-red-400/[0.05] px-4 py-2.5 text-xs text-red-300/90">{error}</div>
+            <div role="alert" className="pixel-sans mt-3 shrink-0 rounded-xl border border-danger/20 bg-danger/[0.05] px-4 py-2.5 text-xs text-danger-soft/90">{error}</div>
           )}
 
           {showAdvanced && (
-            <div className="mt-3 grid shrink-0 gap-x-8 gap-y-4 rounded-2xl border border-white/10 bg-white/[0.02] p-4 md:grid-cols-2">
+            <div className="mt-3 grid shrink-0 gap-x-8 gap-y-4 rounded-2xl border border-fg/10 bg-fg/[0.02] p-4 md:grid-cols-2">
               <div className="md:col-span-2">
-                <label className="pixel-sans mb-1.5 block text-xs text-white/50">Negative prompt</label>
+                <label className="pixel-sans mb-1.5 block text-xs text-fg-50">Negative prompt</label>
                 <input value={negative} onChange={(e) => setNegative(e.target.value)} placeholder="Things to avoid (optional)"
-                  className="pixel-sans w-full rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-white placeholder-white/40 transition-colors focus:border-white/25 focus:outline-none" />
+                  className="pixel-sans w-full rounded-lg border border-fg/10 bg-fg/[0.03] px-3 py-2 text-sm text-fg placeholder-fg-40 transition-colors focus:border-field-focus focus:outline-none" />
               </div>
               <div>
-                <label className="pixel-sans mb-1.5 flex justify-between text-xs text-white/50"><span>Steps</span><span className="tabular-nums text-white/80">{steps}</span></label>
+                <label className="pixel-sans mb-1.5 flex justify-between text-xs text-fg-50"><span>Steps</span><span className="tabular-nums text-fg-80">{steps}</span></label>
                 <input type="range" min={10} max={50} value={steps} onChange={(e) => setSteps(Number(e.target.value))} className="w-full" style={{ accentColor: ACCENT }} />
               </div>
               <div>
-                <label className="pixel-sans mb-1.5 flex justify-between text-xs text-white/50"><span>Guidance</span><span className="tabular-nums text-white/80">{cfg.toFixed(1)}</span></label>
+                <label className="pixel-sans mb-1.5 flex justify-between text-xs text-fg-50"><span>Guidance</span><span className="tabular-nums text-fg-80">{cfg.toFixed(1)}</span></label>
                 <input type="range" min={1} max={10} step={0.1} value={cfg} onChange={(e) => setCfg(Number(e.target.value))} className="w-full" style={{ accentColor: ACCENT }} />
               </div>
               <div className="md:col-span-2">
-                <label className="pixel-sans mb-1.5 block text-xs text-white/50">Seed</label>
+                <label className="pixel-sans mb-1.5 block text-xs text-fg-50">Seed</label>
                 <input value={seed} onChange={(e) => setSeed(e.target.value.replace(/[^0-9]/g, ''))} placeholder="Blank for random" inputMode="numeric"
-                  className="pixel-sans w-full rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-white placeholder-white/40 transition-colors focus:border-white/25 focus:outline-none md:w-64" />
+                  className="pixel-sans w-full rounded-lg border border-fg/10 bg-fg/[0.03] px-3 py-2 text-sm text-fg placeholder-fg-40 transition-colors focus:border-field-focus focus:outline-none md:w-64" />
               </div>
             </div>
           )}
 
           {/* The controls, pinned under the canvas. */}
-          <section className="mt-3 shrink-0 rounded-2xl border border-white/10 bg-white/[0.02] p-3 md:p-4">
+          <section className="mt-3 shrink-0 rounded-2xl border border-fg/10 bg-fg/[0.02] p-3 md:p-4">
             <div className="mb-3 flex flex-wrap items-center gap-2">
               {STYLES.map((s, i) => (
                 <button key={s.label} onClick={() => setStyleIdx(i)} aria-pressed={styleIdx === i} className={chip(styleIdx === i)}>{s.label}</button>
               ))}
-              <span className="mx-1 hidden h-5 w-px bg-white/10 sm:block" aria-hidden="true" />
+              <span className="mx-1 hidden h-5 w-px bg-fg/10 sm:block" aria-hidden="true" />
               {RATIOS.map((r, i) => (
                 <button key={r.label} onClick={() => setRatioIdx(i)} aria-pressed={ratioIdx === i} title={`${r.label} ${r.w} x ${r.h}`}
                   className={`${chip(ratioIdx === i)} inline-flex items-center gap-2`}>
                   <RatioGlyph w={r.w} h={r.h} /><span className="hidden sm:inline">{r.label}</span>
                 </button>
               ))}
-              <span className="mx-1 hidden h-5 w-px bg-white/10 sm:block" aria-hidden="true" />
+              <span className="mx-1 hidden h-5 w-px bg-fg/10 sm:block" aria-hidden="true" />
               <button onClick={toggleNsfw} aria-pressed={nsfw}
                 title="Allow adult content. Sexual content involving minors is never generated."
                 className={`pixel-sans inline-flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-1.5 text-xs transition-colors ${
-                  nsfw ? 'border-red-400/40 bg-red-500/15 text-red-300' : 'border-white/15 bg-transparent text-white/60 hover:border-white/35 hover:text-white'
+                  nsfw ? 'border-danger/40 bg-danger/15 text-danger-soft' : 'border-fg/15 bg-transparent text-fg-60 hover:border-fg/35 hover:text-fg'
                 }`}>
-                <span className={`inline-block h-1.5 w-1.5 rounded-full ${nsfw ? 'bg-red-400' : 'bg-white/25'}`} aria-hidden="true" />18+
+                <span className={`inline-block h-1.5 w-1.5 rounded-full ${nsfw ? 'bg-danger' : 'bg-fg/25'}`} aria-hidden="true" />18+
               </button>
               <button onClick={() => setShowAdvanced((v) => !v)} aria-expanded={showAdvanced}
-                className="pixel-sans inline-flex cursor-pointer items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs text-white/60 transition-colors hover:text-white">
+                className="pixel-sans inline-flex cursor-pointer items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs text-fg-60 transition-colors hover:text-fg">
                 Advanced <IconChevron open={showAdvanced} />
               </button>
             </div>
@@ -409,12 +411,12 @@ export default function CreatePage() {
                 onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); generate(); } }}
                 placeholder="Describe the image you want"
                 rows={2}
-                className="pixel-sans min-w-0 flex-1 resize-none bg-transparent text-[15px] text-white placeholder-white/40 focus:outline-none"
+                className="pixel-sans min-w-0 flex-1 resize-none bg-transparent text-[15px] text-fg placeholder-fg-40 focus:outline-none"
               />
               <button
                 onClick={generate}
                 disabled={loading || !prompt.trim() || (isAuthenticated && lowBalance)}
-                className="pixel-serif shrink-0 cursor-pointer rounded-xl bg-white px-6 py-2.5 text-sm text-black transition-colors hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-50"
+                className="pixel-serif shrink-0 cursor-pointer rounded-xl bg-fg px-6 py-2.5 text-sm text-on-fg transition-colors hover:bg-fg/90 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {loading ? `Generating ${elapsed}s` : !isAuthenticated ? 'Log in to generate' : lowBalance ? 'Not enough credits' : hasFree ? `Generate free (${freeImages} left)` : 'Generate'}
               </button>
@@ -422,9 +424,9 @@ export default function CreatePage() {
 
             <div className="pixel-sans mt-2 text-xs">
               {isAuthenticated && hasFree
-                ? <span className="text-emerald-300/90">{freeImages} free image{(freeImages ?? 0) > 1 ? 's' : ''} left, on us</span>
-                : <span className="text-white/45">{IMAGE_CREDITS} credits ($0.20) per image</span>}
-              <span className="hidden text-white/30 md:inline"> · Enter to generate, Shift and Enter for a new line · saved in this browser only</span>
+                ? <span className="text-[var(--live-text)]">{freeImages} free image{(freeImages ?? 0) > 1 ? 's' : ''} left, on us</span>
+                : <span className="text-fg-45">{IMAGE_CREDITS} credits ($0.20) per image</span>}
+              <span className="hidden text-fg-30 md:inline"> · Enter to generate, Shift and Enter for a new line · saved in this browser only</span>
             </div>
           </section>
         </div>
@@ -432,18 +434,18 @@ export default function CreatePage() {
 
       {/* 18+ gate */}
       {showGate && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-2xl border border-white/15 bg-black p-6">
-            <h3 className="pixel-serif mb-3 text-xl text-white">Adult content (18+)</h3>
-            <p className="pixel-sans mb-2 text-sm text-white/70">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-scrim-strong p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl border border-fg/15 bg-background p-6">
+            <h3 className="pixel-serif mb-3 text-xl text-fg">Adult content (18+)</h3>
+            <p className="pixel-sans mb-2 text-sm text-fg-70">
               Enabling NSFW allows generation of adult content. By continuing you confirm you are 18 or older and that adult content is legal where you live.
             </p>
-            <p className="pixel-sans mb-5 text-xs text-white/70">
+            <p className="pixel-sans mb-5 text-xs text-fg-70">
               Sexual content involving minors is never generated and is permanently blocked.
             </p>
             <div className="flex gap-3">
-              <button onClick={() => setShowGate(false)} className="pixel-sans flex-1 cursor-pointer rounded-xl border border-white/15 px-4 py-2.5 text-sm text-white/70 transition-colors hover:text-white">Cancel</button>
-              <button onClick={confirmGate} className="pixel-serif flex-1 cursor-pointer rounded-xl bg-white px-4 py-2.5 text-sm text-black transition-colors hover:bg-white/90">I&apos;m 18+, continue</button>
+              <button onClick={() => setShowGate(false)} className="pixel-sans flex-1 cursor-pointer rounded-xl border border-fg/15 px-4 py-2.5 text-sm text-fg-70 transition-colors hover:text-fg">Cancel</button>
+              <button onClick={confirmGate} className="pixel-serif flex-1 cursor-pointer rounded-xl bg-fg px-4 py-2.5 text-sm text-on-fg transition-colors hover:bg-fg/90">I&apos;m 18+, continue</button>
             </div>
           </div>
         </div>

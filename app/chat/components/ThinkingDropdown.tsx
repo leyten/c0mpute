@@ -13,7 +13,7 @@ export default function ThinkingDropdown({ thinking, isStreaming, elapsedSeconds
     <div className="mt-2">
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-2 text-white/60 hover:text-white transition-colors text-sm pixel-sans cursor-pointer"
+        className="flex items-center gap-2 text-fg-60 hover:text-fg transition-colors text-sm pixel-sans cursor-pointer"
       >
         <svg
           width="12"
@@ -40,7 +40,7 @@ export default function ThinkingDropdown({ thinking, isStreaming, elapsedSeconds
         )}
       </button>
       {isOpen && (
-        <div className="mt-2 ml-5 pl-3 border-l border-white/10 text-white/60 text-[15px] leading-relaxed whitespace-pre-wrap pixel-sans">
+        <div className="mt-2 ml-5 pl-3 border-l border-fg/10 text-fg-60 text-[15px] leading-relaxed whitespace-pre-wrap pixel-sans">
           {thinking}
         </div>
       )}

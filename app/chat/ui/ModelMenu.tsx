@@ -30,7 +30,7 @@ export default function ModelMenu({
           <button
             key={m.id}
             onClick={() => onPick(m)}
-            className="flex w-full items-start gap-2.5 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-white/[0.06]"
+            className="flex w-full items-start gap-2.5 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-[var(--chat-row-on)]"
           >
             <span className="mt-[3px] w-4 shrink-0" style={{ color: 'var(--cu-steel)' }}>{on && <Check />}</span>
             <span className="min-w-0 flex-1">

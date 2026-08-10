@@ -96,7 +96,7 @@ export default function Home() {
   };
 
   return (
-    <div className="relative bg-black" style={{ overflow: 'visible' }}>
+    <div className="relative bg-background" style={{ overflow: 'visible' }}>
       {anonModalOpen && (
         <AnonGateModal
           mode="softlogin"
@@ -113,10 +113,10 @@ export default function Home() {
         hero={
           <div className="w-full max-w-6xl mx-auto px-5 md:px-6">
             <div className="max-w-2xl mx-auto md:mx-0 text-center md:text-left space-y-6">
-              <h1 className="pixel-serif text-white text-3xl md:text-5xl lg:text-6xl font-bold leading-tight tracking-tight">
+              <h1 className="pixel-serif text-fg text-3xl md:text-5xl lg:text-6xl font-bold leading-tight tracking-tight">
                 The founding layer<br />of decentralized AI
               </h1>
-              <p className="pixel-sans text-white/90 text-sm md:text-lg max-w-lg mx-auto md:mx-0">
+              <p className="pixel-sans text-fg-90 text-sm md:text-lg max-w-lg mx-auto md:mx-0">
                 A permissionless network of user-owned GPUs doing verifiable AI work.
               </p>
               <form onSubmit={handleSubmit} className="w-full max-w-xl mx-auto md:mx-0 pt-2">
@@ -126,14 +126,17 @@ export default function Home() {
                     value={prompt}
                     onChange={(e) => setPrompt(e.target.value)}
                     placeholder="Ask the impossible..."
-                    className="flex-1 pixel-sans bg-black border border-[#2a2a2a] rounded-xl text-white placeholder:text-white/50 px-3 md:px-4 py-3 focus:outline-none focus:border-[#3a3a3a] transition-colors text-sm md:text-lg"
+                    className="flex-1 pixel-sans bg-background border border-field rounded-xl text-fg placeholder:text-fg-50 px-3 md:px-4 py-3 focus:outline-none focus:border-field-focus transition-colors text-sm md:text-lg"
                   />
                   <button
                     type="submit"
-                    className="cursor-pointer bg-black text-white border border-[#2a2a2a] rounded-xl px-3 md:px-4 py-3 flex items-center justify-center"
+                    className="cursor-pointer bg-background text-fg border border-field rounded-xl px-3 md:px-4 py-3 flex items-center justify-center"
                     aria-label="Send"
                   >
-                    <img src="/PixelSendIcon.png" alt="Send" width={20} height={20} />
+                    {/* The asset is a white glyph, so on paper it is invisible.
+                        Inverting is the whole fix: it is flat white on
+                        transparent, and invert(1) makes it flat ink. */}
+                    <img src="/PixelSendIcon.png" alt="Send" width={20} height={20} className="light:invert" />
                   </button>
                 </div>
               </form>
@@ -149,11 +152,11 @@ export default function Home() {
 
 
       {/* Footer — full sitemap so the header doesn't have to be one */}
-      <footer className="border-t border-white/10 mt-8">
+      <footer className="border-t border-fg/10 mt-8">
         <div className="max-w-6xl mx-auto px-4 md:px-6 py-10 md:py-14">
           <div className="grid grid-cols-2 md:grid-cols-5 gap-8">
             <div>
-              <a href="/" className="pixel-serif-logo text-white text-lg flex items-center gap-2">
+              <a href="/" className="pixel-serif-logo text-fg text-lg flex items-center gap-2">
                 {brand.mark ? (
                   <>
                     <LogoMark className="w-6 h-6 shrink-0" />
@@ -165,43 +168,43 @@ export default function Home() {
                   </span>
                 )}
               </a>
-              <p className="pixel-sans text-white/40 text-xs mt-3 max-w-[220px]">
+              <p className="pixel-sans text-fg-40 text-xs mt-3 max-w-[220px]">
                 AI infrastructure should be open, verifiable, and owned by the people who run it.
               </p>
             </div>
             <div>
-              <div className="pixel-sans text-white/40 text-xs tracking-widest mb-3">PRODUCT</div>
+              <div className="pixel-sans text-fg-40 text-xs tracking-widest mb-3">PRODUCT</div>
               <div className="flex flex-col gap-2">
-                <a href="/chat" className="pixel-sans text-white/60 hover:text-white transition-colors text-sm">Chat</a>
-                <a href="/create" className="pixel-sans text-white/60 hover:text-white transition-colors text-sm">Create</a>
-                <a href="/earn" className="pixel-sans text-white/60 hover:text-white transition-colors text-sm">Earn</a>
-                <a href="https://docs.c0mpute.ai/api" target="_blank" rel="noopener noreferrer" className="pixel-sans text-white/60 hover:text-white transition-colors text-sm">API</a>
+                <a href="/chat" className="pixel-sans text-fg-60 hover:text-fg transition-colors text-sm">Chat</a>
+                <a href="/create" className="pixel-sans text-fg-60 hover:text-fg transition-colors text-sm">Create</a>
+                <a href="/earn" className="pixel-sans text-fg-60 hover:text-fg transition-colors text-sm">Earn</a>
+                <a href={`${brand.urls.docs}/api`} target="_blank" rel="noopener noreferrer" className="pixel-sans text-fg-60 hover:text-fg transition-colors text-sm">API</a>
               </div>
             </div>
             <div>
-              <div className="pixel-sans text-white/40 text-xs tracking-widest mb-3">NETWORK</div>
+              <div className="pixel-sans text-fg-40 text-xs tracking-widest mb-3">NETWORK</div>
               <div className="flex flex-col gap-2">
-                <a href="/#network" className="pixel-sans text-white/60 hover:text-white transition-colors text-sm">Lifecycle</a>
-                <a href="https://shard.c0mpute.ai" target="_blank" rel="noopener noreferrer" className="pixel-sans text-white/60 hover:text-white transition-colors text-sm">Map</a>
-                <a href="https://github.com/leyten/shard" target="_blank" rel="noopener noreferrer" className="pixel-sans text-white/60 hover:text-white transition-colors text-sm">Engine</a>
-                <a href="https://docs.c0mpute.ai" target="_blank" rel="noopener noreferrer" className="pixel-sans text-white/60 hover:text-white transition-colors text-sm">Protocol</a>
+                <a href="/#network" className="pixel-sans text-fg-60 hover:text-fg transition-colors text-sm">Lifecycle</a>
+                <a href={brand.urls.shard} target="_blank" rel="noopener noreferrer" className="pixel-sans text-fg-60 hover:text-fg transition-colors text-sm">Map</a>
+                <a href="https://github.com/leyten/shard" target="_blank" rel="noopener noreferrer" className="pixel-sans text-fg-60 hover:text-fg transition-colors text-sm">Engine</a>
+                <a href={brand.urls.docs} target="_blank" rel="noopener noreferrer" className="pixel-sans text-fg-60 hover:text-fg transition-colors text-sm">Protocol</a>
               </div>
             </div>
             <div>
-              <div className="pixel-sans text-white/40 text-xs tracking-widest mb-3"><span className="dollar">$</span>ZERO</div>
+              <div className="pixel-sans text-fg-40 text-xs tracking-widest mb-3"><span className="dollar">$</span>ZERO</div>
               <div className="flex flex-col gap-2">
-                <a href="/staking" className="pixel-sans text-white/60 hover:text-white transition-colors text-sm">Staking</a>
-                <a href="/treasury" className="pixel-sans text-white/60 hover:text-white transition-colors text-sm">Treasury</a>
-                <a href="https://data.c0mpute.ai" target="_blank" rel="noopener noreferrer" className="pixel-sans text-white/60 hover:text-white transition-colors text-sm">Data</a>
+                <a href="/staking" className="pixel-sans text-fg-60 hover:text-fg transition-colors text-sm">Staking</a>
+                <a href="/treasury" className="pixel-sans text-fg-60 hover:text-fg transition-colors text-sm">Treasury</a>
+                <a href={brand.urls.data} target="_blank" rel="noopener noreferrer" className="pixel-sans text-fg-60 hover:text-fg transition-colors text-sm">Data</a>
               </div>
             </div>
             <div>
-              <div className="pixel-sans text-white/40 text-xs tracking-widest mb-3">RESOURCES</div>
+              <div className="pixel-sans text-fg-40 text-xs tracking-widest mb-3">RESOURCES</div>
               <div className="flex flex-col gap-2">
-                <a href="https://docs.c0mpute.ai" target="_blank" rel="noopener noreferrer" className="pixel-sans text-white/60 hover:text-white transition-colors text-sm">Docs</a>
-                <a href="https://blog.c0mpute.ai" target="_blank" rel="noopener noreferrer" className="pixel-sans text-white/60 hover:text-white transition-colors text-sm">Blog</a>
-                <a href="https://x.com/c0mputeAI" target="_blank" rel="noopener noreferrer" className="pixel-sans text-white/60 hover:text-white transition-colors text-sm">X</a>
-                <a href="https://t.me/c0mputeAI" target="_blank" rel="noopener noreferrer" className="pixel-sans text-white/60 hover:text-white transition-colors text-sm">Telegram</a>
+                <a href={brand.urls.docs} target="_blank" rel="noopener noreferrer" className="pixel-sans text-fg-60 hover:text-fg transition-colors text-sm">Docs</a>
+                <a href={brand.urls.blog} target="_blank" rel="noopener noreferrer" className="pixel-sans text-fg-60 hover:text-fg transition-colors text-sm">Blog</a>
+                <a href="https://x.com/c0mputeAI" target="_blank" rel="noopener noreferrer" className="pixel-sans text-fg-60 hover:text-fg transition-colors text-sm">X</a>
+                <a href="https://t.me/c0mputeAI" target="_blank" rel="noopener noreferrer" className="pixel-sans text-fg-60 hover:text-fg transition-colors text-sm">Telegram</a>
               </div>
             </div>
           </div>
@@ -209,14 +212,14 @@ export default function Home() {
           {/* Operating entity + legal links. Reviewers look for the corporation by
               name, so this is not decorative. New brand only until cutover. */}
           {brand.legalFooter && (
-            <div className="mt-10 pt-6 border-t border-white/10 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-              <div className="pixel-sans text-white/40 text-xs">
+            <div className="mt-10 pt-6 border-t border-fg/10 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+              <div className="pixel-sans text-fg-40 text-xs">
                 &copy; {new Date().getFullYear()} Compute Network Inc.
               </div>
               <div className="flex items-center gap-5">
-                <a href="/terms" className="pixel-sans text-white/40 hover:text-white transition-colors text-xs">Terms</a>
-                <a href="/privacy" className="pixel-sans text-white/40 hover:text-white transition-colors text-xs">Privacy</a>
-                <a href="/acceptable-use" className="pixel-sans text-white/40 hover:text-white transition-colors text-xs">Acceptable Use</a>
+                <a href="/terms" className="pixel-sans text-fg-40 hover:text-fg transition-colors text-xs">Terms</a>
+                <a href="/privacy" className="pixel-sans text-fg-40 hover:text-fg transition-colors text-xs">Privacy</a>
+                <a href="/acceptable-use" className="pixel-sans text-fg-40 hover:text-fg transition-colors text-xs">Acceptable Use</a>
               </div>
             </div>
           )}

@@ -587,3 +587,27 @@ article {
     font-size: 1.1rem;
   }
 }
+
+/* ── paper ────────────────────────────────────────────────────────────────────
+   docs.compute.tech builds with DOCS_COLOR_MODE=light, so Docusaurus stamps
+   [data-theme='light'] on <html>. Everything below is the same palette solved
+   against paper rather than inverted: the dark set carries its contrast as
+   light-on-ink, and each value here was chosen to land at the same ratio on
+   #faf8f6. docs.c0mpute.ai never sees this block — it builds dark and the
+   attribute is never light. */
+[data-theme='light'] {
+  --c0-bg: #faf8f6;
+  --c0-rail: #f3f0ec;
+  --c0-surface: rgba(20, 18, 16, 0.045);
+  --c0-surface-hi: rgba(20, 18, 16, 0.08);
+  --c0-text: rgba(20, 18, 16, 0.82);
+  --c0-heading: #141210;
+  --c0-muted: rgba(20, 18, 16, 0.56);
+  --c0-line: rgba(20, 18, 16, 0.12);
+  --c0-steel: #3a5a7d;
+
+  --ifm-menu-color-background-active: rgba(58, 90, 125, 0.1);
+  --ifm-menu-color-background-hover: rgba(20, 18, 16, 0.05);
+  --ifm-table-stripe-background: rgba(20, 18, 16, 0.025);
+  --ifm-table-head-background: rgba(20, 18, 16, 0.03);
+}

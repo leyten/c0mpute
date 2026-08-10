@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { Inter, Newsreader } from "next/font/google";
 import { brandForHost } from "@/lib/brand";
+import { NO_FLASH_SCRIPT } from "@/lib/theme";
 import { BrandProvider } from "@/components/BrandProvider";
 import "./globals.css";
 import "./homepage-variants.css";
@@ -56,8 +57,30 @@ export default async function RootLayout({
 }>) {
   const brand = brandForHost((await headers()).get('host'));
 
+  // The brand decides the ground. Compute Network is a light site; c0mpute.ai
+  // is dark and has no way to become anything else — no script below, no
+  // toggle in the nav, nothing that reads storage.
+  const isCompute = brand.id === 'compute';
+
   return (
-    <html lang="en">
+    <html
+      lang="en"
+      data-theme={isCompute ? 'light' : 'dark'}
+      // The script below rewrites data-theme before React arrives, so for a
+      // visitor who chose dark the server's "light" and the DOM's "dark"
+      // disagree at hydration. That disagreement is the point. React-only
+      // prop — it emits no attribute, so the served markup is unchanged.
+      suppressHydrationWarning
+    >
+      <head>
+        {/* Blocking and inline on purpose: it has to win the race against
+            first paint, or every navigation flashes light at anyone who chose
+            dark. This is a multi-page app, so that would be every click.
+            Legacy ships no script at all. */}
+        {isCompute && (
+          <script dangerouslySetInnerHTML={{ __html: NO_FLASH_SCRIPT }} />
+        )}
+      </head>
       <body className={`v-b ${inter.variable} ${newsreader.variable}`}>
         <BrandProvider brand={brand}>
           <PrivyProvider>

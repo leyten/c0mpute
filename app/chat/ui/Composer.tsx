@@ -114,7 +114,7 @@ export default function Composer({
                   <img src={src} alt="" className="h-14 w-14 rounded-xl object-cover" />
                   <button
                     onClick={() => onImages(images.filter((_, j) => j !== i))}
-                    className="absolute -right-1.5 -top-1.5 grid h-5 w-5 place-items-center rounded-full text-white/70 hover:text-white"
+                    className="absolute -right-1.5 -top-1.5 grid h-5 w-5 place-items-center rounded-full text-fg-70 hover:text-fg"
                     style={{ background: 'var(--cu-pop)' }}
                     aria-label="Remove image"
                   ><X /></button>
@@ -141,7 +141,7 @@ export default function Composer({
               if (imgs.length) { e.preventDefault(); void addFiles(e.clipboardData.files); }
             }}
             placeholder="Ask anything"
-            className="cu-field cu-scroll block w-full resize-none bg-transparent px-5 pt-4 text-[16px] leading-[1.6] outline-none placeholder:text-white/30"
+            className="cu-field cu-scroll block w-full resize-none bg-transparent px-5 pt-4 text-[16px] leading-[1.6] outline-none placeholder:text-fg-30"
             style={{ color: 'var(--cu-text)' }}
           />
 
@@ -156,7 +156,7 @@ export default function Composer({
               onClick={() => file.current?.click()}
               disabled={!plan.vision || images.length >= 4}
               title={plan.vision ? 'Attach an image' : 'This model does not read images'}
-              className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-white/45 transition-colors hover:text-white/85 disabled:opacity-30 disabled:hover:text-white/45"
+              className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-fg-45 transition-colors hover:text-fg-85 disabled:opacity-30 disabled:hover:text-fg-45"
             ><Clip /></button>
             <input ref={file} type="file" accept="image/*" multiple hidden onChange={e => { void addFiles(e.target.files); e.target.value = ''; }} />
 
@@ -164,7 +164,7 @@ export default function Composer({
             <div className="relative min-w-0" data-model-menu>
               <button
                 onClick={() => setMenu(v => !v)}
-                className="flex w-full items-center gap-1.5 rounded-full px-3 py-1.5 text-[13px] transition-colors hover:bg-white/[0.06]"
+                className="flex w-full items-center gap-1.5 rounded-full px-3 py-1.5 text-[13px] transition-colors hover:bg-[var(--chat-row-on)]"
                 style={{ color: 'var(--cu-dim)' }}
               >
                 {engine.workerCount(plan) > 0 && (
@@ -188,7 +188,7 @@ export default function Composer({
               <button
                 onClick={() => onThink(!think)}
                 aria-label="Thinking"
-                className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1.5 text-[13px] transition-colors hover:bg-white/[0.06]"
+                className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1.5 text-[13px] transition-colors hover:bg-[var(--chat-row-on)]"
                 style={{ color: think ? 'var(--cu-steel)' : 'var(--cu-dim)' }}
               >
                 <Spark />
@@ -204,13 +204,13 @@ export default function Composer({
               onClick={() => onInstrOpen(!instrOpen)}
               title="Instructions for this conversation"
               aria-label="Instructions for this conversation"
-              className={`grid h-9 w-9 shrink-0 place-items-center rounded-full transition-colors ${hasInstructions ? 'hover:bg-white/[0.06]' : 'text-white/45 hover:text-white/85'}`}
+              className={`grid h-9 w-9 shrink-0 place-items-center rounded-full transition-colors ${hasInstructions ? 'hover:bg-[var(--chat-row-on)]' : 'text-fg-45 hover:text-fg-85'}`}
               style={hasInstructions ? { color: 'var(--cu-steel)' } : undefined}
             ><Tune /></button>
 
             <div className="ml-auto flex shrink-0 items-center gap-2.5">
               {value.length > MAX_CHARS - 200 && (
-                <span className="text-[12px] tabular-nums" style={{ color: over ? '#f87171' : 'var(--cu-faint)' }}>
+                <span className="text-[12px] tabular-nums" style={{ color: over ? 'var(--danger)' : 'var(--cu-faint)' }}>
                   {value.length}/{MAX_CHARS}
                 </span>
               )}
@@ -240,7 +240,7 @@ function SendControl({
       onClick={busy ? onStop : onSend}
       disabled={!live}
       aria-label={busy ? 'Stop' : 'Send'}
-      className="grid h-9 w-9 place-items-center rounded-lg transition-all duration-150 hover:bg-white/[0.06] active:scale-95 disabled:hover:bg-transparent"
+      className="grid h-9 w-9 place-items-center rounded-lg transition-all duration-150 hover:bg-[var(--chat-row-on)] active:scale-95 disabled:hover:bg-transparent"
       style={{ color: live ? 'var(--cu-text)' : 'var(--cu-faint)' }}
     >{busy ? <Stop /> : <Arrow />}</button>
   );
