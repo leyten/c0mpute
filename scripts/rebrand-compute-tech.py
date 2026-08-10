@@ -49,6 +49,33 @@ PAPER_VARS = {
     "--live": "rgba(6,120,80,0.95)",
 }
 
+# ── ink for paper ─────────────────────────────────────────────────────────────
+# These three sites were written for a dark ground and say so literally: the
+# stylesheets and the chart code carry rgba(255,255,255,A) and #fff inline
+# rather than going through the :root palette, so overriding the variables left
+# most of the page white-on-white. Rewrite the literals too. Alpha is kept as
+# written — 58% ink on paper reads about as 58% white does on ink.
+# The alpha is sometimes a template interpolation rather than a literal — the
+# chart code builds `rgba(255,255,255,${a})` per bar — so match anything that is
+# not a closing paren and hand it back untouched.
+WHITE_RGBA = re.compile(r"rgba\(\s*255\s*,\s*255\s*,\s*255\s*,\s*([^)]+?)\s*\)")
+WHITE_HEX = re.compile(r"#fff(?:fff)?\b", re.I)
+
+def ink_for_paper(text):
+    text = WHITE_RGBA.sub(lambda m: f"rgba(20, 18, 16, {m.group(1)})", text)
+    return WHITE_HEX.sub("#141210", text)
+
+# Links back to the network's own properties should stay on the domain the
+# reader is already on. GitHub and other outside hosts are left alone.
+OWN_HOSTS = re.compile(r"https://(docs|blog|data|shard)\.c0mpute\.ai")
+OWN_ROOT = re.compile(r"https://c0mpute\.ai(?![a-zA-Z0-9./-])")
+OWN_ROOT_TEXT = re.compile(r"(?<![A-Za-z0-9._/@-])c0mpute\.ai(?![A-Za-z0-9_/-])")
+
+def own_links(text):
+    text = OWN_HOSTS.sub(lambda m: f"https://{m.group(1)}.compute.tech", text)
+    text = OWN_ROOT.sub("https://compute.tech", text)
+    return OWN_ROOT_TEXT.sub("compute.tech", text)
+
 def paper_override(text):
     """Append a light :root after the site's own, for CSS or inline <style>."""
     if ":root" not in text:
@@ -107,6 +134,8 @@ def rebrand(text: str) -> str:
     text = FAVICON.sub("/favicon.svg", text)
     # Only stylesheets carry a :root; paper_override no-ops on anything else.
     text = paper_override(text)
+    text = ink_for_paper(text)
+    text = own_links(text)
     text = WORDMARK_UPPER.sub(BRAND_UPPER, text)
     text = WORDMARK_LOWER.sub(BRAND, text)
 

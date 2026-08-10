@@ -75,19 +75,40 @@ for d in docs blog data shard; do
   cp "$REPO/public/brand/favicon.svg" "$OUT/$d/favicon.svg"
 done
 
-# ── cache-bust the stylesheets ───────────────────────────────────────────────
-# Cloudflare caches these static sites for 4 hours, so a rebuild that changes
-# style.css keeps serving the old one until the TTL lapses — which is exactly
-# how a theme change appears to "not work". Stamping the href with a hash of
-# the file means a changed stylesheet is a different URL and can never be
-# served stale, and an unchanged one keeps its cache. No purge, no waiting.
+# ── cache-bust the local assets ──────────────────────────────────────────────
+# Cloudflare caches these for 4 hours, so a rebuild that changes a file keeps
+# serving the old one until the TTL lapses — which is exactly how a theme change
+# appears not to work. It bit twice: once on style.css, then again on app.js,
+# which carries the chart's colours. Stamping every locally-referenced css and
+# js with a hash of its contents means a changed file is a different URL and can
+# never be served stale; an unchanged one keeps its cache.
 echo "==> cache-bust"
-for d in blog data shard; do
-  css="$OUT/$d/style.css"
-  [ -f "$css" ] || continue
-  h=$(md5sum "$css" | cut -c1-8)
-  find "$OUT/$d" -name '*.html' -exec \
-    sed -i -E "s|(href=\"[^\"]*style\\.css)(\\?v=[a-f0-9]+)?\"|\\1?v=$h\"|g" {} +
-done
+python3 - "$OUT" <<'PYBUST'
+import hashlib, pathlib, re, sys
+out = pathlib.Path(sys.argv[1])
+for d in ('blog', 'data', 'shard'):
+    root = out / d
+    if not root.is_dir():
+        continue
+    digests = {
+        f.name: hashlib.md5(f.read_bytes()).hexdigest()[:8]
+        for f in root.iterdir()
+        if f.suffix in ('.css', '.js') and f.is_file()
+    }
+    if not digests:
+        continue
+    names = sorted(digests, key=len, reverse=True)
+    pat = re.compile(
+        r'((?:href|src)=")([^"]*?(?:' + '|'.join(re.escape(n) for n in names) + r'))(?:\?v=[a-f0-9]+)?(")'
+    )
+    def stamp(m):
+        name = next(n for n in names if m.group(2).endswith(n))
+        return f'{m.group(1)}{m.group(2)}?v={digests[name]}{m.group(3)}'
+    for html in root.rglob('*.html'):
+        text = html.read_text()
+        new = pat.sub(stamp, text)
+        if new != text:
+            html.write_text(new)
+PYBUST
 
 echo "==> done: $OUT"
