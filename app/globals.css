@@ -1,7 +1,12 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
-@custom-variant dark (&:is(.dark *));
+/* The theme is a `data-theme` attribute on <html>: rendered server-side from
+   the brand, then overridden before first paint by the inline script in the
+   document head. Never a media query — the site has to be able to serve one
+   brand permanently dark while the other defaults light. */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+@custom-variant light (&:where([data-theme="light"], [data-theme="light"] *));
 
 @theme inline {
   --radius-sm: calc(var(--radius) - 4px);
@@ -11,106 +16,144 @@
   --radius-2xl: calc(var(--radius) + 8px);
   --radius-3xl: calc(var(--radius) + 12px);
   --radius-4xl: calc(var(--radius) + 16px);
+
   --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-card: var(--card);
-  --color-card-foreground: var(--card-foreground);
-  --color-popover: var(--popover);
-  --color-popover-foreground: var(--popover-foreground);
-  --color-primary: var(--primary);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-secondary: var(--secondary);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-muted: var(--muted);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-accent: var(--accent);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-destructive: var(--destructive);
+  --color-raise: var(--raise);
+
+  /* Ink. `fg` is both the text colour and the wash the translucent surfaces
+     and hairlines are mixed from, so `bg-fg/[0.06]` and `border-fg/10` carry
+     over unchanged from the `bg-white/[0.06]` / `border-white/10` they
+     replace. The numbered steps exist because text is the one place a linear
+     inversion does not survive: see the ladder note below. */
+  --color-fg: var(--fg);
+  --color-fg-90: var(--fg-90);
+  --color-fg-85: var(--fg-85);
+  --color-fg-80: var(--fg-80);
+  --color-fg-70: var(--fg-70);
+  --color-fg-60: var(--fg-60);
+  --color-fg-55: var(--fg-55);
+  --color-fg-50: var(--fg-50);
+  --color-fg-45: var(--fg-45);
+  --color-fg-40: var(--fg-40);
+  --color-fg-35: var(--fg-35);
+  --color-fg-30: var(--fg-30);
+  --color-fg-25: var(--fg-25);
+  --color-fg-20: var(--fg-20);
+  /* What sits on top of an fg-coloured fill (the primary button). */
+  --color-on-fg: var(--on-fg);
+
+  --color-steel: var(--steel);
+  --color-steel-70: var(--steel-70);
+  --color-steel-60: var(--steel-60);
+  --color-steel-50: var(--steel-50);
+
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-success: var(--success);
+  --color-live: var(--live);
+  --color-stone: var(--stone);
+
+  --color-field: var(--field);
+  --color-field-focus: var(--field-focus);
+
   --color-border: var(--border);
-  --color-input: var(--input);
   --color-ring: var(--ring);
-  --color-chart-1: var(--chart-1);
-  --color-chart-2: var(--chart-2);
-  --color-chart-3: var(--chart-3);
-  --color-chart-4: var(--chart-4);
-  --color-chart-5: var(--chart-5);
-  --color-sidebar: var(--sidebar);
-  --color-sidebar-foreground: var(--sidebar-foreground);
-  --color-sidebar-primary: var(--sidebar-primary);
-  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-  --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-ring: var(--sidebar-ring);
 }
 
-:root {
+/* ── dark ──────────────────────────────────────────────────────────────────
+   Every value here is what c0mpute.ai already renders, stated as a token.
+   The ladder is written as color-mix so it computes byte-identically to the
+   `text-white/N` it replaces — `oklab(0.999994 … / 0.N)`, not `rgba()`.
+   The ground is #0c0a09, NOT #000: `body.v-b` and `.v-b .bg-black` in
+   homepage-variants.css have been repainting the page warm near-black for
+   as long as the editorial theme has existed. */
+:root,
+[data-theme="dark"] {
   --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
-}
 
-.dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --background: #0c0a09;
+  --raise: #141210;
+
+  --fg: #ffffff;
+  --fg-90: color-mix(in oklab, #fff 90%, transparent);
+  --fg-85: color-mix(in oklab, #fff 85%, transparent);
+  --fg-80: color-mix(in oklab, #fff 80%, transparent);
+  --fg-70: color-mix(in oklab, #fff 70%, transparent);
+  --fg-60: color-mix(in oklab, #fff 60%, transparent);
+  --fg-55: color-mix(in oklab, #fff 55%, transparent);
+  --fg-50: color-mix(in oklab, #fff 50%, transparent);
+  --fg-45: color-mix(in oklab, #fff 45%, transparent);
+  --fg-40: color-mix(in oklab, #fff 40%, transparent);
+  --fg-35: color-mix(in oklab, #fff 35%, transparent);
+  --fg-30: color-mix(in oklab, #fff 30%, transparent);
+  --fg-25: color-mix(in oklab, #fff 25%, transparent);
+  --fg-20: color-mix(in oklab, #fff 20%, transparent);
+  --on-fg: #000000;
+
+  --steel: #80a0c1;
+  --steel-70: color-mix(in oklab, #80a0c1 70%, transparent);
+  --steel-60: color-mix(in oklab, #80a0c1 60%, transparent);
+  --steel-50: color-mix(in oklab, #80a0c1 50%, transparent);
+
+  --danger: #f87171;
+  --danger-soft: #fca5a5;
+  --success: #4ade80;
+  --live: rgba(52, 211, 153, 0.9);
+  --live-text: rgba(110, 231, 183, 0.9);
+  --stone: #d6d3d1;
+
+  --field: #2a2a2a;
+  --field-focus: #3a3a3a;
+
+  --scroll-thumb: rgba(255, 255, 255, 0.15);
+  --scroll-thumb-hover: rgba(255, 255, 255, 0.25);
+
+  /* Surfaces the tokens above cannot express because the rule that uses them
+     is not a utility class. */
+  --text-halo: rgba(255, 255, 255, 0.15);
+  --legal-strong: rgba(255, 255, 255, 0.92);
+  --answer-body: #d9d9d9;
+  --answer-strong: #ffffff;
+  --answer-bullets: #b8b8b8;
+  --answer-counters: #cfcfcf;
+  --answer-rule: rgba(255, 255, 255, 0.12);
+  --answer-th-fill: rgba(255, 255, 255, 0.05);
+  --privy-surround: rgba(255, 255, 255, 0.2);
+
+  /* /chat. Its own scale because that surface separates regions by value
+     rather than by hairlines, so the steps between bg / rail / surface / pop
+     have to be tuned as a set — see app/chat/ui/ui.css. */
+  --chat-bg: #0c0a09;
+  --chat-rail: #0a0908;
+  --chat-surface: rgba(255, 255, 255, 0.045);
+  --chat-surface-hi: rgba(255, 255, 255, 0.075);
+  --chat-pop: #17140f;
+  --chat-text: rgba(255, 255, 255, 0.92);
+  --chat-dim: rgba(255, 255, 255, 0.58);
+  --chat-faint: rgba(255, 255, 255, 0.38);
+  --chat-line: rgba(255, 255, 255, 0.08);
+  --chat-strong: #ffffff;
+  --chat-selection: rgba(128, 160, 193, 0.28);
+  --chat-link-rule: rgba(128, 160, 193, 0.35);
+  --chat-scroll: rgba(255, 255, 255, 0.14);
+  --chat-scroll-thumb: rgba(255, 255, 255, 0.12);
+  --chat-scroll-thumb-hi: rgba(255, 255, 255, 0.2);
+  --chat-code-inline: rgba(255, 255, 255, 0.07);
+  --chat-code-block: rgba(255, 255, 255, 0.035);
+  --chat-code-hover: rgba(255, 255, 255, 0.06);
+  --chat-code-fg: rgba(255, 255, 255, 0.88);
+  --chat-th-fill: rgba(255, 255, 255, 0.025);
+  --chat-cite: rgba(255, 255, 255, 0.1);
+  --chat-cite-hi: rgba(255, 255, 255, 0.18);
+  --chat-caret: rgba(255, 255, 255, 0.75);
+  --chat-row-on: rgba(255, 255, 255, 0.06);
+
+  /* Consumed only by the two base-layer defaults (`* { border-border }` and
+     `outline-ring/50`). An audit of every page found no element that paints
+     with either, so they are held at exactly their previous values rather
+     than "improved" — dark has to stay byte-for-byte what it was. */
+  --border: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
 }
 
 @layer base {
@@ -141,8 +184,8 @@
     padding: 0;
     width: 100%;
     min-height: 100vh;
-    @apply text-foreground;
-    background: #000000;
+    color: var(--fg);
+    background: var(--background);
     /* clip, not hidden: overflow-x hidden + overflow-y auto made body a
        scroll container, which broke position:sticky (the homepage scroll
        stage pins against body instead of the viewport). clip does not
@@ -166,18 +209,18 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.15);
+  background: var(--scroll-thumb);
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.25);
+  background: var(--scroll-thumb-hover);
 }
 
 /* Firefox scrollbar */
 * {
   scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+  scrollbar-color: var(--scroll-thumb) transparent;
 }
 
 /* Minecraft font for the 0 */
@@ -267,8 +310,8 @@
 .pixel-sans b {
   font-weight: 700;
   letter-spacing: 0.03em;
-  color: #fff;
-  text-shadow: 0 0 1px rgba(255, 255, 255, 0.15);
+  color: var(--fg);
+  text-shadow: 0 0 1px var(--text-halo);
   font-smooth: never;
   -webkit-font-smoothing: none;
   -moz-osx-font-smoothing: unset;
@@ -315,13 +358,15 @@
 }
 .chat-answer {
   /* body a step dimmer than bold (leyten 2026-06-12) — keeps bold/headings
-     popping at pure white while regular text stops glaring */
-  color: #d9d9d9;
-  --tw-prose-invert-body: #d9d9d9;
-  --tw-prose-invert-bold: #ffffff;
-  --tw-prose-invert-headings: #ffffff;
-  --tw-prose-invert-bullets: #b8b8b8;
-  --tw-prose-invert-counters: #cfcfcf;
+     popping at pure white while regular text stops glaring. The light theme
+     mirrors the relationship rather than the values: body a step lighter than
+     the headings, headings at full ink. */
+  color: var(--answer-body);
+  --tw-prose-invert-body: var(--answer-body);
+  --tw-prose-invert-bold: var(--answer-strong);
+  --tw-prose-invert-headings: var(--answer-strong);
+  --tw-prose-invert-bullets: var(--answer-bullets);
+  --tw-prose-invert-counters: var(--answer-counters);
   /* Courier renders hairline-thin on black; a subtle text-stroke fakes the
      medium weight the font doesn't have, +1px size for presence. Approved by
      leyten 2026-06-12 over font swaps — the font itself is brand. */
@@ -353,13 +398,13 @@
   padding: 0.5rem 1.1rem !important;
   text-align: left;
   vertical-align: top;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid var(--answer-rule);
   white-space: nowrap;
 }
 .chat-answer th {
   font-weight: 700;
-  color: #ffffff;
-  background: rgba(255, 255, 255, 0.05);
+  color: var(--answer-strong);
+  background: var(--answer-th-fill);
 }
 
 .chat-response strong,
@@ -483,7 +528,7 @@ div[role="dialog"] h3 {
   letter-spacing: 0 !important;
   -webkit-font-smoothing: antialiased !important;
   text-rendering: optimizeLegibility !important;
-  color: #ffffff !important;
+  color: var(--fg) !important;
 }
 
 /* Buttons follow the site font; their radius is Privy's own. */
@@ -501,7 +546,7 @@ div[role="dialog"] button {
    content div — that inner border was the "box inside a box" and it crowded
    the buttons against the edges. One border, one element. */
 #privy-modal-content {
-  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+  border: 1px solid var(--privy-surround) !important;
 }
 
 /* Remove border from Privy footer/branding area */
@@ -627,7 +672,7 @@ input[type='number'] {
 /* Legal pages (/terms, /privacy, /acceptable-use). Plain, readable, no ornament —
    these are read by counsel and reviewers rather than browsed. */
 .legal-body h2 {
-  color: #fff;
+  color: var(--fg);
   font-size: 1.05rem;
   margin: 2.25rem 0 0.75rem;
   letter-spacing: 0.01em;
@@ -635,6 +680,6 @@ input[type='number'] {
 .legal-body p { margin: 0 0 1rem; }
 .legal-body ul { margin: 0 0 1rem; padding-left: 1.15rem; list-style: disc; }
 .legal-body li { margin: 0 0 0.5rem; }
-.legal-body strong { color: rgba(255, 255, 255, 0.92); font-weight: 500; }
-.legal-body a { color: #fff; text-decoration: underline; text-underline-offset: 2px; }
+.legal-body strong { color: var(--legal-strong); font-weight: 500; }
+.legal-body a { color: var(--fg); text-decoration: underline; text-underline-offset: 2px; }
 .legal-body a:hover { opacity: 0.75; }
