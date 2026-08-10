@@ -107,7 +107,11 @@ export function drawGlobeStory(ctx: CanvasRenderingContext2D, W: number, H: numb
 
   // ---------- 02 admit ----------
   if (home && p >= CH * 1.8 && p < 4 * CH) {
-    const a = easeIO(seg(q1, 0.05, 0.3)) * (1 - easeIO(seg(q2, 0.4, 0.8)));
+    // Leaves early now that the layer plate lands on the same side of the
+    // screen. It used to hold through 80% of the Place chapter, which was
+    // harmless while the plate was in the opposite margin and is a collision
+    // now; the role it reports is restated on the plate anyway.
+    const a = easeIO(seg(q1, 0.05, 0.3)) * (1 - easeIO(seg(q2, 0.05, 0.3)));
     if (a > 0.01) {
       const hx = Math.min(home.x + 46, W - 205), hy = home.y - 66;
       cardBox(ctx, hx - 14, hy - 26, Math.min(W * 0.22, 156) + 28, 152, a);
@@ -134,7 +138,10 @@ export function drawGlobeStory(ctx: CanvasRenderingContext2D, W: number, H: numb
   // one; a gathering is what a single machine holds, and the braces abut so
   // every leaf is inside exactly one of them. Nothing traverses and nothing
   // fills: an allocation is a division that settles, not a run that advances.
-  const placeA = easeIO(seg(q2, 0.05, 0.35)) * (1 - easeIO(seg(q3, 0.7, 1)));
+  // Arrives after scene 02's card has left the right margin, and holds through
+  // Pull — the layers being torrented there are the ones marked here — then
+  // goes with it. Place and Pull only.
+  const placeA = easeIO(seg(q2, 0.32, 0.6)) * (1 - easeIO(seg(q3, 0.7, 1)));
   if (placeA > 0.01) {
     const N = 32;
     const RUNS: [number, number][] = [[0, 8], [8, 12], [20, 12]];
@@ -143,13 +150,12 @@ export function drawGlobeStory(ctx: CanvasRenderingContext2D, W: number, H: numb
     const peerK = easeOut(seg(q2, 0.48, 0.74));
     const mineK = easeOut(seg(q2, 0.62, 0.9));
 
-    // A portrait plate in the left margin on every desktop, which is where the
-    // story's other diagrams sit. This used to demand W>=1200 AND H>=620, and a
-    // laptop at 1152x720 failed it: the plate dropped into the top band, landing
-    // to the RIGHT of the step text and straight through scene 02's card, with
-    // the leaves crushed to a 4px fractional pitch that read as fractured type
-    // rather than a text block. The compact form is a phone layout; it should
-    // never have been catching a MacBook.
+    // A portrait plate in the right margin on every desktop, opposite the step
+    // text, which is the side the story's other diagrams sit on. This used to
+    // demand W>=1200 AND H>=620, and a laptop at 1152x720 failed it: the plate
+    // dropped into a compact top-band form with the leaves crushed to a 4px
+    // fractional pitch, which read as fractured type rather than a text block.
+    // That form is a phone layout; it should never have been catching a laptop.
     const tall = desktop;
     const pad = tall ? 22 : 14;
     // A text block is dense, so the leaf pitch is fixed and the plate is cut to
@@ -160,12 +166,13 @@ export function drawGlobeStory(ctx: CanvasRenderingContext2D, W: number, H: numb
     // pair of leaves and the block came out visibly uneven.
     const pitchMax = tall ? 6 : 4, gapU = tall ? 9 : 5;
     // Sized from the gap it actually has to live in rather than a flat fraction
-    // of the viewport: the step text starts at 26% on desktop, so the plate runs
-    // from the left margin to just short of that. A flat 21% overran the text
-    // column on a laptop.
-    const plateX = Math.max(14, W * 0.028);
+    // of the viewport: the copy column runs from 26% to 26% + max-w-sm, so the
+    // plate takes what is left between that and the right margin. The margin
+    // has to clear the progress ticks, which sit 40px in.
+    const rail = 72;
+    const colR = W * 0.26 + 384;
     const cw = tall
-      ? Math.max(196, Math.min(300, W * 0.26 - plateX - 26))
+      ? Math.max(196, Math.min(300, W - rail - colR - 24))
       : Math.min(W - 2 * Math.max(16, W * 0.045), 500);
     // The phone plate takes the band between the floating header and scene 02's
     // card, which hangs over the middle of the screen well into this chapter;
@@ -174,7 +181,7 @@ export function drawGlobeStory(ctx: CanvasRenderingContext2D, W: number, H: numb
     const chh = tall
       ? N * pitchMax + gapU * 2 + hdr + cap + 2 * pad
       : Math.min(H * 0.25, 250, Math.max(172, band));
-    const cx0 = tall ? plateX : W * 0.5 - cw / 2;
+    const cx0 = tall ? W - rail - cw : W * 0.5 - cw / 2;
     const cy0 = tall ? (H - chh) / 2 : 86;
     // A plate is opaque. cardBox leaves 8% of the ground showing, which is
     // nothing on a wide screen where the globe is faint here, but on a phone the
