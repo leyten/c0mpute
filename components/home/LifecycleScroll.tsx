@@ -158,11 +158,11 @@ export default function LifecycleScroll({ hero }: { hero: React.ReactNode }) {
             </p>
             <div className="mt-4 md:mt-6 flex flex-col gap-2">
               <a href={brand.urls.shard} target="_blank" rel="noopener noreferrer"
-                className="cursor-pointer pixel-sans text-steel-50 hover:text-steel text-sm transition-colors">
+                className="cursor-pointer pixel-sans text-steel-50 light:text-steel hover:text-steel text-sm transition-colors">
                 Network map (testbed preview) →
               </a>
               <a href="https://github.com/leyten/shard" target="_blank" rel="noopener noreferrer"
-                className="cursor-pointer pixel-sans text-steel-50 hover:text-steel text-sm transition-colors">
+                className="cursor-pointer pixel-sans text-steel-50 light:text-steel hover:text-steel text-sm transition-colors">
                 Engine source →
               </a>
             </div>

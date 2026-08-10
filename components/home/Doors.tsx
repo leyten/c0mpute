@@ -29,7 +29,7 @@ function Panel({
             {links.map((l) => (
               <a key={l.text} href={l.href}
                 {...(l.external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
-                className="cursor-pointer pixel-sans text-steel-50 hover:text-steel text-sm transition-colors">
+                className="cursor-pointer pixel-sans text-steel-50 light:text-steel hover:text-steel text-sm transition-colors">
                 {l.text}
               </a>
             ))}
