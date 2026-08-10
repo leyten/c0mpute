@@ -15,6 +15,11 @@
 #
 # Live data (data-site/stats.json, network.json) is symlinked rather than
 # copied, so the generated sites keep showing current numbers between builds.
+# Those symlinks are READ-ONLY BY CONVENTION: they point back into the
+# c0mpute.ai sources, so anything that WRITES to
+# /var/www/compute.tech/{data,shard}/*.json writes through into data.c0mpute.ai
+# and shard.c0mpute.ai. Generators must keep writing to the c0mpute.ai paths
+# and let the links follow.
 
 set -euo pipefail
 

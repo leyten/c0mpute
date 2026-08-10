@@ -15,10 +15,10 @@ const TX_LABELS: Record<string, string> = { free_prompt: 'welcome', staker_allow
 const txLabel = (type: string): string => TX_LABELS[type] ?? type;
 
 /* ---------- shared button styles ---------- */
-const btnPrimary = 'cursor-pointer pixel-sans text-[13px] font-medium px-4 py-2 rounded-lg bg-white text-black hover:bg-white/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed';
-const btnSecondary = 'cursor-pointer pixel-sans text-[13px] px-4 py-2 rounded-lg border border-white/20 text-white hover:bg-white/5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed';
-const btnDanger = 'cursor-pointer pixel-sans text-[13px] px-4 py-2 rounded-lg border border-red-400/30 text-red-400 hover:bg-red-400/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed';
-const btnGhostSmall = 'cursor-pointer pixel-sans text-xs px-2.5 py-1.5 rounded-lg border border-white/10 text-white/70 hover:text-white hover:bg-white/5 transition-colors flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed';
+const btnPrimary = 'cursor-pointer pixel-sans text-[13px] font-medium px-4 py-2 rounded-lg bg-fg text-on-fg hover:bg-fg/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed';
+const btnSecondary = 'cursor-pointer pixel-sans text-[13px] px-4 py-2 rounded-lg border border-fg/20 text-fg hover:bg-fg/5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed';
+const btnDanger = 'cursor-pointer pixel-sans text-[13px] px-4 py-2 rounded-lg border border-danger/30 text-danger hover:bg-danger/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed';
+const btnGhostSmall = 'cursor-pointer pixel-sans text-xs px-2.5 py-1.5 rounded-lg border border-fg/10 text-fg-70 hover:text-fg hover:bg-fg/5 transition-colors flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed';
 
 /* ---------- icons ---------- */
 function IconCopy({ size = 11 }: { size?: number }) {
@@ -48,14 +48,14 @@ function Card({ title, description, children, footer }: {
   footer?: React.ReactNode;
 }) {
   return (
-    <section className="border border-white/10 bg-white/[0.02] rounded-2xl overflow-hidden">
+    <section className="border border-fg/10 bg-fg/[0.02] rounded-2xl overflow-hidden">
       <div className="p-5 md:p-6">
-        <h2 className="pixel-serif text-white text-xl">{title}</h2>
-        {description && <p className="pixel-sans text-white/50 text-[13px] leading-relaxed mt-1.5">{description}</p>}
+        <h2 className="pixel-serif text-fg text-xl">{title}</h2>
+        {description && <p className="pixel-sans text-fg-50 text-[13px] leading-relaxed mt-1.5">{description}</p>}
         <div className="mt-5">{children}</div>
       </div>
       {footer && (
-        <div className="px-5 md:px-6 py-3.5 border-t border-white/[0.06] bg-white/[0.015] flex flex-wrap items-center justify-between gap-3">
+        <div className="px-5 md:px-6 py-3.5 border-t border-fg/[0.06] bg-fg/[0.015] flex flex-wrap items-center justify-between gap-3">
           {footer}
         </div>
       )}
@@ -68,10 +68,10 @@ function Stat({ label, value, tone = 'default' }: {
   value: React.ReactNode;
   tone?: 'default' | 'dim' | 'positive';
 }) {
-  const color = tone === 'positive' ? 'text-emerald-400' : tone === 'dim' ? 'text-white/70' : 'text-white';
+  const color = tone === 'positive' ? 'text-success' : tone === 'dim' ? 'text-fg-70' : 'text-fg';
   return (
-    <div className="border border-white/[0.06] bg-white/[0.02] rounded-xl px-4 py-3.5 min-w-0">
-      <div className="pixel-sans text-white/40 text-[10px] uppercase tracking-[0.14em] whitespace-nowrap">{label}</div>
+    <div className="border border-fg/[0.06] bg-fg/[0.02] rounded-xl px-4 py-3.5 min-w-0">
+      <div className="pixel-sans text-fg-40 text-[10px] uppercase tracking-[0.14em] whitespace-nowrap">{label}</div>
       <div className={`pixel-serif text-2xl mt-1.5 tabular-nums truncate ${color}`}>{value}</div>
     </div>
   );
@@ -83,10 +83,10 @@ function CopyValue({ text, display }: { text: string; display: string }) {
   return (
     <button
       onClick={() => { navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
-      className="cursor-pointer pixel-sans font-mono text-sm text-white/70 hover:text-white inline-flex items-center gap-1.5 transition-colors"
+      className="cursor-pointer pixel-sans font-mono text-sm text-fg-70 hover:text-fg inline-flex items-center gap-1.5 transition-colors"
     >
       {display}
-      <span className={copied ? 'text-emerald-400' : 'text-white/40'}>{copied ? <IconCheck /> : <IconCopy />}</span>
+      <span className={copied ? 'text-success' : 'text-fg-40'}>{copied ? <IconCheck /> : <IconCopy />}</span>
     </button>
   );
 }
@@ -100,9 +100,9 @@ function CopyField({ text, display, accent = false, wrap = false }: {
 }) {
   const [copied, setCopied] = useState(false);
   return (
-    <div className="flex items-center gap-2 bg-white/[0.03] border border-white/10 rounded-xl p-3">
+    <div className="flex items-center gap-2 bg-fg/[0.03] border border-fg/10 rounded-xl p-3">
       <code
-        className={`font-mono text-xs flex-1 select-all ${wrap ? 'break-all' : 'whitespace-nowrap overflow-x-auto'} ${accent ? 'text-[#80a0c1]' : 'text-white/35'}`}
+        className={`font-mono text-xs flex-1 select-all ${wrap ? 'break-all' : 'whitespace-nowrap overflow-x-auto'} ${accent ? 'text-steel' : 'text-fg-35'}`}
       >
         {display}
       </code>
@@ -124,9 +124,9 @@ function CopyField({ text, display, accent = false, wrap = false }: {
 
 function Notice({ tone, children }: { tone: 'error' | 'success' | 'info'; children: React.ReactNode }) {
   const cls =
-    tone === 'error' ? 'border-red-400/25 bg-red-400/[0.06] text-red-400' :
-    tone === 'success' ? 'border-emerald-400/25 bg-emerald-400/[0.06] text-emerald-400' :
-    'border-white/10 bg-white/[0.03] text-white/60';
+    tone === 'error' ? 'border-danger/25 bg-danger/[0.06] text-danger' :
+    tone === 'success' ? 'border-success/25 bg-success/[0.06] text-success' :
+    'border-fg/10 bg-fg/[0.03] text-fg-60';
   return (
     <div className={`border rounded-lg px-3 py-2 ${cls}`}>
       <p className="pixel-sans text-xs leading-relaxed">{children}</p>
@@ -487,8 +487,8 @@ export default function SettingsPage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-black flex items-center justify-center">
-        <div className="pixel-sans text-white/50 text-sm">Loading</div>
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="pixel-sans text-fg-50 text-sm">Loading</div>
       </div>
     );
   }
@@ -502,19 +502,19 @@ export default function SettingsPage() {
   if (signedOut) return null;
 
   return (
-    <div className="min-h-screen bg-black">
+    <div className="min-h-screen bg-background">
       {/* Header */}
       <SiteNav />
 
       {/* Main Content */}
       <main className="pt-32 pb-24 px-4 md:px-6">
         <div className="max-w-4xl mx-auto">
-          <h1 className="pixel-serif text-white text-3xl md:text-4xl">Settings</h1>
-          <p className="pixel-sans text-white/50 text-sm mt-2">Manage your account, keys, and usage.</p>
+          <h1 className="pixel-serif text-fg text-3xl md:text-4xl">Settings</h1>
+          <p className="pixel-sans text-fg-50 text-sm mt-2">Manage your account, keys, and usage.</p>
 
           <div className="mt-8 md:mt-10 md:grid md:grid-cols-[164px_minmax(0,1fr)] md:gap-10">
             {/* Section nav */}
-            <nav className="flex md:flex-col gap-1 mb-6 md:mb-0 overflow-x-auto pb-2 md:pb-0 border-b border-white/[0.06] md:border-b-0 md:sticky md:top-32 md:self-start">
+            <nav className="flex md:flex-col gap-1 mb-6 md:mb-0 overflow-x-auto pb-2 md:pb-0 border-b border-fg/[0.06] md:border-b-0 md:sticky md:top-32 md:self-start">
               {tabs.map((tab) => (
                 <button
                   key={tab.id}
@@ -523,7 +523,7 @@ export default function SettingsPage() {
                     window.history.replaceState(null, '', `#${tab.id === 'developer' ? 'api' : tab.id}`);
                   }}
                   className={`cursor-pointer pixel-sans text-sm px-3 py-2 rounded-lg text-left whitespace-nowrap transition-colors ${
-                    activeTab === tab.id ? 'text-white bg-white/[0.06]' : 'text-white/50 hover:text-white/80'
+                    activeTab === tab.id ? 'text-fg bg-fg/[0.06]' : 'text-fg-50 hover:text-fg-80'
                   }`}
                 >
                   {tab.label}
@@ -538,28 +538,28 @@ export default function SettingsPage() {
               {activeTab === 'account' && (
                 <>
                   <Card title="Account" description="Your identity on the network.">
-                    <div className="divide-y divide-white/[0.06]">
+                    <div className="divide-y divide-fg/[0.06]">
                       <div className="flex items-center justify-between gap-4 py-3">
-                        <span className="pixel-sans text-white/60 text-sm">Signed in as</span>
-                        <span className="pixel-sans text-white text-sm">{displayName ?? 'Anonymous'}</span>
+                        <span className="pixel-sans text-fg-60 text-sm">Signed in as</span>
+                        <span className="pixel-sans text-fg text-sm">{displayName ?? 'Anonymous'}</span>
                       </div>
                       <div className="flex items-center justify-between gap-4 py-3">
-                        <span className="pixel-sans text-white/60 text-sm">Privy ID</span>
+                        <span className="pixel-sans text-fg-60 text-sm">Privy ID</span>
                         {user?.id ? (
                           <CopyValue text={user.id} display={`${user.id.slice(0, 12)}...`} />
                         ) : (
-                          <span className="pixel-sans text-white/40 text-sm">—</span>
+                          <span className="pixel-sans text-fg-40 text-sm">—</span>
                         )}
                       </div>
                       <div className="flex items-center justify-between gap-4 py-3">
-                        <span className="pixel-sans text-white/60 text-sm">Member since</span>
-                        <span className="pixel-sans text-white/80 text-sm tabular-nums">
+                        <span className="pixel-sans text-fg-60 text-sm">Member since</span>
+                        <span className="pixel-sans text-fg-80 text-sm tabular-nums">
                           {profile?.created_at ? new Date(profile.created_at).toLocaleDateString() : '—'}
                         </span>
                       </div>
                       <div className="flex items-center justify-between gap-4 py-3">
-                        <span className="pixel-sans text-white/60 text-sm">Prompts sent</span>
-                        <span className="pixel-sans text-white/80 text-sm tabular-nums">{profile?.prompts_sent ?? 0}</span>
+                        <span className="pixel-sans text-fg-60 text-sm">Prompts sent</span>
+                        <span className="pixel-sans text-fg-80 text-sm tabular-nums">{profile?.prompts_sent ?? 0}</span>
                       </div>
                     </div>
                   </Card>
@@ -568,30 +568,30 @@ export default function SettingsPage() {
                     title="Connected accounts"
                     description="Sign-in methods and wallets linked to this account."
                     footer={
-                      <p className="pixel-sans text-white/40 text-[11px] leading-relaxed">
+                      <p className="pixel-sans text-fg-40 text-[11px] leading-relaxed">
                         A Solana wallet (Phantom, Solflare, Backpack) is required for staking $ZERO and on-chain withdrawals.
                       </p>
                     }
                   >
-                    <div className="divide-y divide-white/[0.06]">
+                    <div className="divide-y divide-fg/[0.06]">
                       {/* X (Twitter) */}
                       <div className="flex items-center justify-between gap-4 py-3.5">
                         <div className="flex items-center gap-3.5 min-w-0">
-                          <div className="w-9 h-9 rounded-lg border border-white/10 bg-white/[0.03] flex items-center justify-center flex-shrink-0">
-                            <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" className="text-white/70" aria-hidden>
+                          <div className="w-9 h-9 rounded-lg border border-fg/10 bg-fg/[0.03] flex items-center justify-center flex-shrink-0">
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" className="text-fg-70" aria-hidden>
                               <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
                             </svg>
                           </div>
                           <div className="min-w-0">
-                            <div className="pixel-sans text-white text-sm">X (Twitter)</div>
-                            <div className={`pixel-sans text-xs mt-0.5 truncate ${hasTwitter ? 'text-white/60' : 'text-white/40'}`}>
+                            <div className="pixel-sans text-fg text-sm">X (Twitter)</div>
+                            <div className={`pixel-sans text-xs mt-0.5 truncate ${hasTwitter ? 'text-fg-60' : 'text-fg-40'}`}>
                               {hasTwitter ? `@${xUsername}` : 'Not connected'}
                             </div>
                           </div>
                         </div>
                         {hasTwitter ? (
-                          <span className="pixel-sans text-xs text-white/40 flex items-center gap-1.5">
-                            <span className="text-emerald-400"><IconCheck size={12} /></span>
+                          <span className="pixel-sans text-xs text-fg-40 flex items-center gap-1.5">
+                            <span className="text-success"><IconCheck size={12} /></span>
                             Connected
                           </span>
                         ) : (
@@ -604,21 +604,21 @@ export default function SettingsPage() {
                       {/* Solana wallet */}
                       <div className="flex items-center justify-between gap-4 py-3.5">
                         <div className="flex items-center gap-3.5 min-w-0">
-                          <div className="w-9 h-9 rounded-lg border border-white/10 bg-white/[0.03] flex items-center justify-center flex-shrink-0">
-                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-white/70" aria-hidden>
+                          <div className="w-9 h-9 rounded-lg border border-fg/10 bg-fg/[0.03] flex items-center justify-center flex-shrink-0">
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-fg-70" aria-hidden>
                               <path d="M21 12V7H5a2 2 0 0 1 0-4h14v4" />
                               <path d="M3 5v14a2 2 0 0 0 2 2h16v-5" />
                               <path d="M18 12a2 2 0 0 0 0 4h4v-4Z" />
                             </svg>
                           </div>
                           <div className="min-w-0">
-                            <div className="pixel-sans text-white text-sm">Solana wallet</div>
+                            <div className="pixel-sans text-fg text-sm">Solana wallet</div>
                             {hasWallet && walletAddress ? (
                               <div className="mt-0.5 [&>button]:text-xs">
                                 <CopyValue text={walletAddress} display={`${walletAddress.slice(0, 4)}...${walletAddress.slice(-4)}`} />
                               </div>
                             ) : (
-                              <div className="pixel-sans text-white/40 text-xs mt-0.5">Not connected</div>
+                              <div className="pixel-sans text-fg-40 text-xs mt-0.5">Not connected</div>
                             )}
                           </div>
                         </div>
@@ -627,12 +627,12 @@ export default function SettingsPage() {
                             {linkingWallet ? 'Connecting' : 'Connect wallet'}
                           </button>
                         ) : hasTwitter ? (
-                          <button onClick={handleUnlinkWallet} disabled={unlinkingWallet} className="cursor-pointer pixel-sans text-xs text-red-400/70 hover:text-red-400 transition-colors disabled:opacity-50">
+                          <button onClick={handleUnlinkWallet} disabled={unlinkingWallet} className="cursor-pointer pixel-sans text-xs text-danger/70 hover:text-danger transition-colors disabled:opacity-50">
                             {unlinkingWallet ? 'Disconnecting' : 'Disconnect'}
                           </button>
                         ) : (
-                          <span className="pixel-sans text-xs text-white/40 flex items-center gap-1.5">
-                            <span className="text-emerald-400"><IconCheck size={12} /></span>
+                          <span className="pixel-sans text-xs text-fg-40 flex items-center gap-1.5">
+                            <span className="text-success"><IconCheck size={12} /></span>
                             Connected
                           </span>
                         )}
@@ -641,9 +641,9 @@ export default function SettingsPage() {
                   </Card>
 
                   {/* Danger zone */}
-                  <section className="border border-red-400/20 bg-red-400/[0.03] rounded-2xl p-5 md:p-6">
-                    <h2 className="pixel-serif text-red-400 text-xl">Danger zone</h2>
-                    <p className="pixel-sans text-white/60 text-[13px] leading-relaxed mt-1.5">
+                  <section className="border border-danger/20 bg-danger/[0.03] rounded-2xl p-5 md:p-6">
+                    <h2 className="pixel-serif text-danger text-xl">Danger zone</h2>
+                    <p className="pixel-sans text-fg-60 text-[13px] leading-relaxed mt-1.5">
                       Deleting your account permanently removes your profile and all associated data. This cannot be undone.
                     </p>
                     {!showDeleteConfirm ? (
@@ -651,9 +651,9 @@ export default function SettingsPage() {
                         Delete account
                       </button>
                     ) : (
-                      <div className="mt-5 border border-red-400/25 bg-red-400/[0.05] rounded-xl p-4 space-y-3">
-                        <p className="pixel-sans text-red-400 text-sm">This will permanently delete your account. Are you sure?</p>
-                        {deleteError && <p className="pixel-sans text-red-400 text-xs">{deleteError}</p>}
+                      <div className="mt-5 border border-danger/25 bg-danger/[0.05] rounded-xl p-4 space-y-3">
+                        <p className="pixel-sans text-danger text-sm">This will permanently delete your account. Are you sure?</p>
+                        {deleteError && <p className="pixel-sans text-danger text-xs">{deleteError}</p>}
                         <div className="flex flex-wrap gap-3">
                           <button onClick={handleDeleteAccount} disabled={deleteLoading} className={btnDanger}>
                             {deleteLoading ? 'Deleting' : 'Yes, delete my account'}
@@ -676,7 +676,7 @@ export default function SettingsPage() {
                     description="Authenticate a native worker on your machine with a token."
                     footer={
                       <>
-                        <p className="pixel-sans text-white/40 text-[11px]">Up to 5 active tokens. Each token is shown once at creation.</p>
+                        <p className="pixel-sans text-fg-40 text-[11px]">Up to 5 active tokens. Each token is shown once at creation.</p>
                         <button onClick={generateToken} disabled={tokenGenerating} className={btnPrimary}>
                           {tokenGenerating ? 'Generating' : 'Generate token'}
                         </button>
@@ -696,30 +696,30 @@ export default function SettingsPage() {
                       )}
 
                       <div className="pt-2">
-                        <div className="pixel-sans text-white/40 text-[10px] uppercase tracking-[0.14em] mb-2">
+                        <div className="pixel-sans text-fg-40 text-[10px] uppercase tracking-[0.14em] mb-2">
                           Active tokens ({activeTokens.length}/5)
                         </div>
                         {loadingTokens ? (
-                          <p className="pixel-sans text-white/40 text-xs">Loading tokens</p>
+                          <p className="pixel-sans text-fg-40 text-xs">Loading tokens</p>
                         ) : activeTokens.length > 0 ? (
-                          <div className="divide-y divide-white/[0.05] border border-white/[0.06] rounded-xl px-3">
+                          <div className="divide-y divide-fg/[0.05] border border-fg/[0.06] rounded-xl px-3">
                             {activeTokens.map(t => (
                               <div key={t.id} className="flex items-center justify-between gap-3 py-2.5">
                                 <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 min-w-0">
-                                  <span className="pixel-sans text-white/80 text-xs font-mono">{t.id.slice(0, 8)}...</span>
-                                  <span className="pixel-sans text-white/40 text-[11px]">created {new Date(t.created_at).toLocaleDateString()}</span>
+                                  <span className="pixel-sans text-fg-80 text-xs font-mono">{t.id.slice(0, 8)}...</span>
+                                  <span className="pixel-sans text-fg-40 text-[11px]">created {new Date(t.created_at).toLocaleDateString()}</span>
                                   {t.last_used_at && (
-                                    <span className="pixel-sans text-white/40 text-[11px]">last used {new Date(t.last_used_at).toLocaleDateString()}</span>
+                                    <span className="pixel-sans text-fg-40 text-[11px]">last used {new Date(t.last_used_at).toLocaleDateString()}</span>
                                   )}
                                 </div>
-                                <button onClick={() => revokeToken(t.id)} className="cursor-pointer pixel-sans text-xs text-red-400/70 hover:text-red-400 transition-colors flex-shrink-0">
+                                <button onClick={() => revokeToken(t.id)} className="cursor-pointer pixel-sans text-xs text-danger/70 hover:text-danger transition-colors flex-shrink-0">
                                   Revoke
                                 </button>
                               </div>
                             ))}
                           </div>
                         ) : (
-                          <p className="pixel-sans text-white/40 text-xs">No active tokens.</p>
+                          <p className="pixel-sans text-fg-40 text-xs">No active tokens.</p>
                         )}
                       </div>
                     </div>
@@ -735,9 +735,9 @@ export default function SettingsPage() {
                       <Stat label="All time" value={<>${e.totalEarnings.toFixed(2)}</>} tone="dim" />
                     </div>
 
-                    <div className="mt-5 pt-5 border-t border-white/[0.06] space-y-3">
+                    <div className="mt-5 pt-5 border-t border-fg/[0.06] space-y-3">
                       <div>
-                        <label className="pixel-sans text-white/40 text-[10px] uppercase tracking-[0.14em] mb-1.5 block">
+                        <label className="pixel-sans text-fg-40 text-[10px] uppercase tracking-[0.14em] mb-1.5 block">
                           Withdraw to Solana address
                         </label>
                         <input
@@ -746,11 +746,11 @@ export default function SettingsPage() {
                           onChange={(ev) => setWithdrawAddress(ev.target.value)}
                           placeholder="Your USDC wallet address"
                           spellCheck={false}
-                          className="w-full bg-white/[0.03] border border-white/10 rounded-xl p-3 font-mono text-white/80 text-xs outline-none focus:border-white/25 placeholder:text-white/30 transition-colors"
+                          className="w-full bg-fg/[0.03] border border-fg/10 rounded-xl p-3 font-mono text-fg-80 text-xs outline-none focus:border-field-focus placeholder:text-fg-30 transition-colors"
                         />
                       </div>
-                      <div className="flex items-center gap-2 bg-white/[0.03] border border-white/10 rounded-xl p-3 focus-within:border-white/25 transition-colors">
-                        <span className="pixel-sans text-white/50 text-base">$</span>
+                      <div className="flex items-center gap-2 bg-fg/[0.03] border border-fg/10 rounded-xl p-3 focus-within:border-field-focus transition-colors">
+                        <span className="pixel-sans text-fg-50 text-base">$</span>
                         <input
                           type="number"
                           inputMode="decimal"
@@ -759,7 +759,7 @@ export default function SettingsPage() {
                           value={withdrawAmount}
                           onChange={(ev) => setWithdrawAmount(ev.target.value)}
                           placeholder="0.00"
-                          className="flex-1 bg-transparent outline-none pixel-serif text-white text-lg tabular-nums placeholder:text-white/30 min-w-0"
+                          className="flex-1 bg-transparent outline-none pixel-serif text-fg text-lg tabular-nums placeholder:text-fg-30 min-w-0"
                         />
                         <button
                           onClick={() => setWithdrawAmount(e.pendingBalance.toFixed(2))}
@@ -782,7 +782,7 @@ export default function SettingsPage() {
                       </button>
                       {withdrawError && <Notice tone="error">{withdrawError}</Notice>}
                       {withdrawSuccess && <Notice tone="success">{withdrawSuccess}</Notice>}
-                      <p className="pixel-sans text-white/40 text-[11px]">
+                      <p className="pixel-sans text-fg-40 text-[11px]">
                         Minimum withdrawal is $1.00. Sent as USDC on Solana, no signature needed.
                       </p>
                     </div>
@@ -798,7 +798,7 @@ export default function SettingsPage() {
                     description="OpenAI-compatible inference API. Point any SDK at the endpoint below by changing only the base URL and key."
                     footer={
                       <>
-                        <p className="pixel-sans text-white/40 text-[11px]">Up to 5 active keys. Each key is shown once at creation.</p>
+                        <p className="pixel-sans text-fg-40 text-[11px]">Up to 5 active keys. Each key is shown once at creation.</p>
                         <button onClick={() => generateApiKey(false)} disabled={apiKeyGenerating} className={btnPrimary}>
                           {apiKeyGenerating ? 'Generating' : 'Generate key'}
                         </button>
@@ -817,45 +817,45 @@ export default function SettingsPage() {
                         <Notice tone="info">Key created. Copy it now, it will not be shown again.</Notice>
                       )}
 
-                      <div className="bg-white/[0.03] border border-white/10 rounded-xl p-3 space-y-1.5">
+                      <div className="bg-fg/[0.03] border border-fg/10 rounded-xl p-3 space-y-1.5">
                         <div className="flex items-baseline gap-3">
-                          <span className="pixel-sans text-white/40 text-[10px] uppercase tracking-[0.14em] w-16 flex-shrink-0">base url</span>
-                          <code className="font-mono text-xs text-white/70 select-all overflow-x-auto whitespace-nowrap">{brand.urls.api}</code>
+                          <span className="pixel-sans text-fg-40 text-[10px] uppercase tracking-[0.14em] w-16 flex-shrink-0">base url</span>
+                          <code className="font-mono text-xs text-fg-70 select-all overflow-x-auto whitespace-nowrap">{brand.urls.api}</code>
                         </div>
                         <div className="flex items-baseline gap-3">
-                          <span className="pixel-sans text-white/40 text-[10px] uppercase tracking-[0.14em] w-16 flex-shrink-0">models</span>
-                          <code className="font-mono text-xs text-white/70 select-all overflow-x-auto whitespace-nowrap">c0mpute-pro · c0mpute-max · c0mpute-max-think</code>
+                          <span className="pixel-sans text-fg-40 text-[10px] uppercase tracking-[0.14em] w-16 flex-shrink-0">models</span>
+                          <code className="font-mono text-xs text-fg-70 select-all overflow-x-auto whitespace-nowrap">c0mpute-pro · c0mpute-max · c0mpute-max-think</code>
                         </div>
                       </div>
 
                       <div className="pt-2">
-                        <div className="pixel-sans text-white/40 text-[10px] uppercase tracking-[0.14em] mb-2">
+                        <div className="pixel-sans text-fg-40 text-[10px] uppercase tracking-[0.14em] mb-2">
                           Active keys ({apiKeys.length}/5)
                         </div>
                         {loadingApiKeys ? (
-                          <p className="pixel-sans text-white/40 text-xs">Loading keys</p>
+                          <p className="pixel-sans text-fg-40 text-xs">Loading keys</p>
                         ) : apiKeys.length > 0 ? (
-                          <div className="divide-y divide-white/[0.05] border border-white/[0.06] rounded-xl px-3">
+                          <div className="divide-y divide-fg/[0.05] border border-fg/[0.06] rounded-xl px-3">
                             {apiKeys.map(k => (
                               <div key={k.id} className="flex items-center justify-between gap-3 py-2.5">
                                 <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 min-w-0">
-                                  <span className="pixel-sans text-white/80 text-xs font-mono">{k.key_prefix ? `${k.key_prefix}...` : 'sk-c0mpute-...'}</span>
+                                  <span className="pixel-sans text-fg-80 text-xs font-mono">{k.key_prefix ? `${k.key_prefix}...` : 'sk-c0mpute-...'}</span>
                                   {k.free_only ? (
-                                    <span className="pixel-sans text-[#80a0c1] text-[10px] px-1.5 py-0.5 rounded border border-[#80a0c1]/30">resale</span>
+                                    <span className="pixel-sans text-steel text-[10px] px-1.5 py-0.5 rounded border border-steel/30">resale</span>
                                   ) : null}
-                                  <span className="pixel-sans text-white/40 text-[11px]">created {new Date(k.created_at).toLocaleDateString()}</span>
+                                  <span className="pixel-sans text-fg-40 text-[11px]">created {new Date(k.created_at).toLocaleDateString()}</span>
                                   {k.last_used_at && (
-                                    <span className="pixel-sans text-white/40 text-[11px]">last used {new Date(k.last_used_at).toLocaleDateString()}</span>
+                                    <span className="pixel-sans text-fg-40 text-[11px]">last used {new Date(k.last_used_at).toLocaleDateString()}</span>
                                   )}
                                 </div>
-                                <button onClick={() => revokeApiKey(k.id)} className="cursor-pointer pixel-sans text-xs text-red-400/70 hover:text-red-400 transition-colors flex-shrink-0">
+                                <button onClick={() => revokeApiKey(k.id)} className="cursor-pointer pixel-sans text-xs text-danger/70 hover:text-danger transition-colors flex-shrink-0">
                                   Revoke
                                 </button>
                               </div>
                             ))}
                           </div>
                         ) : (
-                          <p className="pixel-sans text-white/40 text-xs">No active keys.</p>
+                          <p className="pixel-sans text-fg-40 text-xs">No active keys.</p>
                         )}
                       </div>
                     </div>
@@ -864,10 +864,10 @@ export default function SettingsPage() {
                   {/* Resale key: only for stakers who actually have a daily
                       allowance to resell. Spends allowance only, never deposited USDC. */}
                   {allowance?.enabled && allowance.dailyAllowance > 0 && (
-                    <section className="border border-[#80a0c1]/30 bg-[#80a0c1]/[0.04] rounded-2xl p-5 md:p-6">
-                      <h2 className="pixel-serif text-white text-xl">Resale key</h2>
-                      <p className="pixel-sans text-white/60 text-[13px] leading-relaxed mt-1.5">
-                        You have <span className="text-[#80a0c1] tabular-nums">{allowance.dailyAllowance}</span> credits per day of staking allowance ({allowance.remaining} left today). A resale key lets a marketplace spend only this daily allowance, never your deposited balance, so you can sell your unused inference. Safe to share.
+                    <section className="border border-steel/30 bg-steel/[0.04] rounded-2xl p-5 md:p-6">
+                      <h2 className="pixel-serif text-fg text-xl">Resale key</h2>
+                      <p className="pixel-sans text-fg-60 text-[13px] leading-relaxed mt-1.5">
+                        You have <span className="text-steel tabular-nums">{allowance.dailyAllowance}</span> credits per day of staking allowance ({allowance.remaining} left today). A resale key lets a marketplace spend only this daily allowance, never your deposited balance, so you can sell your unused inference. Safe to share.
                       </p>
                       <div className="mt-5 space-y-3">
                         <CopyField
@@ -893,7 +893,7 @@ export default function SettingsPage() {
                   <Card
                     title="Credits"
                     description="Credits pay for prompts and API usage."
-                    footer={<p className="pixel-sans text-white/40 text-[11px]">1 credit = $0.01 USD.</p>}
+                    footer={<p className="pixel-sans text-fg-40 text-[11px]">1 credit = $0.01 USD.</p>}
                   >
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                       <Stat label="Balance" value={(credits?.balance ?? 0).toFixed(0)} />
@@ -907,21 +907,21 @@ export default function SettingsPage() {
                       <Stat label="Requests" value={(usage?.totalRequests ?? 0).toLocaleString()} />
                       <Stat label="Tokens generated" value={(usage?.totalTokens ?? 0).toLocaleString()} />
                     </div>
-                    <div className="mt-5 pt-4 border-t border-white/[0.06]">
-                      <div className="pixel-sans text-white/40 text-[10px] uppercase tracking-[0.14em] mb-2">By model</div>
+                    <div className="mt-5 pt-4 border-t border-fg/[0.06]">
+                      <div className="pixel-sans text-fg-40 text-[10px] uppercase tracking-[0.14em] mb-2">By model</div>
                       {usage && usage.byModel.length > 0 ? (
-                        <div className="divide-y divide-white/[0.05] border border-white/[0.06] rounded-xl px-3">
+                        <div className="divide-y divide-fg/[0.05] border border-fg/[0.06] rounded-xl px-3">
                           {usage.byModel.map((m) => (
                             <div key={m.model} className="flex items-center justify-between gap-3 py-2.5">
-                              <span className="pixel-sans text-white/80 text-xs font-mono truncate">{m.model}</span>
-                              <span className="pixel-sans text-white/50 text-xs tabular-nums whitespace-nowrap">
+                              <span className="pixel-sans text-fg-80 text-xs font-mono truncate">{m.model}</span>
+                              <span className="pixel-sans text-fg-50 text-xs tabular-nums whitespace-nowrap">
                                 {m.requests.toLocaleString()} req · {m.tokens.toLocaleString()} tok
                               </span>
                             </div>
                           ))}
                         </div>
                       ) : (
-                        <p className="pixel-sans text-white/40 text-xs">No usage recorded yet.</p>
+                        <p className="pixel-sans text-fg-40 text-xs">No usage recorded yet.</p>
                       )}
                     </div>
                   </Card>
@@ -932,8 +932,8 @@ export default function SettingsPage() {
                   >
                     <div className="space-y-4">
                       <div>
-                        <div className="flex items-center gap-2 bg-white/[0.03] border border-white/10 rounded-xl p-3 focus-within:border-white/25 transition-colors">
-                          <span className="pixel-sans text-white/50 text-base">$</span>
+                        <div className="flex items-center gap-2 bg-fg/[0.03] border border-fg/10 rounded-xl p-3 focus-within:border-field-focus transition-colors">
+                          <span className="pixel-sans text-fg-50 text-base">$</span>
                           <input
                             type="number"
                             inputMode="decimal"
@@ -941,27 +941,27 @@ export default function SettingsPage() {
                             value={topUpUsd}
                             onChange={(ev) => setTopUpUsd(ev.target.value)}
                             placeholder="0"
-                            className="flex-1 bg-transparent outline-none pixel-serif text-white text-lg tabular-nums placeholder:text-white/30 min-w-0"
+                            className="flex-1 bg-transparent outline-none pixel-serif text-fg text-lg tabular-nums placeholder:text-fg-30 min-w-0"
                           />
-                          <span className="pixel-sans text-white/50 text-xs whitespace-nowrap">USDC</span>
+                          <span className="pixel-sans text-fg-50 text-xs whitespace-nowrap">USDC</span>
                         </div>
                         <div className="flex items-baseline justify-between mt-2.5">
-                          <span className="pixel-serif text-white text-xl tabular-nums">
-                            {topUpCredits.toLocaleString()} <span className="text-white/50 text-sm">credits</span>
+                          <span className="pixel-serif text-fg text-xl tabular-nums">
+                            {topUpCredits.toLocaleString()} <span className="text-fg-50 text-sm">credits</span>
                           </span>
-                          <span className="pixel-sans text-white/40 text-[11px] tabular-nums">$1 = {CREDITS_PER_USD} credits</span>
+                          <span className="pixel-sans text-fg-40 text-[11px] tabular-nums">$1 = {CREDITS_PER_USD} credits</span>
                         </div>
                       </div>
 
                       <div>
-                        <div className="pixel-sans text-white/40 text-[10px] uppercase tracking-[0.14em] mb-2">Your deposit address</div>
+                        <div className="pixel-sans text-fg-40 text-[10px] uppercase tracking-[0.14em] mb-2">Your deposit address</div>
                         <CopyField
                           text={credits?.depositWallet ?? null}
                           display={credits?.depositWallet || 'Deposit address unavailable'}
                           accent={!!credits?.depositWallet}
                           wrap
                         />
-                        <p className="pixel-sans text-white/40 text-[11px] mt-1.5">
+                        <p className="pixel-sans text-fg-40 text-[11px] mt-1.5">
                           Send only USDC (SPL token) to this address. Other tokens will be lost.
                         </p>
                       </div>
@@ -977,22 +977,22 @@ export default function SettingsPage() {
 
                   {credits?.recentTransactions && credits.recentTransactions.length > 0 && (
                     <Card title="Transaction history" description="Recent credit activity on your account.">
-                      <div className="divide-y divide-white/[0.05] border border-white/[0.06] rounded-xl px-3">
+                      <div className="divide-y divide-fg/[0.05] border border-fg/[0.06] rounded-xl px-3">
                         {credits.recentTransactions.map((tx, i) => (
                           <div key={i} className="flex items-center justify-between gap-3 py-2.5">
                             <div className="flex items-center gap-3 min-w-0">
                               <span className={`pixel-sans text-[10px] px-2 py-0.5 rounded flex-shrink-0 ${
-                                tx.type === 'deposit' ? 'bg-emerald-400/10 text-emerald-400' :
-                                tx.type === 'refund' ? 'bg-[#80a0c1]/10 text-[#80a0c1]' :
-                                'bg-white/5 text-white/60'
+                                tx.type === 'deposit' ? 'bg-success/10 text-success' :
+                                tx.type === 'refund' ? 'bg-steel/10 text-steel' :
+                                'bg-fg/5 text-fg-60'
                               }`}>{txLabel(tx.type)}</span>
-                              <span className="pixel-sans text-white/60 text-xs truncate">{tx.description}</span>
+                              <span className="pixel-sans text-fg-60 text-xs truncate">{tx.description}</span>
                             </div>
                             <div className="flex items-baseline gap-3 flex-shrink-0">
-                              <span className={`pixel-sans text-sm tabular-nums ${tx.amount === 0 || tx.type === 'spend' ? 'text-white/60' : 'text-emerald-400/90'}`}>
+                              <span className={`pixel-sans text-sm tabular-nums ${tx.amount === 0 || tx.type === 'spend' ? 'text-fg-60' : 'text-success'}`}>
                                 {tx.amount === 0 ? '0' : `${tx.type === 'spend' ? '-' : '+'}${tx.amount}`}
                               </span>
-                              <span className="pixel-sans text-white/40 text-[11px] tabular-nums">{new Date(tx.created_at).toLocaleDateString()}</span>
+                              <span className="pixel-sans text-fg-40 text-[11px] tabular-nums">{new Date(tx.created_at).toLocaleDateString()}</span>
                             </div>
                           </div>
                         ))}
@@ -1007,9 +1007,9 @@ export default function SettingsPage() {
               {activeTab === 'referrals' && (
                 <Card
                   title="Referrals"
-                  description={<>Share your link. You earn <span className="text-white">5%</span> of the USDC value of every prompt your referrals pay for, forever.</>}
+                  description={<>Share your link. You earn <span className="text-fg">5%</span> of the USDC value of every prompt your referrals pay for, forever.</>}
                   footer={
-                    <p className="pixel-sans text-white/40 text-[11px] leading-relaxed">
+                    <p className="pixel-sans text-fg-40 text-[11px] leading-relaxed">
                       Referrals bind when someone signs up within 30 days of using your link. Free prompts and staking allowance usage do not pay referral fees. Earnings are withdrawable as USDC (rolling out).
                     </p>
                   }
@@ -1028,20 +1028,20 @@ export default function SettingsPage() {
                     </div>
 
                     <div className="pt-2">
-                      <div className="pixel-sans text-white/40 text-[10px] uppercase tracking-[0.14em] mb-2">Recent earnings</div>
+                      <div className="pixel-sans text-fg-40 text-[10px] uppercase tracking-[0.14em] mb-2">Recent earnings</div>
                       {referrals && referrals.recent.length > 0 ? (
-                        <div className="divide-y divide-white/[0.05] border border-white/[0.06] rounded-xl px-3">
+                        <div className="divide-y divide-fg/[0.05] border border-fg/[0.06] rounded-xl px-3">
                           {referrals.recent.map((r, i) => (
                             <div key={i} className="flex items-center justify-between gap-3 py-2.5">
-                              <span className="pixel-sans text-white/50 text-xs">
+                              <span className="pixel-sans text-fg-50 text-xs">
                                 {new Date(r.created_at).toLocaleDateString()} · {r.tier}
                               </span>
-                              <span className="pixel-sans text-emerald-400/90 text-xs tabular-nums">${r.usd.toFixed(4)}</span>
+                              <span className="pixel-sans text-success text-xs tabular-nums">${r.usd.toFixed(4)}</span>
                             </div>
                           ))}
                         </div>
                       ) : (
-                        <p className="pixel-sans text-white/40 text-xs">Earnings appear here when a referral pays for a prompt.</p>
+                        <p className="pixel-sans text-fg-40 text-xs">Earnings appear here when a referral pays for a prompt.</p>
                       )}
                     </div>
                   </div>

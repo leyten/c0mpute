@@ -186,7 +186,7 @@ function LoginInner() {
   const pending = !ready || busy !== null || oauthReturning || authenticated;
 
   return (
-    <div className="ui-readable min-h-screen bg-black flex flex-col items-center justify-center px-4 py-16">
+    <div className="ui-readable min-h-screen bg-background flex flex-col items-center justify-center px-4 py-16">
       {/* Privy bot protection: the modal mounted this internally; a headless
           page must mount it itself or every SIWS login throws "Captcha failed".
           onSuccess/onExpire drive the button gate above — tokens expire after
@@ -195,10 +195,10 @@ function LoginInner() {
         onSuccess={() => setCaptchaSolved(true)}
         onExpire={() => setCaptchaSolved(false)}
       />
-      <div className="w-full max-w-sm rounded-2xl border border-white/10 bg-[#141210] p-8 shadow-2xl">
+      <div className="w-full max-w-sm rounded-2xl border border-fg/10 bg-raise p-8 shadow-2xl">
         {/* Wordmark */}
         <div className="flex justify-center mb-6">
-          <a href="/" className="cursor-pointer pixel-serif-logo text-white text-xl font-bold flex items-center">
+          <a href="/" className="cursor-pointer pixel-serif-logo text-fg text-xl font-bold flex items-center">
             {brand.mark ? (
               <span className="flex items-center gap-2">
                 <LogoMark className="w-5 h-5 shrink-0" />
@@ -212,8 +212,8 @@ function LoginInner() {
           </a>
         </div>
 
-        <h1 className="pixel-serif text-white text-2xl text-center mb-2">{`Sign in to ${brand.name}`}</h1>
-        <p className="pixel-sans text-white/50 text-xs text-center mb-7 leading-relaxed">
+        <h1 className="pixel-serif text-fg text-2xl text-center mb-2">{`Sign in to ${brand.name}`}</h1>
+        <p className="pixel-sans text-fg-50 text-xs text-center mb-7 leading-relaxed">
           Sign in with X to start. Your first prompts are free.
         </p>
 
@@ -221,7 +221,7 @@ function LoginInner() {
         <button
           onClick={signInWithX}
           disabled={pending}
-          className="w-full pixel-serif py-3 rounded-xl bg-white text-black hover:bg-white/90 transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-default flex items-center justify-center gap-2.5"
+          className="w-full pixel-serif py-3 rounded-xl bg-fg text-on-fg hover:bg-fg/90 transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-default flex items-center justify-center gap-2.5"
         >
           <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
             <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
@@ -231,9 +231,9 @@ function LoginInner() {
 
         {/* Divider */}
         <div className="flex items-center gap-3 my-5">
-          <div className="h-px flex-1 bg-white/10" />
-          <span className="pixel-sans text-white/30 text-xs">or</span>
-          <div className="h-px flex-1 bg-white/10" />
+          <div className="h-px flex-1 bg-fg/10" />
+          <span className="pixel-sans text-fg-30 text-xs">or</span>
+          <div className="h-px flex-1 bg-fg/10" />
         </div>
 
         {/* Solana wallets */}
@@ -244,7 +244,7 @@ function LoginInner() {
                 key={w.name}
                 onClick={() => signInWithWallet(w)}
                 disabled={pending}
-                className="w-full pixel-sans text-sm text-white/80 hover:text-white py-2.5 px-4 rounded-xl border border-white/10 hover:border-white/25 bg-black/40 transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-default flex items-center justify-center gap-2.5"
+                className="w-full pixel-sans text-sm text-fg-80 hover:text-fg py-2.5 px-4 rounded-xl border border-fg/10 hover:border-fg/25 bg-recess transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-default flex items-center justify-center gap-2.5"
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={w.icon} alt="" width={16} height={16} className="rounded-[3px]" />
@@ -253,13 +253,13 @@ function LoginInner() {
             ))}
           </div>
         ) : (
-          <p className="pixel-sans text-white/35 text-xs text-center leading-relaxed">
+          <p className="pixel-sans text-fg-35 text-xs text-center leading-relaxed">
             No Solana wallet detected.{' '}
             <a
               href="https://phantom.com"
               target="_blank"
               rel="noopener noreferrer"
-              className="underline hover:text-white/60 transition-colors"
+              className="underline hover:text-fg-60 transition-colors"
             >
               Install Phantom
             </a>{' '}
@@ -268,11 +268,11 @@ function LoginInner() {
         )}
 
         {error && (
-          <p className="pixel-sans text-red-400/90 text-xs text-center mt-4 leading-relaxed">{error}</p>
+          <p className="pixel-sans text-danger text-xs text-center mt-4 leading-relaxed">{error}</p>
         )}
       </div>
 
-      <p className="pixel-sans text-white/40 text-xs text-center mt-6 leading-relaxed">
+      <p className="pixel-sans text-fg-40 text-xs text-center mt-6 leading-relaxed">
         New here? Your account is created the first time you sign in.
       </p>
     </div>
@@ -282,7 +282,7 @@ function LoginInner() {
 export default function LoginPage() {
   // useSearchParams requires a Suspense boundary in the app router.
   return (
-    <Suspense fallback={<div className="min-h-screen bg-black" />}>
+    <Suspense fallback={<div className="min-h-screen bg-background" />}>
       <LoginInner />
     </Suspense>
   );
