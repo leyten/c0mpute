@@ -51,9 +51,9 @@ const TABS: { id: AdminTab; label: string }[] = [
 ];
 
 /* ---------- shared button styles ---------- */
-const btnPrimary = 'cursor-pointer pixel-sans text-[13px] font-medium px-4 py-2 rounded-lg bg-white text-black hover:bg-white/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed';
-const btnSecondary = 'cursor-pointer pixel-sans text-[13px] px-4 py-2 rounded-lg border border-white/20 text-white hover:bg-white/5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed';
-const btnGhostSmall = 'cursor-pointer pixel-sans text-[11px] px-2.5 py-1 rounded-md border border-white/10 text-white/70 hover:text-white hover:bg-white/5 transition-colors whitespace-nowrap';
+const btnPrimary = 'cursor-pointer pixel-sans text-[13px] font-medium px-4 py-2 rounded-lg bg-fg text-on-fg hover:bg-fg/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed';
+const btnSecondary = 'cursor-pointer pixel-sans text-[13px] px-4 py-2 rounded-lg border border-fg/20 text-fg hover:bg-fg/5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed';
+const btnGhostSmall = 'cursor-pointer pixel-sans text-[11px] px-2.5 py-1 rounded-md border border-fg/10 text-fg-70 hover:text-fg hover:bg-fg/5 transition-colors whitespace-nowrap';
 
 /* ---------- primitives ---------- */
 
@@ -63,9 +63,9 @@ function Stat({ label, value, tone = 'default' }: {
   tone?: 'default' | 'dim';
 }) {
   return (
-    <div className="border border-white/10 bg-white/[0.02] rounded-2xl px-5 py-4 min-w-0">
-      <div className="pixel-sans text-white/40 text-[10px] uppercase tracking-[0.14em] whitespace-nowrap">{label}</div>
-      <div className={`pixel-serif text-2xl mt-1.5 tabular-nums truncate ${tone === 'dim' ? 'text-white/70' : 'text-white'}`}>{value}</div>
+    <div className="border border-fg/10 bg-fg/[0.02] rounded-2xl px-5 py-4 min-w-0">
+      <div className="pixel-sans text-fg-40 text-[10px] uppercase tracking-[0.14em] whitespace-nowrap">{label}</div>
+      <div className={`pixel-serif text-2xl mt-1.5 tabular-nums truncate ${tone === 'dim' ? 'text-fg-70' : 'text-fg'}`}>{value}</div>
     </div>
   );
 }
@@ -76,10 +76,10 @@ function Chip({ tone = 'neutral', title, children }: {
   children: React.ReactNode;
 }) {
   const cls =
-    tone === 'positive' ? 'bg-emerald-400/10 text-emerald-400' :
-    tone === 'negative' ? 'bg-red-400/10 text-red-400' :
-    tone === 'accent' ? 'bg-[#80a0c1]/10 text-[#80a0c1]' :
-    'bg-white/5 text-white/60';
+    tone === 'positive' ? 'bg-success/10 text-success' :
+    tone === 'negative' ? 'bg-danger/10 text-danger' :
+    tone === 'accent' ? 'bg-steel/10 text-steel' :
+    'bg-fg/5 text-fg-60';
   return (
     <span title={title} className={`pixel-sans inline-block px-2 py-0.5 rounded text-[10px] ${cls}`}>
       {children}
@@ -94,11 +94,11 @@ function TableCard({ title, meta, action, children }: {
   children: React.ReactNode;
 }) {
   return (
-    <section className="border border-white/10 bg-white/[0.02] rounded-2xl overflow-hidden">
+    <section className="border border-fg/10 bg-fg/[0.02] rounded-2xl overflow-hidden">
       <div className="px-6 pt-5 pb-4 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-baseline gap-3">
-          <h2 className="pixel-serif text-white text-lg">{title}</h2>
-          {meta !== undefined && <span className="pixel-sans text-white/40 text-xs tabular-nums">{meta}</span>}
+          <h2 className="pixel-serif text-fg text-lg">{title}</h2>
+          {meta !== undefined && <span className="pixel-sans text-fg-40 text-xs tabular-nums">{meta}</span>}
         </div>
         {action}
       </div>
@@ -107,7 +107,7 @@ function TableCard({ title, meta, action, children }: {
   );
 }
 
-const thCls = 'pixel-sans text-white/40 text-[10px] uppercase tracking-[0.14em] font-normal pb-2.5 pr-4 whitespace-nowrap';
+const thCls = 'pixel-sans text-fg-40 text-[10px] uppercase tracking-[0.14em] font-normal pb-2.5 pr-4 whitespace-nowrap';
 const thNumCls = `${thCls} text-right`;
 
 export default function DashboardPage() {
@@ -207,18 +207,18 @@ export default function DashboardPage() {
   /* ── Gate ── */
   if (!authed) {
     return (
-      <div className="min-h-screen bg-black flex items-center justify-center px-4">
-        <div className="border border-white/10 bg-white/[0.02] rounded-2xl p-8 max-w-sm w-full">
-          <div className="pixel-serif-logo text-white/40 text-sm mb-6">{brand.name}</div>
-          <h1 className="pixel-serif text-white text-2xl">Admin console</h1>
-          <p className="pixel-sans text-white/50 text-sm mt-1.5 mb-6">Enter the admin key to continue.</p>
+      <div className="min-h-screen bg-background flex items-center justify-center px-4">
+        <div className="border border-fg/10 bg-fg/[0.02] rounded-2xl p-8 max-w-sm w-full">
+          <div className="pixel-serif-logo text-fg-40 text-sm mb-6">{brand.name}</div>
+          <h1 className="pixel-serif text-fg text-2xl">Admin console</h1>
+          <p className="pixel-sans text-fg-50 text-sm mt-1.5 mb-6">Enter the admin key to continue.</p>
           <input
             type="password"
             value={token}
             onChange={e => setToken(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && handleLogin()}
             placeholder="Admin key"
-            className="w-full bg-white/[0.03] border border-white/10 rounded-xl text-white px-4 py-3 mb-4 pixel-sans text-sm focus:outline-none focus:border-white/25 placeholder:text-white/30 transition-colors"
+            className="w-full bg-fg/[0.03] border border-fg/10 rounded-xl text-fg px-4 py-3 mb-4 pixel-sans text-sm focus:outline-none focus:border-field-focus placeholder:text-fg-30 transition-colors"
           />
           <button onClick={handleLogin} className={`${btnPrimary} w-full py-2.5`}>
             Authenticate
@@ -237,12 +237,12 @@ export default function DashboardPage() {
     : users;
 
   return (
-    <div className="min-h-screen bg-black">
+    <div className="min-h-screen bg-background">
       {/* Header */}
-      <header className="border-b border-white/[0.08] sticky top-0 z-50 bg-black/80 backdrop-blur-sm">
+      <header className="border-b border-fg/[0.08] sticky top-0 z-50 bg-background/80 backdrop-blur-sm">
         <div className="max-w-6xl mx-auto px-4 md:px-6 h-16 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 min-w-0">
-            <a href="/" className="cursor-pointer pixel-serif-logo text-white text-lg flex items-center flex-shrink-0">
+            <a href="/" className="cursor-pointer pixel-serif-logo text-fg text-lg flex items-center flex-shrink-0">
               {brand.mark ? (
                 <span className="flex items-center gap-2">
                   <LogoMark className="w-5 h-5 shrink-0" />
@@ -254,18 +254,18 @@ export default function DashboardPage() {
                 </>
               )}
             </a>
-            <span className="pixel-sans text-white/40 text-[10px] uppercase tracking-[0.14em] border border-white/10 rounded px-1.5 py-0.5">
+            <span className="pixel-sans text-fg-40 text-[10px] uppercase tracking-[0.14em] border border-fg/10 rounded px-1.5 py-0.5">
               admin
             </span>
           </div>
           <div className="flex items-center gap-4">
-            <div className="flex items-center gap-0.5 border border-white/10 bg-white/[0.02] rounded-lg p-0.5">
+            <div className="flex items-center gap-0.5 border border-fg/10 bg-fg/[0.02] rounded-lg p-0.5">
               {TABS.map(t => (
                 <button
                   key={t.id}
                   onClick={() => setTab(t.id)}
                   className={`cursor-pointer pixel-sans text-xs px-3 py-1.5 rounded-md transition-colors ${
-                    tab === t.id ? 'bg-white/[0.08] text-white' : 'text-white/50 hover:text-white/80'
+                    tab === t.id ? 'bg-fg/[0.08] text-fg' : 'text-fg-50 hover:text-fg-80'
                   }`}
                 >
                   {t.label}
@@ -274,7 +274,7 @@ export default function DashboardPage() {
             </div>
             <button
               onClick={() => { sessionStorage.removeItem('admin_token'); setAuthed(false); }}
-              className="cursor-pointer pixel-sans text-xs text-white/40 hover:text-white transition-colors whitespace-nowrap"
+              className="cursor-pointer pixel-sans text-xs text-fg-40 hover:text-fg transition-colors whitespace-nowrap"
             >
               Sign out
             </button>
@@ -285,12 +285,12 @@ export default function DashboardPage() {
       <main className="max-w-6xl mx-auto px-4 md:px-6 py-8">
         {/* Action result banner */}
         {actionResult && (
-          <div className="mb-6 flex items-center justify-between gap-4 border border-[#80a0c1]/25 bg-[#80a0c1]/[0.07] rounded-xl px-4 py-3">
-            <span className="pixel-sans text-[#80a0c1] text-sm">{actionResult}</span>
+          <div className="mb-6 flex items-center justify-between gap-4 border border-steel/25 bg-steel/[0.07] rounded-xl px-4 py-3">
+            <span className="pixel-sans text-steel text-sm">{actionResult}</span>
             <button
               onClick={() => setActionResult(null)}
               aria-label="Dismiss"
-              className="cursor-pointer text-[#80a0c1]/60 hover:text-[#80a0c1] transition-colors flex-shrink-0"
+              className="cursor-pointer text-steel-60 hover:text-steel transition-colors flex-shrink-0"
             >
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
                 <path d="M18 6L6 18M6 6l12 12" />
@@ -299,7 +299,7 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {loading && <p className="pixel-sans text-white/40 text-xs mb-4">Loading</p>}
+        {loading && <p className="pixel-sans text-fg-40 text-xs mb-4">Loading</p>}
 
         {/* ── Overview ── */}
         {tab === 'overview' && overview && (
@@ -322,7 +322,7 @@ export default function DashboardPage() {
                 <div className="overflow-x-auto">
                   <table className="w-full text-left">
                     <thead>
-                      <tr className="border-b border-white/[0.06]">
+                      <tr className="border-b border-fg/[0.06]">
                         <th className={thCls}>ID</th>
                         <th className={thCls}>Worker</th>
                         <th className={thCls}>Tier</th>
@@ -331,22 +331,22 @@ export default function DashboardPage() {
                         <th className={`${thCls} pr-0`}>Time</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-white/[0.04]">
+                    <tbody className="divide-y divide-fg/[0.04]">
                       {overview.recentJobs.map((j: any) => (
                         <tr key={j.id}>
-                          <td className="pixel-sans text-white/70 text-xs py-2.5 pr-4 font-mono">{j.id?.slice(0, 8)}</td>
-                          <td className="pixel-sans text-white/50 text-xs py-2.5 pr-4 font-mono">{j.worker_privy_id?.slice(-8)}</td>
-                          <td className="pixel-sans text-white/50 text-xs py-2.5 pr-4">{j.tier}</td>
-                          <td className="pixel-sans text-white/70 text-xs py-2.5 pr-4 text-right tabular-nums">{j.tokens_generated}</td>
-                          <td className="pixel-sans text-white/70 text-xs py-2.5 pr-4 text-right tabular-nums">{j.duration_ms ? `${(j.duration_ms / 1000).toFixed(1)}s` : '—'}</td>
-                          <td className="pixel-sans text-white/50 text-xs py-2.5 tabular-nums">{j.completed_at ? new Date(j.completed_at).toLocaleString() : '—'}</td>
+                          <td className="pixel-sans text-fg-70 text-xs py-2.5 pr-4 font-mono">{j.id?.slice(0, 8)}</td>
+                          <td className="pixel-sans text-fg-50 text-xs py-2.5 pr-4 font-mono">{j.worker_privy_id?.slice(-8)}</td>
+                          <td className="pixel-sans text-fg-50 text-xs py-2.5 pr-4">{j.tier}</td>
+                          <td className="pixel-sans text-fg-70 text-xs py-2.5 pr-4 text-right tabular-nums">{j.tokens_generated}</td>
+                          <td className="pixel-sans text-fg-70 text-xs py-2.5 pr-4 text-right tabular-nums">{j.duration_ms ? `${(j.duration_ms / 1000).toFixed(1)}s` : '—'}</td>
+                          <td className="pixel-sans text-fg-50 text-xs py-2.5 tabular-nums">{j.completed_at ? new Date(j.completed_at).toLocaleString() : '—'}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
               ) : (
-                <p className="pixel-sans text-white/40 text-xs">No jobs recorded yet.</p>
+                <p className="pixel-sans text-fg-40 text-xs">No jobs recorded yet.</p>
               )}
             </TableCard>
 
@@ -356,7 +356,7 @@ export default function DashboardPage() {
                 <div className="overflow-x-auto">
                   <table className="w-full text-left">
                     <thead>
-                      <tr className="border-b border-white/[0.06]">
+                      <tr className="border-b border-fg/[0.06]">
                         <th className={thCls}>Worker</th>
                         <th className={thNumCls}>Amount</th>
                         <th className={thCls}>Wallet</th>
@@ -364,12 +364,12 @@ export default function DashboardPage() {
                         <th className={`${thCls} pr-0`}>Time</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-white/[0.04]">
+                    <tbody className="divide-y divide-fg/[0.04]">
                       {overview.recentPayouts.map((p: any) => (
                         <tr key={p.id}>
-                          <td className="pixel-sans text-white/50 text-xs py-2.5 pr-4 font-mono">{p.privy_id?.slice(-8)}</td>
-                          <td className="pixel-sans text-white/80 text-xs py-2.5 pr-4 text-right tabular-nums">${p.amount_usd?.toFixed(2)}</td>
-                          <td className="pixel-sans text-white/70 text-xs py-2.5 pr-4 font-mono">{p.wallet_address?.slice(0, 8)}...</td>
+                          <td className="pixel-sans text-fg-50 text-xs py-2.5 pr-4 font-mono">{p.privy_id?.slice(-8)}</td>
+                          <td className="pixel-sans text-fg-80 text-xs py-2.5 pr-4 text-right tabular-nums">${p.amount_usd?.toFixed(2)}</td>
+                          <td className="pixel-sans text-fg-70 text-xs py-2.5 pr-4 font-mono">{p.wallet_address?.slice(0, 8)}...</td>
                           <td className="py-2.5 pr-4">
                             <Chip tone={
                               p.status === 'completed' ? 'positive' :
@@ -377,7 +377,7 @@ export default function DashboardPage() {
                               'negative'
                             }>{p.status}</Chip>
                           </td>
-                          <td className="pixel-sans text-white/50 text-xs py-2.5 tabular-nums">{p.created_at ? new Date(p.created_at).toLocaleString() : '—'}</td>
+                          <td className="pixel-sans text-fg-50 text-xs py-2.5 tabular-nums">{p.created_at ? new Date(p.created_at).toLocaleString() : '—'}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -390,9 +390,9 @@ export default function DashboardPage() {
 
         {/* Overview zero state (API unreachable or empty response) */}
         {tab === 'overview' && !overview && !loading && (
-          <section className="border border-white/10 bg-white/[0.02] rounded-2xl p-10 text-center">
-            <h2 className="pixel-serif text-white text-lg">Overview unavailable</h2>
-            <p className="pixel-sans text-white/50 text-sm mt-1.5 mb-5">The admin API did not return any data.</p>
+          <section className="border border-fg/10 bg-fg/[0.02] rounded-2xl p-10 text-center">
+            <h2 className="pixel-serif text-fg text-lg">Overview unavailable</h2>
+            <p className="pixel-sans text-fg-50 text-sm mt-1.5 mb-5">The admin API did not return any data.</p>
             <button onClick={loadOverview} className={btnSecondary}>Retry</button>
           </section>
         )}
@@ -408,7 +408,7 @@ export default function DashboardPage() {
                 value={search}
                 onChange={e => setSearch(e.target.value)}
                 placeholder="Search name, wallet, or ID"
-                className="pixel-sans text-[13px] bg-white/[0.03] border border-white/10 rounded-lg px-3.5 py-2 text-white placeholder:text-white/30 focus:outline-none focus:border-white/25 w-full sm:w-64 transition-colors"
+                className="pixel-sans text-[13px] bg-fg/[0.03] border border-fg/10 rounded-lg px-3.5 py-2 text-fg placeholder:text-fg-30 focus:outline-none focus:border-field-focus w-full sm:w-64 transition-colors"
               />
             }
           >
@@ -416,7 +416,7 @@ export default function DashboardPage() {
               <div className="overflow-x-auto">
                 <table className="w-full text-left">
                   <thead>
-                    <tr className="border-b border-white/[0.06]">
+                    <tr className="border-b border-fg/[0.06]">
                       <th className={thCls}>User</th>
                       <th className={thCls}>Wallet</th>
                       <th className={thNumCls}>Credits</th>
@@ -425,28 +425,28 @@ export default function DashboardPage() {
                       <th className={`${thCls} pr-0 text-right`}>Actions</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-white/[0.04]">
+                  <tbody className="divide-y divide-fg/[0.04]">
                     {filteredUsers.map(u => (
                       <tr key={u.privy_id}>
                         <td className="py-3 pr-4">
-                          {u.x_username && <div className="pixel-sans text-white text-xs">@{u.x_username}</div>}
-                          <div className="pixel-sans text-white/40 text-[10px] font-mono">{u.privy_id.slice(-16)}</div>
+                          {u.x_username && <div className="pixel-sans text-fg text-xs">@{u.x_username}</div>}
+                          <div className="pixel-sans text-fg-40 text-[10px] font-mono">{u.privy_id.slice(-16)}</div>
                         </td>
-                        <td className="pixel-sans text-white/70 text-xs py-3 pr-4 font-mono">
+                        <td className="pixel-sans text-fg-70 text-xs py-3 pr-4 font-mono">
                           {u.wallet_address ? `${u.wallet_address.slice(0, 4)}...${u.wallet_address.slice(-4)}` : '—'}
                         </td>
                         <td className="py-3 pr-4 text-right whitespace-nowrap">
-                          <span className="pixel-sans text-white/80 text-xs tabular-nums">{u.credit_balance.toFixed(0)}</span>
-                          <span className="pixel-sans text-white/40 text-[10px] ml-1.5 tabular-nums">{u.credits_spent.toFixed(0)} spent</span>
+                          <span className="pixel-sans text-fg-80 text-xs tabular-nums">{u.credit_balance.toFixed(0)}</span>
+                          <span className="pixel-sans text-fg-40 text-[10px] ml-1.5 tabular-nums">{u.credits_spent.toFixed(0)} spent</span>
                         </td>
-                        <td className="pixel-sans text-white/60 text-xs py-3 pr-4 text-right tabular-nums">{u.worker_jobs}</td>
-                        <td className="pixel-sans text-white/60 text-xs py-3 pr-4 text-right tabular-nums">${u.worker_earnings_usd.toFixed(2)}</td>
+                        <td className="pixel-sans text-fg-60 text-xs py-3 pr-4 text-right tabular-nums">{u.worker_jobs}</td>
+                        <td className="pixel-sans text-fg-60 text-xs py-3 pr-4 text-right tabular-nums">${u.worker_earnings_usd.toFixed(2)}</td>
                         <td className="py-3">
                           <div className="flex gap-2 justify-end">
                             <button onClick={() => handleSetCredits(u.privy_id)} className={btnGhostSmall}>
                               Set credits
                             </button>
-                            <button onClick={() => handleAddCredits(u.privy_id)} className="cursor-pointer pixel-sans text-[11px] px-2.5 py-1 rounded-md border border-[#80a0c1]/30 text-[#80a0c1]/80 hover:text-[#80a0c1] hover:bg-[#80a0c1]/10 transition-colors whitespace-nowrap">
+                            <button onClick={() => handleAddCredits(u.privy_id)} className="cursor-pointer pixel-sans text-[11px] px-2.5 py-1 rounded-md border border-steel/30 text-steel/80 hover:text-steel hover:bg-steel/10 transition-colors whitespace-nowrap">
                               Add credits
                             </button>
                           </div>
@@ -457,7 +457,7 @@ export default function DashboardPage() {
                 </table>
               </div>
             ) : (
-              <p className="pixel-sans text-white/40 text-xs">
+              <p className="pixel-sans text-fg-40 text-xs">
                 {search.trim() ? 'No users match this search.' : 'No users loaded.'}
               </p>
             )}
@@ -469,17 +469,17 @@ export default function DashboardPage() {
           <TableCard
             title="Worker reputation"
             meta={reputation.length}
-            action={<span className="pixel-sans text-white/40 text-xs">Workers are banned automatically at 5 strikes</span>}
+            action={<span className="pixel-sans text-fg-40 text-xs">Workers are banned automatically at 5 strikes</span>}
           >
             {reputation.length === 0 ? (
-              <p className="pixel-sans text-white/40 text-xs leading-relaxed">
+              <p className="pixel-sans text-fg-40 text-xs leading-relaxed">
                 No flagged workers yet. Strikes appear here when a worker fails a canary, fails a coherence check, or returns output at impossible speed.
               </p>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-left">
                   <thead>
-                    <tr className="border-b border-white/[0.06]">
+                    <tr className="border-b border-fg/[0.06]">
                       <th className={thCls}>Worker</th>
                       <th className={thNumCls}>Canary pass / fail</th>
                       <th className={thNumCls}>Coherence fails</th>
@@ -490,21 +490,21 @@ export default function DashboardPage() {
                       <th className={`${thCls} pr-0 text-right`}>Actions</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-white/[0.04]">
+                  <tbody className="divide-y divide-fg/[0.04]">
                     {reputation.map(r => (
                       <tr key={r.privy_id}>
                         <td className="py-3 pr-4">
-                          {r.x_username && <div className="pixel-sans text-white text-xs">@{r.x_username}</div>}
-                          <div className="pixel-sans text-white/40 text-[10px] font-mono">{r.privy_id.slice(-16)}</div>
+                          {r.x_username && <div className="pixel-sans text-fg text-xs">@{r.x_username}</div>}
+                          <div className="pixel-sans text-fg-40 text-[10px] font-mono">{r.privy_id.slice(-16)}</div>
                         </td>
                         <td className="pixel-sans text-xs py-3 pr-4 text-right tabular-nums whitespace-nowrap">
-                          <span className="text-emerald-400">{r.canary_passed}</span>
-                          <span className="text-white/30"> / </span>
-                          <span className={r.canary_failed > 0 ? 'text-red-400' : 'text-white/50'}>{r.canary_failed}</span>
+                          <span className="text-success">{r.canary_passed}</span>
+                          <span className="text-fg-30"> / </span>
+                          <span className={r.canary_failed > 0 ? 'text-danger' : 'text-fg-50'}>{r.canary_failed}</span>
                         </td>
-                        <td className={`pixel-sans text-xs py-3 pr-4 text-right tabular-nums ${r.coherence_failed > 0 ? 'text-red-400' : 'text-white/50'}`}>{r.coherence_failed}</td>
-                        <td className={`pixel-sans text-xs py-3 pr-4 text-right tabular-nums ${r.speed_strikes > 0 ? 'text-red-400' : 'text-white/50'}`}>{r.speed_strikes}</td>
-                        <td className={`pixel-sans text-xs py-3 pr-4 text-right tabular-nums ${r.total_strikes >= 3 ? 'text-red-400' : r.total_strikes > 0 ? 'text-amber-400' : 'text-white/50'}`}>{r.total_strikes}</td>
+                        <td className={`pixel-sans text-xs py-3 pr-4 text-right tabular-nums ${r.coherence_failed > 0 ? 'text-danger' : 'text-fg-50'}`}>{r.coherence_failed}</td>
+                        <td className={`pixel-sans text-xs py-3 pr-4 text-right tabular-nums ${r.speed_strikes > 0 ? 'text-danger' : 'text-fg-50'}`}>{r.speed_strikes}</td>
+                        <td className={`pixel-sans text-xs py-3 pr-4 text-right tabular-nums ${r.total_strikes >= 3 ? 'text-danger' : r.total_strikes > 0 ? 'text-amber-400' : 'text-fg-50'}`}>{r.total_strikes}</td>
                         <td className="py-3 pr-4">
                           {r.banned ? (
                             <Chip tone="negative" title={r.ban_reason || undefined}>banned</Chip>
@@ -512,14 +512,14 @@ export default function DashboardPage() {
                             <Chip tone="positive">ok</Chip>
                           )}
                         </td>
-                        <td className="pixel-sans text-white/50 text-xs py-3 pr-4 tabular-nums">{r.updated_at ? new Date(r.updated_at).toLocaleString() : '—'}</td>
+                        <td className="pixel-sans text-fg-50 text-xs py-3 pr-4 tabular-nums">{r.updated_at ? new Date(r.updated_at).toLocaleString() : '—'}</td>
                         <td className="py-3 text-right">
                           {r.banned ? (
-                            <button onClick={() => handleUnban(r.privy_id)} className="cursor-pointer pixel-sans text-[11px] px-2.5 py-1 rounded-md border border-[#80a0c1]/30 text-[#80a0c1]/80 hover:text-[#80a0c1] hover:bg-[#80a0c1]/10 transition-colors whitespace-nowrap">
+                            <button onClick={() => handleUnban(r.privy_id)} className="cursor-pointer pixel-sans text-[11px] px-2.5 py-1 rounded-md border border-steel/30 text-steel/80 hover:text-steel hover:bg-steel/10 transition-colors whitespace-nowrap">
                               Unban
                             </button>
                           ) : (
-                            <span className="pixel-sans text-white/30 text-[10px]">—</span>
+                            <span className="pixel-sans text-fg-30 text-[10px]">—</span>
                           )}
                         </td>
                       </tr>
