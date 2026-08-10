@@ -111,12 +111,20 @@ export function pcIcon(ctx: CanvasRenderingContext2D, cx: number, cy: number, s:
 // canvas overlays read as cards, not floating black boxes.
 export function cardBox(ctx: CanvasRenderingContext2D, x: number, y: number, wd: number, ht: number, alpha: number) {
   if (alpha <= 0.01) return;
+  // 14px corners and a full border made this a UI card floating on the map.
+  // A near-square plate with a hairline and a single rule under the head reads
+  // as something printed on the page instead.
   ctx.beginPath();
-  ctx.roundRect(x, y, wd, ht, 14);
-  ctx.fillStyle = rgba(BG_RGB, 0.85 * alpha);
+  ctx.roundRect(x, y, wd, ht, 3);
+  ctx.fillStyle = rgba(BG_RGB, 0.9 * alpha);
   ctx.fill();
-  ctx.strokeStyle = w(0.12 * alpha);
+  ctx.strokeStyle = w(0.14 * alpha);
   ctx.lineWidth = 1;
+  ctx.stroke();
+  ctx.strokeStyle = w(0.08 * alpha);
+  ctx.beginPath();
+  ctx.moveTo(x + 12, Math.round(y + 26) + 0.5);
+  ctx.lineTo(x + wd - 12, Math.round(y + 26) + 0.5);
   ctx.stroke();
 }
 
@@ -283,12 +291,25 @@ export function layerStack(
 // Measured-capability bar (admit scene), named — card-attached text stays.
 export function meter(ctx: CanvasRenderingContext2D, x: number, y: number, wd: number, name: string, fill: number, alpha: number) {
   if (alpha <= 0.01) return;
-  label(ctx, name, x, y - 11, alpha, 12, 'left');
-  ctx.strokeStyle = w(alpha * 0.5);
+  label(ctx, name, x, y - 13, alpha, 11, 'left');
+  // A rule with a weight laid over it, not a boxed progress bar. The outlined
+  // rectangle read as a browser widget next to a serif; a hairline track with a
+  // heavier ink run over it reads as a printed measure.
+  const yy = Math.round(y + 5) + 0.5;
+  ctx.lineCap = 'butt';
+  ctx.strokeStyle = w(alpha * 0.22);
   ctx.lineWidth = 1;
-  ctx.strokeRect(Math.round(x) + 0.5, Math.round(y) + 0.5, Math.round(wd), 10);
-  ctx.fillStyle = w(alpha * 0.9);
-  ctx.fillRect(x + 1.5, y + 1.5, (wd - 3) * clamp01(fill), 7);
+  ctx.beginPath(); ctx.moveTo(x, yy); ctx.lineTo(x + wd, yy); ctx.stroke();
+  ctx.strokeStyle = w(alpha * 0.85);
+  ctx.lineWidth = 3;
+  const run = wd * clamp01(fill);
+  if (run > 0.5) { ctx.beginPath(); ctx.moveTo(x, yy); ctx.lineTo(x + run, yy); ctx.stroke(); }
+  // a tick at the head of the run, the way a scale is marked
+  if (run > 2) {
+    ctx.strokeStyle = w(alpha * 0.85); ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x + run, yy - 4); ctx.lineTo(x + run, yy + 4); ctx.stroke();
+  }
+  ctx.lineWidth = 1;
 }
 
 // ---------- globe ----------
@@ -355,7 +376,14 @@ export function drawGlobe(ctx: CanvasRenderingContext2D, v: GlobeView) {
   const wpx = ctx.canvas.clientWidth || ctx.canvas.width;
   const hpx = ctx.canvas.clientHeight || ctx.canvas.height;
   const aScale = v.dense ? 0.7 : 1;
-  const stride = v.stride ?? 1;
+  // The paper weighting below is calibrated for the full-stage globe. The same
+  // ink on a card-sized one packs into a solid blot, so scale it back with the
+  // radius and drop every other dot under ~90px — fewer, lighter marks read as
+  // a sphere where more of them read as a smudge.
+  const small = ON_PAPER ? clamp01((v.R - 55) / 95) : 1;
+  const paperK = ON_PAPER ? 0.45 + 0.55 * small : 1;
+  const thin = ON_PAPER && v.R < 90 ? 2 : 1;
+  const stride = (v.stride ?? 1) * thin;
   for (let i = 0; i < n; i += stride) {
     rotv(L, i * 3, v.yaw, v.tilt, _t);
     if (_t[2] <= 0.02) continue;
@@ -365,10 +393,10 @@ export function drawGlobe(ctx: CanvasRenderingContext2D, v: GlobeView) {
       // range, and give each dot a third pixel — 2px at 20% ink vanishes at
       // arm's length where 3px at 55% does not.
       const a = ON_PAPER
-        ? (0.30 + 0.55 * _t[2]) * v.alpha * aScale
+        ? (0.30 + 0.55 * _t[2]) * v.alpha * aScale * paperK
         : (0.06 + 0.34 * _t[2]) * v.alpha * aScale;
       ctx.fillStyle = w(a);
-      const d = ON_PAPER ? 3 : 2;
+      const d = ON_PAPER && v.R >= 90 ? 3 : 2;
       ctx.fillRect(sx | 0, sy | 0, d, d);
   }
 }
