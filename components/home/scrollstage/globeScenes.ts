@@ -105,6 +105,53 @@ export function drawGlobeStory(ctx: CanvasRenderingContext2D, W: number, H: numb
     }
   }
 
+  // ── the plate ───────────────────────────────────────────────────────────────
+  // One rectangle in the right margin, opposite the copy column. Every scene
+  // that needs a diagram draws into this same rect, so the story reads as a
+  // single plate whose contents change as it advances rather than as cards
+  // surfacing in different places each chapter.
+  const tall = desktop;
+  const pad = tall ? 22 : 14;
+  // The header and caption bands. A scene puts its title in the first and its
+  // conclusion in the last, which is what keeps three different diagrams
+  // reading as one object.
+  const hdr = tall ? 40 : 26, cap = tall ? 24 : 13;
+  const LEAVES = 32;
+  const pitchMax = tall ? 6 : 4, gapU = tall ? 9 : 5;
+  // Sized from the gap it has to live in: the copy column runs from 26% to
+  // 26% + max-w-sm, so the plate takes what is left before the right margin,
+  // which itself has to clear the progress ticks 40px in.
+  const rail = 72;
+  const colR = W * 0.26 + 384;
+  const plateW = tall
+    ? Math.max(196, Math.min(300, W - rail - colR - 24))
+    : Math.min(W - 2 * Math.max(16, W * 0.045), 500);
+  // Height comes from the densest tenant — the leaf block of scene 03. A text
+  // block is dense, so its pitch is fixed and the plate is cut to fit it.
+  const plateH = tall
+    ? LEAVES * pitchMax + gapU * 2 + hdr + cap + 2 * pad
+    : Math.min(H * 0.25, 250, Math.max(172, H * 0.44 - 104 - 86));
+  const plateX = tall ? W - rail - plateW : W * 0.5 - plateW / 2;
+  const plateY = tall ? (H - plateH) / 2 : 86;
+  const plateCx = plateX + plateW / 2;
+  // The band between the header and the caption. Every scene lays its content
+  // out inside this, which is what makes three different diagrams sit on the
+  // same baselines as the plate changes hands.
+  const bandTop = plateY + pad + hdr;
+  const bandBot = plateY + plateH - pad - cap;
+  // A plate is opaque. cardBox alone leaves 8% of the ground showing, and the
+  // land dots run directly underneath and print through it.
+  const plate = (alpha: number) => {
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.beginPath();
+    ctx.roundRect(plateX, plateY, plateW, plateH, 24);
+    ctx.fillStyle = BG;
+    ctx.fill();
+    ctx.restore();
+    cardBox(ctx, plateX, plateY, plateW, plateH, alpha);
+  };
+
   // ---------- 02 admit ----------
   if (home && p >= CH * 1.8 && p < 4 * CH) {
     // Leaves early now that the layer plate lands on the same side of the
@@ -113,21 +160,37 @@ export function drawGlobeStory(ctx: CanvasRenderingContext2D, W: number, H: numb
     // now; the role it reports is restated on the plate anyway.
     const a = easeIO(seg(q1, 0.05, 0.3)) * (1 - easeIO(seg(q2, 0.05, 0.3)));
     if (a > 0.01) {
-      const hx = Math.min(home.x + 46, W - 205), hy = home.y - 66;
-      cardBox(ctx, hx - 14, hy - 26, Math.min(W * 0.22, 156) + 28, 152, a);
-      ctx.strokeStyle = w(0.3 * a);
+      plate(a);
+      // A leader back to the box being measured. It is struck to the plate's
+      // near edge rather than into the copy, so it reads as a callout.
+      ctx.strokeStyle = w(0.22 * a);
       ctx.setLineDash([2, 3]);
       ctx.beginPath();
       ctx.moveTo(home.x + 4, home.y - 4);
-      ctx.lineTo(hx - 8, hy + 30);
+      ctx.lineTo(plateX - 10, plateY + plateH / 2);
       ctx.stroke();
       ctx.setLineDash([]);
-      const mw = Math.min(W * 0.22, 156);
-      meter(ctx, hx, hy, mw, 'vram', easeOut(seg(q1, 0.25, 0.55)), a);
-      meter(ctx, hx, hy + 36, mw, 'uplink', easeOut(seg(q1, 0.35, 0.65)), a);
-      meter(ctx, hx, hy + 72, mw, 'latency', easeOut(seg(q1, 0.45, 0.75)), a);
+
+      label(ctx, 'your box', plateX + pad, plateY + pad + 6, a, tall ? 12 : 10.5, 'left');
+      label(ctx, 'measured', plateX + pad, plateY + pad + 23, a * 0.6, tall ? 9.5 : 8.5, 'left');
+
+      // The meters sit inside a further inset. At the old width they ran the
+      // full inner span and the 'vram' label sat inside the corner arc, which
+      // is what made the card feel crowded.
+      const mw = plateW - 2 * pad - (tall ? 26 : 12);
+      const mx = plateX + pad;
+      const row = tall ? 62 : 30;
+      // Centred in the band. Stacked from the top they left a dead third of
+      // the plate under 'latency'.
+      const m0 = bandTop + Math.max(6, (bandBot - bandTop - (row * 2 + 18)) / 2) + 13;
+      meter(ctx, mx, m0, mw, 'vram', easeOut(seg(q1, 0.25, 0.55)), a);
+      meter(ctx, mx, m0 + row, mw, 'uplink', easeOut(seg(q1, 0.35, 0.65)), a);
+      meter(ctx, mx, m0 + row * 2, mw, 'latency', easeOut(seg(q1, 0.45, 0.75)), a);
       const st = seg(q1, 0.72, 0.9);
-      if (st > 0) label(ctx, 'role · layers 20–31', hx + mw / 2, hy + 106, a * st, 12);
+      if (st > 0) {
+        label(ctx, 'role · layers 20–31', plateCx, plateY + plateH - pad - (tall ? 8 : 4),
+          a * st, tall ? 9 : 8.5);
+      }
     }
   }
 
@@ -143,77 +206,34 @@ export function drawGlobeStory(ctx: CanvasRenderingContext2D, W: number, H: numb
   // goes with it. Place and Pull only.
   const placeA = easeIO(seg(q2, 0.32, 0.6)) * (1 - easeIO(seg(q3, 0.7, 1)));
   if (placeA > 0.01) {
-    const N = 32;
+    const N = LEAVES;
     const RUNS: [number, number][] = [[0, 8], [8, 12], [20, 12]];
     const MINE = 2; // layers 20-31, the role scene 02 just handed out
     const open = easeOut(seg(q2, 0.36, 0.62));
     const peerK = easeOut(seg(q2, 0.48, 0.74));
     const mineK = easeOut(seg(q2, 0.62, 0.9));
 
-    // A portrait plate in the right margin on every desktop, opposite the step
-    // text, which is the side the story's other diagrams sit on. This used to
-    // demand W>=1200 AND H>=620, and a laptop at 1152x720 failed it: the plate
-    // dropped into a compact top-band form with the leaves crushed to a 4px
-    // fractional pitch, which read as fractured type rather than a text block.
-    // That form is a phone layout; it should never have been catching a laptop.
-    const tall = desktop;
-    const pad = tall ? 22 : 14;
-    // A text block is dense, so the leaf pitch is fixed and the plate is cut to
-    // fit it — stretching thirty-two leaves over a tall card gives ruled
-    // notepaper, not a volume.
-    const hdr = tall ? 40 : 26, cap = tall ? 24 : 13;
-    // A whole-pixel pitch on the plate: at 5.5 the rounding merged every other
-    // pair of leaves and the block came out visibly uneven.
-    const pitchMax = tall ? 6 : 4, gapU = tall ? 9 : 5;
-    // Sized from the gap it actually has to live in rather than a flat fraction
-    // of the viewport: the copy column runs from 26% to 26% + max-w-sm, so the
-    // plate takes what is left between that and the right margin. The margin
-    // has to clear the progress ticks, which sit 40px in.
-    const rail = 72;
-    const colR = W * 0.26 + 384;
-    const cw = tall
-      ? Math.max(196, Math.min(300, W - rail - colR - 24))
-      : Math.min(W - 2 * Math.max(16, W * 0.045), 500);
-    // The phone plate takes the band between the floating header and scene 02's
-    // card, which hangs over the middle of the screen well into this chapter;
-    // that band is the only strip nothing else is using.
-    const band = H * 0.44 - 104 - 86;
-    const chh = tall
-      ? N * pitchMax + gapU * 2 + hdr + cap + 2 * pad
-      : Math.min(H * 0.25, 250, Math.max(172, band));
-    const cx0 = tall ? W - rail - cw : W * 0.5 - cw / 2;
-    const cy0 = tall ? (H - chh) / 2 : 86;
-    // A plate is opaque. cardBox leaves 8% of the ground showing, which is
-    // nothing on a wide screen where the globe is faint here, but on a phone the
-    // land dots sit right behind it and printed through the lighter leaves.
-    ctx.save();
-    ctx.globalAlpha = placeA;
-    ctx.beginPath();
-    ctx.roundRect(cx0, cy0, cw, chh, 24);
-    ctx.fillStyle = BG;
-    ctx.fill();
-    ctx.restore();
-    cardBox(ctx, cx0, cy0, cw, chh, placeA);
+    plate(placeA);
 
     // The label column only has to hold 'another box' and 'layers 20-31'; at 92
     // it was eating the stack on a narrower laptop, where every pixel the
     // margin gives back goes to the leaves.
     const braceW = 15, labW = tall ? 72 : 100, gapL = 10, gapR = 12;
-    const stackW = Math.min(cw - 2 * pad - braceW - gapL - gapR - labW, tall ? 132 : 150);
-    const gx = tall ? cx0 + pad : cx0 + (cw - (braceW + gapL + stackW + gapR + labW)) / 2;
+    const stackW = Math.min(plateW - 2 * pad - braceW - gapL - gapR - labW, tall ? 132 : 150);
+    const gx = tall ? plateX + pad : plateX + (plateW - (braceW + gapL + stackW + gapR + labW)) / 2;
     const sx3 = gx + braceW + gapL;
     const lx3 = sx3 + stackW + gapR;
-    const availH = chh - 2 * pad - hdr - cap;
+    const availH = plateH - 2 * pad - hdr - cap;
     const pitch = Math.min(pitchMax, (availH - gapU * 2) / N);
     const leafH = tall ? 2 : 1;
     const gap = gapU * open;
     // The block is pinned at its centre, so the gatherings part outward as they
     // are handed out rather than sliding off in one direction.
-    const startY = cy0 + pad + hdr + availH / 2 - (N * pitch + 2 * gap) / 2;
+    const startY = plateY + pad + hdr + availH / 2 - (N * pitch + 2 * gap) / 2;
     const yOf = (i: number, r: number) => startY + i * pitch + r * gap;
 
-    label(ctx, 'the model', gx, cy0 + pad + (tall ? 6 : 4), placeA, tall ? 12 : 10.5, 'left');
-    label(ctx, '32 layers · 64 gb', gx, cy0 + pad + (tall ? 23 : 18), placeA * 0.6, tall ? 9.5 : 8.5, 'left');
+    label(ctx, 'the model', gx, plateY + pad + (tall ? 6 : 4), placeA, tall ? 12 : 10.5, 'left');
+    label(ctx, '32 layers · 64 gb', gx, plateY + pad + (tall ? 23 : 18), placeA * 0.6, tall ? 9.5 : 8.5, 'left');
 
     // the leaves — a fore-edge is never flush, so the right end wanders a little
     RUNS.forEach(([s0, len], r) => {
@@ -267,7 +287,7 @@ export function drawGlobeStory(ctx: CanvasRenderingContext2D, W: number, H: numb
       }
     });
 
-    label(ctx, 'every layer held once', cx0 + cw / 2, cy0 + chh - pad - (tall ? 8 : 4),
+    label(ctx, 'every layer held once', plateX + plateW / 2, plateY + plateH - pad - (tall ? 8 : 4),
       placeA * Math.min(peerK, mineK) * 0.55, tall ? 9 : 8.5);
   }
 
@@ -312,25 +332,43 @@ export function drawGlobeStory(ctx: CanvasRenderingContext2D, W: number, H: numb
     }
   }
 
-  // ---------- 07 settle + 08 pay: HUD ledger ----------
-  const lx = desktop ? W * 0.85 : W * 0.5;
-  const ly = desktop ? H * 0.3 : H * 0.14;
+  // ---------- 07 settle + 08 pay: the ledger ----------
+  // Settle and pay are one plate, not two: the receipts land in it and the
+  // payout follows underneath them, so the reader watches one page fill in.
+  // The plate no longer grows as pay arrives — a fixed rect is what lets it be
+  // the same object the earlier chapters drew into.
+  const lx = tall ? plateCx : W * 0.5;
+  const ly = tall ? bandTop + 46 : bandTop + 24;
+  const ledgerA = easeIO(seg(q6, 0, 0.25)) * (1 - easeIO(seg(q8, 0, 0.3)));
+  // A phone's plate has about a third of the content band a desktop's has —
+  // not enough for the receipts and the payout at once, which had the coins
+  // stacking straight up through 'receipts settle'. There the plate hands over
+  // instead of accumulating: the receipts clear as the payout arrives.
+  const swap = tall ? 0 : easeIO(seg(q7, 0, 0.3));
+  if (ledgerA > 0.01) {
+    plate(ledgerA);
+    label(ctx, 'the ledger', plateX + pad, plateY + pad + 6, ledgerA, tall ? 12 : 10.5, 'left');
+    label(ctx, 'signed work', plateX + pad, plateY + pad + 23, ledgerA * 0.6, tall ? 9.5 : 8.5, 'left');
+  }
   if (q6 > 0) {
-    const a = easeIO(seg(q6, 0, 0.25)) * (1 - easeIO(seg(q8, 0, 0.3)));
-    cardBox(ctx, lx - 100, ly - 58, 200, 126 + 140 * easeIO(seg(q7, 0, 0.25)), a);
+    const a = ledgerA;
     for (let i = 0; i < 6; i++) {
       const tt = easeIO(seg(q6, 0.05 + i * 0.07, 0.45 + i * 0.07));
       const c = scr[i];
       const sxx = c ? c.x + 20 : gv.cx, syy = c ? c.y - 24 : gv.cy;
       receipt(ctx, lerp(sxx, lx + (i % 2) * 4 - 2, tt), lerp(syy, ly + 8 - i * 8, tt), 1.8,
-        a * 0.85, tt >= 1 && seg(q6, 0.5 + i * 0.05, 0.62 + i * 0.05) >= 1);
+        a * 0.85 * (1 - swap), tt >= 1 && seg(q6, 0.5 + i * 0.05, 0.62 + i * 0.05) >= 1);
     }
-    label(ctx, 'receipts settle', lx, ly + 52, a * seg(q6, 0.5, 0.8), 13);
+    label(ctx, 'receipts settle', lx, ly + 34, a * seg(q6, 0.5, 0.8) * (1 - swap), tall ? 10.5 : 9.5);
   }
   if (q7 > 0) {
     const a = easeIO(seg(q7, 0, 0.25)) * (1 - easeIO(seg(q8, 0, 0.3)));
-    coinStack(ctx, lx, ly + 160, 1 + 4 * easeOut(seg(q7, 0.05, 0.8)), 1.4, a);
-    label(ctx, 'usdc, per layer', lx, ly + 190, a * seg(q7, 0.45, 0.75), 13);
+    // Sat on the band's floor rather than a fixed offset from the receipts:
+    // a stack grows upward from its base, so anchoring it to the top ran it
+    // straight through the 'receipts settle' line as it filled.
+    coinStack(ctx, lx, bandBot - (tall ? 10 : 4), 1 + 4 * easeOut(seg(q7, 0.05, 0.8)), tall ? 1.4 : 1, a);
+    label(ctx, 'usdc, per layer', plateCx, plateY + plateH - pad - (tall ? 8 : 4),
+      a * seg(q7, 0.45, 0.75), tall ? 9 : 8.5);
   }
 
   // ---------- 09 finale: the rest of the world lights up ----------
