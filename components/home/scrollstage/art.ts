@@ -153,26 +153,41 @@ export function halftone(ctx: CanvasRenderingContext2D, x: number, y: number, wd
 // band with an elliptical bottom bulge (halftone-patterned) plus a stroked
 // top ellipse; lower faces carry the fine surface pattern, the top coin is
 // dark with a $. Patterns are cached per-context tile canvases.
-let _coinPats = new WeakMap<CanvasRenderingContext2D, Map<number, { side: CanvasPattern | null; surface: CanvasPattern | null }>>();
+let _coinPats = new WeakMap<CanvasRenderingContext2D, Map<string, { side: CanvasPattern | null; surface: CanvasPattern | null }>>();
 function coinPatterns(ctx: CanvasRenderingContext2D, s: number) {
   let m = _coinPats.get(ctx);
   if (!m) { m = new Map(); _coinPats.set(ctx, m); }
+  // The tile was authored in CSS pixels and then drawn through a context scaled
+  // by the device ratio, so on a 2x screen every dot was a 5px bitmap stretched
+  // over 10px — soft, and beating against the elliptical bands as moiré. Author
+  // it at device resolution instead and scale the pattern back down, which is
+  // what makes the milling come out crisp. The ratio is part of the cache key
+  // because a tile built for one is wrong for the other.
+  const dpr = ctx.getTransform().a || 1;
   const bucket = Math.max(1, Math.round(s * 2) / 2);
-  let p = m.get(bucket);
+  const key = `${bucket}@${dpr}`;
+  let p = m.get(key);
   if (!p) {
     const mk = (size: number, r: number) => {
+      const px = Math.max(2, Math.round(size * dpr));
       const c = document.createElement('canvas');
-      c.width = size;
-      c.height = size;
+      c.width = px;
+      c.height = px;
       const g = c.getContext('2d')!;
       g.fillStyle = w(1);
       g.beginPath();
-      g.arc(size / 2, size / 2, r, 0, Math.PI * 2);
+      g.arc(px / 2, px / 2, r * dpr, 0, Math.PI * 2);
       g.fill();
-      return ctx.createPattern(c, 'repeat');
+      const pat = ctx.createPattern(c, 'repeat');
+      pat?.setTransform(new DOMMatrix([1 / dpr, 0, 0, 1 / dpr, 0, 0]));
+      return pat;
     };
-    p = { surface: mk(Math.round(3 * bucket), 0.7 * bucket), side: mk(Math.round(4 * bucket), 1.15 * bucket) };
-    m.set(bucket, p);
+    // The side band is milling, not polka dots. At a 4-unit tile carrying a
+    // 2.3-unit dot it read as a handful of big spots per coin; a finer pitch
+    // with a smaller dot puts several times as many marks in the same band and
+    // reads as a knurled edge at panel size.
+    p = { surface: mk(Math.round(3 * bucket), 0.7 * bucket), side: mk(Math.round(2.5 * bucket), 0.62 * bucket) };
+    m.set(key, p);
   }
   return p;
 }
