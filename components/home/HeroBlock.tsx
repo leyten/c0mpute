@@ -13,10 +13,10 @@ export default function HeroBlock({ onSubmit }: { onSubmit: (prompt: string) => 
     <div className="w-full max-w-6xl mx-auto px-5 md:px-6">
       <div className="max-w-2xl mx-auto md:mx-0 text-center md:text-left space-y-6">
         <h1 className="pixel-serif text-fg text-3xl md:text-5xl lg:text-6xl font-bold leading-tight tracking-tight">
-          The founding layer<br />of decentralized AI
+          An open protocol for<br />decentralized AI
         </h1>
         <p className="pixel-sans text-fg-90 text-sm md:text-lg max-w-lg mx-auto md:mx-0">
-          A permissionless network of user-owned GPUs doing verifiable AI work.
+          A permissionless network of user-owned GPUs that funds inference and training of open models.
         </p>
         {/* The same slab as the chat composer, not a bordered input with a
             button bolted to its side: one rounded surface, the field
