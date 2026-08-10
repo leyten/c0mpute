@@ -262,7 +262,7 @@ export default function Palette({
 
   return (
     <div className="cu-fade fixed inset-0 z-50 flex items-end justify-center md:items-start md:pt-[13vh]">
-      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <div className="absolute inset-0 bg-scrim" onClick={onClose} />
 
       <div
         role="dialog"
@@ -279,7 +279,7 @@ export default function Palette({
             value={renaming ? title : query}
             onChange={e => (renaming ? setTitle(e.target.value) : onQuery(e.target.value))}
             placeholder={renaming ? 'New title' : 'Search conversations and commands'}
-            className="w-full bg-transparent text-[15px] outline-none placeholder:text-white/30"
+            className="w-full bg-transparent text-[15px] outline-none placeholder:text-fg-30"
             style={{ color: 'var(--cu-text)' }}
             aria-label={renaming ? 'New title' : 'Search'}
           />
@@ -313,11 +313,11 @@ export default function Palette({
                     onMouseMove={() => { if (!item.disabled) setIndex(i); }}
                     onClick={() => item.run?.()}
                     className="flex w-full items-start gap-2.5 rounded-xl px-3 py-2.5 text-left transition-colors disabled:opacity-55"
-                    style={{ background: on ? 'rgba(255,255,255,0.06)' : 'transparent' }}
+                    style={{ background: on ? 'var(--chat-row-on)' : 'transparent' }}
                   >
                     <span className="mt-[3px] w-4 shrink-0" style={{ color: 'var(--cu-steel)' }}>{item.checked && <Check />}</span>
                     <span className="min-w-0 flex-1">
-                      <span className="flex items-center gap-2 text-[13.5px]" style={{ color: item.danger ? '#f87171' : 'var(--cu-text)' }}>
+                      <span className="flex items-center gap-2 text-[13.5px]" style={{ color: item.danger ? 'var(--danger)' : 'var(--cu-text)' }}>
                         <span className="truncate">{item.label}</span>
                         {item.hint && <span className="shrink-0 text-[12px]" style={{ color: 'var(--cu-faint)' }}>{item.hint}</span>}
                         {item.launching && <StatusBadge state="launching" />}

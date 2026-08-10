@@ -609,8 +609,8 @@ export default function Chat() {
             The same layer as the composer puts them behind it, since it comes
             later in the tree. */}
         <div className="absolute left-3 top-3 z-10 flex items-center gap-1 md:hidden">
-          <button onClick={() => setRailOpen(true)} className="grid h-9 w-9 place-items-center rounded-xl text-white/55 hover:bg-white/[0.06]"><Panel /></button>
-          <button onClick={startNew} className="grid h-9 w-9 place-items-center rounded-xl text-white/55 hover:bg-white/[0.06]"><Plus /></button>
+          <button onClick={() => setRailOpen(true)} className="grid h-9 w-9 place-items-center rounded-xl text-fg-55 hover:bg-[var(--chat-row-on)]"><Panel /></button>
+          <button onClick={startNew} className="grid h-9 w-9 place-items-center rounded-xl text-fg-55 hover:bg-[var(--chat-row-on)]"><Plus /></button>
         </div>
 
         {/* One scroller for the whole column. Everything lives inside it, so
@@ -677,11 +677,11 @@ export default function Chat() {
                 />
               )}
               {error && (
-                <div className="cu-fade rounded-2xl px-4 py-3 text-[14px]" style={{ background: 'rgba(248,113,113,0.08)', color: '#fca5a5' }}>
+                <div className="cu-fade rounded-2xl px-4 py-3 text-[14px]" style={{ background: 'color-mix(in oklab, var(--danger) 8%, transparent)', color: 'var(--danger-soft)' }}>
                   <p>{error}</p>
                   <div className="mt-2 flex gap-3 text-[13px]">
                     {retryJob && (
-                      <button onClick={() => { setError(null); void run(retryJob); }} className="underline underline-offset-2 hover:text-white">Try again</button>
+                      <button onClick={() => { setError(null); void run(retryJob); }} className="underline underline-offset-2 hover:text-fg">Try again</button>
                     )}
                     <button onClick={() => setError(null)} className="opacity-70 hover:opacity-100">Dismiss</button>
                   </div>
@@ -703,8 +703,8 @@ export default function Chat() {
           {showJump && !empty && (
             <button
               onClick={() => { pinned.current = true; setShowJump(false); scrollToEnd(); }}
-              className="pointer-events-auto absolute -top-11 left-1/2 z-20 grid h-9 w-9 -translate-x-1/2 place-items-center rounded-full text-white/70 shadow-lg backdrop-blur transition-colors hover:text-white"
-              style={{ background: 'rgba(23,20,15,0.9)' }}
+              className="pointer-events-auto absolute -top-11 left-1/2 z-20 grid h-9 w-9 -translate-x-1/2 place-items-center rounded-full text-fg-70 shadow-lg backdrop-blur transition-colors hover:text-fg"
+              style={{ background: 'color-mix(in oklab, var(--chat-pop) 90%, transparent)' }}
               aria-label="Scroll to latest"
             ><Down /></button>
           )}

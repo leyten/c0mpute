@@ -25,7 +25,7 @@ function CitationText({ text, sources }: { text: string; sources: SourceRef[] })
             const domain = (() => { try { return new URL(source.url).hostname.replace('www.', ''); } catch { return ''; } })();
             return (
               <a key={i} href={source.url} target="_blank" rel="noopener noreferrer"
-                className="inline-flex items-center justify-center w-4 h-4 text-[10px] font-medium bg-white/10 hover:bg-white/20 text-white/60 hover:text-white rounded-full no-underline align-super ml-0.5 mr-0.5 transition-colors cursor-pointer"
+                className="inline-flex items-center justify-center w-4 h-4 text-[10px] font-medium bg-fg/10 hover:bg-fg/20 text-fg-60 hover:text-fg rounded-full no-underline align-super ml-0.5 mr-0.5 transition-colors cursor-pointer"
                 title={`${source.title} (${domain})`}>{match[1]}</a>
             );
           }
@@ -86,10 +86,10 @@ export function SourceStrip({ sources, content }: { sources: SourceRef[]; conten
         const domain = (() => { try { return new URL(s.url).hostname.replace('www.', ''); } catch { return ''; } })();
         return (
           <a key={i} href={s.url} target="_blank" rel="noopener noreferrer"
-            className="cursor-pointer flex items-center gap-1.5 px-2 py-1 bg-white/[0.04] border border-white/[0.08] hover:border-white/15 hover:bg-white/[0.06] transition-colors rounded-md group">
-            <span className="flex items-center justify-center w-3.5 h-3.5 text-[9px] font-medium bg-white/10 text-white/70 rounded-full flex-shrink-0">{i + 1}</span>
+            className="cursor-pointer flex items-center gap-1.5 px-2 py-1 bg-fg/[0.04] border border-fg/[0.08] hover:border-fg/15 hover:bg-[var(--chat-row-on)] transition-colors rounded-md group">
+            <span className="flex items-center justify-center w-3.5 h-3.5 text-[9px] font-medium bg-fg/10 text-fg-70 rounded-full flex-shrink-0">{i + 1}</span>
             <img src={`https://www.google.com/s2/favicons?domain=${domain}&sz=16`} alt="" width={12} height={12} className="flex-shrink-0 opacity-50 group-hover:opacity-80" />
-            <span className="pixel-sans text-white/70 text-[11px] truncate max-w-[100px] group-hover:text-white/70">{s.title || domain}</span>
+            <span className="pixel-sans text-fg-70 text-[11px] truncate max-w-[100px] group-hover:text-fg-70">{s.title || domain}</span>
           </a>
         );
       })}
@@ -99,7 +99,7 @@ export function SourceStrip({ sources, content }: { sources: SourceRef[]; conten
 
 // The tuned typography wrapper every message body renders through. One place
 // so the finished and streaming views can never drift apart.
-const PROSE_CLASSES = 'chat-answer pixel-sans text-white/90 text-base leading-[1.75] prose prose-invert prose-base max-w-none prose-p:my-3 prose-li:my-1 prose-ol:my-3 prose-ul:my-3 prose-headings:mt-5 prose-headings:mb-2 prose-headings:text-white prose-headings:font-semibold prose-strong:text-white prose-strong:font-extrabold prose-code:text-white/80 prose-code:bg-white/[0.06] prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-a:text-[#80a0c1] prose-a:no-underline hover:prose-a:underline prose-hr:my-5 prose-hr:border-white/10 [&_br]:block [&_br]:content-[\'\'] [&_br]:mt-2.5';
+const PROSE_CLASSES = 'chat-answer pixel-sans text-fg-90 text-base leading-[1.75] prose prose-invert prose-base max-w-none prose-p:my-3 prose-li:my-1 prose-ol:my-3 prose-ul:my-3 prose-headings:mt-5 prose-headings:mb-2 prose-headings:text-fg prose-headings:font-semibold prose-strong:text-fg prose-strong:font-extrabold prose-code:text-fg-80 prose-code:bg-[var(--chat-row-on)] prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-a:text-steel prose-a:no-underline hover:prose-a:underline prose-hr:my-5 prose-hr:border-fg/10 [&_br]:block [&_br]:content-[\'\'] [&_br]:mt-2.5';
 
 export function MessageMarkdown({ content, sources, trailing }: { content: string; sources: SourceRef[]; trailing?: React.ReactNode }) {
   return (

@@ -114,7 +114,7 @@ function CopyButton({ text, always }: { text: string; always?: boolean }) {
         setDone(true);
         setTimeout(() => setDone(false), 1600);
       }}
-      className={`flex items-center gap-1.5 rounded-lg px-2 py-1 text-[12px] transition-all duration-150 hover:bg-white/[0.06] ${always ? '' : QUIET}`}
+      className={`flex items-center gap-1.5 rounded-lg px-2 py-1 text-[12px] transition-all duration-150 hover:bg-[var(--chat-row-on)] ${always ? '' : QUIET}`}
       style={{ color: 'var(--cu-faint)' }}
     >
       {done ? <Check /> : <Copy />}
@@ -135,7 +135,7 @@ function PlainCopy({ text }: { text: string }) {
         setTimeout(() => setDone(false), 1600);
       }}
       title="Copy"
-      className={`flex items-center gap-1.5 rounded-lg px-2 py-1 text-[12px] hover:bg-white/[0.06] ${QUIET}`}
+      className={`flex items-center gap-1.5 rounded-lg px-2 py-1 text-[12px] hover:bg-[var(--chat-row-on)] ${QUIET}`}
       style={{ color: 'var(--cu-faint)' }}
     >
       {done ? <Check /> : <Copy />}
@@ -160,7 +160,7 @@ function Action({
       onClick={onClick}
       disabled={disabled}
       title={label}
-      className={`flex items-center gap-1.5 rounded-lg px-2 py-1 text-[12px] transition-all duration-150 hover:bg-white/[0.06] ${
+      className={`flex items-center gap-1.5 rounded-lg px-2 py-1 text-[12px] transition-all duration-150 hover:bg-[var(--chat-row-on)] ${
         held || always
           ? 'opacity-100 disabled:opacity-30'
           // hidden means hidden: a disabled button must not ghost at 30% while
@@ -235,7 +235,7 @@ export function FollowUps({ content, truncated, onPick }: { content: string; tru
 }
 
 function Pager({ index, count, onPick }: { index: number; count: number; onPick: (i: number) => void }) {
-  const step = 'grid h-6 w-6 place-items-center rounded-lg transition-colors hover:bg-white/[0.06] disabled:pointer-events-none disabled:opacity-30';
+  const step = 'grid h-6 w-6 place-items-center rounded-lg transition-colors hover:bg-[var(--chat-row-on)] disabled:pointer-events-none disabled:opacity-30';
   return (
     <div className="flex items-center gap-0.5 pl-1 text-[12px] tabular-nums" style={{ color: 'var(--cu-faint)' }}>
       <button onClick={() => onPick(index - 1)} disabled={index === 0} className={step} aria-label="Previous answer"><Left /></button>
@@ -279,7 +279,7 @@ function ComparePane({ v, n, current, onUse }: { v: Version; n: number; current?
         {onUse && (
           <button
             onClick={onUse}
-            className={`ml-auto shrink-0 rounded-lg px-2 py-0.5 hover:bg-white/[0.06] ${QUIET}`}
+            className={`ml-auto shrink-0 rounded-lg px-2 py-0.5 hover:bg-[var(--chat-row-on)] ${QUIET}`}
           >Use this one</button>
         )}
       </div>
@@ -340,7 +340,7 @@ function EditBubble({
       <div className="mt-2 flex items-center justify-end gap-2">
         <button
           onClick={onCancel}
-          className="rounded-lg px-2 py-1 text-[13px] transition-colors hover:bg-white/[0.06]"
+          className="rounded-lg px-2 py-1 text-[13px] transition-colors hover:bg-[var(--chat-row-on)]"
           style={{ color: 'var(--cu-faint)' }}
         >
           Cancel
@@ -348,7 +348,7 @@ function EditBubble({
         <button
           onClick={() => { if (can) onSubmit(text.trim()); }}
           disabled={!can}
-          className="rounded-full bg-white px-3.5 py-1.5 text-[13px] text-black transition-all active:scale-95 disabled:bg-white/[0.09] disabled:text-white/30"
+          className="rounded-full bg-fg px-3.5 py-1.5 text-[13px] text-on-fg transition-all active:scale-95 disabled:bg-fg/[0.09] disabled:text-fg-30"
         >
           Send
         </button>
@@ -453,7 +453,7 @@ function UserTurn({
                 <button
                   onClick={onEdit}
                   title="Edit"
-                  className={`flex items-center gap-1.5 rounded-lg px-2 py-1 text-[12px] hover:bg-white/[0.06] ${QUIET}`}
+                  className={`flex items-center gap-1.5 rounded-lg px-2 py-1 text-[12px] hover:bg-[var(--chat-row-on)] ${QUIET}`}
                   style={{ color: 'var(--cu-faint)' }}
                 >
                   <Pencil />

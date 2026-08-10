@@ -52,7 +52,7 @@ export default function Sidebar({
 
   return (
     <>
-      {open && <div className="fixed inset-0 z-30 bg-black/50 md:hidden" onClick={onClose} />}
+      {open && <div className="fixed inset-0 z-30 bg-scrim md:hidden" onClick={onClose} />}
 
       <aside
         className={`fixed inset-y-0 left-0 z-40 flex w-[272px] flex-col transition-transform duration-200 md:static md:translate-x-0 ${open ? 'translate-x-0' : '-translate-x-full'}`}
@@ -71,20 +71,20 @@ export default function Sidebar({
               </>
             )}
           </a>
-          <button onClick={onClose} className="grid h-8 w-8 place-items-center rounded-lg text-white/40 hover:bg-white/[0.06] md:hidden"><X /></button>
+          <button onClick={onClose} className="grid h-8 w-8 place-items-center rounded-lg text-fg-40 hover:bg-[var(--chat-row-on)] md:hidden"><X /></button>
         </div>
 
         <div className="px-3 pb-2">
           <button
             onClick={onNew}
-            className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-[14px] transition-colors hover:bg-white/[0.06]"
+            className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-[14px] transition-colors hover:bg-[var(--chat-row-on)]"
             style={{ color: 'var(--cu-text)' }}
           >
             <Plus /> New chat
           </button>
           <button
             onClick={() => { onSearch(); onClose(); }}
-            className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-[14px] transition-colors hover:bg-white/[0.06]"
+            className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-[14px] transition-colors hover:bg-[var(--chat-row-on)]"
             style={{ color: 'var(--cu-dim)' }}
           >
             <Search /> Search
@@ -116,13 +116,13 @@ export default function Sidebar({
                           if (e.key === 'Enter') { onRename(c.id, draft.trim() || c.title); setEditing(null); }
                           if (e.key === 'Escape') setEditing(null);
                         }}
-                        className="w-full rounded-xl bg-white/[0.08] px-3 py-2 text-[14px] outline-none"
+                        className="w-full rounded-xl bg-fg/[0.08] px-3 py-2 text-[14px] outline-none"
                         style={{ color: 'var(--cu-text)' }}
                       />
                     ) : (
                       <button
                         onClick={() => { onSelect(c.id); onClose(); }}
-                        className={`block w-full truncate rounded-xl py-2 pl-3 pr-9 text-left text-[14px] transition-colors ${active ? 'bg-white/[0.08]' : 'hover:bg-white/[0.05]'}`}
+                        className={`block w-full truncate rounded-xl py-2 pl-3 pr-9 text-left text-[14px] transition-colors ${active ? 'bg-fg/[0.08]' : 'hover:bg-fg/[0.05]'}`}
                         style={{ color: active ? 'var(--cu-text)' : 'var(--cu-dim)' }}
                       >
                         {c.title}
@@ -132,7 +132,7 @@ export default function Sidebar({
                     {editing !== c.id && (
                       <button
                         onClick={() => { setMenuFor(menuFor === c.id ? null : c.id); setConfirming(null); }}
-                        className={`absolute right-1 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-lg text-white/40 transition-opacity hover:bg-white/[0.08] hover:text-white/80 ${menuFor === c.id ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
+                        className={`absolute right-1 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-lg text-fg-40 transition-opacity hover:bg-fg/[0.08] hover:text-fg-80 ${menuFor === c.id ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
                         aria-label="Conversation options"
                       ><Dots /></button>
                     )}
@@ -144,13 +144,13 @@ export default function Sidebar({
                       >
                         <button
                           onClick={() => { setEditing(c.id); setDraft(c.title); setMenuFor(null); }}
-                          className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] hover:bg-white/[0.06]"
+                          className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] hover:bg-[var(--chat-row-on)]"
                           style={{ color: 'var(--cu-text)' }}
                         ><Pencil /> Rename</button>
                         <button
                           onClick={() => { if (confirming === c.id) { onDelete(c.id); setMenuFor(null); setConfirming(null); } else setConfirming(c.id); }}
-                          className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] hover:bg-white/[0.06]"
-                          style={{ color: confirming === c.id ? '#f87171' : 'var(--cu-text)' }}
+                          className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] hover:bg-[var(--chat-row-on)]"
+                          style={{ color: confirming === c.id ? 'var(--danger)' : 'var(--cu-text)' }}
                         ><Trash /> {confirming === c.id ? 'Confirm delete' : 'Delete'}</button>
                       </div>
                     )}
@@ -166,14 +166,14 @@ export default function Sidebar({
             <div className="flex items-center justify-between gap-3">
               <span className="truncate" style={{ color: 'var(--cu-dim)' }}>{engine.displayName ?? 'Signed in'}</span>
               <div className="flex shrink-0 items-center gap-3">
-                <button onClick={() => { onUsage(); onClose(); }} className="tabular-nums transition-colors hover:text-white/70">{balanceLabel(engine)}</button>
-                <button onClick={() => void engine.logout()} className="transition-colors hover:text-white/70">Sign out</button>
+                <button onClick={() => { onUsage(); onClose(); }} className="tabular-nums transition-colors hover:text-fg-70">{balanceLabel(engine)}</button>
+                <button onClick={() => void engine.logout()} className="transition-colors hover:text-fg-70">Sign out</button>
               </div>
             </div>
           ) : (
             <div className="flex items-center justify-between gap-3">
-              <button onClick={() => { onUsage(); onClose(); }} className="tabular-nums transition-colors hover:text-white/70">{balanceLabel(engine)}</button>
-              <button onClick={engine.login} className="transition-colors hover:text-white/70">Sign in</button>
+              <button onClick={() => { onUsage(); onClose(); }} className="tabular-nums transition-colors hover:text-fg-70">{balanceLabel(engine)}</button>
+              <button onClick={engine.login} className="transition-colors hover:text-fg-70">Sign in</button>
             </div>
           )}
         </div>

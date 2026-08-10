@@ -29,7 +29,7 @@ export default function UsagePanel({ engine, onClose }: { engine: ChatEngine; on
 
   return (
     <div className="cu-fade fixed inset-0 z-50 flex items-end justify-center md:items-start md:pt-[10vh]">
-      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <div className="absolute inset-0 bg-scrim" onClick={onClose} />
 
       <div
         role="dialog"
@@ -49,7 +49,7 @@ export default function UsagePanel({ engine, onClose }: { engine: ChatEngine; on
           <button
             onClick={onClose}
             aria-label="Close"
-            className="ml-auto grid h-7 w-7 place-items-center rounded-lg text-white/40 hover:bg-white/[0.06] hover:text-white/80 md:hidden"
+            className="ml-auto grid h-7 w-7 place-items-center rounded-lg text-fg-40 hover:bg-[var(--chat-row-on)] hover:text-fg-80 md:hidden"
           ><X /></button>
         </div>
 
@@ -69,7 +69,7 @@ export default function UsagePanel({ engine, onClose }: { engine: ChatEngine; on
         </div>
 
         <div className="flex flex-wrap items-center gap-x-5 gap-y-1 px-5 pb-4 pt-4 text-[12px]" style={{ color: 'var(--cu-faint)' }}>
-          <a href="/settings#usage" className="transition-colors hover:text-white/70">Full account usage</a>
+          <a href="/settings#usage" className="transition-colors hover:text-fg-70">Full account usage</a>
         </div>
       </div>
     </div>
@@ -143,7 +143,7 @@ function Staking({ data }: { data: UsageData }) {
       <div>
         <div className="text-[12px]" style={{ color: 'var(--cu-dim)' }}>Daily staking allowance</div>
         <p className="mt-2 text-[11.5px]" style={{ color: 'var(--cu-faint)' }}>
-          <a href="/staking" className="transition-colors hover:text-white/70" style={{ color: 'var(--cu-dim)' }}>Stake $ZERO for a daily allowance</a>
+          <a href="/staking" className="transition-colors hover:text-fg-70" style={{ color: 'var(--cu-dim)' }}>Stake $ZERO for a daily allowance</a>
           {' '}of credits, shared out pro rata among stakers.
         </p>
       </div>
@@ -178,7 +178,7 @@ function Staking({ data }: { data: UsageData }) {
 function ByModel({ models }: { models: ModelUse[] | null }) {
   const shown = (models ?? []).slice(0, 4);
   const total = shown.reduce((n, m) => n + m.prompts, 0) || 1;
-  const shades = ['rgba(128,160,193,0.95)', 'rgba(128,160,193,0.7)', 'rgba(128,160,193,0.45)', 'rgba(128,160,193,0.25)'];
+  const shades = [95, 70, 45, 25].map(pct => `color-mix(in oklab, var(--steel) ${pct}%, transparent)`);
 
   return (
     <div>

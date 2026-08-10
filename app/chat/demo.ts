@@ -135,25 +135,40 @@ export function demoChunks(s: string): string[] {
 export const demoSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 // A generated-image stand-in drawn in the site's own art language.
+//
+// A canvas cannot reference a custom property, so the theme has to be read out
+// of the document and handed to the context as literal colours. Read on every
+// call, never hoisted to module scope: the value at import time is whichever
+// theme the tab opened in, and this has to draw in the one that is on screen
+// now. (The PNG it returns is a raster like any other generated image — a
+// picture already in the thread does not repaint when the theme flips.)
 export function makeDemoImage(): string {
+  const theme = getComputedStyle(document.documentElement);
+  const token = (name: string) => theme.getPropertyValue(name).trim();
+  const ground = token('--chat-bg');
+  const ink = token('--chat-strong');
+  const live = token('--live');
+
   const c = document.createElement('canvas');
   c.width = 768;
   c.height = 512;
   const g = c.getContext('2d')!;
-  g.fillStyle = '#0c0a09';
+  g.fillStyle = ground;
   g.fillRect(0, 0, c.width, c.height);
   const cx = c.width / 2, cy = c.height / 2, R = 180;
+  g.fillStyle = ink;
   for (let a = 0; a < Math.PI * 2; a += 0.05) {
     for (let r = 0.25; r <= 1; r += 0.08) {
       const x = cx + Math.cos(a) * R * r, y = cy + Math.sin(a) * R * r * 0.72;
       const keep = Math.abs(Math.sin(a * 5.3 + r * 17)) > 0.42;
       if (keep) {
-        g.fillStyle = `rgba(255,255,255,${(0.18 + 0.4 * Math.abs(Math.sin(a * 3 + r * 9))).toFixed(2)})`;
+        g.globalAlpha = 0.18 + 0.4 * Math.abs(Math.sin(a * 3 + r * 9));
         g.fillRect(Math.round(x), Math.round(y), 2, 2);
       }
     }
   }
-  g.strokeStyle = 'rgba(52,211,153,0.8)';
+  g.globalAlpha = 1;
+  g.strokeStyle = live;
   g.lineWidth = 1;
   g.beginPath();
   const ring = [-0.9, -0.3, 0.4, 1.1, 1.9, 2.8];
@@ -163,12 +178,13 @@ export function makeDemoImage(): string {
   });
   g.closePath();
   g.stroke();
+  g.fillStyle = live;
   ring.forEach((a) => {
     const x = cx + Math.cos(a) * R * 0.55, y = cy + Math.sin(a) * R * 0.4;
-    g.fillStyle = 'rgba(52,211,153,1)';
     g.fillRect(Math.round(x) - 2, Math.round(y) - 2, 4, 4);
   });
-  g.fillStyle = 'rgba(255,255,255,0.5)';
+  g.fillStyle = ink;
+  g.globalAlpha = 0.5;
   g.font = '12px monospace';
   g.textAlign = 'center';
   g.fillText('demo render', cx, c.height - 22);

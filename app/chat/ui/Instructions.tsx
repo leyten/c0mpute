@@ -86,7 +86,7 @@ export default function Instructions({
         onChange={e => setDraft(e.target.value)}
         onBlur={() => onCommit(draft.trim())}
         placeholder="Answer in plain English, and say when something is uncertain."
-        className="cu-scroll mt-3 block w-full resize-none rounded-xl px-3 py-2.5 text-[14px] leading-[1.6] outline-none placeholder:text-white/30"
+        className="cu-scroll mt-3 block w-full resize-none rounded-xl px-3 py-2.5 text-[14px] leading-[1.6] outline-none placeholder:text-fg-30"
         style={{ background: 'var(--cu-surface)', color: 'var(--cu-text)' }}
       />
 
@@ -106,7 +106,7 @@ export default function Instructions({
       <div className="mt-3 flex items-center justify-between text-[12.5px]">
         <button
           onClick={() => { setDraft(''); box.current?.focus(); }}
-          className="transition-colors hover:text-white/70"
+          className="transition-colors hover:text-fg-70"
           style={{ color: 'var(--cu-faint)' }}
         >
           Clear
@@ -115,7 +115,7 @@ export default function Instructions({
           {draft.length > MAX - 200 && (
             <span className="tabular-nums text-[12px]" style={{ color: 'var(--cu-faint)' }}>{draft.length}/{MAX}</span>
           )}
-          <button onClick={onClose} className="transition-colors hover:text-white/90" style={{ color: 'var(--cu-dim)' }}>Done</button>
+          <button onClick={onClose} className="transition-colors hover:text-fg-90" style={{ color: 'var(--cu-dim)' }}>Done</button>
         </div>
       </div>
     </div>
