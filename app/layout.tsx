@@ -15,12 +15,37 @@ const newsreader = Newsreader({ subsets: ["latin"], style: ["normal", "italic"],
 
 // Title, description and icon follow the Host header, so compute.tech presents as
 // Compute Network while c0mpute.ai keeps exactly the metadata it always had.
+// The social card is gated on brand.social, which only the new brand defines:
+// adding OG tags to the legacy brand would change what c0mpute.ai serves.
 export async function generateMetadata(): Promise<Metadata> {
   const brand = brandForHost((await headers()).get('host'));
-  return {
+  const base: Metadata = {
     title: brand.title,
     description: brand.description,
     icons: { icon: brand.icon },
+  };
+  if (!brand.social) return base;
+
+  const { url, ogImage, appleIcon } = brand.social;
+  return {
+    ...base,
+    metadataBase: new URL(url),
+    icons: { icon: brand.icon, apple: appleIcon },
+    openGraph: {
+      title: brand.title,
+      description: brand.description,
+      url,
+      siteName: brand.name,
+      type: 'website',
+      images: [{ url: ogImage, width: 512, height: 512, alt: brand.name }],
+    },
+    twitter: {
+      // The card is square, so summary rather than summary_large_image.
+      card: 'summary',
+      title: brand.title,
+      description: brand.description,
+      images: [ogImage],
+    },
   };
 }
 

@@ -31,6 +31,18 @@ export interface Brand {
   /** Show the legal footer bar naming the operating entity. */
   legalFooter: boolean;
   icon: string;
+  /**
+   * Social card and touch icon. Only the new brand ships them: the root layout
+   * on c0mpute.ai has never emitted OG or Twitter tags, and must keep not
+   * emitting them, so this stays undefined on the legacy brand.
+   */
+  social?: {
+    /** Canonical origin, used to absolutize the card image. */
+    url: string;
+    /** Square card, 512x512. */
+    ogImage: string;
+    appleIcon: string;
+  };
 }
 
 const COMPUTE: Brand = {
@@ -43,6 +55,11 @@ const COMPUTE: Brand = {
   mark: true,
   legalFooter: true,
   icon: '/brand/favicon.svg',
+  social: {
+    url: 'https://compute.tech',
+    ogImage: '/brand/compute-og.png',
+    appleIcon: '/brand/apple-touch-icon.png',
+  },
 };
 
 const LEGACY: Brand = {
