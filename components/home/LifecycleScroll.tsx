@@ -109,6 +109,16 @@ export default function LifecycleScroll({ hero }: { hero: React.ReactNode }) {
     );
   }
 
+  // Scroll to the middle of a stage's chapter, which is where its diagram has
+  // finished settling — the chapter boundaries are mid-transition. Stage i is
+  // chapter i+1; chapter 0 is the hero prologue.
+  const jumpTo = (i: number) => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const travel = el.offsetHeight - window.innerHeight;
+    window.scrollTo({ top: el.offsetTop + travel * ((i + 1.5) / CHAPTERS), behavior: 'smooth' });
+  };
+
   const finale = step >= CHAPTERS - 1;
   const railStep = Math.min(Math.max(step - 1, 0), 7);
 
@@ -175,14 +185,29 @@ export default function LifecycleScroll({ hero }: { hero: React.ReactNode }) {
           </div>
         )}
 
-        {/* progress ticks */}
+        {/* progress ticks — also the way to move between stages without
+            scrubbing the whole 1000vh by hand. The dot itself stays 6px; the
+            button around it is the hit area, since a 6px target is not one. */}
         {step >= 1 && (
-          <div className="absolute z-20 right-5 md:right-10 top-1/2 -translate-y-1/2 flex flex-col gap-2.5">
+          <nav aria-label="Stages" className="absolute z-20 right-3 md:right-8 top-1/2 -translate-y-1/2 flex flex-col">
             {STEPS.map((s, i) => (
-              <span key={s.n}
-                className={`w-1.5 h-1.5 rounded-full transition-colors duration-300 ${i <= railStep ? 'bg-fg' : 'bg-fg/20'}`} />
+              <button
+                key={s.n}
+                type="button"
+                onClick={() => jumpTo(i)}
+                title={`${s.n} — ${s.title}`}
+                aria-label={`Go to stage ${s.n}, ${s.title}`}
+                aria-current={i === railStep ? 'step' : undefined}
+                className="group grid h-5 w-6 cursor-pointer place-items-center"
+              >
+                <span
+                  className={`h-1.5 w-1.5 rounded-full transition-all duration-300 group-hover:scale-[1.8] group-hover:bg-fg ${
+                    i <= railStep ? 'bg-fg' : 'bg-fg/20'
+                  }`}
+                />
+              </button>
             ))}
-          </div>
+          </nav>
         )}
       </div>
     </section>
