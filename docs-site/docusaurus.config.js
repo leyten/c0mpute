@@ -13,7 +13,7 @@ const wordmark = process.env.DOCS_WORDMARK || 'C0MPUTE';
 const config = {
   title: 'Documentation',
   tagline: 'AI powered by people, not data centers.',
-  favicon: 'img/favicon.ico',
+  favicon: process.env.DOCS_FAVICON || 'img/favicon.ico',
   url: process.env.DOCS_URL || 'https://docs.c0mpute.ai',
   // '/' in production; the review copy is built under a path with
   // DOCS_BASE_URL so it can be served beside the rest of the preview.
@@ -64,7 +64,9 @@ const config = {
     /** @type {import('@docusaurus/preset-classic').ThemeConfig} */
     ({
       colorMode: {
-        defaultMode: 'dark',
+          // Compute Network is a light site, c0mpute.ai is dark. One env var,
+          // one source, so the docs match the domain that sent the reader.
+          defaultMode: process.env.DOCS_COLOR_MODE || 'dark',
         disableSwitch: true,
         respectPrefersColorScheme: false,
       },

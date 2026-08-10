@@ -37,6 +37,9 @@ function toRGB(value: string, fallback: RGB): RGB {
   return m && m.length >= 3 ? [+m[0], +m[1], +m[2]] : fallback;
 }
 
+// True when the ground is lighter than mid-grey. Drives the dot weight below.
+let ON_PAPER = false;
+
 function readTheme() {
   const cs = getComputedStyle(document.documentElement);
   FG = toRGB(cs.getPropertyValue('--fg'), FG);
@@ -47,6 +50,9 @@ function readTheme() {
   const bg = cs.getPropertyValue('--background').trim();
   BG_RGB = toRGB(bg, BG_RGB);
   BG = bg || BG;
+  // Ink on paper needs more weight than light on ink: these dots run at 6-40%
+  // alpha, which reads as a lit globe on black and as faint grey on white.
+  ON_PAPER = BG_RGB[0] + BG_RGB[1] + BG_RGB[2] > 382;
   _coinPats = new WeakMap(); // the cached halftone tiles are painted in FG
 }
 
@@ -339,7 +345,7 @@ export function drawGlobe(ctx: CanvasRenderingContext2D, v: GlobeView) {
     ctx.fillStyle = w(v.bodyAlpha);
     ctx.fill();
   }
-  ctx.strokeStyle = w(0.09 * v.alpha);
+  ctx.strokeStyle = w((ON_PAPER ? 0.22 : 0.09) * v.alpha);
   ctx.lineWidth = 1;
   ctx.beginPath();
   ctx.arc(v.cx, v.cy, v.R, 0, Math.PI * 2);
@@ -355,9 +361,15 @@ export function drawGlobe(ctx: CanvasRenderingContext2D, v: GlobeView) {
     if (_t[2] <= 0.02) continue;
     const sx = v.cx + _t[0] * v.R, sy = v.cy - _t[1] * v.R;
     if (sx < -8 || sx > wpx + 8 || sy < -8 || sy > hpx + 8) continue;
-    const a = (0.06 + 0.34 * _t[2]) * v.alpha * aScale;
-    ctx.fillStyle = w(a);
-    ctx.fillRect(sx | 0, sy | 0, 2, 2);
+      // On paper the same ramp lands as pale grey, so lift the floor and the
+      // range, and give each dot a third pixel — 2px at 20% ink vanishes at
+      // arm's length where 3px at 55% does not.
+      const a = ON_PAPER
+        ? (0.30 + 0.55 * _t[2]) * v.alpha * aScale
+        : (0.06 + 0.34 * _t[2]) * v.alpha * aScale;
+      ctx.fillStyle = w(a);
+      const d = ON_PAPER ? 3 : 2;
+      ctx.fillRect(sx | 0, sy | 0, d, d);
   }
 }
 

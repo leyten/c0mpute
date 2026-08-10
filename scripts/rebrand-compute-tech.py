@@ -32,10 +32,42 @@ BRAND_UPPER = "COMPUTE NETWORK"
 
 TEXT_SUFFIXES = (".md", ".html", ".css", ".js")
 
+# ── paper palette for the three static sites ──────────────────────────────────
+# blog, data and shard each declare their own :root palette solved for ink. They
+# have no theme toggle and never will — they are documents, not apps — so the
+# compute.tech copies simply ARE light. Appending an override after the original
+# :root wins on source order without editing the c0mpute.ai sources at all.
+#
+# Values are solved against #faf8f6, not inverted: each dark value's contrast
+# ratio against #0c0a09 was matched on paper.
+PAPER_VARS = {
+    "--bg": "#faf8f6", "--pop": "#f1ede8", "--page": None,
+    "--text": "rgba(20,18,16,0.82)", "--head": "#141210", "--heading": "#141210",
+    "--meta": "rgba(20,18,16,0.56)", "--dim": "rgba(20,18,16,0.6)",
+    "--faint": "rgba(20,18,16,0.5)", "--line": "rgba(20,18,16,0.12)",
+    "--surface": "rgba(20,18,16,0.035)", "--steel": "#3a5a7d",
+    "--live": "rgba(6,120,80,0.95)",
+}
+
+def paper_override(text):
+    """Append a light :root after the site's own, for CSS or inline <style>."""
+    if ":root" not in text:
+        return text
+    decls = "".join(f"  {k}: {v};\n" for k, v in PAPER_VARS.items() if v)
+    block = "\n/* compute.tech serves these documents on paper. */\n:root{\n" + decls + "}\n"
+    if "</style>" in text:                      # inline stylesheet
+        return text.replace("</style>", block + "</style>", 1)
+    return text + block                          # standalone .css
+
+
 # The API moved to its own hostname. api.compute.tech exposes /v1/* only, so
 # this rewrites the documented base URL and nothing else -- notably NOT the
 # legacy /api/images/generate endpoint, which that host does not serve.
 API_BASE = re.compile(r"(https?://)?c0mpute\.ai/api/v1")
+# The three static sites point their favicon at the old domain absolutely, so a
+# compute.tech visitor gets the c0mpute mark in the tab. Swap it for the new one,
+# served from this domain rather than borrowed from the other.
+FAVICON = re.compile(r"https?://c0mpute\.ai/favicon\.ico")
 
 # The wordmark is markup, not text: the zero is wrapped in a span that scales it
 # to match the surrounding glyphs. "Compute Network" has no zero to style, so
@@ -72,6 +104,9 @@ def rebrand(text: str) -> str:
     # Both of these are intentional inside code too: the API base is a real
     # endpoint change, and a wordmark is never inside a code block.
     text = API_BASE.sub(lambda m: (m.group(1) or "") + "api.compute.tech/v1", text)
+    text = FAVICON.sub("/favicon.svg", text)
+    # Only stylesheets carry a :root; paper_override no-ops on anything else.
+    text = paper_override(text)
     text = WORDMARK_UPPER.sub(BRAND_UPPER, text)
     text = WORDMARK_LOWER.sub(BRAND, text)
 
