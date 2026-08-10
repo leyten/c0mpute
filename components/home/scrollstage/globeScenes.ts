@@ -73,7 +73,12 @@ export function drawGlobeStory(ctx: CanvasRenderingContext2D, W: number, H: numb
   rotv(centroid!, 0, sYaw, sTilt, _cv);
   const ax = desktop ? W * 0.6 : W * 0.5;
   const ay = H * 0.44;
-  const sCx = lerp(ax - _cv[0] * sR, desktop ? W * 0.66 : W * 0.5, zoomOut);
+  // The finale now closes on the hero prompt rather than a line of text, so the
+  // globe has to clear the copy column the way it does in the opening hero —
+  // at 0.66 its left rim and the Brazil coastline printed straight through the
+  // composer, with the send arrow sitting on top of coastline dots. Same
+  // fraction as the prologue, so both ends of the story frame identically.
+  const sCx = lerp(ax - _cv[0] * sR, desktop ? W * 0.76 : W * 0.5, zoomOut);
   const sCy = lerp(ay + _cv[1] * sR, H * 0.5, zoomOut);
   const hYaw = -0.6 + tMs * 0.000025;
   const R = lerp(sR, minD * (desktop ? 0.38 : 0.48), heroT);
