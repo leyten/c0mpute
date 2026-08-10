@@ -71,10 +71,26 @@ ln -sfn "$SHARD_SRC/network.json" "$OUT/shard/network.json"
 # The rebrand pass rewrites each site's favicon href to /favicon.svg; this puts
 # the file there. Same mark on the app, the docs and all three static sites, so
 # a reader moving between them never sees the tab icon change identity.
+#
+# The .ico goes beside it because declaring the SVG is not enough: browsers ask
+# for /favicon.ico at the site root regardless of what the page declares, and
+# prefer it to the declared link. On the app that request was answered by
+# public/favicon.ico — the legacy c0mpute mark, which cannot change, c0mpute.ai
+# being the same Next deployment — so compute.tech kept showing the old icon
+# however the <link> was written. The copy at the tree root is what the
+# compute.tech server block aliases for the app; the four in the site roots are
+# found by each block's existing try_files, no nginx change needed.
 echo "==> favicon"
+cp "$REPO/public/brand/favicon.ico" "$OUT/favicon.ico"
 for d in docs blog data shard; do
   cp "$REPO/public/brand/favicon.svg" "$OUT/$d/favicon.svg"
+  cp "$REPO/public/brand/favicon.ico" "$OUT/$d/favicon.ico"
 done
+# Docusaurus copies docs-site/static/img/ into its build, and that favicon.ico is
+# still the legacy mark — docs.c0mpute.ai declares it by name, so the source file
+# has to stay exactly as it is. Overwrite it in the generated tree only, so that
+# no legacy icon is reachable anywhere under compute.tech.
+cp "$REPO/public/brand/favicon.ico" "$OUT/docs/img/favicon.ico"
 
 # ── cache-bust the local assets ──────────────────────────────────────────────
 # Cloudflare caches these for 4 hours, so a rebuild that changes a file keeps
