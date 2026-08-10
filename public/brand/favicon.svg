@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="14 11 76 76" role="img" aria-label="Compute Network">
+  <title>Compute Network</title>
+  <!-- Same geometry as compute-mark.svg, cropped tight to the artwork so it
+       fills a favicon box. Tested at 16px: filling the frame is what keeps the
+       counter open — adding stroke weight closes it and the mark blobs. -->
+  <g fill="currentColor">
+    <path d="M29.93 74.20 L56.62 23.47 L51.38 20.53 L22.07 69.80 Z"/>
+    <path d="M51.45 23.58 L76.81 65.97 L83.19 62.03 L56.55 20.42 Z"/>
+    <path d="M79.45 60.29 L25.34 67.55 L26.66 76.45 L80.55 67.71 Z"/>
+    <circle cx="26" cy="72" r="12"/>
+    <circle cx="54" cy="22" r="8"/>
+    <circle cx="80" cy="64" r="10"/>
+  </g>
+</svg>
