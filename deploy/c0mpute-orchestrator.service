@@ -1,0 +1,35 @@
+[Unit]
+Description=c0mpute Orchestrator Server
+After=network.target
+# Restart=always must not hot-loop a genuinely broken build against the database.
+# Generous, but bounded: give up after 30 starts in 5 minutes.
+StartLimitIntervalSec=300
+StartLimitBurst=30
+
+[Service]
+Type=simple
+# Runs from the PINNED production tree, never the development checkout. A branch
+# switch or a half-finished edit in the dev repo can no longer reach production,
+# and restarting the service is no longer an accidental deploy of whatever
+# happened to be checked out. scripts/deploy.sh is the only thing that moves it.
+WorkingDirectory=/srv/c0mpute/prod
+# Absolute paths, and no `npx`. npx wrapped this in npm -> sh -> node, which made
+# KillMode ambiguous and left the command line as the bare string
+# "tsx server/index.ts" — so a pkill aimed at a test copy matched production and
+# took the network down (2026-08-11).
+ExecStart=/srv/c0mpute/prod/node_modules/.bin/tsx /srv/c0mpute/prod/server/index.ts
+# The shutdown path force-exits at 4s, so this only bounds a pathological stop.
+TimeoutStopSec=15
+KillMode=mixed
+KillSignal=SIGTERM
+SendSIGKILL=yes
+# always, not on-failure. A clean SIGTERM from a stray kill exits 0, which
+# on-failure does not restart — the network stayed down until a human noticed.
+Restart=always
+RestartSec=3
+Environment=NODE_ENV=production
+Environment=SOCKET_PORT=3004
+Environment=ALLOWED_ORIGINS=http://localhost:3003,http://46.225.97.238:3003,https://c0mpute.ai,https://www.c0mpute.ai,https://compute.tech
+
+[Install]
+WantedBy=multi-user.target
