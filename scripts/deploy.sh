@@ -13,6 +13,22 @@
 # Live state is NOT copied: prod/data and prod/.env.local are symlinks to the
 # canonical locations, so the 26MB sqlite database is never duplicated or
 # shadowed by an empty one.
+#
+# A worktree contains only TRACKED files, so anything gitignored but needed at
+# runtime is silently absent here. Today that is data-site/network.json and
+# data-site/stats.json, and it is harmless for one specific reason: their
+# generators (scripts/network-map.ts, scripts/data-stats.ts) resolve their
+# output from `__dirname`, not the working directory, and their units
+# deliberately still run from the development checkout — so they keep writing
+# where the static-site builds already read from. Nothing the Next app serves
+# reads either file.
+#
+# That is a coupling, not a coincidence. If c0mpute-networkmap or
+# c0mpute-datastats is ever repointed at this tree, they will start writing to
+# /srv/c0mpute/prod/data-site/ and the absolute LIVE_DATA path in
+# scripts/build-compute-tech.sh will go stale, serving a dangling symlink for
+# data.compute.tech. Move that path in the same change, or leave those two units
+# on the development checkout where they are.
 set -euo pipefail
 
 REPO=/root/.openclaw/workspace/c0mpute
