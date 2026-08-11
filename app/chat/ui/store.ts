@@ -60,7 +60,7 @@ export interface Convo {
   messages: Msg[];
 }
 
-const KEY = 'c0mpute_chat_v2';
+export const KEY = 'c0mpute_chat_v2';
 const VERSION = 1;
 
 export const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
@@ -255,16 +255,19 @@ export function save(convos: Convo[]): void {
     write(list);
   } catch {
     // Quota: drop generated images, in every version, before losing text.
+    const slim = list.map(c => ({
+      ...c,
+      messages: c.messages.map(m => (m.role === 'assistant'
+        ? { ...m, images: undefined, versions: m.versions?.map(v => ({ ...v, images: undefined })) }
+        : m)),
+    }));
     try {
-      write(list.map(c => ({
-        ...c,
-        messages: c.messages.map(m => (m.role === 'assistant'
-          ? { ...m, images: undefined, versions: m.versions?.map(v => ({ ...v, images: undefined })) }
-          : m)),
-      })));
+      write(slim);
     } catch {
       try {
-        write(list.slice(0, 20));
+        // Last ditch: the newest conversations, still without images. This used
+        // to re-write `list`, putting back the very images that blew the quota.
+        write(slim.slice(0, 20));
       } catch { /* give up quietly; the session still works in memory */ }
     }
   }

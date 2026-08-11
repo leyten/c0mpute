@@ -21,6 +21,8 @@ interface UseSocketReturn {
   failJob: (jobId: string, error: string) => void;
   
   submitJob: (data: { messages?: ChatMessage[]; model?: string; authToken: string; think?: boolean }) => Promise<{ jobId: string; freeRemaining?: number }>;
+  /** Stop a job server-side: cancels the worker and frees the slot. */
+  abortJob: (jobId: string) => void;
   
   setOnNewJob: (handler: ((jobId: string, messages?: ChatMessage[], think?: boolean) => void) | null) => void;
   setOnJobToken: (handler: ((jobId: string, token: string) => void) | null) => void;
@@ -37,8 +39,16 @@ interface UseSocketReturn {
   nativeStatus: { online: boolean; workerId?: string; type?: 'native' | 'image'; connectedAt?: number; jobsCompleted: number; tokensGenerated: number; tokPerSec: number; currentJob?: string } | null;
 }
 
-export function useSocket(authToken?: string | null): UseSocketReturn {
+/** `getFreshToken`, when given, is called at every handshake — including each
+ *  reconnect. Without it the token captured at mount is replayed forever, and
+ *  since Privy access tokens expire in about an hour, the first drop after
+ *  expiry is rejected by the orchestrator's auth middleware. socket.io treats a
+ *  namespace CONNECT_ERROR as fatal and stops retrying, so the page goes
+ *  silently offline until a reload. */
+export function useSocket(authToken?: string | null, getFreshToken?: () => Promise<string | null>): UseSocketReturn {
   const socketRef = useRef<TypedSocket | null>(null);
+  const freshRef = useRef<(() => Promise<string | null>) | undefined>(undefined);
+  useEffect(() => { freshRef.current = getFreshToken; }, [getFreshToken]);
   const [isConnected, setIsConnected] = useState(false);
   const [networkStats, setNetworkStats] = useState<NetworkStats | null>(null);
   const [queuePosition, setQueuePosition] = useState<number | null>(null);
@@ -68,7 +78,15 @@ export function useSocket(authToken?: string | null): UseSocketReturn {
       // attempts (~5s) turns any blip into a permanently offline worker.
       reconnectionAttempts: Infinity,
       reconnectionDelay: 1000,
-      auth: { token: authToken },
+      // Callback form: socket.io re-invokes it for every handshake, so a
+      // reconnect after the mount-time token expired presents a fresh one.
+      auth: (cb: (data: { token: string | null | undefined }) => void) => {
+        const getFresh = freshRef.current;
+        if (!getFresh) { cb({ token: authToken }); return; }
+        getFresh()
+          .then(t => cb({ token: t || authToken }))
+          .catch(() => cb({ token: authToken }));
+      },
     });
 
     socket.on('connect', () => {
@@ -216,12 +234,20 @@ export function useSocket(authToken?: string | null): UseSocketReturn {
         reject(new Error('Socket not connected'));
         return;
       }
-      socketRef.current.emit('job:submit', {
+      // Bounded ack. A socket.io ack has no default timeout, so if the server
+      // never answers — dropped packet, disconnect mid-flight — this promise
+      // never settled and the caller sat "generating" forever with no error and
+      // no stall timer (the chat engine arms its stall only after this resolves).
+      socketRef.current.timeout(20000).emit('job:submit', {
         messages: data.messages,
         model: data.model,
         authToken: data.authToken,
         think: data.think,
-      }, (response) => {
+      }, (timeoutErr: Error | null, response: { jobId: string; freeRemaining?: number } | { error: string; code?: string }) => {
+        if (timeoutErr) {
+          reject(new Error('The network did not accept the job in time. Please try again.'));
+          return;
+        }
         if ('jobId' in response) {
           resolve({ jobId: response.jobId, freeRemaining: response.freeRemaining });
         } else {
@@ -237,6 +263,10 @@ export function useSocket(authToken?: string | null): UseSocketReturn {
     });
   }, []);
 
+  const abortJob = useCallback((jobId: string) => {
+    if (socketRef.current && jobId) socketRef.current.emit('job:abort', { jobId });
+  }, []);
+
   return {
     socket: socketRef.current,
     isConnected,
@@ -249,6 +279,7 @@ export function useSocket(authToken?: string | null): UseSocketReturn {
     completeJob,
     failJob,
     submitJob,
+    abortJob,
     setOnNewJob: useCallback((handler: ((jobId: string, messages?: ChatMessage[], think?: boolean) => void) | null) => { onNewJobRef.current = handler; }, []),
     setOnJobToken: useCallback((handler: ((jobId: string, token: string) => void) | null) => { onJobTokenRef.current = handler; }, []),
     setOnJobComplete: useCallback((handler: ((jobId: string, response: string) => void) | null) => { onJobCompleteRef.current = handler; }, []),
