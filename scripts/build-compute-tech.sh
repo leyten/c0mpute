@@ -44,7 +44,9 @@ python3 "$REBRAND" "$DOCS_SRC/docs" "$DOCS_SRC/.docs-compute"
 cd "$DOCS_SRC"
 DOCS_CONTENT_DIR=.docs-compute \
 DOCS_BRAND="Compute Network" \
-DOCS_WORDMARK="COMPUTE NETWORK" \
+DOCS_WORDMARK="Compute Network" \
+  DOCS_HOME_HREF="https://compute.tech" \
+  DOCS_APP_HREF="" \
 DOCS_URL="https://docs.compute.tech" \
 DOCS_BASE_URL=/ \
   DOCS_COLOR_MODE=dark \
