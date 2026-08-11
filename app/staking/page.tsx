@@ -9,7 +9,7 @@ import SiteNav from '@/components/SiteNav';
 //
 // Presentation: editorial money surface (Newsreader figures, Inter labels).
 // All state, handlers and API calls are unchanged from the production page.
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { usePrivy, useLinkAccount, useConnectWallet } from '@privy-io/react-auth';
 import { useWallets, useSignAndSendTransaction } from '@privy-io/react-auth/solana';
 import { PublicKey } from '@solana/web3.js';
@@ -96,6 +96,14 @@ export default function StakingPage() {
   // wallet IS in Privy's list, so preferring it just re-selects the wrong one
   // and the account never recovers.
   const [resolvedAddr, setResolvedAddr] = useState<string | null>(null);
+  // Which wallet set has already been probed. A non-staker never sets
+  // resolvedAddr — there is no stake anywhere to find — so !resolvedAddr stays
+  // true forever and the probe would repeat on every refresh. readStakeChunks
+  // walks the vault's signature history, so that is not a cheap call to repeat
+  // on a page that used to make none, and this RPC quota has been exhausted
+  // before (2026-08-02). Probe once per wallet set; connecting another wallet
+  // changes the key and earns a fresh look.
+  const probedRef = useRef<string>('');
 
   // Prefer the server's wallet when the browser has it connected; fall back to
   // the first only when we have no better answer.
@@ -170,7 +178,10 @@ export default function StakingPage() {
       // ask every connected wallet which one actually holds stake — that is what
       // rescues an account whose profile was overwritten with an empty address.
       let eff = wallet;
-      if (serverStaked <= 0 && !resolvedAddr && ZERO_MINT && (wallets?.length ?? 0) > 0) {
+      const probeKey = (wallets ?? []).map((x) => x.address).join(',');
+      if (serverStaked <= 0 && !resolvedAddr && probedRef.current !== probeKey
+          && ZERO_MINT && (wallets?.length ?? 0) > 0) {
+        probedRef.current = probeKey;
         for (const cand of wallets) {
           const probe = await readStakeChunks(new PublicKey(cand.address)).catch(() => null);
           if (probe && probe.staked > 0) {
