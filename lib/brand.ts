@@ -120,5 +120,17 @@ export function brandForHost(host?: string | null): Brand {
   return NEW_BRAND_HOSTS.has(hostname) ? COMPUTE : DEFAULT_BRAND;
 }
 
-/** Safe fallback for any client component rendered outside the provider. */
-export const FALLBACK_BRAND = LEGACY;
+/**
+ * What a client component sees if it renders outside the provider — the
+ * BrandContext default. Nothing does today: there is no global-error, error or
+ * not-found boundary, and every useBrand() caller is a child of the root
+ * layout. It is the default for the one that gets added later.
+ *
+ * It follows the cutover rather than staying pinned to the old brand. Before
+ * the switch, falling back to LEGACY was the conservative answer. Now that
+ * every host resolves to Compute Network, LEGACY is the one answer that is
+ * certainly wrong: it would render the retired brand underneath a document
+ * whose server-rendered title already says Compute Network, and two halves
+ * disagreeing is worse than either being uniformly old.
+ */
+export const FALLBACK_BRAND = COMPUTE;
