@@ -140,13 +140,16 @@ export function computeDailyAllowance(privyId: string): number {
 }
 
 /**
- * Atomically draw `credits` from the user's daily allowance. Returns true if the
- * draw succeeded (caller must then charge the user 0 and pay the worker from the
- * subsidy lane). Enforces BOTH the per-user allowance and the global daily pool
- * ceiling, so the total subsidy is hard-bounded.
+ * Atomically draw `credits` from the user's daily allowance. Returns the UTC day
+ * the draw was written to (the usage row's key), or null if the draw failed.
+ * Callers that may later refund MUST keep that day and hand it back to
+ * refundStakerAllowance — usage is per-day, so a job charged at 23:59 and failed
+ * at 00:01 has to be settled against the row it was charged to. Enforces BOTH the
+ * per-user allowance and the global daily pool ceiling, so the total subsidy is
+ * hard-bounded.
  */
-export function consumeStakerAllowance(privyId: string, credits: number): boolean {
-  if (!STAKER_ALLOWANCE_ENABLED || credits <= 0) return false;
+export function drawStakerAllowance(privyId: string, credits: number): string | null {
+  if (!STAKER_ALLOWANCE_ENABLED || credits <= 0) return null;
   const db = getDb();
   const day = utcDay();
   const now = new Date().toISOString();
@@ -168,20 +171,32 @@ export function consumeStakerAllowance(privyId: string, credits: number): boolea
     ).run(privyId, day, credits, now, credits, now);
     return true;
   });
-  return txn() as boolean;
+  return (txn() as boolean) ? day : null;
+}
+
+/** Boolean form of drawStakerAllowance, for callers that never refund a draw. */
+export function consumeStakerAllowance(privyId: string, credits: number): boolean {
+  return drawStakerAllowance(privyId, credits) !== null;
 }
 
 /**
- * Give back allowance credits drawn earlier today (e.g. an image generation that
- * was charged to the allowance then failed). Decrements today's usage so the
+ * Give back allowance credits drawn earlier (e.g. an image generation that was
+ * charged to the allowance then failed). Decrements that day's usage so the
  * staker isn't billed for work that didn't complete.
+ *
+ * `day` defaults to today, but a caller that crossed midnight UTC between the
+ * draw and the failure MUST pass the day drawStakerAllowance returned: keying on
+ * "now" would decrement a row the charge was never written to, permanently
+ * burning the staker's allowance for an undelivered job while inflating the new
+ * day's remaining balance. Bounded by MAX(0, …) per row, so it can never credit
+ * back allowance that wasn't drawn.
  */
-export function refundStakerAllowance(privyId: string, credits: number): void {
+export function refundStakerAllowance(privyId: string, credits: number, day: string = utcDay()): void {
   if (credits <= 0) return;
   const db = getDb();
   db.prepare(
     'UPDATE staker_allowance_usage SET used = MAX(0, used - ?), updated_at = ? WHERE privy_id = ? AND day = ?'
-  ).run(credits, new Date().toISOString(), privyId, utcDay());
+  ).run(credits, new Date().toISOString(), privyId, day);
 }
 
 /**

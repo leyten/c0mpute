@@ -141,14 +141,39 @@ const RATE_LIMIT_PER_MIN = Number(process.env.API_RATE_LIMIT_PER_MIN || 60);
 // restarts (unlike the in-memory per-minute limiter) and bounds resale abuse on
 // top of the already pool-capped staking allowance. 0 = unlimited.
 const FREE_ONLY_DAILY_CAP = Number(process.env.API_FREE_ONLY_DAILY_CAP || 2000);
+// Keyed by API-key ID, never by the raw secret: this map lives as long as the
+// process, so raw key material must not accumulate in it. Swept once it grows so
+// a stream of distinct keys can't leak memory either — nothing else deletes.
 const rateBuckets = new Map<string, number[]>();
-function rateLimited(key: string): boolean {
+function rateLimited(keyId: string): boolean {
   const now = Date.now();
-  const win = (rateBuckets.get(key) || []).filter((t) => now - t < 60_000);
-  if (win.length >= RATE_LIMIT_PER_MIN) { rateBuckets.set(key, win); return true; }
+  if (rateBuckets.size > 5_000) {
+    for (const [k, hits] of rateBuckets) {
+      if (!hits.some((t) => now - t < 60_000)) rateBuckets.delete(k);
+    }
+  }
+  const win = (rateBuckets.get(keyId) || []).filter((t) => now - t < 60_000);
+  if (win.length >= RATE_LIMIT_PER_MIN) { rateBuckets.set(keyId, win); return true; }
   win.push(now);
-  rateBuckets.set(key, win);
+  rateBuckets.set(keyId, win);
   return false;
+}
+
+// Orchestrator submit-ack → HTTP. OpenAI SDKs retry 429/5xx and NEVER retry 4xx,
+// so a transient server-side failure (a credit deduction that lost a DB write, a
+// queue submit that failed, no free capacity) must not come back as
+// invalid_request_error — the caller would report "your request was malformed"
+// and give up on something a retry would have served. Shared by both lanes so
+// streaming and non-streaming can't drift apart on the same event.
+function ackToHttp(error: string, code?: string): { status: number; type: string; message: string } {
+  const e = (error || '').toLowerCase();
+  if (e.includes('insufficient credits') || e.includes('allowance')) return { status: 402, type: 'insufficient_quota', message: error };
+  if (e.includes('rate limit')) return { status: 429, type: 'rate_limit_exceeded', message: error };
+  // 'Failed to deduct credits. Try again.' / 'Failed to submit job' / no worker
+  // free for the requested tier — all retryable, and 503 is what the public API
+  // reference documents for the capacity case.
+  if (code === 'FREE_NO_CAPACITY' || e.startsWith('failed to')) return { status: 503, type: 'api_error', message: error };
+  return { status: 400, type: 'invalid_request_error', message: error };
 }
 
 export async function POST(req: NextRequest) {
@@ -163,14 +188,13 @@ export async function POST(req: NextRequest) {
     return oaiError('Invalid API key.', 'invalid_request_error', 401, 'invalid_api_key');
   }
   const { privyId, keyId, freeOnly } = resolved;
-  if (rateLimited(rawKey)) {
+  if (rateLimited(keyId)) {
     return oaiError(`Rate limit exceeded (${RATE_LIMIT_PER_MIN} requests/min per key).`, 'rate_limit_exceeded', 429, 'rate_limit_exceeded');
   }
   // Persistent daily cap for resale keys.
   if (freeOnly && FREE_ONLY_DAILY_CAP > 0 && getApiKeyRequestsToday(keyId) >= FREE_ONLY_DAILY_CAP) {
     return oaiError(`Daily request cap reached for this key (${FREE_ONLY_DAILY_CAP}/day).`, 'rate_limit_exceeded', 429, 'rate_limit_exceeded');
   }
-  bumpApiKeyRequest(keyId);
 
   // ── Body ──
   let body: any;
@@ -181,6 +205,16 @@ export async function POST(req: NextRequest) {
   }
   if (!Array.isArray(body?.messages) || body.messages.length === 0) {
     return oaiError('`messages` must be a non-empty array.', 'invalid_request_error', 400);
+  }
+  // Both fields below are dereferenced without a guard further down (`.trim()` on
+  // model, `.content`/`.tool_calls` on every message) and that code runs OUTSIDE
+  // any try/catch — so `{"model": 5}` or `{"messages":[null]}` currently escapes
+  // as a 500. Malformed input is the caller's error: it must read as a 400.
+  if (body.model !== undefined && typeof body.model !== 'string') {
+    return oaiError('`model` must be a string.', 'invalid_request_error', 400);
+  }
+  if (body.messages.some((m: unknown) => m === null || typeof m !== 'object')) {
+    return oaiError('`messages` entries must be objects.', 'invalid_request_error', 400);
   }
 
   const mapped = mapModel(body.model);
@@ -197,7 +231,19 @@ export async function POST(req: NextRequest) {
   // Tools (OpenAI function calling). tool_choice 'none' disables tools for this call.
   const wantsTools = body.tool_choice !== 'none' && Array.isArray(body.tools) && body.tools.length > 0;
   const tools = wantsTools ? body.tools : undefined;
-  const workerMessages = mapMessagesIn(body.messages);
+  // Belt and braces for the check above: mapMessagesIn walks nested caller data
+  // (tool_calls entries, content parts) that can be junk at any depth.
+  let workerMessages: ReturnType<typeof mapMessagesIn>;
+  try {
+    workerMessages = mapMessagesIn(body.messages);
+  } catch {
+    return oaiError('`messages` contains a malformed entry.', 'invalid_request_error', 400);
+  }
+
+  // Only now bill the persistent daily counter: it's the resale key's real budget,
+  // so a client looping malformed requests must not be able to burn a day's cap
+  // without ever reaching inference.
+  bumpApiKeyRequest(keyId);
 
   // ── Streaming path (SSE) ──
   if (body.stream === true) {
@@ -211,16 +257,37 @@ export async function POST(req: NextRequest) {
     const pending: string[] = [];
     let settled = false;
     let roleSent = false;
+    let jobTimer: ReturnType<typeof setTimeout> | null = null;
+    let heartbeat: ReturnType<typeof setInterval> | null = null;
 
-    const raw = (s: string) => { if (controller) controller.enqueue(enc.encode(s)); else pending.push(s); };
+    // Everything holding this request open: the socket (reconnection is off, so
+    // nothing revives it) plus the two timers. Both must die on every exit path —
+    // an interval left running would fire forever into a dead controller.
+    const release = () => {
+      if (jobTimer) { clearTimeout(jobTimer); jobTimer = null; }
+      if (heartbeat) { clearInterval(heartbeat); heartbeat = null; }
+      try { socket.disconnect(); } catch {}
+    };
+    const raw = (s: string) => {
+      if (!controller) { pending.push(s); return; }
+      try { controller.enqueue(enc.encode(s)); } catch { /* client hung up mid-write */ }
+    };
     const sendChunk = (delta: any, finish: string | null = null) =>
       raw(`data: ${JSON.stringify({ id, object: 'chat.completion.chunk', created, model: requestedModel, choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`);
-    const finish = () => {
+    // `err` ⇒ the job failed after the 200 headers were already on the wire, so
+    // there is no status code left to fail with. The only thing an OpenAI SDK
+    // reads as a failure is a data frame whose payload carries an `error` object
+    // (both the node and python clients raise APIError on it) — emitting a normal
+    // finish_reason:'stop' instead would hand a safety block, a timeout or a dead
+    // worker to the caller as a successful empty completion. It must NOT be
+    // followed by [DONE]: the SDKs stop reading there and would swallow it.
+    const finish = (err?: { message: string; type: string }) => {
       if (settled) return;
       settled = true;
-      raw('data: [DONE]\n\n');
+      if (err) raw(`data: ${JSON.stringify({ error: { message: err.message, type: err.type, param: null, code: null } })}\n\n`);
+      else raw('data: [DONE]\n\n');
       if (controller) { try { controller.close(); } catch {} }
-      try { socket.disconnect(); } catch {}
+      release();
     };
 
     socket.on('job:token', (d: { jobId: string; token: string }) => {
@@ -242,19 +309,18 @@ export async function POST(req: NextRequest) {
     });
     socket.on('job:error', (d: { jobId: string; error: string }) => {
       if (jobId && d.jobId !== jobId) return;
-      sendChunk({}, 'stop');
-      finish();
+      finish({ message: d.error || 'Inference failed.', type: 'api_error' });
     });
 
     // Pre-flight: connect + submit and wait for the ack so credit/rate errors
     // come back as proper HTTP status codes, not mid-stream.
-    const pre = await new Promise<{ ok?: true; httpErr?: { status: number; type: string; code?: string; message: string }; ackErr?: string }>((resolve) => {
+    const pre = await new Promise<{ ok?: true; httpErr?: { status: number; type: string; code?: string; message: string }; ack?: { error: string; code?: string } }>((resolve) => {
       const t = setTimeout(() => resolve({ httpErr: { status: 504, type: 'timeout', message: 'Inference timed out.' } }), 15_000);
       socket.on('connect_error', () => { clearTimeout(t); resolve({ httpErr: { status: 503, type: 'api_error', message: 'Could not reach inference network.' } }); });
       socket.on('connect', () => {
-        socket.emit('job:submit', { messages: workerMessages, model: mapped.model, think: mapped.think, privyUserId: privyId, tools, freeOnly }, (ack: { jobId?: string; error?: string }) => {
+        socket.emit('job:submit', { messages: workerMessages, model: mapped.model, think: mapped.think, privyUserId: privyId, tools, freeOnly }, (ack: { jobId?: string; error?: string; code?: string }) => {
           clearTimeout(t);
-          if (ack?.error) { resolve({ ackErr: ack.error }); return; }
+          if (ack?.error) { resolve({ ack: { error: ack.error, code: ack.code } }); return; }
           jobId = ack?.jobId ?? null;
           resolve({ ok: true });
         });
@@ -262,14 +328,27 @@ export async function POST(req: NextRequest) {
     });
 
     if (!pre.ok) {
-      try { socket.disconnect(); } catch {}
-      if (pre.ackErr) {
-        const e = pre.ackErr.toLowerCase();
-        if (e.includes('insufficient credits') || e.includes('allowance')) return oaiError(pre.ackErr, 'insufficient_quota', 402);
-        if (e.includes('rate limit')) return oaiError(pre.ackErr, 'rate_limit_exceeded', 429);
-        return oaiError(pre.ackErr, 'invalid_request_error', 400);
+      release();
+      if (pre.ack) {
+        const mappedErr = ackToHttp(pre.ack.error, pre.ack.code);
+        return oaiError(mappedErr.message, mappedErr.type, mappedErr.status);
       }
       return oaiError(pre.httpErr!.message, pre.httpErr!.type, pre.httpErr!.status);
+    }
+
+    // The pre-flight only covers submit. After the ack, the ONLY things that can
+    // end this response are job:complete / job:tool_calls / job:error — so a dead
+    // orchestrator or a dropped transport (reconnection:false, nothing reconnects)
+    // would hold the SSE response and its Node socket open forever. Bound it with
+    // the same ceiling the non-streaming lane uses, and treat a transport drop as
+    // a failed job. Our own disconnect() inside finish() re-enters here, but
+    // `settled` is already true by then, so it's a no-op.
+    if (!settled) {
+      jobTimer = setTimeout(() => finish({ message: 'Inference timed out.', type: 'timeout' }), JOB_TIMEOUT_MS);
+      socket.on('disconnect', () => finish({ message: 'Lost connection to the inference network.', type: 'api_error' }));
+      // A queued job can sit up to ~3 min before its first token. An SSE comment is
+      // ignored by every SSE parser but keeps proxies from culling an idle response.
+      heartbeat = setInterval(() => raw(': ping\n\n'), 15_000);
     }
 
     const stream = new ReadableStream({
@@ -279,7 +358,8 @@ export async function POST(req: NextRequest) {
         pending.length = 0;
         if (settled) { try { c.close(); } catch {} }
       },
-      cancel() { try { socket.disconnect(); } catch {} },
+      // Client hung up: nothing left to write, so stop the timers too.
+      cancel() { settled = true; release(); },
     });
     return new Response(stream, {
       headers: { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-cache, no-transform', 'Connection': 'keep-alive', 'X-Accel-Buffering': 'no' },
@@ -320,12 +400,10 @@ export async function POST(req: NextRequest) {
         socket!.emit(
           'job:submit',
           { messages: workerMessages, model: mapped.model, think: mapped.think, privyUserId: privyId, tools, freeOnly },
-          (ack: { jobId?: string; error?: string }) => {
+          (ack: { jobId?: string; error?: string; code?: string }) => {
             if (ack?.error) {
-              const e = ack.error.toLowerCase();
-              if (e.includes('insufficient credits') || e.includes('allowance')) fail(402, 'insufficient_quota', ack.error);
-              else if (e.includes('rate limit')) fail(429, 'rate_limit_exceeded', ack.error);
-              else fail(400, 'invalid_request_error', ack.error);
+              const mappedErr = ackToHttp(ack.error, ack.code);
+              fail(mappedErr.status, mappedErr.type, mappedErr.message);
               return;
             }
             jobId = ack?.jobId ?? null;
