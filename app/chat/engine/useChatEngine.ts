@@ -17,6 +17,12 @@ import { DEMO_MODE, DEMO_NETWORK_STATS, pickDemo, demoChunks, demoSleep, makeDem
 const ANON_TOKEN_KEY = 'c0mpute_anon_token';
 const STOP_TOKENS = ['<|im_end|>', '<|im_end', '<|im_start|>', '<|endoftext|>'];
 const JOB_STALL_MS = 60000;
+/** How long a finished job stays reachable for the events that land after it:
+ *  a render can take minutes, and its image belongs to the turn that asked. */
+const LATE_EVENT_MS = 210000;
+/** Ceiling on the parked-jobs map, so a long session cannot accumulate records
+ *  faster than their retention timers drop them. */
+const RECENT_JOBS = 8;
 
 export type EngineMessage = { role: 'system' | 'user' | 'assistant' | 'tool'; content: string; images?: string[] };
 
@@ -29,12 +35,29 @@ export interface SendCallbacks {
   onGeneratingImage?: () => void;
   /** Images may arrive after onComplete (async render path). */
   onImage?: (images: string[]) => void;
+  /** Why a render failed. Optional and purely additive: onImage([]) still fires
+   *  alongside it, so a caller that only clears the placeholder is unaffected. */
+  onImageError?: (message: string) => void;
   /** A generated document, ready to download. Arrives while the answer is
    *  still being written: the tool renders it before the model's turn ends. */
   onFile?: (file: FileRef) => void;
   /** Final SAFE text (disclaimers filtered, scan applied) + everything gathered. */
   onComplete?: (finalText: string, meta: { thinkSeconds: number | null; sources: SourceRef[]; images: string[] }) => void;
   onError?: (message: string) => void;
+}
+
+/** Everything one job accumulates while it runs. Named because a finished job
+ *  outlives the active slot: see recentRef. */
+interface JobRecord {
+  jobId: string;
+  cb: SendCallbacks;
+  buffer: string;
+  thinkStart: number | null;
+  thinkSeconds: number | null;
+  sources: SourceRef[];
+  images: string[];
+  completed: boolean;
+  stall: ReturnType<typeof setTimeout> | null;
 }
 
 export interface ChatEngine {
@@ -192,17 +215,22 @@ export function useChatEngine(): ChatEngine {
 
   // ---- the single active job ----
   const [busy, setBusy] = useState(false);
-  const activeRef = useRef<{
-    jobId: string;
-    cb: SendCallbacks;
-    buffer: string;
-    thinkStart: number | null;
-    thinkSeconds: number | null;
-    sources: SourceRef[];
-    images: string[];
-    completed: boolean;
-    stall: ReturnType<typeof setTimeout> | null;
-  } | null>(null);
+  const activeRef = useRef<JobRecord | null>(null);
+  // Finished jobs, parked by id. send() owns activeRef and overwrites it the
+  // moment the next prompt goes out, so a render that lands after the reader
+  // has typed again used to find a stranger's job under the id it was looking
+  // for and be dropped — leaving the earlier turn's placeholder pulsing forever
+  // (persisted, so it survived reloads) and losing the image. Nothing evicts
+  // this map but its own retention timer and the size cap.
+  const recentRef = useRef<Map<string, JobRecord>>(new Map());
+
+  /** The job an event belongs to: the one in flight, or one that finished
+   *  recently enough to still be owed images and documents. */
+  const jobFor = useCallback((jobId: string): JobRecord | null => {
+    const a = activeRef.current;
+    if (a && a.jobId === jobId) return a;
+    return recentRef.current.get(jobId) ?? null;
+  }, []);
 
   const clearStall = () => {
     const a = activeRef.current;
@@ -238,8 +266,19 @@ export function useChatEngine(): ChatEngine {
     if (finalText && !scanOutput(finalText).safe) finalText = BLOCKED_MESSAGE;
     setBusy(false);
     a.cb.onComplete?.(finalText, { thinkSeconds: a.thinkSeconds, sources: a.sources, images: a.images });
-    // keep the record briefly for late image events, then drop it
-    setTimeout(() => { if (activeRef.current === a) activeRef.current = null; }, 210000);
+    // keep the record briefly for late image events, then drop it — in the
+    // parked map as well as the active slot, since the next send() takes the
+    // slot back and only the map still answers for this job id
+    const recent = recentRef.current;
+    recent.set(a.jobId, a);
+    if (recent.size > RECENT_JOBS) {
+      const oldest = recent.keys().next().value;
+      if (oldest !== undefined) recent.delete(oldest);
+    }
+    setTimeout(() => {
+      recent.delete(a.jobId);
+      if (activeRef.current === a) activeRef.current = null;
+    }, LATE_EVENT_MS);
     refreshCredits();
   }, [refreshCredits]);
 
@@ -303,24 +342,31 @@ export function useChatEngine(): ChatEngine {
       const a = activeRef.current;
       if (a && jobId === a.jobId) { armStall(); a.cb.onGeneratingImage?.(); }
     });
+    // The three events that can outlive their job go through jobFor, so they
+    // still reach the turn that asked for them after the reader has moved on.
     setOnJobImage((jobId, images) => {
-      const a = activeRef.current;
-      if (a && jobId === a.jobId) { a.images = [...a.images, ...images]; a.cb.onImage?.(images); }
+      const a = jobFor(jobId);
+      if (a) { a.images = [...a.images, ...images]; a.cb.onImage?.(images); }
     });
-    setOnJobImageError((jobId) => {
-      const a = activeRef.current;
-      if (a && jobId === a.jobId) a.cb.onImage?.([]);
+    setOnJobImageError((jobId, error) => {
+      const a = jobFor(jobId);
+      if (!a) return;
+      // onImage([]) is what clears the placeholder off the committed turn, so
+      // it stays; the reason used to be thrown away here instead of being told
+      // to anyone, which is why a failed render read as an empty result.
+      a.cb.onImage?.([]);
+      if (error) a.cb.onImageError?.(error);
     });
     setOnJobFile((jobId, file) => {
-      const a = activeRef.current;
-      if (a && jobId === a.jobId) a.cb.onFile?.(file);
+      const a = jobFor(jobId);
+      if (a) a.cb.onFile?.(file);
     });
     return () => {
       setOnJobToken(null); setOnJobAssigned(null); setOnJobComplete(null); setOnJobError(null);
       setOnJobSearching(null); setOnJobSources(null); setOnJobGeneratingImage(null); setOnJobImage(null); setOnJobImageError(null);
       setOnJobFile(null);
     };
-  }, [setOnJobToken, setOnJobAssigned, setOnJobComplete, setOnJobError, setOnJobSearching, setOnJobSources, setOnJobGeneratingImage, setOnJobImage, setOnJobImageError, setOnJobFile, armStall, finishActive, refreshCredits, refreshAnonRemaining]);
+  }, [setOnJobToken, setOnJobAssigned, setOnJobComplete, setOnJobError, setOnJobSearching, setOnJobSources, setOnJobGeneratingImage, setOnJobImage, setOnJobImageError, setOnJobFile, armStall, finishActive, jobFor, refreshCredits, refreshAnonRemaining]);
 
   // queue positions flow to the active job's callback
   useEffect(() => {

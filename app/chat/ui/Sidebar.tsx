@@ -43,7 +43,14 @@ export default function Sidebar({
   useEffect(() => { if (editing) input.current?.focus(); }, [editing]);
   useEffect(() => {
     if (!menuFor) return;
-    const close = (e: MouseEvent) => { if (!(e.target as HTMLElement).closest('[data-row-menu]')) { setMenuFor(null); setConfirming(null); } };
+    // scoped to the row whose menu is open: every row carries the marker, so a
+    // bare attribute selector was satisfied by a neighbour's, and clicking
+    // another conversation switched to it with the first row's popup still
+    // floating over the list
+    const close = (e: MouseEvent) => {
+      const row = (e.target as HTMLElement).closest('[data-row-menu]');
+      if (row?.getAttribute('data-row-menu') !== menuFor) { setMenuFor(null); setConfirming(null); }
+    };
     document.addEventListener('mousedown', close);
     return () => document.removeEventListener('mousedown', close);
   }, [menuFor]);
@@ -105,7 +112,7 @@ export default function Sidebar({
               {g.items.map(c => {
                 const active = c.id === activeId;
                 return (
-                  <div key={c.id} className="group relative" data-row-menu>
+                  <div key={c.id} className="group relative" data-row-menu={c.id}>
                     {editing === c.id ? (
                       <input
                         ref={input}
