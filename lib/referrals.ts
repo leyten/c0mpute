@@ -162,7 +162,11 @@ export function getReferralEarningsTotal(privyId: string): number {
   return row.total;
 }
 
-export function getReferralStats(privyId: string) {
+// `origin` is the domain the caller arrived on, so the share link a user copies
+// is on the site they are actually looking at. It used to be hardcoded to
+// c0mpute.ai, which after the cutover meant every shared link took an extra
+// 301 hop and advertised the retired domain.
+export function getReferralStats(privyId: string, origin: string) {
   ensureReferralTables();
   const db = getDb();
   const code = getOrCreateReferralCode(privyId);
@@ -180,7 +184,7 @@ export function getReferralStats(privyId: string) {
     .all(privyId) as Array<{ tier: string; usd: number; created_at: string }>;
   return {
     code,
-    link: `https://c0mpute.ai/r/${code}`,
+    link: `${origin}/r/${code}`,
     referredCount: referred.n,
     earnedUsd: getReferralEarningsTotal(privyId),
     earnedUsdThisMonth: earnedMonth.total,

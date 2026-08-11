@@ -11,7 +11,7 @@ import RefRedirect from './redirect';
 // attribution survives the anonymous try-first phase and binds at signup.
 
 const OG_DESCRIPTION = 'private, uncensored AI in a browser tab. no account tracking, no content police, no install.';
-const OG_IMAGE = 'https://c0mpute.ai/og-referral.png';
+const OG_IMAGE_PATH = '/og-referral.png';
 
 export async function generateMetadata(
   { params }: { params: Promise<{ code: string }> }
@@ -20,7 +20,11 @@ export async function generateMetadata(
   const clean = (code || '').toLowerCase().trim();
   const brand = brandForHost((await headers()).get('host'));
   const title = `you've been invited to ${brand.name}`;
-  const url = REFERRAL_CODE_RE.test(clean) ? `https://c0mpute.ai/r/${clean}` : 'https://c0mpute.ai';
+  // Absolute, and on the domain the crawler actually asked for. Hardcoding the
+  // old host meant a card scraped from compute.tech advertised c0mpute.ai —
+  // and after the cutover that image URL is a 301, which scrapers drop.
+  const origin = brand.urls.origin;
+  const url = REFERRAL_CODE_RE.test(clean) ? `${origin}/r/${clean}` : origin;
   return {
     title,
     description: OG_DESCRIPTION,
@@ -30,13 +34,13 @@ export async function generateMetadata(
       url,
       siteName: brand.name,
       type: 'website',
-      images: [{ url: OG_IMAGE, width: 1200, height: 630 }],
+      images: [{ url: `${origin}${OG_IMAGE_PATH}`, width: 1200, height: 630 }],
     },
     twitter: {
       card: 'summary_large_image',
       title,
       description: OG_DESCRIPTION,
-      images: [OG_IMAGE],
+      images: [`${origin}${OG_IMAGE_PATH}`],
     },
   };
 }
