@@ -116,6 +116,28 @@ export const DEFAULT_SWARM_CONFIG: SwarmConfig = {
  *  the damage from a coordinator that over-reports until receipt-attested token counting lands. */
 export const MAX_SWARM_JOB_TOKENS = 4096;
 
+/** How long a ring may sit in `pulling` before the control plane calls it dead — a BACKSTOP, not a
+ *  service level, so it is deliberately slack: 2x the ~30min a cold cohort takes to pull and load
+ *  its 30 GB, which leaves room for a genuinely slow residential joiner. Being wrong in either
+ *  direction costs something, but not the same something: killing a ring that was still honestly
+ *  loading only re-forms it, and its already-verified blocks are on disk for the second pull, while
+ *  a ring that hangs in `pulling` forever blocks EVERY future form for its model — auto-form will
+ *  not preempt a cohort it believes is still loading — so the model is unservable until a human
+ *  notices. Finite and late beats infinite. */
+export const SWARM_PULL_DEADLINE_MS = 60 * 60_000;
+
+/** How long a terminal (failed/degraded) ring is kept after the sweep first sees it dead. It holds
+ *  no slots and can never serve again; it lingers only so the network map still shows the churn that
+ *  just happened. Well past the 300s job budget, so nothing in flight outlives its own ring's record,
+ *  and short enough that the public feed stops counting GPUs that left hours ago. */
+export const TERMINAL_SWARM_TTL_MS = 10 * 60_000;
+
+/** Cap on the settled-job ledger (the double-pay guard). It only ever grew, and it is keyed per
+ *  (swarm, job) so a busy network grows it forever. The retained horizon is tens of thousands of
+ *  settlements — orders of magnitude longer than any window in which a coordinator could resubmit an
+ *  old receipt set for a second payout, since the ring it names is long gone by then. */
+export const SETTLED_LEDGER_MAX = 50_000;
+
 /** Injected side-effects — the orchestrator provides sockets + the earnings sink; a test provides fakes. */
 export interface SwarmDeps {
   seam: Seam;
@@ -143,6 +165,8 @@ export class SwarmManager {
   private swarms = new Map<string, SwarmInfo>();            // swarmId → swarm
   private nodeToSwarm = new Map<string, string>();          // nodeId → swarmId (a node is in one swarm)
   private settled = new Set<string>();                     // `${swarmId}:${jobId}` already paid (idempotency)
+  private terminalSince = new Map<string, number>();        // swarmId → when the sweep first saw it dead
+  private lastSuspect = new Map<string, string>();          // swarmId → stage probed on the previous check
   private cfg: SwarmConfig;
   private d: SwarmDeps;
 
@@ -210,8 +234,14 @@ export class SwarmManager {
       .map((c) => ({ nodeId: c.nodeId, addrs: c.cap.addrs! }));
   }
   getSwarm(id: string) { return this.swarms.get(id); }
+  /** A ring that can take a job for `model`, preferring an IDLE one. `serving` marks a ring with a
+   *  job in flight (markServing/markIdle), so with several ready rings the dispatch spreads instead
+   *  of piling every concurrent job onto the first coordinator while its peers sit idle. A busy ring
+   *  is still returned when it is the only one — the pipeline interleaves jobs, and refusing here
+   *  would turn a second concurrent request on a single-ring model into "no ready swarm". */
   swarmForModel(model: string) {
-    return [...this.swarms.values()].find((s) => s.model === model && s.status === 'ready');
+    const rings = [...this.swarms.values()].filter((s) => s.model === model);
+    return rings.find((s) => s.status === 'ready') ?? rings.find((s) => s.status === 'serving');
   }
 
   /** A deep-enough copy of the live control-plane state for read-only consumers (the network-map
@@ -312,6 +342,23 @@ export class SwarmManager {
     if (!plan) { this.log(`planner: pool can't hold ${model} (need more/fatter nodes)`); return null; }
 
     const byId = new Map(pool.map((c) => [c.nodeId, c]));
+    // RE-VALIDATE THE PLAN AGAINST THE LIVE POOL. `pool` was captured before an await — the planner
+    // is a subprocess and a node can disconnect, or be placed by another form, while python thinks.
+    // Nothing downstream catches it: the swarm does not exist yet, so onNodeGone finds no nodeToSwarm
+    // entry and cannot degrade it, and a moment later the dead socket is sealed in as a stage. Its
+    // swarm:assign goes nowhere (io.to a closed socket is silent), so it never sends swarm:ready and
+    // the ring sits in `pulling` forever — which then makes auto-form defer every future form for the
+    // model. Aborting costs one planner run; sealing a stale stage in costs the model.
+    const livePool = new Map((this.candidates.get(model) ?? []).map((c) => [c.nodeId, c]));
+    const moved = plan.stages.filter((s) => {
+      const live = livePool.get(s.id);
+      return !live || live.cap.pubkey !== byId.get(s.id)?.cap.pubkey || this.nodeToSwarm.has(s.id);
+    });
+    if (moved.length) {
+      this.log(`not forming ${model}: ${moved.map((s) => s.id).join(', ')} left or was placed while the `
+        + `planner ran — aborting rather than ringing a stage that isn't there`);
+      return null;
+    }
     const losslessWire = profile.losslessWire ?? true;      // explicit, NOT inferred from upload-awareness
     const stages: SwarmStage[] = plan.stages.map((s) => ({
       nodeId: s.id,
@@ -422,6 +469,21 @@ export class SwarmManager {
     return swarm;
   }
 
+  /** OCCUPANCY — a job was dispatched to this ring. `serving` is what makes swarmForModel prefer an
+   *  idle ring, so a fleet of rings for one model shares the load instead of hammering one head.
+   *  Only a `ready` ring is claimable: a degraded/failed ring must not be resurrected by a dispatch. */
+  markServing(swarmId: string) {
+    const swarm = this.swarms.get(swarmId);
+    if (swarm?.status === 'ready') swarm.status = 'serving';
+  }
+
+  /** OCCUPANCY — the ring's last in-flight job left (completed, failed or timed out), so it is
+   *  dispatchable again. Only `serving` unwinds: a ring that degraded mid-job stays degraded. */
+  markIdle(swarmId: string) {
+    const swarm = this.swarms.get(swarmId);
+    if (swarm?.status === 'serving') swarm.status = 'ready';
+  }
+
   /**
    * The settlement-relevant slice of a swarm, FROZEN at job dispatch — the job's assignment EPOCH.
    * Settlement verifies + pays against THIS, not the swarm's live state: a ring that degraded or
@@ -500,6 +562,12 @@ export class SwarmManager {
     }
 
     this.settled.add(key);                                   // commit BEFORE crediting: no double-pay on retry
+    // and bound the ledger — a Set iterates in insertion order, so the oldest key is the one to drop.
+    while (this.settled.size > SETTLED_LEDGER_MAX) {
+      const oldest = this.settled.values().next().value;
+      if (oldest === undefined) break;
+      this.settled.delete(oldest);
+    }
     const split = this.splitTokens(payTokens, epoch.stages);
     // Revenue splits by the SAME pay-split rule (flat by layers) so each stage's earning is its own
     // slice of what the requester actually paid; the per-worker cut is applied downstream, per stage.
@@ -575,6 +643,54 @@ export class SwarmManager {
     return swarm;
   }
 
+  /**
+   * RING LIFECYCLE SWEEP — call on an interval (the loop layer owns the cadence, as with
+   * sweepSpotChecks). Two jobs, both about rings the control plane can no longer use.
+   *
+   * A ring that never finished loading is declared FAILED. Without a deadline a swarm whose stage
+   * went quiet between assign and ready sits in `pulling` forever, and auto-form — which will not
+   * preempt a cohort it thinks is still loading — then defers every future form for that model: one
+   * stalled pull makes the model permanently unservable. Failing it frees the survivors' slots so
+   * the next form can place them.
+   *
+   * Terminal rings are then EVICTED. `swarms` only ever grew, so every ring the network ever
+   * degraded stayed in the snapshot, kept republishing its long-departed stage nodes into the map
+   * feed, and drove gpusOnline up monotonically. Eviction is timed from when the sweep first
+   * OBSERVES a ring dead rather than from createdAt, so a ring that dies young and one that dies
+   * after hours of honest work are both visible for the same short while.
+   *
+   * Returns the models whose rings just went terminal, so the caller can re-form them.
+   */
+  sweepSwarms(): string[] {
+    const now = this.now();
+    const stalled: string[] = [];
+    for (const [id, s] of this.swarms) {
+      if (s.status === 'pulling' && now - s.createdAt > SWARM_PULL_DEADLINE_MS) {
+        s.status = 'failed';
+        // free only the mappings still pointing HERE — the onNodeGone rule: a stage since re-placed
+        // into another, live ring must not be marked free while it is actively serving.
+        for (const st of s.stages) {
+          if (this.nodeToSwarm.get(st.nodeId) === id) this.nodeToSwarm.delete(st.nodeId);
+        }
+        stalled.push(s.model);
+        this.log(`${id} FAILED — never became ready within ${Math.round(SWARM_PULL_DEADLINE_MS / 60_000)}min; `
+          + `silent stage(s): ${s.stages.filter((st) => !st.ready).map((st) => st.nodeId).join(', ')}`);
+      }
+      if (s.status !== 'failed' && s.status !== 'degraded') continue;
+      const since = this.terminalSince.get(id) ?? now;
+      this.terminalSince.set(id, since);
+      if (now - since < TERMINAL_SWARM_TTL_MS) continue;
+      this.swarms.delete(id);
+      this.terminalSince.delete(id);
+      this.lastSuspect.delete(id);
+      for (const st of s.stages) {
+        if (this.nodeToSwarm.get(st.nodeId) === id) this.nodeToSwarm.delete(st.nodeId);
+      }
+      this.log(`evicted ${id} (${s.status}) — terminal for ${Math.round(TERMINAL_SWARM_TTL_MS / 60_000)}min`);
+    }
+    return [...new Set(stalled)];
+  }
+
   // ─── layer-block spot-check (shard/challenge.py wired to the network) ──────────────────────────
   //
   // The receipt chain proves byte-continuity, never `out == block(in)` — a stage can hash the right
@@ -601,11 +717,22 @@ export class SwarmManager {
     // block). Boundary stages are staked; a trusted-middle stage is a lower priority, allowed only
     // as a fallback so every non-boundary stage is still probeable.
     const probeable = (s: SwarmStage) => !s.boundary && !active.has(s.nodeId);
+    // ROTATE off the stage we probed last. This scan is deterministic, so a
+    // check that timed out left the very same stage first in line on the next
+    // sweep — and two consecutive misses is `consecFailReject`, which is a
+    // permanent rejection that no amount of good behaviour heals. One slow card
+    // must not be able to spend a node's whole standing in two identical hits.
+    // Falls back to the previous target only when it is the sole probeable stage.
+    const justProbed = this.lastSuspect.get(swarmId);
+    const fresh = (s: SwarmStage) => probeable(s) && s.nodeId !== justProbed;
     const suspect = suspectNodeId
       ? swarm.stages.find((s) => s.nodeId === suspectNodeId)
-      : swarm.stages.find((s) => probeable(s) && this.d.trust!.roleFor(s.pubkey) !== 'boundary')
+      : swarm.stages.find((s) => fresh(s) && this.d.trust!.roleFor(s.pubkey) !== 'boundary')
+        ?? swarm.stages.find(fresh)
+        ?? swarm.stages.find((s) => probeable(s) && this.d.trust!.roleFor(s.pubkey) !== 'boundary')
         ?? swarm.stages.find(probeable);
     if (!suspect || active.has(suspect.nodeId)) return null;
+    this.lastSuspect.set(swarmId, suspect.nodeId);
     // verifier — a TRUSTED recompute oracle, in priority order:
     //   1. a we-run auditor not busy in this ring (the open-PoC path — no trusted stage needed),
     //   2. an off-ring staked/boundary candidate, then an in-ring boundary stage (the private-tier path).
@@ -689,26 +816,39 @@ export class SwarmManager {
 
   /**
    * A node reports a STRUCTURED failure instead of a sketch. Explicit errors are not silence
-   * (silence = a cheat, swept below) and not proof of dishonesty either:
-   *   - `busy` from the suspect = it retried its probe door for the whole window and every
-   *     attempt hit a live job. No spot_check_fail (an honestly saturated node must not be
-   *     struck) but a `flake` — an ALWAYS-busy node can't dodge for free, its graded score
-   *     erodes until policy escalates (hold dispatch to its swarm, probe in the gap).
-   *   - anything else (range_mismatch, probe unreachable, no_proj_seed) = an aiming/infra
-   *     signal: drop the check, punish nobody, log loud.
+   * (silence = a cheat, swept below) and not proof of dishonesty either — but WHO reports one
+   * decides how much benefit of the doubt it buys:
+   *   - from the SUSPECT, any error is a `flake`, whatever string it carries. The suspect is the
+   *     party being judged and it authors the excuse, so believing the string is believing the
+   *     accused: treating an unrecognized error as neutral infra made refusal FREE, and a stage
+   *     serving fabricated activations could answer every challenge with `{error:'range_mismatch'}`
+   *     and never be scored — while deleting the check also robbed the deadline sweep of the
+   *     spot_check_fail that makes silence expensive. A flake is deliberately NOT the -35 of a
+   *     proven mismatch, because a genuine range/probe fault does happen (a stage re-placed after
+   *     the check was emitted), but it compounds: a node that never answers erodes out of the
+   *     stage pool. `busy` — the honestly saturated node that retried its probe door all window —
+   *     lands on exactly the same rung it always did.
+   *   - from the VERIFIER, a we-run trusted auditor with nothing to gain from the verdict: `busy`
+   *     flakes it, anything else (probe unreachable, no_proj_seed) is an aiming/infra signal —
+   *     drop the check, punish nobody, log loud. Nobody is scored on our own oracle's bad day.
    */
   reportCheckError(checkId: string, nodeId: string, error: string): void {
     const check = this.checks.get(checkId);
     if (!check) return;
     if (nodeId !== check.suspectNodeId && nodeId !== check.verifierNodeId) return;
     this.checks.delete(checkId);
-    const who = nodeId === check.suspectNodeId ? 'suspect' : 'verifier';
-    if (error === 'busy') {
-      this.d.trust?.record(who === 'suspect' ? check.suspectPubkey : check.verifierPubkey, 'flake');
-      this.log(`spot-check ${checkId}: ${who} ${nodeId} busy for the whole window — flaked, recheck later`);
-    } else {
-      this.log(`spot-check ${checkId}: ${who} ${nodeId} reported '${error}' — check dropped (infra/aim, no strike)`);
+    if (nodeId === check.suspectNodeId) {
+      this.d.trust?.record(check.suspectPubkey, 'flake');
+      this.log(`spot-check ${checkId}: suspect ${nodeId} answered '${error}' instead of a sketch — `
+        + `flaked (a self-reported excuse is not a free pass), recheck later`);
+      return;
     }
+    if (error === 'busy') {
+      this.d.trust?.record(check.verifierPubkey, 'flake');
+      this.log(`spot-check ${checkId}: verifier ${nodeId} busy for the whole window — flaked, recheck later`);
+      return;
+    }
+    this.log(`spot-check ${checkId}: verifier ${nodeId} reported '${error}' — check dropped (infra/aim, no strike)`);
   }
 
   /** Expire overdue checks: a silent SUSPECT fails (refusal is not free); a silent verifier only

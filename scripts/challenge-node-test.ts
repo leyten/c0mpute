@@ -153,15 +153,25 @@ async function testOrchestrator() {
   check(repEvents.some((e) => e.pubkey === c1.suspectPubkey && e.kind === 'flake'), 'busy suspect is flaked');
   check(!repEvents.some((e) => e.kind === 'spot_check_fail'), 'busy is NEVER scored as a cheat');
 
-  // an aiming error drops the next check with no reputation event at all
+  // An aiming error from the SUSPECT is not free. The suspect authors the very
+  // string that decides whether it is punished, so scoring nothing here let a
+  // cheat answer every challenge with 'range_mismatch' and never be judged —
+  // the deadline path that makes refusal costly was bypassed because the check
+  // was deleted before it could expire. A flake, not spot_check_fail: a genuine
+  // range fault is real, and two flakes already drop a stranger out of the
+  // stage pool.
   const c2 = mgr.startSpotCheck(swarmId)!;
   const before = repEvents.length;
   mgr.reportCheckError(c2.checkId, c2.suspectNodeId, 'range_mismatch');
-  check(repEvents.length === before, 'range_mismatch drops the check with no strike');
+  const last = repEvents[repEvents.length - 1];
+  check(repEvents.length === before + 1 && last.pubkey === c2.suspectPubkey && last.kind === 'flake',
+    'range_mismatch from the suspect is flaked, not waved through');
+  check(!repEvents.some((e) => e.kind === 'spot_check_fail'), 'an aiming error is still NEVER a cheat strike');
   // an uninvolved node's error is ignored
   const c3 = mgr.startSpotCheck(swarmId)!;
+  const before3 = repEvents.length;
   mgr.reportCheckError(c3.checkId, 'someone-else', 'busy');
-  check(repEvents.length === before, "an uninvolved node's error is ignored");
+  check(repEvents.length === before3, "an uninvolved node's error is ignored");
 
   nodes.forEach((n) => n.close()); server.close(); http.close();
 }

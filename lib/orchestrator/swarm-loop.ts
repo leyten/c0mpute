@@ -115,6 +115,7 @@ export function attachSwarmLoop(io: Server, opts: SwarmLoopOptions) {
   //    ask the manager to form a ring from the free candidates. Forms repeatedly as supply grows
   //    (each call consumes free candidates; the fleet-multiswarm behavior), stops when it can't. ──
   const formTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  const formInFlight = new Set<string>();                 // models whose autoForm is inside the planner await
   const DEBOUNCE = opts.autoFormDebounceMs ?? 3000;
   function scheduleAutoForm(model: string) {
     if (!opts.resolveModel || !opts.resolveModel(model)) return;   // model the network can't shard
@@ -127,6 +128,18 @@ export function attachSwarmLoop(io: Server, opts: SwarmLoopOptions) {
   async function autoForm(model: string) {
     const spec = opts.resolveModel?.(model);
     if (!spec) return;
+    // ONE form in flight per model. formSwarm awaits the planner seam — a python subprocess that
+    // routinely outlives the debounce — and the candidates it is placing are not marked as taken
+    // until it RETURNS. So a second announce or disconnect during that window sees no pulling ring
+    // and the very same free candidates, and forms a SECOND ring over them: every node gets two
+    // conflicting swarm:assign events, nodeToSwarm keeps whichever landed last, and the loser is
+    // orphaned in `pulling` forever — the state that then blocks the model entirely. Defer; the
+    // in-flight form either places these nodes or leaves them free for the next attempt.
+    if (formInFlight.has(model)) {
+      log(`auto-form ${model}: a form is already in flight — deferring`);
+      scheduleAutoForm(model);
+      return;
+    }
     // DON'T form a new/replacement ring while one for this model is still PULLING (loading). A cold
     // cohort takes ~30min to pull+load; forming again during that window (on any transient
     // disconnect) preempts the in-progress pulls and thrashes — the re-form STORM that starved the
@@ -145,11 +158,22 @@ export function attachSwarmLoop(io: Server, opts: SwarmLoopOptions) {
     // exactly as it did before; a pool that measured gets its ring order, its head and its trim
     // decided by latency instead of by announce arrival order (E0, 2026-07-28).
     const rtt = rttCache.matrix(ids);
+    formInFlight.add(model);
     try {
       const swarm = await mgr.formSwarm(model, spec.manifestRef, spec.profile, rtt);
       if (swarm) { log(`auto-formed ${swarm.id} for ${model} (${swarm.stages.length} stages)`); scheduleAutoForm(model); }
+      // A form that came back empty AFTER the pool moved is the churn case formSwarm now aborts on
+      // (a planned stage left or was placed mid-plan) rather than ringing a stage that isn't there.
+      // Retry on the pool as it actually is now. Gated on a real change, so the ordinary "too few
+      // candidates" / "can't hold the model" null still stops instead of spinning the debounce.
+      else if (mgr.candidateIds(model).join() !== ids.join()) {
+        log(`auto-form ${model}: the candidate pool moved mid-plan — retrying on the fresh pool`);
+        scheduleAutoForm(model);
+      }
     } catch (e) {
       log(`auto-form ${model}: ${(e as Error).message}`);
+    } finally {
+      formInFlight.delete(model);
     }
   }
 
@@ -166,7 +190,13 @@ export function attachSwarmLoop(io: Server, opts: SwarmLoopOptions) {
   const pending = new Map<string, Pending>();
   function finishJob(jobId: string): Pending | undefined {
     const p = pending.get(jobId);
-    if (p) { clearTimeout(p.timer); pending.delete(jobId); }
+    if (p) {
+      clearTimeout(p.timer); pending.delete(jobId);
+      // release the ring's occupancy only when its LAST in-flight job leaves — `pending` is the
+      // authority on what a ring is actually doing, so two concurrent jobs on one ring can't have
+      // the first to finish advertise it as idle while the second is still generating.
+      if (![...pending.values()].some((q) => q.swarmId === p.swarmId)) mgr.markIdle(p.swarmId);
+    }
     return p;
   }
   function serveRequest(a: SwarmServeArgs): { jobId: string } | null {
@@ -181,6 +211,7 @@ export function attachSwarmLoop(io: Server, opts: SwarmLoopOptions) {
     pending.set(jobId, { coordinatorNodeId: swarm.coordinatorNodeId, swarmId: swarm.id, nonce,
       snap: mgr.snapshotForSettlement(swarm.id), revenue: a.revenue,
       onToken: a.onToken, onDone: a.onDone, onError: a.onError, timer });
+    mgr.markServing(swarm.id);   // occupied — the next request prefers a ring that isn't
     io.to(swarm.coordinatorNodeId).emit('swarm:job' as never, {
       swarmId: swarm.id, jobId, messages: a.messages, nonce,
       // reasoning DEFAULTS OFF on the serve path: the network decodes greedily, and greedy long-form
@@ -278,16 +309,16 @@ export function attachSwarmLoop(io: Server, opts: SwarmLoopOptions) {
       rttCache.forget(socket.id);
       probeCursor.delete(socket.id);
       const swarm = mgr.onNodeGone(socket.id);
-      // Only the coordinator's own disconnect is handled above. Any other stage
-      // dropping also kills the ring — onNodeGone has just degraded it and freed
-      // its slots — so the job it was serving can never finish either. Without
-      // this the reader sat on a half-written answer for the full 300s job
-      // budget before the timeout finally spoke.
-      if (swarm) {
-        for (const [jobId, p] of pending) {
-          if (p.swarmId === swarm.id) { finishJob(jobId); p.onError('swarm degraded mid-job'); }
-        }
-      }
+      // A NON-coordinator stage leaving deliberately does NOT fail the job it was
+      // serving. That looks like a hang (the reader can wait out the full job
+      // budget for a ring that is already degraded), and an earlier pass here did
+      // fail those jobs — but doing so removes the pending entry, so the frozen
+      // settlement snapshot goes with it and a completion that still arrives pays
+      // every stage zero. The epoch snapshot exists precisely so honest work
+      // survives mid-job churn (scripts/epoch-settle-test.ts asserts it). Cutting
+      // the reader loose sooner needs a shorter per-job deadline on a degraded
+      // ring, not a teardown of the settlement path — leyten's call, since it is
+      // a payout-semantics change.
       // CHURN SELF-HEAL (P0-#6): a dead stage just freed its whole ring's slots — re-form from
       // the survivors + free spares NOW. Auto-form's only other trigger is an ANNOUNCE, which
       // may never come; without this the network stays down until fresh supply happens by
@@ -296,8 +327,14 @@ export function attachSwarmLoop(io: Server, opts: SwarmLoopOptions) {
     });
   });
 
-  // expire overdue spot-checks (a silent suspect fails; refusal is not free)
-  const sweep = setInterval(() => mgr.sweepSpotChecks(), 30_000);
+  // expire overdue spot-checks (a silent suspect fails; refusal is not free), then age out the
+  // rings themselves: a ring that never finished pulling is declared dead and its nodes freed, and
+  // long-terminal rings are evicted. Re-form for each model that just lost a ring — otherwise the
+  // survivors sit idle until an announce happens by, which for a stable fleet may be never.
+  const sweep = setInterval(() => {
+    mgr.sweepSpotChecks();
+    for (const model of mgr.sweepSwarms()) scheduleAutoForm(model);
+  }, 30_000);
   sweep.unref?.();
 
   // rolling probe round: every candidate gets a fresh rotated slice of peers to measure, so a pool
