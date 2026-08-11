@@ -31,22 +31,34 @@ async function computeStakedHistory(): Promise<StakePoint[]> {
   // every stake vault we know about (current on-chain stakers)
   const d = db();
   let owners: string[] = [];
-  try { owners = (d.prepare('SELECT DISTINCT owner FROM onchain_stake_lots').all() as { owner: string }[]).map((r) => r.owner); } catch {}
+  try {
+    owners = (d.prepare('SELECT DISTINCT owner FROM onchain_stake_lots').all() as { owner: string }[]).map((r) => r.owner);
+  } catch (e) {
+    // Swallowing this returned an empty series indistinguishable from "nobody
+    // has staked yet", so the chart blanked with nothing anywhere to say why.
+    console.warn(`[treasury/history] stake-lot query failed: ${(e as Error).message}`);
+  }
   d.close();
   if (!owners.length) return [];
 
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
   const events: { ms: number; delta: number }[] = [];
+  // An RPC failure below skips a vault and the series is still returned and
+  // cached, so a partial walk renders as a COMPLETE staked history that simply
+  // reads low — wrong numbers on a public treasury page, presented as fact.
+  // Counted so the log says which, rather than leaving it invisible.
+  let skippedVaults = 0;
+  let skippedTxs = 0;
   for (const owner of owners) {
     const [auth] = PublicKey.findProgramAddressSync([Buffer.from('stake'), new PublicKey(owner).toBuffer()], stakingProgramId());
     const vault = getAssociatedTokenAddressSync(zero, auth, true, TOKEN_2022_PROGRAM_ID);
     const vstr = vault.toBase58();
     let sigs: { signature: string; blockTime?: number | null }[] = [];
-    try { sigs = await conn.getSignaturesForAddress(vault, { limit: 1000 }); } catch { continue; }
+    try { sigs = await conn.getSignaturesForAddress(vault, { limit: 1000 }); } catch { skippedVaults++; continue; }
     for (const s of sigs) {
       if (!s.blockTime) continue;
       let tx;
-      try { tx = await conn.getTransaction(s.signature, { maxSupportedTransactionVersion: 0 }); } catch { continue; }
+      try { tx = await conn.getTransaction(s.signature, { maxSupportedTransactionVersion: 0 }); } catch { skippedTxs++; continue; }
       if (!tx?.meta) continue;
       const keys = (tx.transaction.message.staticAccountKeys || (tx.transaction.message as { accountKeys?: PublicKey[] }).accountKeys || []).map((k) => (k.toBase58 ? k.toBase58() : String(k)));
       const idx = keys.indexOf(vstr);
@@ -59,6 +71,14 @@ async function computeStakedHistory(): Promise<StakePoint[]> {
     }
     await sleep(150);
   }
+  if (skippedVaults || skippedTxs) {
+    console.warn(
+      `[treasury/history] staked series is INCOMPLETE — skipped ${skippedVaults}/${owners.length} vaults ` +
+        `and ${skippedTxs} transactions on RPC errors; the chart will read low`,
+    );
+  } else {
+    console.log(`[treasury/history] staked series rebuilt from ${owners.length} vaults, ${events.length} events`);
+  }
   events.sort((a, b) => a.ms - b.ms);
   let cum = 0;
   return events.map((e) => { cum += e.delta; return { t: new Date(e.ms).toISOString(), zero: Math.max(0, cum) }; });
@@ -70,7 +90,11 @@ function refreshStakedIfStale() {
   stakedCache.refreshing = true;
   computeStakedHistory()
     .then((data) => { stakedCache = { at: Date.now(), data, refreshing: false }; })
-    .catch(() => { stakedCache.refreshing = false; });
+    .catch((e) => {
+      // The whole rebuild failing left the chart blank with no trace anywhere.
+      console.error(`[treasury/history] staked history rebuild failed: ${(e as Error)?.message ?? e}`);
+      stakedCache.refreshing = false;
+    });
 }
 
 // GET /api/treasury/history — time-series for the dashboard charts.
