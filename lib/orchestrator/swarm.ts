@@ -233,6 +233,16 @@ export class SwarmManager {
       .filter((c) => (c.cap.addrs?.length ?? 0) > 0)
       .map((c) => ({ nodeId: c.nodeId, addrs: c.cap.addrs! }));
   }
+  /** Has this socket announced a shard capability for any model? The RTT lane
+   *  consults it: a socket nobody can be placed against has nothing to
+   *  contribute to placement, and only ever moves someone else's. */
+  isCandidate(nodeId: string): boolean {
+    for (const pool of this.candidates.values()) {
+      if (pool.some((c) => c.nodeId === nodeId)) return true;
+    }
+    return false;
+  }
+
   getSwarm(id: string) { return this.swarms.get(id); }
   /** A ring that can take a job for `model`, preferring an IDLE one. `serving` marks a ring with a
    *  job in flight (markServing/markIdle), so with several ready rings the dispatch spreads instead

@@ -249,6 +249,12 @@ export function attachSwarmLoop(io: Server, opts: SwarmLoopOptions) {
 
     // a round of measurements to the peers we handed this node (rtt-cache.ts owns the validation)
     socket.on('node:rtt', (data: RttPayload) => {
+      // node:announce establishes who a socket is; this accepted measurements
+      // from ANY authenticated socket, including an ordinary chat visitor who
+      // will never hold a shard. Such a socket cannot be measured against and
+      // has nothing to contribute — its numbers could only ever move someone
+      // else's placement. Candidates only.
+      if (!mgr.isCandidate(socket.id)) return;
       const kept = rttCache.report(socket.id, data?.rttMs);
       if (kept) log(`rtt: ${socket.id} reported ${kept} peer measurement(s) (cache ${rttCache.size})`);
     });
