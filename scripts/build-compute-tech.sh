@@ -30,8 +30,17 @@ DOCS_SRC="$REPO/docs-site"
 BLOG_SRC="$(dirname "$REPO")/c0mpute-blog"
 DATA_SRC="$REPO/data-site"
 SHARD_SRC="/var/www/shard.c0mpute.ai"
-# Canonical checkout: where the orchestrator writes live data, regardless of
-# which tree this script is invoked from.
+# Canonical checkout: where the live-data jobs write, regardless of which tree
+# this script is invoked from.
+#
+# This is a COUPLING, not a convenience. c0mpute-networkmap and c0mpute-datastats
+# are deliberately left running on the development checkout while orchestrator,
+# web and keeper are pinned to /srv/c0mpute/prod, and their scripts anchor output
+# to their own location rather than the working directory. So this path is only
+# correct while those two units stay put. If either is ever repointed at the prod
+# tree, its output moves with it and this goes stale — data.compute.tech would
+# then serve a dangling symlink and no stats. Move this in the same change, or
+# leave those two units where they are. See scripts/deploy.sh for the other half.
 LIVE_DATA="/root/.openclaw/workspace/c0mpute/data-site"
 
 OUT="/var/www/compute.tech"
