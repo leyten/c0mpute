@@ -34,7 +34,21 @@ set -euo pipefail
 REPO=/root/.openclaw/workspace/c0mpute
 PROD=/srv/c0mpute/prod
 STATE=/srv/c0mpute/last-release
+LOCK=/srv/c0mpute/.deploy.lock
 HEALTH_TRIES=30
+
+# EXCLUSIVE. This script checks out, builds, and restarts as three separate
+# steps, so anything else moving the tree in between leaves a process running
+# one commit while the tree holds another — and both parties believe they
+# shipped. That happened on 2026-08-11: a second session detached the tree to
+# master between this script's build and its restart, so the orchestrator came
+# up on master while the deploy reported success for a different sha. Take the
+# lock for the whole run, and fail fast rather than interleave.
+exec 9>"$LOCK"
+if ! flock -n 9; then
+  echo "[deploy] FATAL: another deploy holds $LOCK — refusing to interleave" >&2
+  exit 1
+fi
 
 say() { echo "[deploy] $*"; }
 die() { echo "[deploy] FATAL: $*" >&2; exit 1; }
@@ -126,6 +140,16 @@ if ! health; then
   restart_services
   health && say "rolled back to $CURRENT and healthy" || say "ROLLBACK ALSO UNHEALTHY — intervene now"
   die "deploy failed health check"
+fi
+
+# The assertion that would have caught the 2026-08-11 collision. The lock stops
+# another deploy interleaving, but not a hand-checkout by someone bypassing this
+# script, so verify rather than assume: the tree must still hold exactly what we
+# built and restarted onto. If it does not, the running services are not this
+# commit and reporting success would be a lie.
+ACTUAL="$(git -C "$PROD" rev-parse HEAD)"
+if [ "$ACTUAL" != "$SHA" ]; then
+  die "tree moved during deploy — expected $SHA, tree holds $ACTUAL. The running services may be neither. Re-run this deploy."
 fi
 
 say "deployed $SHA"
