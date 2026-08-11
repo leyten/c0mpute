@@ -271,6 +271,11 @@ export default function Palette({
         className="relative z-10 flex max-h-[76vh] w-full flex-col overflow-hidden rounded-t-[24px] shadow-[0_20px_60px_-15px_rgba(0,0,0,0.8)] md:max-h-[62vh] md:w-[38rem] md:rounded-[24px]"
         style={{ background: 'var(--cu-pop)' }}
         onKeyDown={onKey}
+        // Focusable, so a click on the dialog's own padding or a section heading
+        // lands here instead of on <body>. Without it that click dropped the
+        // dialog out of the key path entirely and Escape, the arrows and Enter
+        // all went dead until the input was clicked again.
+        tabIndex={-1}
       >
         <div className="flex items-center gap-2.5 px-5 pb-3 pt-4">
           <span className="shrink-0" style={{ color: 'var(--cu-faint)' }}><Search /></span>

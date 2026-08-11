@@ -7,7 +7,7 @@
 // `chat-answer` and `pixel-sans` classes with their own rules in globals.css.
 // Nothing here carries any of that. Structure comes from the overrides below,
 // every pixel of style from `.cu-answer` in ui.css.
-import { useState } from 'react';
+import { createElement, useState } from 'react';
 import Markdown from 'markdown-to-jsx';
 import katex from 'katex';
 // KaTeX positions every glyph from its own stylesheet.
@@ -118,21 +118,48 @@ function Cited({ text, sources }: { text: string; sources: SourceRef[] }) {
 
 /* ---------- the renderer ---------- */
 
+/** Answers are worker output, and a worker is anyone on a permissionless
+ *  network. markdown-to-jsx escapes `<script>`/`<iframe>` and drops
+ *  `javascript:` URLs, but raw `<form>` and inline `style` come through as live
+ *  DOM — enough to paint a fixed full-viewport overlay or a "session expired,
+ *  sign in again" form posting to another host, inside this app's own chrome.
+ *  Stripping `style` also restores this file's stated contract that every pixel
+ *  of style comes from `.cu-answer`. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const safeCreateElement = (tag: any, props: any, ...children: any[]) => {
+  if (props && props.style !== undefined) {
+    const rest = { ...props };
+    delete rest.style;
+    return createElement(tag, rest, ...children);
+  }
+  return createElement(tag, props, ...children);
+};
+
 function overrides(sources: SourceRef[]) {
   const base = {
     mathinline: { component: MathInline },
     mathblock: { component: MathBlock },
     pre: { component: CodeBlock },
     table: { component: Table },
+    // Answers never legitimately contain a form. Render the shell as a plain
+    // block and drop the fields, so nothing can collect a keystroke.
+    form: { component: 'div' as const },
+    input: { component: () => null },
+    textarea: { component: () => null },
+    button: { component: 'span' as const },
   };
-  if (sources.length === 0) return { overrides: base };
+  if (sources.length === 0) return { overrides: base, createElement: safeCreateElement };
 
-  const proc = (child: React.ReactNode): React.ReactNode =>
-    typeof child === 'string' ? <Cited text={child} sources={sources} /> : child;
   const withCites = (children: React.ReactNode) =>
-    Array.isArray(children) ? children.map((c, i) => <span key={i}>{proc(c)}</span>) : proc(children);
+    Array.isArray(children)
+      // Only strings become citation spans. Wrapping every child meant a nested
+      // <ul> inside an <li> ended up inside an inline <span>, which stopped
+      // `.cu-answer li > ul` matching and lost the sub-list spacing.
+      ? children.map((c, i) => (typeof c === 'string' ? <Cited key={i} text={c} sources={sources} /> : c))
+      : (typeof children === 'string' ? <Cited text={children} sources={sources} /> : children);
 
   return {
+    createElement: safeCreateElement,
     overrides: {
       ...base,
       p: { component: ({ children, ...p }: React.HTMLAttributes<HTMLParagraphElement>) => <p {...p}>{withCites(children)}</p> },

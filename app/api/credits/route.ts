@@ -22,7 +22,11 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const txLimit = Math.min(TX_MAX, Math.max(1, Number(req.nextUrl.searchParams.get('tx')) || TX_DEFAULT));
+  // Math.trunc: the clamp preserved fractions, and a fractional LIMIT is a
+  // datatype mismatch in SQLite. `?tx=1.5` threw and 500'd the whole payload —
+  // balance, free prompts and the staker lane all share this handler, so the
+  // chat page lost every one of them.
+  const txLimit = Math.min(TX_MAX, Math.max(1, Math.trunc(Number(req.nextUrl.searchParams.get('tx'))) || TX_DEFAULT));
 
   const balance = getCreditBalance(privyId);
   const depositWallet = getOrCreateDepositWallet(privyId);
