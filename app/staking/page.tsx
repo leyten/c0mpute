@@ -83,7 +83,17 @@ export default function StakingPage() {
   const { wallets } = useWallets();
   const { signAndSendTransaction } = useSignAndSendTransaction();
 
-  const wallet = wallets?.[0];
+  // The wallet the account is actually staking from, per the server. Privy's
+  // wallet list is ordered by browser-local connection state, which is scoped to
+  // the origin — so after the compute.tech cutover wallets[0] became whichever
+  // wallet happened to be listed first (typically the empty embedded one)
+  // instead of the connected Phantom. Everything read off it then came back
+  // zero, including the SOL balance behind "this wallet has no SOL".
+  const [profileAddr, setProfileAddr] = useState<string | null>(null);
+
+  // Prefer the server's wallet when the browser has it connected; fall back to
+  // the first only when we have no better answer.
+  const wallet = (profileAddr && wallets?.find((w) => w.address === profileAddr)) || wallets?.[0];
   const owner = wallet ? new PublicKey(wallet.address) : null;
 
   const linkedWallet = (user?.linkedAccounts ?? []).find(
@@ -136,6 +146,7 @@ export default function StakingPage() {
       if (r.ok) {
         const d = await r.json();
         serverStaked = d.staked ?? 0;
+        if (d.address) setProfileAddr(d.address);
         if (serverStaked > 0) {
           setChunks({ staked: d.staked ?? 0, mature: d.mature ?? 0, cooling: d.cooling ?? 0, nextMatureAt: d.nextMatureAt ?? null });
           setClaimable(d.claimable ?? 0);
@@ -229,8 +240,15 @@ export default function StakingPage() {
   // from a wallet linked here rather than at login. The endpoint only accepts a
   // wallet the user provably controls (verified against Privy), then we re-pull.
   useEffect(() => {
-    const w = wallets?.[0];
-    if (!authenticated || !w || syncedAddr === w.address) return;
+    const w = wallet;
+    // Only ever fill an EMPTY profile. This used to fire with wallets[0] on
+    // every load and silently overwrite a funded, staked address with an empty
+    // embedded one — link-wallet accepts it, because it is genuinely the user's.
+    // A deliberate wallet change goes through the connect flow, not a page load.
+    // Never re-link while a position is visible — that is the state worth
+    // protecting. With nothing staked there is nothing to lose, so an account
+    // mis-linked during the cutover can still correct itself here.
+    if (!authenticated || !w || chunks.staked > 0 || syncedAddr === w.address) return;
     (async () => {
       try {
         const t = await getAccessToken();
@@ -243,7 +261,7 @@ export default function StakingPage() {
         if (r.ok) { setSyncedAddr(w.address); refresh(); }
       } catch {}
     })();
-  }, [authenticated, wallets, syncedAddr, getAccessToken, refresh]);
+  }, [authenticated, wallet, chunks.staked, syncedAddr, getAccessToken, refresh]);
 
   const run = async (label: string, build: (o: PublicKey) => Promise<Uint8Array>) => {
     if (!owner || !wallet) return;
