@@ -115,7 +115,10 @@ const config = {
             ],
           },
         ],
-        copyright: `${brand} — AI powered by people, not data centers.`,
+        // Dropped on compute.tech; c0mpute.ai keeps it, as it keeps the rest of
+        // its chrome. Undefined rather than an empty string so the theme omits
+        // the element instead of rendering a blank one.
+        copyright: homeHref === '/' ? `${brand} — AI powered by people, not data centers.` : undefined,
       },
       prism: {
         theme: require('prism-react-renderer').themes.vsDark,
