@@ -160,6 +160,9 @@ export interface ClientToServerEvents {
   'job:complete': (data: { jobId: string; response: string; tokensGenerated: number }) => void;
   'job:error': (data: { jobId: string; error: string }) => void;
   'job:tool_call': (data: { jobId: string; toolCalls: ToolCall[] }) => void;
+  /** User pressed Stop. Named `job:abort` rather than `job:cancel` because that
+   *  name is already the orchestrator -> worker direction. */
+  'job:abort': (data: { jobId: string }) => void;
   // Image generation. Internal web -> orchestrator: submit a render.
   'image:submit': (data: { workflow: Record<string, unknown>; privyUserId?: string; model?: string; seed?: number; width?: number; height?: number; creditsCharged?: number; subsidized?: boolean }, callback: (response: { jobId: string } | { error: string; code?: string }) => void) => void;
   // Image worker -> orchestrator: result or failure.

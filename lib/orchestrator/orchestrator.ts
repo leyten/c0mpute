@@ -439,6 +439,14 @@ export class Orchestrator {
     const now = Date.now();
     const JOB_TIMEOUT_MS = 180000; // 3 minutes
 
+    // Rate-limit buckets are created per user id — including one per anon
+    // visitor — and were only ever pruned when that same id submitted again, so
+    // on a long-lived process the map grew monotonically. Entries with nothing
+    // inside the 5-minute window carry no information.
+    for (const [id, stamps] of this.rateLimits) {
+      if (!stamps.some(t => now - t < 300_000)) this.rateLimits.delete(id);
+    }
+
     this.jobQueue = this.jobQueue.filter(jobId => {
       const job = this.jobs.get(jobId);
       if (!job) return false;
@@ -586,6 +594,11 @@ export class Orchestrator {
           if ((workerType === 'native' || workerType === 'image') && privyUserId) {
             this.pushNativeStatus(privyUserId);
           }
+          // A new worker is the one event that can unblock a queue nothing else
+          // will touch: dispatch is otherwise only driven by job submit and job
+          // settle, so a job queued while the pool was empty sat until it timed
+          // out even with a capable worker online.
+          this.processQueue();
         } else {
           callback({ error: 'Failed to register worker' });
         }
@@ -594,6 +607,10 @@ export class Orchestrator {
       socket.on('worker:unregister', () => {
         this.unregisterWorker(socket.id);
         this.broadcastStats();
+        // unregisterWorker can requeue the job this worker was serving; without
+        // a dispatch here it waits for the stale-job sweep instead of the next
+        // free worker.
+        this.processQueue();
       });
 
       // Job submission
@@ -624,8 +641,16 @@ export class Orchestrator {
         // runs in the orchestrator (which we control), so it covers every tier
         // and the API — unlike the worker-side client scan, which a modified
         // worker could skip. Blocked prompts are rejected without charge.
+        // `messages` is typed, but the wire is not: any connected socket can
+        // send a string, a null, or an array of nulls here. Both used to throw
+        // out of this async handler, and with no unhandledRejection guard that
+        // took the whole orchestrator down — every in-flight job with it.
+        if (data.messages !== undefined && !Array.isArray(data.messages)) {
+          callback({ error: 'Invalid request: messages must be an array.' });
+          return;
+        }
         const inputText = (data.messages || [])
-          .map((m: ChatMessage) => (typeof m.content === 'string' ? m.content : ''))
+          .map((m: ChatMessage) => (typeof m?.content === 'string' ? m.content : ''))
           .join('\n');
         if (!scanOutput(inputText).safe) {
           console.warn(`[Orchestrator] Blocked prompt from ${privyUserId} (safety policy)`);
@@ -848,6 +873,14 @@ export class Orchestrator {
         if (!job) return;
         const worker = this.workers.get(socket.id);
         if (!worker || worker.id !== job.assignedWorker) return;
+        // Same untrusted-wire rule as job:complete. A malformed toolCalls array
+        // threw out of this async handler; with no unhandledRejection guard that
+        // crashed the orchestrator. Ignore it and let the stale-job sweep settle
+        // the job on its normal timeout.
+        if (!Array.isArray(data.toolCalls) || !data.toolCalls.every(tc => typeof tc?.function?.name === 'string')) {
+          console.warn(`[Orchestrator] Ignoring malformed job:tool_call for job=${data.jobId} from worker=${worker.id}`);
+          return;
+        }
 
         await this.handleToolCall(socket, data.jobId, data.toolCalls);
       });
@@ -952,6 +985,42 @@ export class Orchestrator {
         this.processImageQueue();
       });
 
+      // User pressed Stop. Until this existed the client simply stopped
+      // listening: the worker kept decoding to the end on a GPU the network
+      // still counted as busy, the next prompt queued behind a job nobody
+      // wanted, and the charge stood for an answer never delivered.
+      socket.on('job:abort', (data) => {
+        if (!data?.jobId) return;
+        const job = this.jobs.get(data.jobId);
+        // Only the socket that submitted it may stop it.
+        if (!job || job.userSocketId !== socket.id) return;
+
+        if (job.status === 'pending') {
+          this.jobQueue = this.jobQueue.filter(id => id !== data.jobId);
+          this.refundJobCharges(job, 'User cancelled while queued');
+          this.jobs.delete(data.jobId);
+          return;
+        }
+        if (job.status !== 'assigned' && job.status !== 'processing') return;
+
+        // Same rule as the disconnect sweep: refund ONLY when nothing was
+        // delivered. Once tokens have streamed the user has the text, and
+        // refunding on Stop would be free inference — read as it streams, stop,
+        // get the prompt back, repeat.
+        if (!job.serverTokenCount) {
+          this.refundJobCharges(job, 'User cancelled before any output');
+        }
+        if (job.assignedWorker) {
+          const workerSocketId = this.findWorkerSocketId(job.assignedWorker);
+          const workerSocket = workerSocketId ? this.io.sockets.sockets.get(workerSocketId) : undefined;
+          if (workerSocket) workerSocket.emit('job:cancel', { jobId: data.jobId });
+          const worker = this.findWorkerById(job.assignedWorker);
+          if (worker) worker.status = 'idle';
+        }
+        this.jobs.delete(data.jobId);
+        this.processQueue();
+      });
+
       socket.on('disconnect', () => {
         const worker = this.workers.get(socket.id);
         const wasUserWorker = worker?.type === 'native' || worker?.type === 'image';
@@ -964,6 +1033,9 @@ export class Orchestrator {
           this.pushNativeStatus(userId);
         }
         this.processImageQueue();
+        // A disconnect frees whatever this worker held and can requeue its job;
+        // dispatch so the queue moves now instead of on the stale-job sweep.
+        this.processQueue();
       });
     });
   }
@@ -1098,7 +1170,13 @@ export class Orchestrator {
         })
           .then((image) => {
             const us = this.io.sockets.sockets.get(job.userSocketId);
-            if (us) us.emit('job:image', { jobId, images: [image] });
+            if (us) { us.emit('job:image', { jobId, images: [image] }); return; }
+            // The render succeeded but the reader is gone (tab closed, or
+            // reconnected onto a new socket id) so nobody will ever see it. The
+            // credits were spent up front; only the failure path used to give
+            // them back, so this one was charged and silently discarded.
+            try { pi.refund(); } catch (e) { console.error('[Orchestrator] image refund failed:', e); }
+            console.warn(`[Orchestrator] Deferred image for job ${jobId} had no listener; refunded.`);
           })
           .catch((err) => {
             try { pi.refund(); } catch (e) { console.error('[Orchestrator] image refund failed:', e); }
@@ -1215,10 +1293,24 @@ export class Orchestrator {
         if (job.assignedWorker === worker.id && job.status === 'processing') {
           const userSocket = this.io.sockets.sockets.get(job.userSocketId);
           if (userSocket) {
-            job.status = 'pending';
-            job.assignedWorker = undefined;
-            this.jobQueue.unshift(jobId);
+            if (job.serverTokenCount) {
+              // Only a job that delivered NOTHING can be retried elsewhere. The
+              // client appends every token it receives and never resets, so a
+              // second worker starting from scratch renders the answer twice,
+              // concatenated — and would be paid for the first worker's tokens
+              // on top. Fail it instead; the client keeps the partial it has.
+              userSocket.emit('job:error', { jobId, error: 'The worker dropped mid-answer.' });
+              this.jobs.delete(jobId);
+            } else {
+              job.status = 'pending';
+              job.assignedWorker = undefined;
+              this.jobQueue.unshift(jobId);
+            }
           } else {
+            // Worker gone and user gone: nothing will ever be delivered, so the
+            // charge has to go back before the job does. (Canaries have no
+            // privyUserId and refundJobCharges no-ops on them.)
+            if (!job.serverTokenCount) this.refundJobCharges(job, 'Worker gone, user gone');
             this.jobs.delete(jobId);
           }
         }
@@ -1675,6 +1767,11 @@ export class Orchestrator {
     const job = this.jobs.get(jobId);
     if (!job) return;
 
+    // Workers are permissionless: the `string` type is a compile-time promise
+    // the wire does not keep. Coerce once here so no downstream .replace/.length
+    // throws out of this synchronous handler and takes the process with it.
+    if (typeof response !== 'string') response = '';
+
     if (job.isCanary) {
       this.handleCanaryComplete(job, response);
       return;
@@ -1984,7 +2081,8 @@ export class Orchestrator {
     if (check) console.log(`[orchestrator] swarm spot-check ${check.checkId} launched on ${swarm.id}`);
   }
 
-  private persistReputation() {
+  // Public so the shutdown path can flush the last interval's events.
+  persistReputation() {
     try {
       mkdirSync(join(process.cwd(), 'data'), { recursive: true });
       writeFileSync(this.repPath, JSON.stringify(this.reputation.snapshot()));
@@ -2182,7 +2280,13 @@ export class Orchestrator {
 
     console.log(`[Orchestrator] Job ${jobId} failed: ${error}`);
 
-    this.refundJobCharges(job, 'Job failed: ' + error.slice(0, 50));
+    // Gated on "delivered nothing", like every sibling path (cleanupUserJobs,
+    // the 0-token guard, fake-speed, coherence). Refunding unconditionally meant
+    // a worker that streamed a full answer and THEN errored handed the reader a
+    // complete answer for free.
+    if (!job.serverTokenCount) {
+      this.refundJobCharges(job, 'Job failed: ' + error.slice(0, 50));
+    }
 
     this.jobs.delete(jobId);
     setTimeout(() => this.processQueue(), 100);
