@@ -548,13 +548,26 @@ export class SwarmManager {
   onNodeGone(nodeId: string): SwarmInfo | undefined {
     const swarmId = this.nodeToSwarm.get(nodeId);
     for (const [m, pool] of this.candidates) this.candidates.set(m, pool.filter((c) => c.nodeId !== nodeId));
+    // Drop any spot-check this node is a party to. A check left in place expires
+    // into `spot_check_fail` (-35), which relegates the node permanently and, on
+    // a second occurrence, rejects it outright — so a node that merely lost its
+    // connection mid-challenge was scored as a proven cheater.
+    for (const [id, c] of this.checks) {
+      if (c.suspectNodeId === nodeId || c.verifierNodeId === nodeId) this.checks.delete(id);
+    }
     if (!swarmId) { this.nodeToSwarm.delete(nodeId); return undefined; }
     const swarm = this.swarms.get(swarmId);
     if (swarm && swarm.status !== 'failed') {
       swarm.status = 'degraded';
       const gone = swarm.stages.find((s) => s.nodeId === nodeId);
       if (gone) this.d.trust?.record(gone.pubkey, 'flake');   // vanished mid-swarm: unreliable, not dishonest
-      for (const st of swarm.stages) this.nodeToSwarm.delete(st.nodeId);   // free the whole ring's slots
+      // Free the whole ring's slots — but only the mappings still pointing HERE.
+      // A stage whose mapping has since been rewritten to another, live ring
+      // would otherwise be marked free while it is actively serving, and the
+      // next auto-form would place it into a second ring with different layers.
+      for (const st of swarm.stages) {
+        if (this.nodeToSwarm.get(st.nodeId) === swarmId) this.nodeToSwarm.delete(st.nodeId);
+      }
       this.log(`${swarmId} DEGRADED — stage ${nodeId} gone; freed ${swarm.stages.length} slots for re-form`);
     } else {
       this.nodeToSwarm.delete(nodeId);

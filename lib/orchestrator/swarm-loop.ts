@@ -198,6 +198,11 @@ export function attachSwarmLoop(io: Server, opts: SwarmLoopOptions) {
       cb?: (r: { ok: true } | { ok: false; reason: string } | { error: string }) => void) => {
       const acct = (socket as unknown as { privyUserId?: string }).privyUserId;   // set by auth middleware
       if (!acct) { cb?.({ error: 'authentication required' }); return; }
+      // Typed payload, untrusted wire: any authenticated socket (including an
+      // anon visitor) could emit this with no argument and the bare `data.cap`
+      // deref took the whole process down. node:rtt below already guards; these
+      // handlers were the oversight.
+      if (!data?.cap || typeof data.model !== 'string') { cb?.({ error: 'bad payload' }); return; }
       const res = mgr.announce(socket.id, data.cap, data.model, data.manifestRef, acct);
       cb?.(res);
       if (res.ok) {
@@ -218,11 +223,13 @@ export function attachSwarmLoop(io: Server, opts: SwarmLoopOptions) {
     });
 
     socket.on('swarm:ready', (data: ReadyPayload) => {
+      if (!data?.swarmId) return;
       mgr.markReady(data.swarmId, socket.id);
     });
 
     // a committed-token delta from the coordinator mid-generation → relay to the waiting client
     socket.on('swarm:job_token', (data: JobTokenPayload) => {
+      if (!data?.jobId) return;
       const p = pending.get(data.jobId);
       if (p && p.coordinatorNodeId === socket.id) p.onToken(data.delta);
     });
@@ -232,13 +239,27 @@ export function attachSwarmLoop(io: Server, opts: SwarmLoopOptions) {
       // (only the job's coordinator may), then settle against the job's dispatch-time EPOCH
       // (settleJob independently re-checks coordinator; the snapshot makes settlement immune to
       // churn between dispatch and complete — without it, a mid-job degrade stranded honest work).
-      const p = finishJob(data.jobId);
-      if (p && p.coordinatorNodeId === socket.id) p.onDone(data.response ?? '', data.tokensGenerated);
+      if (!data?.jobId) return;
+      // The coordinator check has to come FIRST. finishJob used to run before
+      // it, so any socket that knew the jobId could clear the pending entry and
+      // its timeout: the client stream then had nothing left to terminate it,
+      // and the real coordinator's completion arrived with p === undefined, so
+      // the ring served the answer and every stage was credited zero revenue.
+      const p = pending.get(data.jobId);
+      if (p && p.coordinatorNodeId !== socket.id) return;
+      if (p) {
+        finishJob(data.jobId);
+        p.onDone(data.response ?? '', data.tokensGenerated);
+      }
+      // p is undefined for a completion that lands after the job already
+      // settled or timed out — still hand it to settleJob, which re-checks the
+      // coordinator and dedupes against `settled` on its own.
       await mgr.settleJob(data.swarmId, data.jobId, socket.id, data.nonce, data.tokensGenerated,
         data.receipts, p?.snap ?? null, p?.revenue ?? null);
     });
 
     socket.on('swarm:challenge_result', async (data: ChallengeResultPayload) => {
+      if (!data?.checkId) return;
       // socket.id must be the check's suspect or verifier — both paths ignore anyone else
       if (data.error) {                 // structured refusal (busy / range_mismatch / infra) —
         mgr.reportCheckError(data.checkId, socket.id, data.error);   // never scored as silence
@@ -257,6 +278,16 @@ export function attachSwarmLoop(io: Server, opts: SwarmLoopOptions) {
       rttCache.forget(socket.id);
       probeCursor.delete(socket.id);
       const swarm = mgr.onNodeGone(socket.id);
+      // Only the coordinator's own disconnect is handled above. Any other stage
+      // dropping also kills the ring — onNodeGone has just degraded it and freed
+      // its slots — so the job it was serving can never finish either. Without
+      // this the reader sat on a half-written answer for the full 300s job
+      // budget before the timeout finally spoke.
+      if (swarm) {
+        for (const [jobId, p] of pending) {
+          if (p.swarmId === swarm.id) { finishJob(jobId); p.onError('swarm degraded mid-job'); }
+        }
+      }
       // CHURN SELF-HEAL (P0-#6): a dead stage just freed its whole ring's slots — re-form from
       // the survivors + free spares NOW. Auto-form's only other trigger is an ANNOUNCE, which
       // may never come; without this the network stays down until fresh supply happens by
