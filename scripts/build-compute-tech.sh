@@ -66,7 +66,7 @@ ln -sfn "$DATA_SRC/network.json" "$OUT/data/network.json"
 
 # ── shard.compute.tech ───────────────────────────────────────────────────────
 echo "==> shard"
-python3 "$REBRAND" "$SHARD_SRC" "$OUT/shard" --paper
+python3 "$REBRAND" "$SHARD_SRC" "$OUT/shard"
 ln -sfn "$SHARD_SRC/network.json" "$OUT/shard/network.json"
 
 # ── the mark, at every site root ─────────────────────────────────────────────
