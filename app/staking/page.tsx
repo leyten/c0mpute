@@ -90,10 +90,19 @@ export default function StakingPage() {
   // instead of the connected Phantom. Everything read off it then came back
   // zero, including the SOL balance behind "this wallet has no SOL".
   const [profileAddr, setProfileAddr] = useState<string | null>(null);
+  // A wallet we have PROVEN holds stake, found by probing the connected wallets.
+  // Needed because profileAddr is not trustworthy on its own: an account
+  // mis-linked during the cutover has an empty embedded address saved, that
+  // wallet IS in Privy's list, so preferring it just re-selects the wrong one
+  // and the account never recovers.
+  const [resolvedAddr, setResolvedAddr] = useState<string | null>(null);
 
   // Prefer the server's wallet when the browser has it connected; fall back to
   // the first only when we have no better answer.
-  const wallet = (profileAddr && wallets?.find((w) => w.address === profileAddr)) || wallets?.[0];
+  const wallet =
+    (resolvedAddr && wallets?.find((w) => w.address === resolvedAddr)) ||
+    (profileAddr && wallets?.find((w) => w.address === profileAddr)) ||
+    wallets?.[0];
   const owner = wallet ? new PublicKey(wallet.address) : null;
 
   const linkedWallet = (user?.linkedAccounts ?? []).find(
@@ -157,7 +166,21 @@ export default function StakingPage() {
       // Live on-chain view from the CONNECTED wallet — the reliable source for the
       // staked amount + wallet balance + vault, and the ONLY one that works when the
       // wallet isn't synced to the profile yet (X-login + connect-on-this-page).
-      const w = wallets?.[0];
+      // The profile's wallet is not proof. When the server reports no position,
+      // ask every connected wallet which one actually holds stake — that is what
+      // rescues an account whose profile was overwritten with an empty address.
+      let eff = wallet;
+      if (serverStaked <= 0 && !resolvedAddr && ZERO_MINT && (wallets?.length ?? 0) > 0) {
+        for (const cand of wallets) {
+          const probe = await readStakeChunks(new PublicKey(cand.address)).catch(() => null);
+          if (probe && probe.staked > 0) {
+            eff = cand;
+            setResolvedAddr((prev) => (prev === cand.address ? prev : cand.address));
+            break;
+          }
+        }
+      }
+      const w = eff;
       if (w && ZERO_MINT) {
         const ownerPk = new PublicKey(w.address);
         setVaultAddr(stakeVault(ownerPk, new PublicKey(ZERO_MINT)).toBase58());
@@ -178,7 +201,11 @@ export default function StakingPage() {
       const ra = await fetch('/api/staking/autocompound', { headers: { Authorization: `Bearer ${t}` } });
       if (ra.ok) { const da = await ra.json(); setAutoCompound(!!da.enabled); setAcHistory(da.history ?? []); }
     } catch {}
-  }, [getAccessToken, wallets]);
+    // `wallet` and `resolvedAddr` belong here: without them this closes over the
+    // wallet chosen on first render and keeps reading it after the probe has
+    // found a better one. The probe is guarded on !resolvedAddr, and the setter
+    // is a no-op when unchanged, so the extra pass settles rather than looping.
+  }, [getAccessToken, wallets, wallet, resolvedAddr]);
 
   const toggleAutoCompound = async () => {
     if (autoCompound === null || acBusy) return;
@@ -245,10 +272,13 @@ export default function StakingPage() {
     // every load and silently overwrite a funded, staked address with an empty
     // embedded one — link-wallet accepts it, because it is genuinely the user's.
     // A deliberate wallet change goes through the connect flow, not a page load.
-    // Never re-link while a position is visible — that is the state worth
-    // protecting. With nothing staked there is nothing to lose, so an account
-    // mis-linked during the cutover can still correct itself here.
-    if (!authenticated || !w || chunks.staked > 0 || syncedAddr === w.address) return;
+    // Sync whenever the profile disagrees with the wallet we are actually using.
+    // The old `chunks.staked > 0` guard looked safe but blocked the only path
+    // out for a mis-linked account: the moment the funded wallet was found, a
+    // visible position stopped the correction from ever being saved. Protecting
+    // a staked address is the SERVER's job — link-wallet refuses to replace one —
+    // and that check cannot be defeated from here.
+    if (!authenticated || !w || syncedAddr === w.address || profileAddr === w.address) return;
     (async () => {
       try {
         const t = await getAccessToken();
@@ -261,7 +291,7 @@ export default function StakingPage() {
         if (r.ok) { setSyncedAddr(w.address); refresh(); }
       } catch {}
     })();
-  }, [authenticated, wallet, chunks.staked, syncedAddr, getAccessToken, refresh]);
+  }, [authenticated, wallet, profileAddr, syncedAddr, getAccessToken, refresh]);
 
   const run = async (label: string, build: (o: PublicKey) => Promise<Uint8Array>) => {
     if (!owner || !wallet) return;
