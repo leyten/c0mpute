@@ -33,7 +33,7 @@ The preview streams this reply through the real chat pipeline, so everything you
 Here is what the renderer handles:
 
 - **Bold**, *italic*, and \`inline code\`
-- Links, like the [network map](https://shard.c0mpute.ai)
+- Links, like the [network map](https://shard.compute.tech)
 - Ordered structure and tables
 
 | Tier | Model | Cost |
@@ -66,7 +66,7 @@ const CODE = `Here is a minimal client against the OpenAI-compatible endpoint:
 import openai
 
 client = openai.OpenAI(
-    base_url="https://c0mpute.ai/api/v1",
+    base_url="https://api.compute.tech/v1",
     api_key="sk-c0mpute-...",
 )
 
