@@ -8,6 +8,12 @@
 // domains at once on their next build.
 const brand = process.env.DOCS_BRAND || 'c0mpute';
 const wordmark = process.env.DOCS_WORDMARK || 'C0MPUTE';
+// Where the wordmark points. The legacy docs send you to the site root they
+// are served from; compute.tech points at its own front door.
+const homeHref = process.env.DOCS_HOME_HREF || '/';
+// The App link. `??` not `||`, so passing an empty string is a way to say "no
+// link" rather than falling through to the default.
+const appHref = process.env.DOCS_APP_HREF ?? 'https://c0mpute.ai';
 
 /** @type {import('@docusaurus/types').Config} */
 const config = {
@@ -42,7 +48,7 @@ const config = {
 
   // Read by the swizzled navbar logo, which is a React component and so cannot
   // reach process.env at render time.
-  customFields: { wordmark },
+  customFields: { wordmark, homeHref },
 
   presets: [
     [
@@ -78,17 +84,10 @@ const config = {
       },
       navbar: {
         title: '',
-        items: [
-          {
-            // Both builds link the canonical app. compute.tech serves the same
-            // app and could be linked here instead, but where compute.tech
-            // visitors should land is a product decision, not part of the
-            // rebrand — and the blog/data/shard chrome links here too.
-            href: 'https://c0mpute.ai',
-            label: 'App',
-            position: 'right',
-          },
-        ],
+        // On compute.tech the wordmark itself is the way back to the site, so
+        // a second link to the same place earns nothing; the legacy docs keep
+        // theirs, where the wordmark only goes to the docs root.
+        items: appHref ? [{ href: appHref, label: 'App', position: 'right' }] : [],
       },
       footer: {
         style: 'dark',
@@ -97,8 +96,11 @@ const config = {
             title: 'Links',
             items: [
               {
-                label: 'c0mpute.ai',
-                href: 'https://c0mpute.ai',
+                // The site these docs belong to, which is a different site on
+                // each domain — this used to send compute.tech readers back to
+                // c0mpute.ai.
+                label: homeHref === '/' ? 'c0mpute.ai' : 'compute.tech',
+                href: homeHref === '/' ? 'https://c0mpute.ai' : homeHref,
               },
               {
                 // A real account handle, not a brand string — same class of
