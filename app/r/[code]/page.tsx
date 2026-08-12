@@ -10,7 +10,7 @@ import RefRedirect from './redirect';
 // Humans are bounced client-side; the homepage stores the code (30 days) so
 // attribution survives the anonymous try-first phase and binds at signup.
 
-const OG_DESCRIPTION = 'private, uncensored AI in a browser tab. no account tracking, no content police, no install.';
+const OG_DESCRIPTION = 'private AI in a browser tab. ask anything, no account tracking, no install.';
 const OG_IMAGE_PATH = '/og-referral.png';
 
 export async function generateMetadata(

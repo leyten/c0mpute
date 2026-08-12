@@ -19,9 +19,9 @@ export type ChatState = 'idle' | 'queued' | 'streaming' | 'error';
 // counts line up. `vision`/`thinking` gate the composer controls, since not
 // every model supports them (e.g. SuperGemma is text-only, no vision/thinking).
 export const PLANS = [
-  { id: 'pro' as const, name: 'Pro', cost: 10, costLabel: '10 cr', modelId: 'Qwen3-8B-c0mpute-q4f16_1-MLC', tier: 'pro' as const, workerModel: null, vision: false, thinking: false, description: 'Higher quality, uncensored', features: ['Qwen3 8B model', 'Browser-powered', 'Uncensored'] },
-  { id: 'max' as const, name: 'Qwen3.5 27B', cost: 15, costLabel: '15 cr', modelId: 'native-max', tier: 'max' as const, workerModel: 'qwen3.5-27b-abliterated', vision: true, thinking: true, description: 'Best quality, tools, vision, thinking', features: ['Qwen3.5 27B model', 'Native inference', 'Uncensored', 'Web search (tool calling)', 'Vision (image input)', 'Thinking mode'] },
-  { id: 'max-sg' as const, name: 'SuperGemma4 26B', cost: 15, costLabel: '15 cr', modelId: 'native-supergemma', tier: 'max' as const, workerModel: 'supergemma4-26b', vision: false, thinking: true, description: 'Newer, faster, tools', features: ['SuperGemma4 26B (MoE)', 'Native inference', 'Uncensored', 'Web search (tool calling)', 'Thinking mode'] },
+  { id: 'pro' as const, name: 'Pro', cost: 10, costLabel: '10 cr', modelId: 'Qwen3-8B-c0mpute-q4f16_1-MLC', tier: 'pro' as const, workerModel: null, vision: false, thinking: false, description: 'Higher quality, no refusals', features: ['Qwen3 8B model', 'Browser-powered', 'No refusals'] },
+  { id: 'max' as const, name: 'Qwen3.5 27B', cost: 15, costLabel: '15 cr', modelId: 'native-max', tier: 'max' as const, workerModel: 'qwen3.5-27b-abliterated', vision: true, thinking: true, description: 'Best quality, tools, vision, thinking', features: ['Qwen3.5 27B model', 'Native inference', 'No refusals', 'Web search (tool calling)', 'Vision (image input)', 'Thinking mode'] },
+  { id: 'max-sg' as const, name: 'SuperGemma4 26B', cost: 15, costLabel: '15 cr', modelId: 'native-supergemma', tier: 'max' as const, workerModel: 'supergemma4-26b', vision: false, thinking: true, description: 'Newer, faster, tools', features: ['SuperGemma4 26B (MoE)', 'Native inference', 'No refusals', 'Web search (tool calling)', 'Thinking mode'] },
 ] as const;
 export type PlanId = typeof PLANS[number]['id'];
 export type Plan = typeof PLANS[number];

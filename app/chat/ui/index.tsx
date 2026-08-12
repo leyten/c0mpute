@@ -707,7 +707,7 @@ export default function Chat() {
                 Ask the impossible.
               </h1>
               <p className="mt-3 text-[15px]" style={{ color: 'var(--cu-dim)' }}>
-                Uncensored models, served by machines people own.
+                Models that actually answer, served by machines people own.
               </p>
             </div>
           ) : (
