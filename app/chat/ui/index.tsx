@@ -16,6 +16,7 @@ import './ui.css';
 import { useChatEngine, type EngineMessage } from '../engine/useChatEngine';
 import { PENDING_PROMPT_KEY, PLANS, parseThinking, parseSourcesFromContent, type FileRef, type Plan, type SourceRef } from '../lib';
 import {
+  KEY as STORE_KEY,
   load, save, uid, titleFrom, toWire, truncateAt,
   activeVersion, addImagesTo, addVersion, assistantMsg, makeVersion, selectVersion,
   type Convo, type Msg, type Role, type VersionModel,
@@ -111,6 +112,11 @@ export default function Chat() {
   const [regenFor, setRegenFor] = useState<string | null>(null);
   /** The job "Try again" would repeat. State, because the error block reads it. */
   const [retryJob, setRetryJob] = useState<Job | null>(null);
+  /** Which conversation the running job belongs to. `busy` and `error` are
+   *  global to the page, so without this the live block and the error banner
+   *  rendered into whatever thread was on screen — switch conversations
+   *  mid-answer and someone else's stream appeared at the bottom of it. */
+  const [liveConvo, setLiveConvo] = useState<string | null>(null);
 
   const buffer = useRef('');
   const flushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -157,6 +163,21 @@ export default function Chat() {
     // what makes the first send create one, instead of appending to whatever
     // the visitor happened to ask last time.
     if (!handoff.current && list.length > 0) setActiveId(list[0].id);
+  }, []);
+
+  // Two tabs on /chat each hold their own copy of the list, and `save` writes the
+  // whole thing. Whichever tab saved last won, and everything the other tab had
+  // created since it loaded was gone from storage for good. Re-read on another
+  // tab's write so this one saves on top of current data instead of stale data.
+  // Safe mid-answer: the streaming text lives in a ref until `commit`, which
+  // maps over the latest list.
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== null && e.key !== STORE_KEY) return;
+      setConvos(load());
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
   }, []);
 
   const active = convos.find(c => c.id === activeId) ?? null;
@@ -223,12 +244,8 @@ export default function Chat() {
   const renameConvo = useCallback((id: string, title: string) => {
     persist(convos.map(c => (c.id === id ? { ...c, title } : c)));
   }, [convos, persist]);
-  const deleteConvo = useCallback((id: string) => {
-    const next = convos.filter(c => c.id !== id);
-    persist(next);
-    setInstrOpen(false);
-    if (activeId === id) { setActiveId(next[0]?.id ?? null); setEditingId(null); }
-  }, [convos, persist, activeId]);
+  // Defined below clearLive: deleting the conversation a job is writing into
+  // has to tear that job down too.
 
   // ---- scrolling ----
   const scrollToEnd = useCallback((smooth = true) => {
@@ -248,6 +265,18 @@ export default function Chat() {
   useEffect(() => {
     if (pinned.current) scrollToEnd(false);
   }, [messages.length, scrollToEnd]);
+
+  // Opening a conversation lands on its newest message. The effects above key on
+  // messages.length and streamText, so switching between two threads of the same
+  // length fired neither and left the scroller at the previous thread's offset —
+  // and `pinned` carried over, so once you had scrolled up in one conversation
+  // every one you opened after it also opened mid-thread.
+  useEffect(() => {
+    pinned.current = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setShowJump(false);
+    scrollToEnd(false);
+  }, [activeId, scrollToEnd]);
 
   useEffect(() => {
     if (pinned.current && streamText) scrollToEnd(false);
@@ -289,6 +318,24 @@ export default function Chat() {
     setRegenFor(null);
   }, []);
 
+  const deleteConvo = useCallback((id: string) => {
+    const next = convos.filter(c => c.id !== id);
+    persist(next);
+    setInstrOpen(false);
+    // A job still writing into this conversation has nowhere to land: its answer
+    // would be dropped by commit's map, but `busy` stayed true so the composer
+    // was locked out of every other conversation until it finished. Cancel it.
+    if (landing.current?.convoId === id) {
+      if (flushTimer.current) { clearTimeout(flushTimer.current); flushTimer.current = null; }
+      engine.cancel();
+      clearLive();
+    }
+    // The banner and its "Try again" pointed at a conversation that is gone.
+    setError(null);
+    setRetryJob(null);
+    if (activeId === id) { setActiveId(next[0]?.id ?? null); setEditingId(null); }
+  }, [convos, persist, activeId, engine, clearLive]);
+
   // ---- run one job ----
   const run = useCallback(async (job: Job) => {
     if (capped) { engine.login(); return; }
@@ -301,6 +348,7 @@ export default function Chat() {
       model: { id: job.plan.id, name: job.plan.name, costLabel: job.plan.costLabel },
     };
     landing.current = to;
+    setLiveConvo(job.convoId);
     earlyImages.current = [];
     awaitingImage.current = false;
     // documents belong to the job that made them, exactly like the sources
@@ -343,7 +391,10 @@ export default function Chat() {
         onImage: imgList => {
           awaitingImage.current = false;
           setGenImage(false);
-          if (!imgList.length) return;
+          // An empty list is the render FAILING, and it still has work to do:
+          // it has to clear the placeholder off the committed version. Returning
+          // early here left a pulsing grey box in the turn forever — saved to
+          // storage, so it survived every reload. addImagesTo([]) clears it.
           // this job's answer has not landed yet, so there is no version to
           // hang them on; commit picks them up
           if (landing.current === to) { earlyImages.current.push(...imgList); return; }
@@ -393,6 +444,10 @@ export default function Chat() {
   const ask = useCallback(async (text: string, imgs: string[], replaceFrom?: string) => {
     const clean = text.trim();
     if ((!clean && imgs.length === 0) || busy) return;
+    // Checked here, not just in `send` and `run`: follow-up chips and edit-resend
+    // call ask() directly, so the question was written into the thread and saved
+    // before run() bailed — leaving an orphan turn with no answer and no retry.
+    if (capped) { engine.login(); return; }
 
     const userMsg: Msg = { id: uid(), role: 'user', content: clean, images: imgs.length ? imgs : undefined };
 
@@ -440,7 +495,7 @@ export default function Chat() {
       plan,
       think: plan.thinking ? think : false,
     });
-  }, [busy, activeId, convos, persist, plan, think, pendingInstr, run]);
+  }, [busy, capped, engine, activeId, convos, persist, plan, think, pendingInstr, run]);
 
   const send = useCallback(() => {
     const text = draft.trim();
@@ -463,11 +518,17 @@ export default function Chat() {
     const text = handoff.current;
     if (!hydrated || !text || handoffSent.current || busy) return;
     if (engine.authLoading || !engine.connected || capped) return;
+    // Send what is in the box, not the text the homepage handed over. The
+    // visitor can be refining the prompt while the socket is still connecting,
+    // and replaying handoff.current wiped those edits the moment it connected.
+    // An emptied box means they changed their mind — stand down and leave it.
+    const pending = draft.trim();
     handoffSent.current = true;
+    if (!pending) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setDraft('');
-    void ask(text, []);
-  }, [hydrated, busy, engine.authLoading, engine.connected, capped, ask]);
+    void ask(pending, []);
+  }, [hydrated, busy, engine.authLoading, engine.connected, capped, ask, draft]);
 
   const followUp = useCallback((text: string) => { void ask(text, []); }, [ask]);
 
@@ -509,6 +570,10 @@ export default function Chat() {
     if (flushTimer.current) { clearTimeout(flushTimer.current); flushTimer.current = null; }
     const partial = buffer.current.trim();
     const to = landing.current;
+    // Stopping cancels the pending render too: engine.cancel() drops the job
+    // record, so no image event can ever arrive to clear this. Committing with
+    // it still set baked a permanent placeholder into the saved turn.
+    awaitingImage.current = false;
     // flagged, so the turn can offer to pick the answer back up
     if (partial && to) commit(to, partial, true);
     clearLive();
@@ -551,6 +616,12 @@ export default function Chat() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  // The stream flush timer outlives the page otherwise: navigating away between
+  // two token batches leaves it to fire setStreamText on a dead component.
+  useEffect(() => () => {
+    if (flushTimer.current) { clearTimeout(flushTimer.current); flushTimer.current = null; }
   }, []);
 
   // ---- gates ----
@@ -647,7 +718,7 @@ export default function Chat() {
                   msg={m}
                   engine={engine}
                   busy={busy}
-                  live={busy && regenFor === m.id ? {
+                  live={busy && liveConvo === activeId && regenFor === m.id ? {
                     text: streamText,
                     state: state === 'queued' ? 'queued' : 'streaming',
                     queue,
@@ -666,7 +737,7 @@ export default function Chat() {
                   // the last one carries them
                 />
               ))}
-              {busy && regenFor === null && (
+              {busy && liveConvo === activeId && regenFor === null && (
                 <Live
                   text={streamText}
                   state={state === 'queued' ? 'queued' : 'streaming'}
@@ -676,7 +747,7 @@ export default function Chat() {
                   sources={liveSources}
                 />
               )}
-              {error && (
+              {error && liveConvo === activeId && (
                 <div className="cu-fade rounded-2xl px-4 py-3 text-[14px]" style={{ background: 'color-mix(in oklab, var(--danger) 8%, transparent)', color: 'var(--danger-soft)' }}>
                   <p>{error}</p>
                   <div className="mt-2 flex gap-3 text-[13px]">

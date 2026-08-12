@@ -1,21 +1,28 @@
 [Unit]
 Description=c0mpute Buyback + Staking Keeper
 After=network.target
+StartLimitIntervalSec=600
+StartLimitBurst=10
 
 [Service]
 Type=simple
-WorkingDirectory=/root/.openclaw/workspace/c0mpute
-ExecStart=/usr/bin/npx tsx scripts/keeper.ts
-TimeoutStopSec=5
+# Pinned production tree. This one matters most: the keeper moves real money, and
+# on the dev checkout it would have picked up whatever branch or half-saved edit
+# was on disk the next time it restarted.
+WorkingDirectory=/srv/c0mpute/prod
+ExecStart=/srv/c0mpute/prod/node_modules/.bin/tsx /srv/c0mpute/prod/scripts/keeper.ts
+TimeoutStopSec=15
 KillMode=mixed
 KillSignal=SIGTERM
 SendSIGKILL=yes
-Restart=on-failure
+# always, so a stray kill cannot silently stop buybacks and staker payouts.
+Restart=always
 RestartSec=30
 Environment=NODE_ENV=production
 # SAFETY: keeper makes NO on-chain money moves while this is anything but
 # "false". Flip to false only after watching a dry-run cycle look correct.
-Environment=KEEPER_DRY_RUN=true
+# Armed 2026-06-04 (launch day) after a clean dry-run + a verified live cycle.
+Environment=KEEPER_DRY_RUN=false
 
 [Install]
 WantedBy=multi-user.target

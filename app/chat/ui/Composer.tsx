@@ -131,8 +131,13 @@ export default function Composer({
             onKeyDown={e => {
               if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
                 if (coarse) return;
+                // Only swallow the key when it actually sends. Over the char
+                // limit canSend is false, and preventing the default anyway meant
+                // Enter did nothing at all — no send and no newline — exactly
+                // while the user is trying to break up the text to get under it.
+                if (!canSend) return;
                 e.preventDefault();
-                if (canSend) onSend();
+                onSend();
               }
             }}
             onPaste={e => {

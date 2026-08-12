@@ -1,0 +1,26 @@
+[Unit]
+Description=c0mpute Web App
+After=network.target c0mpute-orchestrator.service
+StartLimitIntervalSec=300
+StartLimitBurst=30
+
+[Service]
+Type=simple
+# Pinned production tree — see c0mpute-orchestrator.service for why. This also
+# retires the older hazard documented in scripts/build.sh: rebuilding .next
+# underneath a running `next start` left it serving HTML that referenced chunk
+# hashes no longer on disk. The build now happens in the prod tree, and the
+# service is restarted deliberately by scripts/deploy.sh once it succeeds.
+WorkingDirectory=/srv/c0mpute/prod
+ExecStart=/srv/c0mpute/prod/node_modules/.bin/next start -p 3003
+TimeoutStopSec=15
+KillMode=mixed
+KillSignal=SIGTERM
+SendSIGKILL=yes
+Restart=always
+RestartSec=3
+Environment=NODE_ENV=production
+Environment=NEXT_PUBLIC_SOCKET_URL=http://46.225.97.238:3004
+
+[Install]
+WantedBy=multi-user.target

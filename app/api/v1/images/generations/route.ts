@@ -44,17 +44,34 @@ export async function POST(req: NextRequest) {
     width = w; height = h;
   }
 
-  const internal = await fetch(`http://127.0.0.1:${PORT}/api/images/generate`, {
-    method: 'POST',
-    headers: { Authorization: auth, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      prompt,
-      negative_prompt: typeof body.negative_prompt === 'string' ? body.negative_prompt : undefined,
-      width, height,
-      seed: typeof body.seed === 'number' ? body.seed : undefined,
-      nsfw: body.nsfw === true,
-    }),
-  });
+  // The internal route charges BEFORE it dispatches the render and refunds itself
+  // on failure, so this hop must not walk away from a request that is still going
+  // to be billed: the timeout is a BACKSTOP above the internal ceiling (200s job +
+  // 15s classifier), not a normal-path cutoff, and it stays under maxDuration so a
+  // wedged hop still answers in the OpenAI error shape. An unguarded fetch (reset
+  // socket, orchestrator restart) would otherwise escape as Next's generic 500.
+  let internal: Response;
+  try {
+    internal = await fetch(`http://127.0.0.1:${PORT}/api/images/generate`, {
+      method: 'POST',
+      headers: { Authorization: auth, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        prompt,
+        negative_prompt: typeof body.negative_prompt === 'string' ? body.negative_prompt : undefined,
+        width, height,
+        seed: typeof body.seed === 'number' ? body.seed : undefined,
+        nsfw: body.nsfw === true,
+      }),
+      signal: AbortSignal.timeout(285_000),
+    });
+  } catch (err) {
+    const e = err as { name?: string; message?: string };
+    const timedOut = e?.name === 'TimeoutError' || e?.name === 'AbortError';
+    console.error('[v1/images] internal hop failed', e?.name || '', e?.message || err);
+    return timedOut
+      ? oaiError('Image generation timed out.', 'timeout', 504)
+      : oaiError('Image generation is unavailable right now.', 'server_error', 503);
+  }
 
   const data = await internal.json().catch(() => ({}));
   if (!internal.ok) {
@@ -64,7 +81,9 @@ export async function POST(req: NextRequest) {
       : status === 402 ? 'insufficient_quota'
       : status === 400 ? 'invalid_request_error'
       : 'server_error';
-    const code = status === 402 ? 'insufficient_credits' : data?.code?.toLowerCase?.() ?? null;
+    // Prefer the internal route's own code so a 402 keeps saying WHICH quota ran
+    // out (an exhausted resale-key allowance is not an empty balance).
+    const code = data?.code?.toLowerCase?.() ?? (status === 402 ? 'insufficient_credits' : null);
     return oaiError(message, type, status, code);
   }
 

@@ -66,6 +66,50 @@ function Answer({ content, streaming, liveSources }: { content: string; streamin
   );
 }
 
+/** Whether the thread scroller was sitting at the end the last time anyone
+ *  looked. Sampled on scroll — and an image growing into place fires no scroll
+ *  event — so the reading survives the reflow it has to be judged against. */
+const atEnd = new WeakMap<Element, boolean>();
+
+/** A picture in the thread. A data URL carries no intrinsic size, so the turn
+ *  measures as if the image were not there: the scroller is sent to the bottom,
+ *  arrives, and then the pictures decode and push the bottom hundreds of pixels
+ *  further down. Nothing put it right, because the scroller only re-measures
+ *  when the reader scrolls — a conversation with images in it opened mid-thread
+ *  and not even the jump button appeared. Each image pulls the thread back to
+ *  the end as it lands, and only if the reader was already at the end, so
+ *  having scrolled up is never undone. */
+function ThreadImage({ src, className }: { src: string; className: string }) {
+  const img = useRef<HTMLImageElement>(null);
+
+  // watched from mount rather than from the first load: a reader who scrolls up
+  // while the pictures are still decoding has to be seen doing it
+  useEffect(() => {
+    const el = img.current?.closest('.cu-scroll');
+    if (!el || atEnd.has(el)) return;
+    atEnd.set(el, true);
+    el.addEventListener('scroll', () => {
+      atEnd.set(el, el.scrollHeight - el.scrollTop - el.clientHeight < 120);
+    }, { passive: true });
+  }, []);
+
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      ref={img}
+      src={src}
+      alt=""
+      className={className}
+      onLoad={e => {
+        const el = e.currentTarget.closest('.cu-scroll');
+        // the correction is a scroll of its own, which is what finally lets the
+        // page recompute the jump button off a height that is now true
+        if (el && atEnd.get(el) !== false) el.scrollTop = el.scrollHeight;
+      }}
+    />
+  );
+}
+
 /** One answer: its text, then whatever it generated. */
 function VersionBody({ v }: { v: Version }) {
   return (
@@ -77,8 +121,7 @@ function VersionBody({ v }: { v: Version }) {
       {v.images && v.images.length > 0 && (
         <div className="mt-3 flex flex-wrap gap-2">
           {v.images.map((src, i) => (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img key={i} src={src} alt="" className="max-h-96 max-w-full rounded-2xl" />
+            <ThreadImage key={i} src={src} className="max-h-96 max-w-full rounded-2xl" />
           ))}
         </div>
       )}
@@ -105,6 +148,10 @@ function VersionBody({ v }: { v: Version }) {
 
 function CopyButton({ text, always }: { text: string; always?: boolean }) {
   const [done, setDone] = useState(false);
+  // the reset outlives the button otherwise: copy an answer, switch
+  // conversations inside 1.6s, and it fires into a turn that is gone
+  const reset = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (reset.current) clearTimeout(reset.current); }, []);
   return (
     <button
       onClick={() => {
@@ -112,7 +159,8 @@ function CopyButton({ text, always }: { text: string; always?: boolean }) {
         const { response } = parseThinking(cleanContent);
         void navigator.clipboard.writeText(response.trim() || cleanContent);
         setDone(true);
-        setTimeout(() => setDone(false), 1600);
+        if (reset.current) clearTimeout(reset.current);
+        reset.current = setTimeout(() => setDone(false), 1600);
       }}
       className={`flex items-center gap-1.5 rounded-lg px-2 py-1 text-[12px] transition-all duration-150 hover:bg-[var(--chat-row-on)] ${always ? '' : QUIET}`}
       style={{ color: 'var(--cu-faint)' }}
@@ -126,13 +174,18 @@ function CopyButton({ text, always }: { text: string; always?: boolean }) {
 /** Your own prompt, copied verbatim. */
 function PlainCopy({ text }: { text: string }) {
   const [done, setDone] = useState(false);
+  const reset = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // above the early return: the hooks have to run on every render of this
+  // component, including the one where there is nothing to copy
+  useEffect(() => () => { if (reset.current) clearTimeout(reset.current); }, []);
   if (!text) return null;
   return (
     <button
       onClick={() => {
         void navigator.clipboard.writeText(text);
         setDone(true);
-        setTimeout(() => setDone(false), 1600);
+        if (reset.current) clearTimeout(reset.current);
+        reset.current = setTimeout(() => setDone(false), 1600);
       }}
       title="Copy"
       className={`flex items-center gap-1.5 rounded-lg px-2 py-1 text-[12px] hover:bg-[var(--chat-row-on)] ${QUIET}`}
@@ -421,8 +474,7 @@ function UserTurn({
         {images.length > 0 && (
           <div className="mb-2 flex flex-wrap justify-end gap-2">
             {images.map((src, i) => (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img key={i} src={src} alt="" className="max-h-52 rounded-2xl" />
+              <ThreadImage key={i} src={src} className="max-h-52 rounded-2xl" />
             ))}
           </div>
         )}
@@ -495,13 +547,18 @@ function AssistantTurn({
   useEffect(() => {
     if (!menu) return;
     const close = (e: MouseEvent) => {
-      if (!(e.target as HTMLElement).closest('[data-answer-menu]')) setMenu(false);
+      // scoped to this answer: every answer in the thread carries the marker, so
+      // a bare attribute selector was satisfied by a sibling's, and opening the
+      // menu on one answer then clicking another's left the first one hanging
+      // open over the conversation
+      const owner = (e.target as HTMLElement).closest('[data-answer-menu]');
+      if (owner?.getAttribute('data-answer-menu') !== msg.id) setMenu(false);
     };
     const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setMenu(false); };
     document.addEventListener('mousedown', close);
     document.addEventListener('keydown', esc);
     return () => { document.removeEventListener('mousedown', close); document.removeEventListener('keydown', esc); };
-  }, [menu]);
+  }, [menu, msg.id]);
 
   return (
     <div className="cu-fade group relative">
@@ -529,7 +586,7 @@ function AssistantTurn({
             onClick={() => onRegenerate()}
           />
 
-          <div className="relative" data-answer-menu>
+          <div className="relative" data-answer-menu={msg.id}>
             <Action
               icon={<Swap />}
               label="Another model"

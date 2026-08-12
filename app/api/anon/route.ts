@@ -21,7 +21,10 @@ export async function POST(req: NextRequest) {
 
   // Reuse an existing token if the visitor already has one bound to this IP, so
   // their remaining count is preserved across reloads.
-  const existing = body?.token ? verifyAnonToken(body.token) : null;
+  // Type guard, not just truthiness: verifyAnonToken calls token.startsWith
+  // outside its try/catch, so a non-string here 500'd the anon lane — and the
+  // client reads that failure as "your free prompts are gone".
+  const existing = typeof body?.token === 'string' ? verifyAnonToken(body.token) : null;
   let token: string;
   let aid: string;
   if (existing && existing.iph === ipHash) {

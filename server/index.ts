@@ -64,18 +64,43 @@ httpServer.listen(PORT, () => {
   `);
 });
 
-process.on('SIGTERM', () => {
-  console.log('SIGTERM received, shutting down...');
-  httpServer.close(() => {
-    console.log('Server closed');
-    process.exit(0);
-  });
+// Last line of defence. Every socket handler is a public entry point on a
+// permissionless network, so one malformed payload must never be able to take
+// the process down: in-memory job state is the product, and a crash drops every
+// worker and every charged, in-flight answer at once. Payloads are validated at
+// each handler; this catches whatever slips through, loudly, without exiting.
+process.on('unhandledRejection', (reason) => {
+  console.error('[Server] UNHANDLED REJECTION — a handler threw and was not caught:', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[Server] UNCAUGHT EXCEPTION — a handler threw and was not caught:', err);
 });
 
-process.on('SIGINT', () => {
-  console.log('SIGINT received, shutting down...');
-  httpServer.close(() => {
-    console.log('Server closed');
-    process.exit(0);
+// httpServer.close() waits for open connections to end, and this server's whole
+// job is long-lived websockets — its callback never fired, so every restart hung
+// until systemd's SIGKILL and lost up to 2 minutes of unpersisted reputation.
+// Close socket.io first (it disconnects clients), flush, then exit on a deadline.
+let shuttingDown = false;
+const shutdown = (signal: string) => {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`${signal} received, shutting down...`);
+  try {
+    orchestrator.persistReputation();
+  } catch (err) {
+    console.error('[Server] Failed to flush reputation on shutdown:', err);
+  }
+  io.close(() => {
+    httpServer.close(() => {
+      console.log('Server closed');
+      process.exit(0);
+    });
   });
-});
+  setTimeout(() => {
+    console.warn('[Server] Shutdown deadline reached, exiting.');
+    process.exit(0);
+  }, 4000).unref();
+};
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));

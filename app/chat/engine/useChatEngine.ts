@@ -17,6 +17,12 @@ import { DEMO_MODE, DEMO_NETWORK_STATS, pickDemo, demoChunks, demoSleep, makeDem
 const ANON_TOKEN_KEY = 'c0mpute_anon_token';
 const STOP_TOKENS = ['<|im_end|>', '<|im_end', '<|im_start|>', '<|endoftext|>'];
 const JOB_STALL_MS = 60000;
+/** How long a finished job stays reachable for the events that land after it:
+ *  a render can take minutes, and its image belongs to the turn that asked. */
+const LATE_EVENT_MS = 210000;
+/** Ceiling on the parked-jobs map, so a long session cannot accumulate records
+ *  faster than their retention timers drop them. */
+const RECENT_JOBS = 8;
 
 export type EngineMessage = { role: 'system' | 'user' | 'assistant' | 'tool'; content: string; images?: string[] };
 
@@ -29,12 +35,29 @@ export interface SendCallbacks {
   onGeneratingImage?: () => void;
   /** Images may arrive after onComplete (async render path). */
   onImage?: (images: string[]) => void;
+  /** Why a render failed. Optional and purely additive: onImage([]) still fires
+   *  alongside it, so a caller that only clears the placeholder is unaffected. */
+  onImageError?: (message: string) => void;
   /** A generated document, ready to download. Arrives while the answer is
    *  still being written: the tool renders it before the model's turn ends. */
   onFile?: (file: FileRef) => void;
   /** Final SAFE text (disclaimers filtered, scan applied) + everything gathered. */
   onComplete?: (finalText: string, meta: { thinkSeconds: number | null; sources: SourceRef[]; images: string[] }) => void;
   onError?: (message: string) => void;
+}
+
+/** Everything one job accumulates while it runs. Named because a finished job
+ *  outlives the active slot: see recentRef. */
+interface JobRecord {
+  jobId: string;
+  cb: SendCallbacks;
+  buffer: string;
+  thinkStart: number | null;
+  thinkSeconds: number | null;
+  sources: SourceRef[];
+  images: string[];
+  completed: boolean;
+  stall: ReturnType<typeof setTimeout> | null;
 }
 
 export interface ChatEngine {
@@ -145,11 +168,19 @@ export function useChatEngine(): ChatEngine {
   }, [isAuthenticated]);
 
   // ---- socket ----
+  // Minted per handshake so a reconnect after the mount-time Privy token
+  // expired doesn't get rejected and permanently kill the connection.
+  const freshSocketToken = useCallback(async () => {
+    if (!isAuthenticated) return anonToken;
+    try { return await getAccessToken(); } catch { return null; }
+  }, [isAuthenticated, getAccessToken, anonToken]);
+
   const {
     isConnected,
     networkStats,
     queuePosition,
     submitJob,
+    abortJob,
     setOnJobToken,
     setOnJobComplete,
     setOnJobError,
@@ -160,7 +191,7 @@ export function useChatEngine(): ChatEngine {
     setOnJobImage,
     setOnJobImageError,
     setOnJobFile,
-  } = useSocket(isAuthenticated ? socketAuthToken : anonToken);
+  } = useSocket(isAuthenticated ? socketAuthToken : anonToken, freshSocketToken);
 
   // ---- credits ----
   const [credits, setCredits] = useState<ChatEngine['credits']>({ balance: null, freePrompts: null, freeLimit: null, stakerAllowance: 0 });
@@ -184,17 +215,22 @@ export function useChatEngine(): ChatEngine {
 
   // ---- the single active job ----
   const [busy, setBusy] = useState(false);
-  const activeRef = useRef<{
-    jobId: string;
-    cb: SendCallbacks;
-    buffer: string;
-    thinkStart: number | null;
-    thinkSeconds: number | null;
-    sources: SourceRef[];
-    images: string[];
-    completed: boolean;
-    stall: ReturnType<typeof setTimeout> | null;
-  } | null>(null);
+  const activeRef = useRef<JobRecord | null>(null);
+  // Finished jobs, parked by id. send() owns activeRef and overwrites it the
+  // moment the next prompt goes out, so a render that lands after the reader
+  // has typed again used to find a stranger's job under the id it was looking
+  // for and be dropped — leaving the earlier turn's placeholder pulsing forever
+  // (persisted, so it survived reloads) and losing the image. Nothing evicts
+  // this map but its own retention timer and the size cap.
+  const recentRef = useRef<Map<string, JobRecord>>(new Map());
+
+  /** The job an event belongs to: the one in flight, or one that finished
+   *  recently enough to still be owed images and documents. */
+  const jobFor = useCallback((jobId: string): JobRecord | null => {
+    const a = activeRef.current;
+    if (a && a.jobId === jobId) return a;
+    return recentRef.current.get(jobId) ?? null;
+  }, []);
 
   const clearStall = () => {
     const a = activeRef.current;
@@ -230,8 +266,19 @@ export function useChatEngine(): ChatEngine {
     if (finalText && !scanOutput(finalText).safe) finalText = BLOCKED_MESSAGE;
     setBusy(false);
     a.cb.onComplete?.(finalText, { thinkSeconds: a.thinkSeconds, sources: a.sources, images: a.images });
-    // keep the record briefly for late image events, then drop it
-    setTimeout(() => { if (activeRef.current === a) activeRef.current = null; }, 210000);
+    // keep the record briefly for late image events, then drop it — in the
+    // parked map as well as the active slot, since the next send() takes the
+    // slot back and only the map still answers for this job id
+    const recent = recentRef.current;
+    recent.set(a.jobId, a);
+    if (recent.size > RECENT_JOBS) {
+      const oldest = recent.keys().next().value;
+      if (oldest !== undefined) recent.delete(oldest);
+    }
+    setTimeout(() => {
+      recent.delete(a.jobId);
+      if (activeRef.current === a) activeRef.current = null;
+    }, LATE_EVENT_MS);
     refreshCredits();
   }, [refreshCredits]);
 
@@ -242,7 +289,9 @@ export function useChatEngine(): ChatEngine {
       if (!a || a.completed || jobId !== a.jobId) return;
       armStall();
       let clean = token;
-      for (const s of STOP_TOKENS) clean = clean.replace(s, '');
+      // replaceAll: a chunk can carry the same stop token more than once, and
+      // replace() would leave every copy after the first in the answer.
+      for (const s of STOP_TOKENS) clean = clean.replaceAll(s, '');
       if (!clean) return;
       if (clean.includes('<think>') && !a.thinkStart) a.thinkStart = Date.now();
       if (clean.includes('</think>') && a.thinkStart) {
@@ -256,9 +305,16 @@ export function useChatEngine(): ChatEngine {
       const a = activeRef.current;
       if (a && jobId === a.jobId) { armStall(); a.cb.onQueue?.(null); }
     });
-    setOnJobComplete((jobId) => {
+    setOnJobComplete((jobId, response) => {
       const a = activeRef.current;
-      if (a && jobId === a.jobId) finishActive();
+      if (a && jobId === a.jobId) {
+        // The swarm lane emits the finished answer on job:complete without
+        // having streamed job:token for it, so the buffer can be empty while
+        // the authoritative text is right here. Falling through with an empty
+        // buffer rendered "[No response received]" for a paid, delivered answer.
+        if (!a.buffer && typeof response === 'string' && response) a.buffer = response;
+        finishActive();
+      }
     });
     setOnJobError((jobId, error) => {
       const a = activeRef.current;
@@ -286,30 +342,52 @@ export function useChatEngine(): ChatEngine {
       const a = activeRef.current;
       if (a && jobId === a.jobId) { armStall(); a.cb.onGeneratingImage?.(); }
     });
+    // The three events that can outlive their job go through jobFor, so they
+    // still reach the turn that asked for them after the reader has moved on.
     setOnJobImage((jobId, images) => {
-      const a = activeRef.current;
-      if (a && jobId === a.jobId) { a.images = [...a.images, ...images]; a.cb.onImage?.(images); }
+      const a = jobFor(jobId);
+      if (a) { a.images = [...a.images, ...images]; a.cb.onImage?.(images); }
     });
-    setOnJobImageError((jobId) => {
-      const a = activeRef.current;
-      if (a && jobId === a.jobId) a.cb.onImage?.([]);
+    setOnJobImageError((jobId, error) => {
+      const a = jobFor(jobId);
+      if (!a) return;
+      // onImage([]) is what clears the placeholder off the committed turn, so
+      // it stays; the reason used to be thrown away here instead of being told
+      // to anyone, which is why a failed render read as an empty result.
+      a.cb.onImage?.([]);
+      if (error) a.cb.onImageError?.(error);
     });
     setOnJobFile((jobId, file) => {
-      const a = activeRef.current;
-      if (a && jobId === a.jobId) a.cb.onFile?.(file);
+      const a = jobFor(jobId);
+      if (a) a.cb.onFile?.(file);
     });
     return () => {
       setOnJobToken(null); setOnJobAssigned(null); setOnJobComplete(null); setOnJobError(null);
       setOnJobSearching(null); setOnJobSources(null); setOnJobGeneratingImage(null); setOnJobImage(null); setOnJobImageError(null);
       setOnJobFile(null);
     };
-  }, [setOnJobToken, setOnJobAssigned, setOnJobComplete, setOnJobError, setOnJobSearching, setOnJobSources, setOnJobGeneratingImage, setOnJobImage, setOnJobImageError, setOnJobFile, armStall, finishActive, refreshCredits, refreshAnonRemaining]);
+  }, [setOnJobToken, setOnJobAssigned, setOnJobComplete, setOnJobError, setOnJobSearching, setOnJobSources, setOnJobGeneratingImage, setOnJobImage, setOnJobImageError, setOnJobFile, armStall, finishActive, jobFor, refreshCredits, refreshAnonRemaining]);
 
   // queue positions flow to the active job's callback
   useEffect(() => {
     const a = activeRef.current;
-    if (a && !a.completed) a.cb.onQueue?.(queuePosition);
-  }, [queuePosition]);
+    if (a && !a.completed) {
+      // A queue update IS the network responding, so it has to re-arm the stall
+      // like every other job event. Without this, a job that waits behind others
+      // tripped the 60s stall while the server's own queue timeout is 180s: the
+      // user was told the network went quiet and their credits were safe (both
+      // untrue), and the answer that arrived later was dropped on the floor
+      // because the stall had already detached the job record.
+      armStall();
+      a.cb.onQueue?.(queuePosition);
+    }
+  }, [queuePosition, armStall]);
+
+  // The stall timer and the late-image retention timer both outlive the page if
+  // nothing clears them: navigate off /chat mid-answer and the stall still fires
+  // into a dead component, firing four credit/anon refetches for a page nobody
+  // is on.
+  useEffect(() => () => { clearStall(); }, []);
 
   // ---- demo driver (preview only, offline only) ----
   const runDemo = useCallback(async (prompt: string, cb: SendCallbacks) => {
@@ -338,6 +416,11 @@ export function useChatEngine(): ChatEngine {
       cb.onDelta?.(clean);
       await demoSleep(22);
     }
+    // The loop's guard is at the top, so a stop during the last sleep fell
+    // straight through to onComplete — and since stop() has already committed
+    // the partial under the same answer id, that appended a second message with
+    // a duplicate React key.
+    if (activeRef.current !== a || a.completed) return;
     a.completed = true;
     let finalText = filterDisclaimers(a.buffer.trim());
     if (finalText && !scanOutput(finalText).safe) finalText = BLOCKED_MESSAGE;
@@ -390,9 +473,13 @@ export function useChatEngine(): ChatEngine {
       a.completed = true;
       clearStall();
       setBusy(false);
+      // Tell the network too. Dropping the record locally only made the UI stop
+      // listening — the worker ran the answer to completion on a GPU the network
+      // still saw as busy, and the next prompt queued behind it.
+      if (a.jobId) abortJob(a.jobId);
       activeRef.current = null;
     }
-  }, []);
+  }, [abortJob]);
 
   return {
     authLoading,

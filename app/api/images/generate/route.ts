@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyPrivyToken } from '@/lib/privy-server';
-import { resolveApiKey, spendCredits, refundCredits, consumeFreeImage, refundFreeImage, getTodayFreeSubsidyUsd, reverseWorkerEarning } from '@/lib/db';
-import { consumeStakerAllowance, refundStakerAllowance } from '@/lib/staker-allowance';
+import { resolveApiKeyFull, spendCredits, refundCredits, consumeFreeImage, refundFreeImage, getTodayFreeSubsidyUsd, reverseWorkerEarning } from '@/lib/db';
+import { drawStakerAllowance, refundStakerAllowance } from '@/lib/staker-allowance';
 import { STAKER_ALLOWANCE_ENABLED, FREE_IMAGE_LIMIT, FREE_SUBSIDY_DAILY_CAP_USD } from '@/lib/tokenomics';
 import { buildImageWorkflow, IMAGE_CREDITS, IMAGE_MODEL_ID } from '@/lib/image-gen';
 import { submitImageJob, ImageJobError } from '@/lib/orchestrator-image-client';
@@ -19,20 +19,29 @@ export const dynamic = 'force-dynamic';
 // image worker and returns the PNG. (No direct ComfyUI tunnel.)
 
 // Auth: accept either a Privy access token (the /create page) OR a c0mpute API
-// key (sk-c0mpute-…, for agents). Returns the owner's privy_id or null.
-async function resolveUser(req: NextRequest): Promise<string | null> {
+// key (sk-c0mpute-…, for agents). Returns the owner's privy_id AND the key's
+// scope, or null. The scope has to survive this resolve: a free_only ("resale")
+// key is minted to be handed to a third party, so it must never be able to reach
+// the owner's paid balance — and /api/v1/images/generations forwards the caller's
+// bearer verbatim, so this is the only place that sees it.
+async function resolveUser(req: NextRequest): Promise<{ privyId: string; freeOnly: boolean } | null> {
   const auth = req.headers.get('authorization') || '';
   if (!auth.startsWith('Bearer ')) return null;
   const token = auth.slice(7).trim();
-  if (token.startsWith('sk-c0mpute-')) return resolveApiKey(token);
-  return verifyPrivyToken(token);
+  if (token.startsWith('sk-c0mpute-')) {
+    const key = resolveApiKeyFull(token);
+    return key ? { privyId: key.privyId, freeOnly: key.freeOnly } : null;
+  }
+  const privyId = await verifyPrivyToken(token);
+  return privyId ? { privyId, freeOnly: false } : null;
 }
 
 export async function POST(req: NextRequest) {
-  const privyId = await resolveUser(req);
-  if (!privyId) {
+  const caller = await resolveUser(req);
+  if (!caller) {
     return NextResponse.json({ error: 'Unauthorized. Log in or use an API key.' }, { status: 401 });
   }
+  const { privyId, freeOnly } = caller;
 
   let body: any;
   try {
@@ -58,22 +67,39 @@ export async function POST(req: NextRequest) {
   // account + by the global daily subsidy cap), then (2) staker daily allowance,
   // then (3) paid credits. Refunded to whichever was used on any failure.
   let usedFreeImage = false;
-  let usedAllowance = false;
+  // The UTC day the allowance draw was written to (null = allowance not used), so
+  // a refund after midnight settles against the row that was actually charged.
+  let allowanceDay: string | null = null;
   const freeImagesOpen =
     FREE_IMAGE_LIMIT > 0 && getTodayFreeSubsidyUsd() < FREE_SUBSIDY_DAILY_CAP_USD;
   if (freeImagesOpen && consumeFreeImage(privyId, FREE_IMAGE_LIMIT)) {
     usedFreeImage = true;
-  } else if (STAKER_ALLOWANCE_ENABLED && consumeStakerAllowance(privyId, IMAGE_CREDITS)) {
-    usedAllowance = true;
-  } else if (!spendCredits(privyId, IMAGE_CREDITS, 'Image generation')) {
-    return NextResponse.json(
-      { error: `Insufficient credits. Image generation costs ${IMAGE_CREDITS} credits.` },
-      { status: 402 }
-    );
+  } else {
+    if (STAKER_ALLOWANCE_ENABLED) allowanceDay = drawStakerAllowance(privyId, IMAGE_CREDITS);
+    // free_only ("resale") keys may spend ONLY the owner's daily staking
+    // allowance — never the balance the owner topped up with USDC. Without this
+    // stop the owner's real credits are drained 20 at a time by whoever holds the
+    // key, unbounded, the moment the allowance runs out. The chat lane enforces
+    // the same rule in the orchestrator (code ALLOWANCE_EXHAUSTED).
+    if (!allowanceDay && freeOnly) {
+      return NextResponse.json(
+        {
+          error: 'Insufficient staking allowance for this key. Resale keys can only spend the daily staking allowance.',
+          code: 'ALLOWANCE_EXHAUSTED',
+        },
+        { status: 402 }
+      );
+    }
+    if (!allowanceDay && !spendCredits(privyId, IMAGE_CREDITS, 'Image generation')) {
+      return NextResponse.json(
+        { error: `Insufficient credits. Image generation costs ${IMAGE_CREDITS} credits.` },
+        { status: 402 }
+      );
+    }
   }
   const refund = (reason: string) => {
     if (usedFreeImage) refundFreeImage(privyId);
-    else if (usedAllowance) refundStakerAllowance(privyId, IMAGE_CREDITS);
+    else if (allowanceDay) refundStakerAllowance(privyId, IMAGE_CREDITS, allowanceDay);
     else refundCredits(privyId, IMAGE_CREDITS, reason);
   };
 
@@ -92,7 +118,13 @@ export async function POST(req: NextRequest) {
   let image: string;
   let jobId: string | undefined;
   try {
-    const result = await submitImageJob(workflow, { privyId, seed, width, height, creditsCharged: IMAGE_CREDITS, subsidized: usedFreeImage });
+    // An allowance-funded render collects NO revenue, so it is booked subsidized
+    // exactly like a free image. Sending subsidized:false would make recordEarning
+    // treat the 20 credits nobody paid as real revenue: it pays a referrer 5% of
+    // it and credits phantom margin to the buyback pool (lib/db.ts) — a
+    // self-referral mint. The chat lane avoids this via subsidyKind:'allowance'.
+    const subsidized = usedFreeImage || allowanceDay !== null;
+    const result = await submitImageJob(workflow, { privyId, seed, width, height, creditsCharged: IMAGE_CREDITS, subsidized });
     image = result.image;
     jobId = result.jobId;
   } catch (err: any) {
@@ -104,9 +136,15 @@ export async function POST(req: NextRequest) {
         { status: 503 }
       );
     }
-    const msg = err?.message || 'Image generation failed.';
-    const status = code === 'TIMEOUT' ? 504 : 503;
-    return NextResponse.json({ error: msg }, { status });
+    // err.message is NOT safe to hand back: it carries our internals (e.g.
+    // "INTERNAL_API_SECRET not configured") and worker-supplied text. Log it for
+    // ops, return a fixed message per failure class.
+    console.error('[images/generate] render failed', code || 'UNKNOWN', err?.message || err);
+    const timedOut = code === 'TIMEOUT';
+    return NextResponse.json(
+      { error: timedOut ? 'Image generation timed out. Try again.' : 'Image generation failed. Try again.' },
+      { status: timedOut ? 504 : 503 }
+    );
   }
 
   // Output classifier runs CENTRALLY here (we don't trust a worker to self-
