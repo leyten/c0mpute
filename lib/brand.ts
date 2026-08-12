@@ -23,8 +23,13 @@ export interface Brand {
   name: string;
   /** Short form for tight spaces such as a narrow nav. */
   short: string;
-  /** Browser tab title. */
+  /**
+   * The homepage's title — the browser tab, and the blue line in a search
+   * result. Every other page titles itself and lets the root layout append
+   * `name`, so this is the one place the brand leads.
+   */
   title: string;
+  /** The homepage's meta description. Keep it under ~155 characters. */
   description: string;
   /** Render the Compute Network mark instead of the legacy wordmark. */
   mark: boolean;
@@ -67,9 +72,9 @@ const COMPUTE: Brand = {
   id: 'compute',
   name: 'Compute Network',
   short: 'Compute',
-  title: 'Compute Network',
+  title: 'Compute Network — decentralized AI on user-owned GPUs',
   description:
-    'Compute Network runs AI models across GPUs contributed by people, not datacenters. No model is held by any single machine.',
+    'An open protocol for decentralized AI. Run open models privately across a permissionless network of user-owned GPUs, or plug in your own GPU and get paid.',
   mark: true,
   legalFooter: true,
   icon: '/brand/favicon.svg',

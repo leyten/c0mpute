@@ -26,8 +26,16 @@ export async function generateMetadata(
   const origin = brand.urls.origin;
   const url = REFERRAL_CODE_RE.test(clean) ? `${origin}/r/${clean}` : origin;
   return {
-    title,
+    // Absolute: the invite already names the network, and the root layout's
+    // template would otherwise append it a second time.
+    title: { absolute: title },
     description: OG_DESCRIPTION,
+    // Every referral code is its own URL, so this segment is an unbounded
+    // space of near-identical pages that all bounce to the homepage. Crawlers
+    // are told not to index them; link scrapers ignore robots directives and
+    // still get the card below, which is the only reason this is a page.
+    robots: { index: false, follow: true },
+    alternates: { canonical: origin },
     openGraph: {
       title,
       description: OG_DESCRIPTION,

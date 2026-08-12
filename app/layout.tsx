@@ -4,6 +4,7 @@ import { Inter, Newsreader } from "next/font/google";
 import { brandForHost } from "@/lib/brand";
 import { NO_FLASH_SCRIPT } from "@/lib/theme";
 import { BrandProvider } from "@/components/BrandProvider";
+import StructuredData from "@/components/StructuredData";
 import "./globals.css";
 import "./homepage-variants.css";
 import PrivyProvider from "@/providers/PrivyProvider";
@@ -21,9 +22,16 @@ const newsreader = Newsreader({ subsets: ["latin"], style: ["normal", "italic"],
 export async function generateMetadata(): Promise<Metadata> {
   const brand = brandForHost((await headers()).get('host'));
   const base: Metadata = {
-    title: brand.title,
+    // `default` is the homepage's own title. `template` is the mould every
+    // other page's title is pressed into, so each one names the network
+    // without having to repeat it in its own string.
+    title: { default: brand.title, template: `%s — ${brand.name}` },
     description: brand.description,
     icons: { icon: brand.icon },
+    // Self-referencing, and the only tag that says which of the several URLs
+    // that answer with this page — www, http, ?ref=, the retired domain — is
+    // the one to index.
+    alternates: { canonical: brand.urls.origin },
   };
   if (!brand.social) return base;
 
@@ -80,6 +88,8 @@ export default async function RootLayout({
         {isCompute && (
           <script dangerouslySetInnerHTML={{ __html: NO_FLASH_SCRIPT }} />
         )}
+        {/* Legacy never carried structured data and does not start now. */}
+        {isCompute && <StructuredData brand={brand} />}
       </head>
       <body className={`v-b ${inter.variable} ${newsreader.variable}`}>
         <BrandProvider brand={brand}>

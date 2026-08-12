@@ -1,12 +1,13 @@
 import LegalPage from '@/components/legal/LegalPage';
-import { pageMetadata } from '@/lib/page-title';
+import { pageMetadata } from '@/lib/seo';
 
-export async function generateMetadata() {
-  return {
-    ...(await pageMetadata('Privacy', 'Privacy Policy')),
+export const generateMetadata = () =>
+  pageMetadata({
+    title: 'Privacy policy: prompts are not stored',
     description: 'What Compute Network Inc. collects, what it does not, and why.',
-  };
-}
+    path: '/privacy',
+    legacy: 'Privacy Policy',
+  });
 
 export default function PrivacyPolicy() {
   return (
