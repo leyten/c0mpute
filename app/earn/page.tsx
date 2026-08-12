@@ -30,12 +30,15 @@ export default function Earn() {
   const native = engine.nativeStatus;
   const online = native?.online === true;
 
-  if (engine.authLoading) return <Screen><div /></Screen>;
-
   return (
     <Screen>
       <div className="flex flex-1 items-center justify-center px-6 py-12">
         <div className="w-full max-w-[38rem]">
+          {/* Above the auth gate on purpose. Everything below waits on Privy,
+              which has not resolved during the server render — so anything
+              inside the gate is absent from the delivered HTML. These two lines
+              are what the page is about, and a crawler that never runs the
+              script has to be able to read them. */}
           <h1 className="pixel-serif text-center text-[30px] leading-tight text-fg md:text-[36px]">
             Put your GPU to work.
           </h1>
@@ -43,6 +46,8 @@ export default function Earn() {
             Paid in USDC for every job your machine finishes.
           </p>
 
+          {engine.authLoading ? null : (
+          <>
           {/* the choice */}
           <div className="mx-auto mt-8 flex w-fit rounded-full border border-fg/10 bg-fg/[0.03] p-1">
             {([['browser', 'In this browser'], ['machine', 'On my machine']] as const).map(([key, label]) => (
@@ -134,6 +139,8 @@ export default function Earn() {
               </>
             )}
           </div>
+          </>
+          )}
         </div>
       </div>
     </Screen>

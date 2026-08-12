@@ -1,12 +1,13 @@
 import LegalPage from '@/components/legal/LegalPage';
-import { pageMetadata } from '@/lib/page-title';
+import { pageMetadata } from '@/lib/seo';
 
-export async function generateMetadata() {
-  return {
-    ...(await pageMetadata('Acceptable Use', 'Acceptable Use Policy')),
+export const generateMetadata = () =>
+  pageMetadata({
+    title: 'Acceptable use policy',
     description: 'What is and is not permitted on the Compute Network.',
-  };
-}
+    path: '/acceptable-use',
+    legacy: 'Acceptable Use Policy',
+  });
 
 export default function AcceptableUse() {
   return (
