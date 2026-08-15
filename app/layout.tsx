@@ -22,10 +22,10 @@ const newsreader = Newsreader({ subsets: ["latin"], style: ["normal", "italic"],
 export async function generateMetadata(): Promise<Metadata> {
   const brand = brandForHost((await headers()).get('host'));
   const base: Metadata = {
-    // `default` is the homepage's own title. `template` is the mould every
-    // other page's title is pressed into, so each one names the network
-    // without having to repeat it in its own string.
-    title: { default: brand.title, template: `%s — ${brand.name}` },
+    // `default` is the homepage's own title, which carries no slash.
+    // `template` names every other surface `Compute Network / <Page>`, so a
+    // reader with a row of tabs open can see which network they belong to.
+    title: { default: brand.title, template: `${brand.name} / %s` },
     description: brand.description,
     icons: { icon: brand.icon },
     // Self-referencing, and the only tag that says which of the several URLs

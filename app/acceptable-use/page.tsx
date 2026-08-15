@@ -3,7 +3,7 @@ import { pageMetadata } from '@/lib/seo';
 
 export const generateMetadata = () =>
   pageMetadata({
-    title: 'Acceptable use policy',
+    title: 'Acceptable Use',
     description: 'What is and is not permitted on the Compute Network.',
     path: '/acceptable-use',
     legacy: 'Acceptable Use Policy',

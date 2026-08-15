@@ -5,7 +5,7 @@ import { pageMetadata } from '@/lib/seo';
 // A sign-in form has nothing to rank for and competes with the homepage on
 // brand queries if it is left indexable.
 export const generateMetadata = () =>
-  pageMetadata({ title: 'Sign in', path: '/login', index: false });
+  pageMetadata({ title: 'Sign In', path: '/login', index: false });
 
 export default function LoginLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return children;

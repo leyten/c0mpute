@@ -4,7 +4,7 @@ import { pageMetadata } from '@/lib/seo';
 // This layout exists only to carry it; it adds nothing to the markup.
 export const generateMetadata = () =>
   pageMetadata({
-    title: 'Get paid for your idle GPU',
+    title: 'Earn',
     description:
       'Turn idle GPU time into USDC. Contribute compute from a browser tab today, or a full node when betanet opens, and stop whenever you want.',
     path: '/earn',
