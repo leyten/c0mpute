@@ -3,7 +3,7 @@ import { pageMetadata } from '@/lib/seo';
 
 export const generateMetadata = () =>
   pageMetadata({
-    title: 'Privacy policy: prompts are not stored',
+    title: 'Privacy',
     description: 'What Compute Network Inc. collects, what it does not, and why.',
     path: '/privacy',
     legacy: 'Privacy Policy',

@@ -24,9 +24,9 @@ export interface Brand {
   /** Short form for tight spaces such as a narrow nav. */
   short: string;
   /**
-   * The homepage's title — the browser tab, and the blue line in a search
-   * result. Every other page titles itself and lets the root layout append
-   * `name`, so this is the one place the brand leads.
+   * The homepage's title. Every other page is named `title / <Page>` by the
+   * root layout's template; the homepage is the exception and carries no
+   * slash.
    */
   title: string;
   /** The homepage's meta description. Keep it under ~155 characters. */
@@ -72,7 +72,7 @@ const COMPUTE: Brand = {
   id: 'compute',
   name: 'Compute Network',
   short: 'Compute',
-  title: 'Compute Network — decentralized AI on user-owned GPUs',
+  title: 'Compute Network',
   description:
     'An open protocol for decentralized AI. Run open models privately across a permissionless network of user-owned GPUs, or plug in your own GPU and get paid.',
   mark: true,

@@ -4,7 +4,7 @@ import { pageMetadata } from '@/lib/seo';
 // This layout exists only to carry it; it adds nothing to the markup.
 export const generateMetadata = () =>
   pageMetadata({
-    title: 'Private AI chat with no prompt logging',
+    title: 'Chat',
     description:
       'Chat with open models running across a network of user-owned GPUs. Prompts are not stored, no account is needed to start, and the models engage instead of refusing.',
     path: '/chat',

@@ -97,20 +97,21 @@ API_BASE = re.compile(r"(https?://)?c0mpute\.ai/api/v1")
 FAVICON = re.compile(r"https?://c0mpute\.ai/favicon\.ico")
 
 # ── one title per surface ─────────────────────────────────────────────────────
-# The blog's titles are left exactly as the word rename leaves them. They arrive
-# already in the right shape -- "make anything -- c0mpute" becomes "make
-# anything -- Compute Network" -- which names the post first and the network
-# second, the same way every page of the app now titles itself.
+# Compute Network names every tab "Compute Network / <Page>" -- the app, the
+# docs and these three static sites -- so a reader with a row of tabs open can
+# see which network they belong to. The c0mpute.ai sources keep the titles they
+# have; only these generated copies are renamed.
 #
-# This used to collapse them: the pattern matched a post's whole title and
-# substituted the constant "Compute Network / Blog", so all six pages of the
-# blog served one identical title and no post could be told from another in a
-# search result. The tab still says which network it belongs to; it just says
-# what the post is first.
+# Which site a file belongs to is legible from the title it already carries: the
+# blog suffixes the brand ("blog -- c0mpute"), while data and shard prefix it
+# ("c0mpute / data"). These run after the word rename, so by now the brand in
+# those strings reads "Compute Network".
 #
-# Data and shard prefix the brand instead ("c0mpute / data"), and those two do
-# still get rewritten below. These run after the word rename, so by now the
-# brand in those strings reads "Compute Network".
+# The post's own name is captured and kept. Substituting a flat "Compute
+# Network / Blog" made all six pages of the blog serve one identical title,
+# which told a reader -- and a search result -- nothing about which post they
+# were looking at.
+BLOG_TITLE = re.compile(r"<title>\s*([^<]*?)\s*—\s*Compute Network\s*</title>")
 
 # "data" and "network" are the labels those two sites give themselves, and each
 # says it twice: once in the tab, once in the header lockup beside the wordmark
@@ -124,6 +125,9 @@ LOCKUP_LABEL = re.compile(r'(<span class="brand-sub">\s*/\s*)(data|network)(\s*<
 
 
 def page_titles(text):
+    text = BLOG_TITLE.sub(
+        lambda m: f"<title>Compute Network / {m.group(1)}</title>", text
+    )
     text = TITLE_LABEL.sub(lambda m: m.group(1) + SUB_LABELS[m.group(2)], text)
     return LOCKUP_LABEL.sub(
         lambda m: m.group(1) + SUB_LABELS[m.group(2)] + m.group(3), text

@@ -3,7 +3,7 @@ import { pageMetadata } from '@/lib/seo';
 
 export const generateMetadata = () =>
   pageMetadata({
-    title: 'Terms of service',
+    title: 'Terms',
     description: 'The agreement between you and Compute Network Inc.',
     path: '/terms',
     legacy: 'Terms of Service',

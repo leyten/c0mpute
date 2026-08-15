@@ -4,7 +4,7 @@ import { pageMetadata } from '@/lib/seo';
 // This layout exists only to carry it; it adds nothing to the markup.
 export const generateMetadata = () =>
   pageMetadata({
-    title: 'Network treasury and buyback receipts',
+    title: 'Treasury',
     description:
       'Live receipts from the network treasury: revenue collected, $ZERO bought back and burned, and rewards paid out to stakers.',
     path: '/treasury',

@@ -10,10 +10,10 @@ import { brandForHost } from './brand';
  * indexed under. The root layout owns everything brand-wide — metadataBase,
  * icons, the title template, the social card.
  *
- * Titles lead with what the page is about and let the root layout's template
- * append the brand: `Get paid for your idle GPU — Compute Network`. A row of
- * tabs still says which network it belongs to, but the words a searcher typed
- * come first, which is the half of the title a result actually gets judged on.
+ * Titles are the short name of the page. The root layout's template puts the
+ * network in front of it, so every surface reads `Compute Network / Earn` and
+ * a reader with a row of tabs open can see which network they belong to
+ * before reading a word. Pass the name only; the template supplies the rest.
  *
  * c0mpute.ai keeps exactly what it served before: `legacy` on the three legal
  * pages, which set their own title, and nothing at all everywhere else, where
@@ -35,7 +35,7 @@ export async function pageMetadata({
   index = true,
   legacy,
 }: {
-  /** Leads the title; the root layout appends the brand. */
+  /** The page's short name; the root layout prefixes the network. */
   title: string;
   /** Omitted on the noindex surfaces, which will never be shown in a result. */
   description?: string;

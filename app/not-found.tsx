@@ -7,7 +7,7 @@ import type { Metadata } from 'next';
 // No `robots` here: Next already emits its own noindex on a not-found render,
 // and a second one would just be a duplicate tag saying the same thing.
 export const metadata: Metadata = {
-  title: 'Page not found',
+  title: 'Not Found',
 };
 
 const LINKS = [
