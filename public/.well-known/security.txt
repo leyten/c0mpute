@@ -1,0 +1,16 @@
+# A brand-new domain carrying pages about money movement, with no way to
+# reach whoever runs it, is most of what an automated abuse classifier scores
+# on. data.compute.tech was blocked by Cloudflare as suspected phishing four
+# days after its hostname first appeared in the certificate logs; this file is
+# one of the signals that says a real company is behind the domain and can be
+# contacted.
+#
+# The addresses below are the ones already published in the Terms and the
+# Acceptable Use Policy, so they are the ones that are actually monitored.
+
+Contact: mailto:abuse@compute.tech
+Contact: mailto:legal@compute.tech
+Expires: 2027-08-16T00:00:00.000Z
+Preferred-Languages: en
+Canonical: https://compute.tech/.well-known/security.txt
+Policy: https://compute.tech/acceptable-use
