@@ -104,8 +104,8 @@ export default function Home() {
           onSignIn={() => { login(); setAnonModalOpen(false); }}
         />
       )}
-      {/* Header */}
-      <SiteNav />
+      {/* Header — homepage mode: transparent, scrubs away over the hero */}
+      <SiteNav overHero />
 
       {/* Hero + the scroll story: one continuous globe stage */}
       <LifecycleScroll hero={<HeroBlock onSubmit={handleSubmit} />} />

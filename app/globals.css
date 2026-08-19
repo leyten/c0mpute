@@ -190,6 +190,19 @@
      than "improved" — dark has to stay byte-for-byte what it was. */
   --border: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
+
+  /* Interaction easings for the header chrome (see the site-header section at
+     the bottom of this file). Expo is the hover curve — a fast start with a
+     long glide out; std is the panel open/close curve. Theme-independent, so
+     declared once here and inherited by light. */
+  --ease-expo: cubic-bezier(0.19, 1, 0.22, 1);
+  --ease-std: cubic-bezier(0, 0, 0.58, 1);
+
+  /* The raised-card shadow: an inner top-left highlight plus two soft drops.
+     On ink the highlight has to fall to a whisper or the card glows, and the
+     drops go heavier because a shadow on a near-black ground barely exists. */
+  --shadow-stack: inset 1px 6px 6px 0 rgba(255, 255, 255, 0.05),
+    0 4px 12px 0 rgba(0, 0, 0, 0.35), 0 2px 12px 0 rgba(0, 0, 0, 0.3);
 }
 
 /* ── light ─────────────────────────────────────────────────────────────────
@@ -362,6 +375,11 @@
   --color-red-400: #b42318;
   --color-red-500: #991b1b;
 
+  /* Paper's raised-card shadow. The white inset composites to nothing on a
+     white card — same as the reference, where the 2-3% drops do all the
+     work; it is kept for any raised surface that is not pure white. */
+  --shadow-stack: inset 1px 6px 6px 0 rgba(255, 255, 255, 0.2),
+    0 4px 12px 0 rgba(0, 0, 0, 0.02), 0 2px 12px 0 rgba(0, 0, 0, 0.03);
 }
 
 @layer base {
@@ -937,3 +955,195 @@ input[type='number'] {
 .legal-body strong { color: var(--legal-strong); font-weight: 500; }
 .legal-body a { color: var(--fg); text-decoration: underline; text-underline-offset: 2px; }
 .legal-body a:hover { opacity: 0.75; }
+
+/* ── Site header ─────────────────────────────────────────────────────────────
+   The nav chrome, rebuilt on the interaction grammar measured off
+   cloudflare.com (2026-08): hover feedback is a single shared pill that
+   slides between tabs rather than per-item color flips; the dropdown grows
+   out of the header as one raised card (scale .9→1 from the top edge); and
+   every hover eases on --ease-expo. Consumed only by components/SiteNav.tsx.
+   All color comes off the token ladder, so both brands and both themes get
+   the same construction. */
+
+/* The tab pill. JS owns left/width/opacity/transition inline — the class only
+   states what the pill is made of. */
+.nav-pill {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  border-radius: 8px;
+  border: 1px solid color-mix(in oklab, var(--fg) 10%, transparent);
+  background: color-mix(in oklab, var(--fg) 4%, transparent);
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Dropdown motion layer: grows downward from under the header. The content
+   fades slower than the frame (150ms vs 100ms), which is what keeps the open
+   from reading as a pop. */
+.nav-panel {
+  transform-origin: top center;
+  opacity: 0;
+  transform: scale(0.9);
+  transition: opacity 0.1s var(--ease-std), transform 0.1s var(--ease-std);
+}
+.nav-panel.on {
+  opacity: 1;
+  transform: scale(1);
+}
+.nav-panel-content {
+  opacity: 0;
+  transition: opacity 0.15s var(--ease-std);
+}
+.nav-panel.on .nav-panel-content {
+  opacity: 1;
+}
+
+/* The raised card both the dropdown and the mobile menu are cut from:
+   raise ground, hairline, 8px frame around an inner hairlined surface. */
+.nav-card {
+  background: var(--raise);
+  border: 1px solid color-mix(in oklab, var(--fg) 10%, transparent);
+  border-radius: 12px;
+  padding: 8px;
+  box-shadow: var(--shadow-stack);
+}
+
+/* Header buttons — a three-layer construction. The element carries a hairline
+   and a blur; ::before is the hover fill (fading on a separate, ease-in
+   curve so release feels different from press); ::after is a currentColor
+   ring that snaps on at :active and releases over 600ms — the press echo.
+   Children sit above both; labels must be wrapped in a <span> or they paint
+   under the fill (backdrop-filter makes the button a stacking context, and
+   pseudo-elements with z-index outrank bare text nodes).
+
+   In the components layer, NOT unlayered: Tailwind v4 emits every utility
+   inside @layer utilities, and an unlayered .hdr-btn would outrank
+   `hidden`/`absolute`/`text-fg-50` on the same element regardless of
+   specificity — which is exactly what the scroll CTA relies on. */
+@layer components {
+.hdr-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 38px;
+  padding: 0 16px;
+  border: 1px solid color-mix(in oklab, var(--fg) 12%, transparent);
+  border-radius: 9999px;
+  background: transparent;
+  color: var(--fg);
+  backdrop-filter: blur(12px);
+  transition: scale 0.16s cubic-bezier(0.25, 0.46, 0.45, 0.94),
+    translate 0.16s cubic-bezier(0.25, 0.46, 0.45, 0.94),
+    border-color 0.2s var(--ease-expo), color 0.2s var(--ease-expo);
+}
+.hdr-btn::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  z-index: 1;
+  border-radius: inherit;
+  background: var(--fg);
+  opacity: 0;
+  transition: opacity 0.16s cubic-bezier(0.55, 0.085, 0.68, 0.53);
+}
+.hdr-btn::after {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  z-index: 2;
+  border-radius: inherit;
+  border: 1px solid currentColor;
+  opacity: 0;
+  transition: opacity 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94) 0.1s;
+}
+.hdr-btn > * {
+  position: relative;
+  z-index: 3;
+}
+.hdr-btn:hover {
+  border-color: color-mix(in oklab, var(--steel) 45%, transparent);
+}
+.hdr-btn:hover::before {
+  opacity: 0.06;
+}
+.hdr-btn:active {
+  scale: 0.98;
+  translate: 0 1px;
+}
+.hdr-btn:active::after {
+  opacity: 1;
+  transition: none;
+}
+.hdr-btn-primary {
+  background: var(--fg);
+  border-color: var(--fg);
+  color: var(--on-fg);
+}
+.hdr-btn-primary:hover {
+  border-color: var(--fg);
+}
+.hdr-btn-primary::before {
+  background: var(--background);
+}
+.hdr-btn-primary:hover::before {
+  opacity: 0.18;
+}
+}
+
+/* The scroll-away CTA: hidden at rest, eased in past the hero. Exit runs at
+   half the enter duration on purpose — it leaves faster than it arrives.
+   Unlayered on purpose: pointer-events none has to beat the header's
+   [&_a]:pointer-events-auto utility while the CTA is hidden. */
+.nav-cta {
+  opacity: 0;
+  scale: 0.92;
+  pointer-events: none;
+  transition: opacity 0.06s var(--ease-std), scale 0.06s var(--ease-std);
+}
+.nav-cta.on {
+  opacity: 1;
+  scale: 1;
+  pointer-events: auto;
+  transition: opacity 0.12s var(--ease-std), scale 0.12s var(--ease-std);
+}
+/* Being unlayered, these outrank the layered .hdr-btn:active — restate the
+   press so the CTA keeps its feedback. */
+.nav-cta.on:active {
+  scale: 0.98;
+  translate: 0 1px;
+}
+
+/* Utility icons ease on the same curve as everything else in the bar. */
+.nav-icon {
+  transition: color 0.2s var(--ease-expo);
+}
+
+/* Small pop-in for click-opened menus (user menu, mobile menu). */
+.nav-pop {
+  animation: navPop 0.12s var(--ease-std) both;
+}
+@keyframes navPop {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nav-pill,
+  .nav-panel,
+  .nav-panel-content,
+  .nav-cta,
+  .hdr-btn,
+  .hdr-btn::before,
+  .hdr-btn::after,
+  .nav-icon {
+    transition: none !important;
+  }
+  .nav-pop {
+    animation: none !important;
+  }
+}
