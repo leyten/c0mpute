@@ -1,0 +1,39 @@
+# Staging vhost: candidate builds behind basic auth, never indexed. Same
+# backend as c0-preview.leyten.dev — `next start` on 127.0.0.1:3010 serving
+# the throwaway clone at /root/.openclaw/workspace/c0mpute-homepage-preview,
+# which gets pointed at whatever branch is being previewed.
+#
+# Install (by hand — nginx config is deliberately not written by automation):
+#   cp deploy/staging.compute.tech.nginx /etc/nginx/sites-available/staging.compute.tech
+#   ln -s /etc/nginx/sites-available/staging.compute.tech /etc/nginx/sites-enabled/
+#   nginx -t && systemctl reload nginx
+#   certbot --nginx -d staging.compute.tech   # adds the 443 block
+server {
+    listen 80;
+    listen [::]:80;
+    server_name staging.compute.tech;
+
+    auth_basic "staging";
+    auth_basic_user_file /etc/nginx/htpasswd-c0preview;
+    add_header X-Robots-Tag "noindex, nofollow, noarchive" always;
+
+    location /.well-known/acme-challenge/ {
+        auth_basic off;
+        root /var/www/html;
+    }
+
+    location = /robots.txt {
+        auth_basic off;
+        add_header Content-Type text/plain;
+        return 200 "User-agent: *\nDisallow: /\n";
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:3010;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
