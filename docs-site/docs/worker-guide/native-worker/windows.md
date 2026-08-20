@@ -5,7 +5,7 @@ title: Windows
 
 # Windows setup
 
-Two options: **WSL** (recommended) or **native Windows**.
+Two options: **WSL** (recommended) or **native Windows**. Either way you need an **NVIDIA GPU with 16GB+ VRAM** (24GB recommended), **~36GB free disk**, and **ollama v0.32.15 or newer** — the worker checks the version at startup and stops if it's older. Grab the current build from [ollama.com/download](https://ollama.com/download) (or, inside WSL, `curl -fsSL https://ollama.com/install.sh | sh`).
 
 ## Option 1: WSL (recommended)
 
@@ -47,12 +47,13 @@ nvcc --version # Should show CUDA version
 npx @c0mpute/worker --token <your-token>
 ```
 
-A Max worker asks which model to run (Qwen3.5 27B or SuperGemma4 26B), showing how many workers are live on each and recommending the one with fewest. Only the chosen model downloads (~17GB). Skip the prompt with a flag:
+There is nothing to choose: every native worker serves the same model, `qwen3.8-27b-uncensored`. The old `--model` flag is deprecated and ignored. Startup asks whether to run a **Qwen worker (text)** or an **Image worker** — skip it with `--mode max` (the historical name for the text mode):
 
 ```bash
-npx @c0mpute/worker --token <your-token> --mode max --model qwen        # Qwen3.5 27B
-npx @c0mpute/worker --token <your-token> --mode max --model supergemma  # SuperGemma4 26B
+npx @c0mpute/worker --token <your-token> --mode max
 ```
+
+On first run the weights download from a pinned HuggingFace revision and the worker builds the model for your card (Q4_K_M with speculative decoding on 24GB+ cards, IQ4_XS with speculative decoding on 16GB cards). The download is kept, so a rebuild doesn't fetch it again.
 
 Get a token at [c0mpute.ai/earn](https://c0mpute.ai/earn).
 
@@ -82,7 +83,7 @@ npx @c0mpute/worker --token <your-token>
 
 ## Multi-GPU rigs
 
-If the box has more than one NVIDIA card, the worker detects them all and runs **one worker per GPU** automatically — no flags. Each card is pinned with `CUDA_VISIBLE_DEVICES` and gets its own ollama on port `11434 + <index>`; child output is prefixed `[gpu N]`, and a card that dies is respawned after 30s. Narrow it to specific cards with `--gpu`:
+If the box has more than one NVIDIA card, the worker detects them all and runs **one worker per capable GPU** automatically — no flags. Cards under 16GB are skipped, and if none of the cards fits the model on its own the CLI runs a single layer-split worker across them instead. Each card is pinned with `CUDA_VISIBLE_DEVICES` and gets its own ollama on port `11434 + <index>`; child output is prefixed `[gpu N]`, and a card that dies is respawned after 30s. Narrow it to specific cards with `--gpu`:
 
 ```bash
 npx @c0mpute/worker --token <your-token> --mode max --gpu 3      # only GPU 3
@@ -118,9 +119,10 @@ Or pin `@latest` in the command you already use: `npx -y @c0mpute/worker@latest 
 If you see ~5 tok/s instead of 30+, **CUDA is not being detected**. ollama is falling back to CPU inference, which is extremely slow.
 
 Fixes:
-1. Make sure `nvcc --version` works in your terminal
-2. Make sure `nvidia-smi` shows your GPU
-3. If using native Windows, try WSL instead — it handles CUDA paths more reliably
-4. Make sure [ollama](https://ollama.com) is installed and running, and that it detects your GPU/CUDA (run `ollama ps` while a job is active — it should show the model on GPU, not CPU)
+1. Check your ollama version first — anything older than **0.32.15** is unsupported, and 0.32.14's CUDA build silently ran RTX 30xx cards on CPU
+2. Make sure `nvcc --version` works in your terminal
+3. Make sure `nvidia-smi` shows your GPU
+4. If using native Windows, try WSL instead — it handles CUDA paths more reliably
+5. Make sure [ollama](https://ollama.com) is installed and running, and that it detects your GPU/CUDA (run `ollama ps` while a job is active — it should show `100% GPU`, not CPU)
 
 **WSL typically gives better performance and fewer issues than native Windows.** If you're having trouble with native Windows, switch to WSL.

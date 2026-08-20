@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { io, Socket } from 'socket.io-client';
 import { resolveApiKeyFull, getApiKeyRequestsToday, bumpApiKeyRequest } from '@/lib/db';
+import { MODEL_CATALOG } from '@/lib/orchestrator/types';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -52,6 +53,17 @@ function mapModel(model: string | undefined): { model: string; think: boolean } 
       return { model: 'c0mpute-pro', think: false };
     default:
       return null; // unknown model
+  }
+}
+
+// Cutover tripwire: every max-tier id mapModel can return MUST exist in
+// MODEL_CATALOG. An alias left pointing at a removed catalog key would not
+// error — getModelTier falls through to 'pro', so the request gets billed 10cr
+// and answered by an 8B browser worker. Fail loudly at module load instead:
+// if you remove 'native-max' from the catalog, repoint the aliases above first.
+for (const id of ['qwen3.8-27b-uncensored', 'native-max']) {
+  if (!MODEL_CATALOG[id]) {
+    throw new Error(`mapModel routes to '${id}' but MODEL_CATALOG no longer has it — update the aliases in this file.`);
   }
 }
 
@@ -227,7 +239,7 @@ export async function POST(req: NextRequest) {
 
   const mapped = mapModel(body.model);
   if (!mapped) {
-    return oaiError(`Unknown model '${body.model}'. Available: qwen3.8-27b-uncensored, qwen3.8-27b-uncensored-think, c0mpute-pro.`, 'invalid_request_error', 404, 'model_not_found');
+    return oaiError(`Unknown model '${body.model}'. Available: qwen3.8-27b-uncensored, qwen3.8-27b-uncensored-think, c0mpute-pro, c0mpute-swarm.`, 'invalid_request_error', 404, 'model_not_found');
   }
   const requestedModel = body.model || 'c0mpute-pro';
 

@@ -5,9 +5,31 @@ title: Troubleshooting
 
 # Troubleshooting
 
+## "Your ollama is too old"
+
+The worker needs **ollama 0.32.15 or newer** and checks the version at startup. Upgrade:
+
+```bash
+curl -fsSL https://ollama.com/install.sh | sh    # Linux / WSL
+brew upgrade ollama                              # macOS
+```
+
+Or download the current build from [ollama.com/download](https://ollama.com/download) (Windows). Check it with `ollama --version`, then start the worker again.
+
+## HTTP 500 from ollama, or the model never loads
+
+Same cause: an ollama older than 0.32.15. It can't build or run this model and reports it as a generic HTTP 500 rather than anything useful. Upgrade ollama (above) and retry — there is no worker-side workaround.
+
+## Single-digit tok/s on an RTX 30xx
+
+The CUDA build fell back to CPU. This was seen on **ollama 0.32.14**, which silently ran RTX 30xx cards on CPU while looking otherwise healthy — a 3090 that benchmarks at 5 tok/s instead of ~40-87 is this.
+
+1. Upgrade ollama to 0.32.15+
+2. Start a job and run `ollama ps` — the model should show **`100% GPU`**. Anything with a CPU share means it isn't fully loaded on the card.
+
 ## "Your device is too slow (X tok/s). Minimum required: 5 tok/s."
 
-Your GPU is not being used. ollama is running on CPU, which is too slow for the network.
+Your GPU is not being used. ollama is running on CPU, which is too slow for the network. Check your ollama version first (see above), then:
 
 **NVIDIA (Linux/Windows):**
 ```bash
@@ -41,9 +63,9 @@ Metal auto-detects on Apple Silicon. If performance is unexpectedly low:
 
 ## Model download fails
 
-The model (~17GB) is pulled via ollama on first run.
+On first run the weights are pulled from a pinned HuggingFace revision into `~/.config/c0mpute-worker/models`, then built into ollama.
 
-- **Check disk space**: you need ~17GB free where ollama stores models (`~/.ollama` by default)
+- **Check disk space**: you need **~36GB free** — the kept download plus ollama's copy of the built model (`~/.ollama` by default). On macOS the MLX build needs ~20GB.
 - **Check internet**: try `curl -I https://huggingface.co` to verify connectivity
 - **Retry**: HuggingFace occasionally has temporary issues. Just run the command again.
 - **Behind a proxy?** Set `HTTPS_PROXY` environment variable
@@ -89,7 +111,6 @@ The network caps concurrent workers at **10 per IP** and **10 per account**. On 
 ## Worker starts but gets no jobs
 
 - Check that your worker benchmarks above 5 tok/s (minimum threshold)
-- Make sure you're running the right model (Max tier only runs on native workers)
 - The network matches jobs based on availability — if many workers are online, jobs are distributed
-- A qwen worker only receives qwen jobs and a supergemma worker only supergemma jobs, so picking a model with no demand can mean no jobs
+- There is only one text model, so there is no wrong model to be on: every native worker is eligible for every 27B job
 - Check the worker page at c0mpute.ai/earn for network status

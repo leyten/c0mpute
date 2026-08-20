@@ -32,7 +32,7 @@ Describe a task and the agent works as a loop with real tools: it locates the re
 - Changes are **syntax-checked and auto-reverted** if they would break the file.
 - It **verifies its own work** by running your tests, and won't claim something is done until it actually is.
 
-The thinking runs on the network. The dangerous parts — your files, your shell — never leave your machine.
+The thinking runs on the network, on `qwen3.8-27b-uncensored` — the same uncensored 27B that serves every other c0mpute client, no separate coding model to keep online. The dangerous parts — your files, your shell — never leave your machine.
 
 ## Privacy
 
@@ -68,7 +68,7 @@ All settings are environment variables:
 | Variable | Default | Description |
 | --- | --- | --- |
 | `C0MPUTE_API_KEY` | — | Your c0mpute API key (required) |
-| `C0MPUTE_MODEL` | `c0mpute-max` | Model id. The default is the uncensored max model |
+| `C0MPUTE_MODEL` | `qwen3.8-27b-uncensored` | Model id. The default is the network's uncensored 27B; the old `code` id still resolves to it as a deprecated alias |
 | `C0MPUTE_YOLO` | `0` | Set to `1` to auto-approve edits and commands |
 | `C0MPUTE_API_URL` | `https://c0mpute.ai/api/v1` | Override the API base |
 | `C0MPUTE_MAX_STEPS` | `40` | Max agent steps per task |

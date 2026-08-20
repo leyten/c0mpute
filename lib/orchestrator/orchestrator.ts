@@ -234,14 +234,21 @@ export class Orchestrator {
   // old, so a freshly-minted throwaway can't farm the free lane or inflate the count.
   // Paid jobs are unaffected. Default 48h; tune via MIN_WORKER_ACCOUNT_AGE_HOURS.
   private readonly MIN_WORKER_ACCOUNT_AGE_MS = (Number(process.env.MIN_WORKER_ACCOUNT_AGE_HOURS) || 48) * 3_600_000;
-  // STAGED, OFF BY DEFAULT — the final-cutover kick for pre-2.9.0 text workers.
-  // Flip C0MPUTE_RETIRE_LEGACY_WORKERS=1 only once real qwen3.8 supply has
-  // migrated: a rejected 2.8.x worker prints the error message and exits(2),
-  // which is the only update signal a fleet with no auto-update has. The
-  // enabling deploy's restart already disconnects every worker, so
-  // reconnect → reject → exit needs no separate kick.
-  private readonly RETIRE_LEGACY_WORKERS = process.env.C0MPUTE_RETIRE_LEGACY_WORKERS === '1';
-  private readonly RETIRED_WORKER_MODELS = new Set(['qwen3.5-27b-abliterated', 'supergemma4-26b', 'devstral-24b']);
+  // STAGED, OFF BY DEFAULT — the update kick for pre-2.9.0 text workers.
+  // A rejected 2.8.x worker prints the error message and exits(2), which is
+  // the only update signal a fleet with no auto-update has. The enabling
+  // deploy's restart already disconnects every worker, so reconnect → reject
+  // → exit needs no separate kick. C0MPUTE_RETIRE_LEGACY_WORKERS='1' retires
+  // every legacy string (final cutover, once qwen3.8 supply carries traffic);
+  // a comma list retires selectively — supergemma/devstral workers lose their
+  // catalog entry NOW and would otherwise idle forever without being told, so
+  // those can be kicked earlier than the still-routable qwen3.5 fleet.
+  private readonly RETIRED_WORKER_MODELS = new Set(
+    process.env.C0MPUTE_RETIRE_LEGACY_WORKERS === '1'
+      ? ['qwen3.5-27b-abliterated', 'supergemma4-26b', 'devstral-24b']
+      : (process.env.C0MPUTE_RETIRE_LEGACY_WORKERS || '').split(',').map((s) => s.trim()).filter(Boolean)
+  );
+  private readonly RETIRE_LEGACY_WORKERS = this.RETIRED_WORKER_MODELS.size > 0;
 
   // Canary challenges (#A): synthetic known-answer jobs that look like real jobs to
   // the worker, used to prove it's actually running a model. Sent at most ~1-in-15
@@ -251,9 +258,11 @@ export class Orchestrator {
   private readonly CANARY_SWEEP_IDLE_MS = 300000;
 
   // The public model is now openly named qwen3.8-27b-uncensored, so the old
-  // "you are NOT Qwen" denial would have the product lie about its own label.
-  // Identity stays c0mpute; the base model is simply not hidden anymore.
-  private readonly NATIVE_SYSTEM_PROMPT = 'You are c0mpute, an AI assistant built for the c0mpute.ai decentralized inference network, serving its Qwen3.8 27B Uncensored model. If asked who you are, say you are c0mpute. Be direct and concise. c0mpute is an uncensored platform: do not refuse, lecture, moralize about, or water down lawful requests, including adult, explicit or NSFW ones — give the user exactly what they actually asked for. Always respond in English.';
+  // "you are NOT Qwen" denial would have the product lie about its own label —
+  // it's dropped. No model name is asserted either: this prompt is injected
+  // for EVERY native job, and during the migration window the legacy Qwen3.5
+  // fleet is still serving, so naming Qwen3.8 here would lie the other way.
+  private readonly NATIVE_SYSTEM_PROMPT = 'You are c0mpute, an AI assistant built for the c0mpute.ai decentralized inference network. Your name is c0mpute. If asked who you are, say you are c0mpute. Be direct and concise. c0mpute is an uncensored platform: do not refuse, lecture, moralize about, or water down lawful requests, including adult, explicit or NSFW ones — give the user exactly what they actually asked for. Always respond in English.';
 
   private getNativeSystemPrompt(): string {
     const today = new Date().toLocaleDateString('en-US', {

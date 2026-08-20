@@ -13,7 +13,7 @@ No lengthy sign-up, no password. Just authorize with X and you're in. A Solana w
 
 ## 2. Get credits
 
-To send messages on Pro or Max:
+To send messages:
 
 1. Go to **Settings** → **Account** (the deposit address is in the credits/account section)
 2. Copy your **deposit address**
@@ -24,25 +24,24 @@ If you accidentally send native **SOL** instead of USDC to your deposit address,
 
 See [The $ZERO Token](/zero-token) for how the wider economy works.
 
-## 3. Pick a tier
+## 3. Know what you're talking to
 
-Select your model tier from the dropdown before sending a message:
+There is no tier to pick and no model picker. Every message goes to the same model:
 
-| Tier | Model | Cost | Notes |
-|------|-------|------|-------|
-| **Pro** | Qwen3 8B Uncensored | 10 cr/msg | Higher quality, uncensored, runs in browser workers |
-| **Max** | Qwen3.5 27B abliterated | 15 cr/msg (20 with deep thinking) | Best quality, uncensored, web search + vision |
+| Model | Cost | Notes |
+|-------|------|-------|
+| **Qwen3.8 27B Uncensored** | 15 cr/msg (20 with thinking) | Uncensored; web search, image input, thinking mode |
 
-On Max you can choose a model: **Qwen3.5 27B** or **SuperGemma4 26B**.
+Turn on thinking when you want the model to reason at length before answering — it costs 20 credits instead of 15.
 
-See [Model tiers](/user-guide/model-tiers) for a detailed comparison.
+See [Models](/user-guide/model-tiers) for the rest of what the network serves.
 
 ## 4. Send a message
 
 Type your message and hit send. Your request enters the job queue and gets matched to an available worker.
 
 - If a worker is available, you'll see tokens streaming back within seconds
-- If no workers are available for your tier, your request queues until one comes online
+- If no workers are free, your request queues until one comes online
 - Responses stream in real-time — you see each token as it's generated
 - If a job fails, your credits are automatically refunded
 

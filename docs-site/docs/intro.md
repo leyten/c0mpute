@@ -14,18 +14,21 @@ c0mpute is a decentralized AI inference network. Instead of routing your prompts
 
 You send a message. The orchestrator finds an available worker. The worker runs the model on their GPU and streams tokens back to you in real-time. Your prompts aren't stored, and the worker never sees who you are — it gets the text and nothing else. No corporate filter deciding what you're allowed to ask.
 
-## Two tiers
+## One model
 
-| Tier | Model | Cost | Where it runs | Notes |
-|------|-------|------|---------------|-------|
-| **Pro** | Qwen3 8B Uncensored | 10 credits | Browser (WebGPU) | ~4.3GB / 6GB VRAM, uncensored |
-| **Max** | Qwen3.5 27B or SuperGemma4 26B (your choice) | 15 credits (20 with deep thinking) | Native workers | both uncensored; pick from the chat model picker; + web search + vision |
+Chat runs on **Qwen3.8 27B Uncensored** (`qwen3.8-27b-uncensored`) — one model for the whole network, so there's nothing to pick. It's uncensored, and it does web search, vision (send it an image), and an extended thinking mode.
+
+| Model | Cost | Where it runs | Notes |
+|-------|------|---------------|-------|
+| **Qwen3.8 27B Uncensored** | 15 credits (20 with thinking) | Native workers | uncensored; web search + tools, image input, thinking mode |
+
+The [API](/api-reference) exposes two more ids: `c0mpute-pro`, an uncensored 8B served by the browser worker pool (10 credits), and `c0mpute-swarm`, MiniMax-M2.5 split across a swarm of GPUs (10 credits). [Image generation](/image-generation) runs on its own pool of image workers.
 
 ## Credits and the <span class="dollar">$</span>ZERO token
 
 Inference is paid for with credits. **1 credit = $0.01**, bought with USDC. You don't need any token to use c0mpute.
 
-- Top up credits with USDC; they're spent per message based on your selected tier
+- Top up credits with USDC; they're spent per message
 - Workers earn 70% of the USD value of the credits spent on jobs they complete (80% if they stake), paid in USDC
 
 <span class="dollar">$</span>ZERO is a separate, value-accrual token. Network revenue automatically buys it back and burns it, and pays a share to everyone who stakes it.
