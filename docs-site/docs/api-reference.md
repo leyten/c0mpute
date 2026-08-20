@@ -27,13 +27,14 @@ Requests are billed to the credit balance of the account that owns the key. Top 
 
 | Model | Description |
 | --- | --- |
-| `c0mpute-pro` | Uncensored 8B. Fast, runs on the broad worker pool. |
-| `c0mpute-max` | Uncensored 27B with tools, vision, and large context. |
-| `c0mpute-max-think` | `c0mpute-max` with extended chain-of-thought reasoning. |
-| `supergemma4-26b` | Uncensored SuperGemma4 26B MoE, with tools. Max tier. (alias: `c0mpute-max-supergemma`) |
-| `code` | Devstral 24B, agentic coding model that powers c0mpute code. Max tier. (aliases: `devstral-24b`, `c0mpute-code`) |
+| `qwen3.8-27b-uncensored` | Uncensored Qwen3.8 27B with tools, vision, and large context. The network's model — it also powers [c0mpute code](/c0mpute-code). |
+| `qwen3.8-27b-uncensored-think` | The same model with extended chain-of-thought reasoning. |
+| `c0mpute-pro` | Uncensored 8B. Fast, runs on the broad browser worker pool. |
+| `c0mpute-swarm` | MiniMax-M2.5 (229B), served by the decentralized GPU swarm. Availability depends on a swarm ring being ready. |
 
-`GET /v1/models` lists them with a live `available` flag (Max requires a native GPU worker to be online) and a `pricing` object (`{ "type": "per_message", "credits": 10, "usd": 0.10 }`). Always check availability if you depend on Max.
+`GET /v1/models` lists them with a live `available` flag (the 27B requires a native GPU worker to be online) and a `pricing` object (`{ "type": "per_message", "credits": 10, "usd": 0.10 }`). Always check availability if you depend on the 27B.
+
+> The older model ids (`c0mpute-max`, `supergemma4-26b`, `code`) are deprecated aliases. They still answer during the migration window and will be removed — point new integrations at the ids above.
 
 ## Pricing
 
@@ -41,11 +42,10 @@ Billing is **flat per request** — you know the exact cost before you send it, 
 
 | Model | Credits / request | USD / request |
 | --- | --- | --- |
+| `qwen3.8-27b-uncensored` | 15 | $0.15 |
+| `qwen3.8-27b-uncensored-think` | 20 | $0.20 |
 | `c0mpute-pro` | 10 | $0.10 |
-| `c0mpute-max` | 15 | $0.15 |
-| `c0mpute-max-think` | 20 | $0.20 |
-| `supergemma4-26b` | 15 | $0.15 |
-| `code` | 15 | $0.15 |
+| `c0mpute-swarm` | 10 | $0.10 |
 
 1 credit = $0.01. Buy credits with USDC from the [dashboard](https://c0mpute.ai/settings). A request that returns a tool call (one step of an agent loop) is one request. Rate limit: 60 requests/minute per key.
 
@@ -167,28 +167,28 @@ tools = [{
 }]
 
 messages = [{"role": "user", "content": "What's the weather in Paris?"}]
-r1 = client.chat.completions.create(model="c0mpute-max", messages=messages, tools=tools)
+r1 = client.chat.completions.create(model="qwen3.8-27b-uncensored", messages=messages, tools=tools)
 
 call = r1.choices[0].message.tool_calls[0]            # get_weather({"city": "Paris"})
 messages.append(r1.choices[0].message)
 messages.append({"role": "tool", "tool_call_id": call.id, "content": "18C and sunny"})
 
-r2 = client.chat.completions.create(model="c0mpute-max", messages=messages, tools=tools)
+r2 = client.chat.completions.create(model="qwen3.8-27b-uncensored", messages=messages, tools=tools)
 print(r2.choices[0].message.content)                 # "The weather in Paris is 18°C and sunny."
 ```
 
-Tool calling and vision are most reliable on `c0mpute-max`. The Pro 8B can attempt tools but is less consistent.
+Tool calling and vision are most reliable on `qwen3.8-27b-uncensored`. The Pro 8B can attempt tools but is less consistent.
 
 ## Vision
 
-`c0mpute-max` accepts images. Use OpenAI's multimodal content format with an inline base64 `data:` URL:
+`qwen3.8-27b-uncensored` accepts images. Use OpenAI's multimodal content format with an inline base64 `data:` URL:
 
 ```python
 import base64
 img = base64.b64encode(open("photo.png", "rb").read()).decode()
 
 resp = client.chat.completions.create(
-    model="c0mpute-max",
+    model="qwen3.8-27b-uncensored",
     messages=[{"role": "user", "content": [
         {"type": "text", "text": "What's in this image?"},
         {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img}"}},
@@ -197,13 +197,13 @@ resp = client.chat.completions.create(
 print(resp.choices[0].message.content)
 ```
 
-Pass images inline as base64; remote `https` image URLs aren't fetched in this version. Vision requires `c0mpute-max`.
+Pass images inline as base64; remote `https` image URLs aren't fetched in this version. Vision requires `qwen3.8-27b-uncensored`. Image *input* only — to create images, use the [image generation](#image-generation) endpoint.
 
 ## Building agents
 
 c0mpute is designed to be the **brain** for agent frameworks. Your framework keeps doing what it does — memory, system prompt / persona, the tool loop — and c0mpute is the model it calls. Memory and persona need zero special handling: they're just the messages array and a system message you already send. Tools work through the standard function-calling flow above (the model returns `tool_calls`, your framework runs them and sends results back).
 
-For agents, use **`c0mpute-max`** (or `c0mpute-max-think` for harder reasoning) — the 27B is far more reliable at multi-step tool use than the 8B.
+For agents, use **`qwen3.8-27b-uncensored`** (or `qwen3.8-27b-uncensored-think` for harder reasoning) — the 27B is far more reliable at multi-step tool use than the 8B.
 
 ### Any OpenAI-compatible framework
 
@@ -212,7 +212,7 @@ The universal setup: point the framework's model provider at c0mpute.
 ```
 base_url / baseURL :  https://c0mpute.ai/api/v1
 api_key            :  sk-c0mpute-...
-model              :  c0mpute-max
+model              :  qwen3.8-27b-uncensored
 ```
 
 **OpenAI Agents SDK (Python)**
@@ -223,7 +223,7 @@ from openai import AsyncOpenAI
 
 client = AsyncOpenAI(base_url="https://c0mpute.ai/api/v1", api_key="sk-c0mpute-...")
 agent = Agent(name="Assistant", instructions="You are helpful.",
-              model=OpenAIChatCompletionsModel(model="c0mpute-max", openai_client=client))
+              model=OpenAIChatCompletionsModel(model="qwen3.8-27b-uncensored", openai_client=client))
 print((await Runner.run(agent, "Plan my week.")).final_output)
 ```
 
@@ -232,7 +232,7 @@ print((await Runner.run(agent, "Plan my week.")).final_output)
 ```python
 from langchain_openai import ChatOpenAI
 
-llm = ChatOpenAI(model="c0mpute-max", base_url="https://c0mpute.ai/api/v1", api_key="sk-c0mpute-...")
+llm = ChatOpenAI(model="qwen3.8-27b-uncensored", base_url="https://c0mpute.ai/api/v1", api_key="sk-c0mpute-...")
 ```
 
 **Vercel AI SDK (TypeScript)**
@@ -240,12 +240,12 @@ llm = ChatOpenAI(model="c0mpute-max", base_url="https://c0mpute.ai/api/v1", api_
 ```ts
 import { createOpenAI } from "@ai-sdk/openai";
 const c0mpute = createOpenAI({ baseURL: "https://c0mpute.ai/api/v1", apiKey: "sk-c0mpute-..." });
-// use c0mpute("c0mpute-max") as the model in generateText / streamText / tool loops
+// use c0mpute("qwen3.8-27b-uncensored") as the model in generateText / streamText / tool loops
 ```
 
 ### Hermes
 
-c0mpute is a custom OpenAI-compatible endpoint. For Hermes, use **`c0mpute-max-think`** (Max with extended reasoning). Add it as a **custom provider** in `~/.hermes/config.yaml`, with the API key set **on the provider** (Hermes does not read `~/.hermes/.env` at runtime, so the key must live in the config or an exported env var):
+c0mpute is a custom OpenAI-compatible endpoint. For Hermes, use **`qwen3.8-27b-uncensored-think`** (the 27B with extended reasoning). Add it as a **custom provider** in `~/.hermes/config.yaml`, with the API key set **on the provider** (Hermes does not read `~/.hermes/.env` at runtime, so the key must live in the config or an exported env var):
 
 ```yaml
 custom_providers:
@@ -253,7 +253,7 @@ custom_providers:
     base_url: https://c0mpute.ai/api/v1
     api_key: sk-c0mpute-...      # your key, inline
     models:
-      c0mpute-max-think: {}
+      qwen3.8-27b-uncensored-think: {}
 ```
 
 Prefer not to hardcode the key? Use `key_env` and **export** that variable in your shell (Hermes reads it from the process environment, not from `.env`):
@@ -264,10 +264,10 @@ custom_providers:
     base_url: https://c0mpute.ai/api/v1
     key_env: OPENAI_API_KEY      # must be exported, e.g. in ~/.bashrc
     models:
-      c0mpute-max-think: {}
+      qwen3.8-27b-uncensored-think: {}
 ```
 
-Then select it with `hermes model` (or `/model` in-session) and run, e.g. `hermes -z "hello" -m c0mpute-max-think`.
+Then select it with `hermes model` (or `/model` in-session) and run, e.g. `hermes -z "hello" -m qwen3.8-27b-uncensored-think`.
 
 > If you see `HTTP 401: Invalid API key`, Hermes is sending its `no-key-required` placeholder — it didn't find your key. Set `api_key` on the provider as above (putting the key only in `~/.hermes/.env` does **not** work).
 
@@ -281,7 +281,7 @@ Errors are returned in OpenAI's shape (`{ "error": { "message", "type", "code" }
 | `402` | Insufficient credits — top up with USDC |
 | `404` | Unknown model |
 | `429` | Rate limit exceeded |
-| `503` | No worker available for the requested tier (Max needs a native worker online) |
+| `503` | No worker available for the requested model (the 27B needs a native worker online) |
 
 ## Rate limits
 

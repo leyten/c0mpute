@@ -1,42 +1,59 @@
 ---
 sidebar_position: 2
-title: Model tiers
+title: Models
 ---
 
-# Model tiers
+# Models
 
-c0mpute offers two tiers running on different infrastructure. Pro is a single model; Max is a family of models.
+There are no tiers. c0mpute serves **one text model** to everyone, plus a browser-powered small model and a swarm model on the API, and a separate image model. All of them are uncensored.
 
-## Pro — Qwen3 8B Uncensored
+## Qwen3.8 27B Uncensored
+
+- **Cost:** 15 credits per message (20 with thinking)
+- **Model ids:** `qwen3.8-27b-uncensored`, `qwen3.8-27b-uncensored-think`
+- Runs on **native workers** via ollama — consumer GPUs, not a data center
+- **Uncensored** — refusal behavior removed
+
+This is what chat uses, and what [c0mpute code](/c0mpute-code) runs on. There is nothing to select: every message goes to the same model, and every native worker on the network runs the same build.
+
+What it can do:
+
+- **Web search and tools** — the model decides when to search, calls the tool, and answers grounded in the results with citations. Through the API you can hand it your own functions the same way.
+- **Vision** — send it an image and it reads it. (Image *input*. Making pictures is the image model below.)
+- **Thinking mode** — extended chain-of-thought before it answers, for harder problems. 20 credits instead of 15.
+
+## c0mpute-pro
 
 - **Cost:** 10 credits per message
-- Runs in **browser workers** via WebGPU
-- ~4.3GB model download, ~6GB VRAM required
-- **Uncensored** — won't refuse topics based on corporate content policies
-- Higher quality reasoning and longer, more detailed responses
+- **Model id:** `c0mpute-pro`
+- Uncensored **Qwen3 8B**, run by **browser workers** on WebGPU — ~4.3GB download, ~6GB VRAM
 
-Pro uses a custom abliterated build of Qwen3 8B, with refusal behavior removed. It answers what you ask without moralizing or deflecting. This is the default tier.
+The browser lane: a small, fast model on the widest supply in the network. It also serves free prompts. It can attempt tool calls but is less consistent at them than the 27B, so for agents use `qwen3.8-27b-uncensored`.
 
-## Max — multi-model tier
+## c0mpute-swarm
 
-- **Cost:** 15 credits per message (20 with deep thinking, where supported)
-- Runs on **native workers** via ollama
-- High-VRAM GPU required on the worker's machine (20GB+ recommended, e.g. RTX 3090/4090)
-- **Uncensored** — refusal behavior removed
-- Best quality responses across all tiers
+- **Cost:** 10 credits per message
+- **Model id:** `c0mpute-swarm`
+- **MiniMax-M2.5 (229B)**, split across a swarm of contributor GPUs — no single machine holds the whole model
 
-Max is the premium tier. It runs on dedicated native workers with powerful GPUs, delivering the highest quality responses in the network. It is a family of models:
+A 229B model running on hardware that could never hold it alone. Availability depends on a swarm ring being assembled and ready, so check the `available` flag from `GET /v1/models` before you depend on it.
 
-- **Qwen3.5 27B abliterated** — the default Max model in the chat model picker. Abliterated (refusal behavior surgically removed). Supports web search, vision, and thinking mode.
-- **SuperGemma4 26B** — also in the chat model picker. Uncensored MoE, supports tools and deep-thinking.
-- **Devstral 24B** (the `code` model) — available via the API/CLI (model id `code`), not in the chat picker. It powers c0mpute code, the agentic coding agent. See the dedicated [c0mpute code](/c0mpute-code) doc.
+## Image generation
+
+- **Cost:** 20 credits per image
+- **Chroma1-HD** on dedicated image workers, uncensored
+
+Available both as a tool the text model calls when you ask it for a picture, and as a direct endpoint. See [Image generation](/image-generation).
 
 ## Credit costs at a glance
 
-| Tier | Credits/msg | USD cost |
-|------|-------------|----------|
-| Pro | 10 | $0.10 per message |
-| Max | 15 (20 w/ deep thinking) | $0.15 per message ($0.20 w/ deep thinking) |
+| What | Credits | USD |
+|------|---------|-----|
+| Message on `qwen3.8-27b-uncensored` | 15 | $0.15 |
+| …with thinking | 20 | $0.20 |
+| Message on `c0mpute-pro` | 10 | $0.10 |
+| Message on `c0mpute-swarm` | 10 | $0.10 |
+| Image | 20 | $0.20 |
 
 Credits are priced at $0.01 each and bought with USDC.
 
@@ -46,10 +63,10 @@ Credits are deducted when you send a message. If a job fails or you disconnect, 
 
 Corporate AI models (ChatGPT, Claude, Gemini) are trained to refuse certain topics. Ask about anything the company considers sensitive and you get a refusal. These aren't safety features — they're content policies imposed by corporations.
 
-Uncensored models like the abliterated Qwen builds c0mpute runs have had this refusal training removed. They answer your questions directly without corporate-imposed restrictions.
+The uncensored builds c0mpute runs have had this refusal training removed. They answer your questions directly without corporate-imposed restrictions.
 
-## Web search (Max only)
+## Web search
 
-When you use Max tier, the orchestrator runs a web search using the Brave Search API before sending your prompt to the worker. It fetches the top results, extracts relevant content, and includes it as context. The model generates a response grounded in current web data and cites its sources.
+Web search is model-driven. The model itself decides whether a question needs current information; when it does, the orchestrator runs the search (Brave Search API), extracts content from the top results, and hands it back to the model as a tool result. The model then answers grounded in real, up-to-date web content and cites its sources.
 
-This means Max tier can answer questions about recent events, look up current information, and provide sourced responses — something no browser-based tier can do.
+That means it can answer questions about recent events and look things up, instead of guessing from training data.

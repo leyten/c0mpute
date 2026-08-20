@@ -8,8 +8,18 @@ title: Linux
 ## Prerequisites
 
 - **Node.js 18+** — install via [NodeSource](https://github.com/nodesource/distributions) or your package manager
-- **NVIDIA GPU with 20GB+ VRAM recommended**
+- **NVIDIA GPU with 16GB+ VRAM** (24GB recommended), or an **AMD GPU with 24GB+ VRAM**
 - **CUDA Toolkit**
+- **ollama v0.32.15 or newer**
+
+## Install (or upgrade) ollama
+
+The worker needs **ollama 0.32.15+** and checks the version at startup. Older builds fail in unhelpful ways — HTTP 500s from the API, or (on 0.32.14) a CUDA build that silently runs RTX 30xx cards on CPU. Install or upgrade with the official one-liner:
+
+```bash
+curl -fsSL https://ollama.com/install.sh | sh
+ollama --version
+```
 
 ## Install CUDA
 
@@ -51,38 +61,36 @@ npx @c0mpute/worker --token <your-token>
 ```
 
 On first run:
-1. ollama is configured with CUDA support
-2. A Max worker asks which model to run (Qwen3.5 27B or SuperGemma4 26B), showing how many workers are live on each and recommending the one with fewest. Only the chosen model downloads (~17GB).
+1. Your ollama version is checked (0.32.15+) and configured with CUDA support
+2. The Qwen3.8 27B weights download from a pinned HuggingFace revision into `~/.config/c0mpute-worker/models` and the worker builds the model for your card. The download is kept, so a rebuild doesn't fetch it again — budget **~36GB free disk** for it plus ollama's copy
 3. A benchmark runs to verify GPU performance
 4. The worker connects to the network and starts accepting jobs
 
-Skip the model prompt with a flag:
+There is nothing to choose: every native worker serves the same model, `qwen3.8-27b-uncensored`. The old `--model` flag is deprecated and ignored. Pass `--mode max` to skip the text/image question.
 
-```bash
-npx @c0mpute/worker --token <your-token> --mode max --model qwen        # Qwen3.5 27B
-npx @c0mpute/worker --token <your-token> --mode max --model supergemma  # SuperGemma4 26B
-```
+The build is picked from your hardware — Q4_K_M with speculative decoding on 24GB+ cards, IQ4_XS with speculative decoding on 16GB cards, Q4_K_M without it on AMD. The worker also auto-tunes its context window to the GPU's VRAM (8K-32K) and enables flash-attention + q8 KV cache on NVIDIA automatically — no manual config.
 
-The worker auto-tunes its context window to the GPU's VRAM and enables flash-attention + q8 KV cache on NVIDIA automatically — no manual config.
+Indicative speeds (what these cards tend to do, not a promise):
+- **RTX 5090**: ~70-135 tok/s
+- **RTX 4090**: ~58-103 tok/s (measured)
+- **RTX 3090**: ~40-87 tok/s
+- **16GB cards**: ~25-60 tok/s
+- **AMD RX 7900 XTX**: ~30-44 tok/s
 
-Expected benchmark results:
-- **RTX 3060 12GB**: ~30-40 tok/s
-- **RTX 3080**: ~50-60 tok/s
-- **RTX 4070 Ti**: ~60-80 tok/s
-- **RTX 4090**: ~100+ tok/s
-
-If you see less than 10 tok/s, CUDA is not being used. See [Troubleshooting](/worker-guide/native-worker/troubleshooting).
+Single-digit tok/s means the model is not really on the GPU — usually an old ollama falling back to CPU. See [Troubleshooting](/worker-guide/native-worker/troubleshooting).
 
 ## Multi-GPU rigs
 
-ollama loads a model that fits on a **single** card, so one worker only ever drives one GPU. On a box with more than one NVIDIA card the CLI detects them all and runs **one worker per GPU** — no flags, nothing to configure:
+ollama loads a model that fits on a **single** card, so one worker only ever drives one GPU. On a box with more than one NVIDIA card the CLI detects them all and runs **one worker per capable GPU** — no flags, nothing to configure:
 
 ```bash
 npx @c0mpute/worker --token <your-token> --mode max
 # 8 GPUs detected — starting one worker per GPU (use --gpu <n> to run a single card).
 ```
 
-You're asked for mode and model once. The process then supervises one child per card, each pinned with `CUDA_VISIBLE_DEVICES` and given its own ollama on port `11434 + <index>`, so the cards never share a daemon and each worker sizes its context window to the card it actually runs on. A single-GPU box behaves exactly as before.
+You're asked for mode once. The process then supervises one child per card, each pinned with `CUDA_VISIBLE_DEVICES` and given its own ollama on port `11434 + <index>`, so the cards never share a daemon and each worker sizes its context window to the card it actually runs on. A single-GPU box behaves exactly as before.
+
+Cards with less than 16GB are **skipped** — they can't hold the model. If the box has several small cards and none of them fits the model alone, the CLI doesn't run one worker per card: it starts a **single layer-split worker** that spreads the model across them (the noMTP build, so no speculative decoding).
 
 ### Stop your system ollama first
 

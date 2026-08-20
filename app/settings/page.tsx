@@ -824,7 +824,7 @@ export default function SettingsPage() {
                         </div>
                         <div className="flex items-baseline gap-3">
                           <span className="pixel-sans text-fg-40 text-[10px] uppercase tracking-[0.14em] w-16 flex-shrink-0">models</span>
-                          <code className="font-mono text-xs text-fg-70 select-all overflow-x-auto whitespace-nowrap">c0mpute-pro · c0mpute-max · c0mpute-max-think</code>
+                          <code className="font-mono text-xs text-fg-70 select-all overflow-x-auto whitespace-nowrap">qwen3.8-27b-uncensored · qwen3.8-27b-uncensored-think · c0mpute-pro</code>
                         </div>
                       </div>
 

@@ -14,14 +14,18 @@ export type FileRef = { name: string; mime: string; data: string };
 
 export type ChatState = 'idle' | 'queued' | 'streaming' | 'error';
 
-// Plan definitions — maps user-facing models to internal model IDs.
-// `workerModel` matches the orchestrator MODEL_CATALOG so per-model worker
-// counts line up. `vision`/`thinking` gate the composer controls, since not
-// every model supports them (e.g. SuperGemma is text-only, no vision/thinking).
+// Plan definitions — the network runs ONE public model (the first entry, the
+// default; no tier names anywhere). `workerModel` matches the orchestrator
+// MODEL_CATALOG so per-model worker counts line up. `vision`/`thinking` gate
+// the composer controls.
+// MIGRATION ONLY: the browser-lane entry below stays until the final cutover
+// so chat always has a route to live supply while qwen3.8 workers ramp from
+// zero — without it, an off-hour with no 27B worker online turns every prompt
+// (the whole anonymous funnel included) into "no free capacity". Remove it at
+// cutover and the picker collapses to the single model.
 export const PLANS = [
-  { id: 'pro' as const, name: 'Pro', cost: 10, costLabel: '10 cr', modelId: 'Qwen3-8B-c0mpute-q4f16_1-MLC', tier: 'pro' as const, workerModel: null, vision: false, thinking: false, description: 'Higher quality, no refusals', features: ['Qwen3 8B model', 'Browser-powered', 'No refusals'] },
-  { id: 'max' as const, name: 'Qwen3.5 27B', cost: 15, costLabel: '15 cr', modelId: 'native-max', tier: 'max' as const, workerModel: 'qwen3.5-27b-abliterated', vision: true, thinking: true, description: 'Best quality, tools, vision, thinking', features: ['Qwen3.5 27B model', 'Native inference', 'No refusals', 'Web search (tool calling)', 'Vision (image input)', 'Thinking mode'] },
-  { id: 'max-sg' as const, name: 'SuperGemma4 26B', cost: 15, costLabel: '15 cr', modelId: 'native-supergemma', tier: 'max' as const, workerModel: 'supergemma4-26b', vision: false, thinking: true, description: 'Newer, faster, tools', features: ['SuperGemma4 26B (MoE)', 'Native inference', 'No refusals', 'Web search (tool calling)', 'Thinking mode'] },
+  { id: 'qwen38' as const, name: 'Qwen3.8 27B Uncensored', cost: 15, costLabel: '15 cr', modelId: 'qwen3.8-27b-uncensored', tier: 'max' as const, workerModel: 'qwen3.8-27b-uncensored', vision: true, thinking: true, description: 'Tools, vision, thinking — no refusals', features: ['Qwen3.8 27B model', 'Native inference', 'No refusals', 'Web search (tool calling)', 'Vision (image input)', 'Thinking mode'] },
+  { id: 'pro' as const, name: 'Qwen3 8B', cost: 10, costLabel: '10 cr', modelId: 'Qwen3-8B-c0mpute-q4f16_1-MLC', tier: 'pro' as const, workerModel: null, vision: false, thinking: false, description: 'Smaller, browser-powered', features: ['Qwen3 8B model', 'Browser-powered', 'No refusals'] },
 ] as const;
 export type PlanId = typeof PLANS[number]['id'];
 export type Plan = typeof PLANS[number];

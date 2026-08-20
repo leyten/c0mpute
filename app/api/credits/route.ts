@@ -39,7 +39,11 @@ export async function GET(req: NextRequest) {
   // budget can still pay a worker for the job (see the orchestrator's submit
   // path). Surfaced as a plain boolean so the UI can say why a remaining count
   // isn't spending today — the cap itself and its usage stay private.
-  const projectedSubsidyUsd = (TIER_CREDIT_COST.pro / CREDITS_PER_USD) * WORKER_STAKED_REVENUE_SHARE;
+  // Project the WORST-case list price a free prompt can reserve: chat now
+  // defaults to the 27B (max tier, 20 cr with thinking), so projecting the pro
+  // cost would show prompts as live that the orchestrator then refuses.
+  const worstFreeCredits = Math.max(...Object.values(TIER_CREDIT_COST));
+  const projectedSubsidyUsd = (worstFreeCredits / CREDITS_PER_USD) * WORKER_STAKED_REVENUE_SHARE;
   const freePromptsPaused = getTodayFreeSubsidyUsd() + projectedSubsidyUsd > FREE_SUBSIDY_DAILY_CAP_USD;
 
   return NextResponse.json({

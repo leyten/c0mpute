@@ -13,7 +13,7 @@ export const DEMO_NETWORK_STATS: NetworkStats = {
   workersOnline: 7,
   browserWorkers: 4,
   nativeWorkers: 3,
-  nativeByModel: { 'qwen3.5-27b-abliterated': 2, 'supergemma4-26b': 1 },
+  nativeByModel: { 'qwen3.8-27b-uncensored': 3 },
   jobsInQueue: 1,
   jobsCompleted: 12843,
   tokensGenerated: 9481022,
@@ -36,11 +36,10 @@ Here is what the renderer handles:
 - Links, like the [network map](https://shard.compute.tech)
 - Ordered structure and tables
 
-| Tier | Model | Cost |
-|------|-------|------|
-| Free | Llama 3.2 3B | 0 cr |
-| Pro | Qwen3 8B | 10 cr |
-| Max | Qwen3.5 27B | 15 cr |
+| Model | Runs on | Cost |
+|-------|---------|------|
+| Qwen3.8 27B Uncensored | GPU workers | 15 cr |
+| Chroma1-HD (images) | GPU workers | per render |
 
 > Blockquotes render like this, for quoted context.
 

@@ -12,7 +12,7 @@ Turn your browser tab into a GPU worker and start earning USDC. No installation 
 1. Go to [c0mpute.ai/earn](https://c0mpute.ai/earn)
 2. Log in with your X (Twitter) account
 3. **On a laptop, point Chrome at your real GPU first.** Open `chrome://flags/#force-high-performance-gpu`, set it to **Enabled** and restart the browser. On Windows laptops Chrome generally runs on the integrated GPU, and a page asking for a high-performance adapter does not change that — so without this flag a machine with a discrete card can end up doing all the work on integrated graphics, many times slower.
-4. Browser workers run **Qwen3 8B Uncensored** — ~4.3GB download, needs ~6GB VRAM, serves Pro tier
+4. Browser workers run **Qwen3 8B Uncensored** — ~4.3GB download, needs ~6GB VRAM, serves the browser lane (`c0mpute-pro` requests and free prompts)
 5. Click **Start Worker**
 
 The first time you start, the model downloads to your browser's cache. This takes a few minutes depending on your connection. After that, subsequent starts are instant.

@@ -35,11 +35,9 @@ export async function GET(req: NextRequest) {
 
   const counts = await getWorkerCounts();
   const proUp = counts ? counts.browser > 0 || counts.native > 0 : true; // unknown → assume up
-  const maxUp = counts ? (counts.byModel['qwen3.5-27b-abliterated'] ?? 0) > 0 : true;
-  const sgUp = counts ? (counts.byModel['supergemma4-26b'] ?? 0) > 0 : true;
-  const codeUp = counts ? (counts.byModel['devstral-24b'] ?? 0) > 0 : true;
+  const qwenUp = counts ? (counts.byModel['qwen3.8-27b-uncensored'] ?? 0) > 0 : true;
   // the swarm model is up iff a READY ring is serving it (swarmModels, not nativeByModel — swarm
-  // nodes aren't native workers); unknown counts → assume up (same convention as the tiers above)
+  // nodes aren't native workers); unknown counts → assume up (same convention as above)
   const swarmUp = counts ? counts.swarmModels.includes('minimax-m2.5') : true;
   const created = 1748000000;
   // Flat per-message pricing (credits; 1 credit = $0.01) — c0mpute bills per
@@ -49,15 +47,16 @@ export async function GET(req: NextRequest) {
     pricing: { type: 'per_message', credits, usd: credits / 100 },
   });
 
+  // Retired ids (c0mpute-max, supergemma4-26b, code, …) still answer in
+  // /chat/completions via mapModel aliases during the migration window, but
+  // are no longer listed: this is the catalog we want new integrations on.
   return NextResponse.json({
     object: 'list',
     data: [
-      model('c0mpute-pro', proUp, 'Uncensored 8B, fast. Pro tier.', 10),
-      model('c0mpute-max', maxUp, 'Uncensored 27B with tools + vision + large context. Max tier.', 15),
-      model('c0mpute-max-think', maxUp, 'c0mpute-max with extended chain-of-thought reasoning.', 20),
-      model('supergemma4-26b', sgUp, 'Uncensored SuperGemma4 26B MoE with tools. Newer, faster. Max tier.', 15),
-      model('code', codeUp, 'Devstral 24B — agentic coding model (powers c0mpute code). Max tier.', 15),
-      model('c0mpute-swarm', swarmUp, 'MiniMax-M2.5 (229B) served by the decentralized GPU swarm — no single host holds the model. Pro tier.', 10),
+      model('qwen3.8-27b-uncensored', qwenUp, 'Qwen3.8 27B Uncensored — the c0mpute model. Tools, vision, thinking, no refusals.', 15),
+      model('qwen3.8-27b-uncensored-think', qwenUp, 'Qwen3.8 27B Uncensored with extended chain-of-thought reasoning.', 20),
+      model('c0mpute-pro', proUp, 'Uncensored 8B, fast, browser-powered.', 10),
+      model('c0mpute-swarm', swarmUp, 'MiniMax-M2.5 (229B) served by the decentralized GPU swarm — no single host holds the model.', 10),
     ],
   });
 }
