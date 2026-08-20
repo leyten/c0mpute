@@ -91,6 +91,16 @@ export interface Job {
   assignedWorker?: string;
   createdAt: Date;
   startedAt?: Date;
+  // Epoch ms of the last thing the orchestrator OBSERVED this job do: a token
+  // relayed, a tool round opening or closing. What the liveness sweep judges a
+  // running job on (see the liveness windows in orchestrator.ts) — total runtime
+  // says nothing about health, and a long thinking answer legitimately runs for
+  // minutes. Unset until the first observation; the sweep then falls back to
+  // startedAt, so queue wait never counts against it.
+  lastProgressAt?: number;
+  // A server-side tool round is executing: the worker is blocked on
+  // job:tool_result and CANNOT emit tokens, so token silence is expected here.
+  toolRunning?: boolean;
   completedAt?: Date;
   response?: string;
   error?: string;

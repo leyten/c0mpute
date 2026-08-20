@@ -205,6 +205,43 @@ export class Orchestrator {
   private imageJobs: Map<string, ImageJob> = new Map();
   private imageQueue: string[] = [];
   private readonly IMAGE_JOB_TIMEOUT_MS = 180_000;
+
+  // ── Job liveness (stall-aware, not wall-clock) ─────────────────────────────
+  // A running job is healthy while it is still PRODUCING. Total runtime says
+  // nothing: a thinking answer is budgeted at 8192 output tokens
+  // (c0mpute-worker/src/config.ts MAX_OUTPUT_TOKENS_THINKING) and the fleet
+  // measures ~30-60 tok/s, so a legitimate full-length answer takes 8192/60 ≈
+  // 2.3 min to 8192/30 ≈ 4.5 min — and the old flat 180s processing ceiling
+  // killed those mid-stream, refunded them, and told the user the network went
+  // quiet while a worker was happily streaming into it.
+  //
+  // Every window below is measured from DISPATCH (job.startedAt) or from the
+  // last observed progress (job.lastProgressAt). Queue wait is the queue
+  // sweep's business and never counts against a worker.
+  //
+  // No first token this long after dispatch ⇒ the worker took the job and
+  // produced nothing. Generous enough for the two slow-but-honest starts: a
+  // cold model load (ollama pulling a 27B into VRAM) and prefill of a long
+  // prompt on a modest card (a native worker self-tunes num_ctx up to 32K).
+  private readonly FIRST_TOKEN_MS = 120_000;
+  // Silence between tokens once the stream is running. Real generation never
+  // pauses this long; a wedged GPU or a dead-but-still-connected worker does.
+  private readonly JOB_STALL_MS = 60_000;
+  // A server-side tool round stops the token flow on purpose while the tool
+  // runs, so it gets its own window. Sized above the longest server tool
+  // (IMAGE_JOB_TIMEOUT_MS, 180s) and above the worker's own 200s tool-result
+  // wait, so the worker's job:error always lands first and this is only the
+  // backstop for a round that never returns at all.
+  private readonly TOOL_ROUND_MS = 210_000;
+  // Absolute backstop against infinite generation, well clear of the worst
+  // legitimate answer (full thinking budget at the slowest fleet speed, plus a
+  // tool round or two). Nothing honest reaches it.
+  private readonly JOB_HARD_CEILING_MS = 600_000;
+  // A canary is a two-digit sum plus a nonce — seconds of work. Keep its
+  // backstop at the old flat ceiling so widening the windows above cannot slow
+  // anti-cheat detection down.
+  private readonly CANARY_HARD_CEILING_MS = 180_000;
+
   private totalJobsCompleted: number = 0;
   private totalTokensGenerated: number = 0;
   private jobDurations: number[] = [];
@@ -464,9 +501,41 @@ export class Orchestrator {
     }
   }
 
+  /**
+   * Settle a job the liveness sweep just gave up on. Every kill path the flat
+   * timeout used to run, unchanged: tell the user, give the charge back, stop
+   * and free the worker, drop the job.
+   */
+  private failStalledJob(jobId: string, job: Job, reason: string) {
+    const userSocket = this.io.sockets.sockets.get(job.userSocketId);
+    if (userSocket) {
+      userSocket.emit('job:error', { jobId, error: 'Job timed out during processing' });
+    }
+    this.refundJobCharges(job, 'Job timed out during processing');
+    if (job.assignedWorker) {
+      const worker = this.findWorkerById(job.assignedWorker);
+      if (worker) {
+        // Tell the worker to stop before freeing it. Without this the
+        // browser keeps decoding a job nobody is waiting for — on the very
+        // GPU we just advertised as idle and are about to hand the next
+        // job to — and streams tokens for a job id that no longer exists.
+        const ws = this.io.sockets.sockets.get(worker.socketId);
+        if (ws) ws.emit('job:cancel', { jobId });
+        worker.status = 'idle';
+      }
+    }
+    console.warn(`[Orchestrator] Job ${jobId} killed: ${reason}`);
+    this.jobs.delete(jobId);
+    this.swarmRevenue.delete(jobId);
+  }
+
   private cleanupStaleJobs() {
     const now = Date.now();
-    const JOB_TIMEOUT_MS = 180000; // 3 minutes
+    // Queue lane only: how long a job may wait for a worker to pick it up. The
+    // clocks that judge a job once it IS running live in the liveness block at
+    // the top of this class and start at dispatch, so this wait never counts
+    // against the worker serving it.
+    const QUEUE_TIMEOUT_MS = 180000; // 3 minutes
 
     // Rate-limit buckets are created per user id — including one per anon
     // visitor — and were only ever pruned when that same id submitted again, so
@@ -485,7 +554,7 @@ export class Orchestrator {
         return false;
       }
       const jobAge = now - job.createdAt.getTime();
-      if (jobAge > JOB_TIMEOUT_MS) {
+      if (jobAge > QUEUE_TIMEOUT_MS) {
         userSocket.emit('job:error', { jobId, error: 'Job timed out' });
         this.refundJobCharges(job, 'Job timed out in queue');
         this.jobs.delete(jobId);
@@ -500,30 +569,30 @@ export class Orchestrator {
     // streaming, which is exactly the double-charge this lane is meant to avoid.
     const SWARM_BACKSTOP_MS = 420000; // 7 minutes
     for (const [jobId, job] of this.jobs) {
-      if (job.status === 'processing' && job.startedAt) {
-        const limit = this.swarmRevenue.has(jobId) ? SWARM_BACKSTOP_MS : JOB_TIMEOUT_MS;
-        const processingTime = now - job.startedAt.getTime();
-        if (processingTime > limit) {
-          const userSocket = this.io.sockets.sockets.get(job.userSocketId);
-          if (userSocket) {
-            userSocket.emit('job:error', { jobId, error: 'Job timed out during processing' });
-          }
-          this.refundJobCharges(job, 'Job timed out during processing');
-          if (job.assignedWorker) {
-            const worker = this.findWorkerById(job.assignedWorker);
-            if (worker) {
-              // Tell the worker to stop before freeing it. Without this the
-              // browser keeps decoding a job nobody is waiting for — on the very
-              // GPU we just advertised as idle and are about to hand the next
-              // job to — and streams tokens for a job id that no longer exists.
-              const ws = this.io.sockets.sockets.get(worker.socketId);
-              if (ws) ws.emit('job:cancel', { jobId });
-              worker.status = 'idle';
-            }
-          }
-          this.jobs.delete(jobId);
-          this.swarmRevenue.delete(jobId);
-        }
+      if (job.status !== 'processing' || !job.startedAt) continue;
+      const runningMs = now - job.startedAt.getTime();
+
+      // The swarm keeps its flat backstop: its deadline belongs to the swarm
+      // loop, and this is only the "no callback ever arrived" net (see above).
+      if (this.swarmRevenue.has(jobId)) {
+        if (runningMs > SWARM_BACKSTOP_MS) this.failStalledJob(jobId, job, `swarm backstop (${Math.round(runningMs / 1000)}s)`);
+        continue;
+      }
+
+      // Worker-served job: judged on progress, not runtime.
+      const ceiling = job.isCanary ? this.CANARY_HARD_CEILING_MS : this.JOB_HARD_CEILING_MS;
+      if (runningMs > ceiling) {
+        this.failStalledJob(jobId, job, `hard ceiling (${Math.round(runningMs / 1000)}s running)`);
+        continue;
+      }
+      // Not yet observed producing anything ⇒ still inside its first-token
+      // window, measured from dispatch.
+      const silentMs = now - (job.lastProgressAt ?? job.startedAt.getTime());
+      const silenceWindow = job.toolRunning
+        ? this.TOOL_ROUND_MS
+        : (job.serverTokenCount ? this.JOB_STALL_MS : this.FIRST_TOKEN_MS);
+      if (silentMs > silenceWindow) {
+        this.failStalledJob(jobId, job, `${job.toolRunning ? 'tool round' : job.serverTokenCount ? 'stalled mid-stream' : 'no first token'} (${Math.round(silentMs / 1000)}s silent, ${Math.round(runningMs / 1000)}s running)`);
       }
     }
   }
@@ -1162,11 +1231,19 @@ export class Orchestrator {
 
     console.log(`[Orchestrator] Job ${jobId}: executing tools — ${toolCalls.map(tc => tc.function.name).join(', ')}`);
 
+    // A tool round is progress, and it is also the one time a healthy job stops
+    // producing tokens: the worker sits blocked on job:tool_result until we
+    // answer. Flag it so the liveness sweep judges it on the tool window, and
+    // clear the flag however the round ends — a job left flagged would keep the
+    // wider window for the rest of its life.
+    job.toolRunning = true;
+    job.lastProgressAt = Date.now();
+
     // Execute all tool calls
     const { messages, sources, images, pendingImages, files } = await executeToolCalls(toolCalls, {
       privyUserId: job.privyUserId,
       renderImage: (workflow, meta) => this.renderImageInternal(workflow, meta),
-    });
+    }).finally(() => { job.toolRunning = false; job.lastProgressAt = Date.now(); });
 
     // Send sources to user for display
     if (sources && sources.length > 0 && userSocket) {
@@ -1764,6 +1841,9 @@ export class Orchestrator {
     if (!job) return;
     if (!job.serverTokenCount) job.serverTokenCount = 0;
     job.serverTokenCount++;
+    // The job is alive: every relayed token pushes its liveness deadline out,
+    // which is what lets a full-length thinking answer run for minutes.
+    job.lastProgressAt = Date.now();
     // Server-side output safety scan (covers streaming AND non-streaming, since
     // tokens always flow through here). Keep a rolling tail and cut the stream
     // the moment a blocked phrase forms — the offending token is not forwarded.
