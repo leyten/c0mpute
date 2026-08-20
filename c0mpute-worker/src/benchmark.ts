@@ -1,5 +1,5 @@
 import { benchmarkInference } from './inference.js';
-import { BENCHMARK_TOKENS, MIN_TOK_PER_SEC } from './config.js';
+import { BENCHMARK_TOKENS, MIN_TOK_PER_SEC, DETECTED_VRAM_MB } from './config.js';
 
 /**
  * Run a benchmark generating BENCHMARK_TOKENS tokens and return the speed.
@@ -30,6 +30,16 @@ export async function runBenchmark(): Promise<number> {
 
   const rounded = Math.round(tokPerSec * 10) / 10;
   console.log(`Benchmark: ${rounded} tok/s`);
+
+  // An NVIDIA box should clear 25 tok/s on this model; single digits usually
+  // mean ollama silently fell back to CPU (e.g. a CUDA build missing this
+  // card's arch). Warn rather than half-serve at floor speed.
+  if (DETECTED_VRAM_MB > 0 && rounded < 15) {
+    console.log(
+      'Warning: this speed looks CPU-bound for an NVIDIA box. ' +
+      'Check `ollama ps` shows "100% GPU" and that ollama is up to date.'
+    );
+  }
 
   if (tokPerSec < MIN_TOK_PER_SEC) {
     console.error(

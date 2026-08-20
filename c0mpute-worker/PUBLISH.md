@@ -7,18 +7,30 @@ go-live, never from here and never as a 2.8.x.
 
 ## What this line ships
 
-Classic (max/image) fixes only. 2.8.3 over the published 2.8.2:
-- **auto-update removed** (`466c75a`, security: self-update = mass-compromise surface).
-  Operators upgrade explicitly with `npm i -g @c0mpute/worker@latest` from now on.
-- tool-result wait 30s→200s so image renders don't time out (`11d5632`).
-- worker reports its effective `num_ctx` at registration (orchestrator diagnostics).
+Classic (text/image) releases only. **2.9.0** over the published 2.8.3 — the
+single-model swap:
+- One public model: **Qwen3.8 27B Uncensored** (`qwen3.8-27b-uncensored`). The
+  qwen/supergemma picker is gone; `--model` is accepted but ignored (so old
+  systemd units don't crash) and saved 2.8.x configs keep working headless.
+- Self-packaged GGUF from a pinned HF revision (weights + vision projector,
+  RENDERER/PARSER Modelfile, MTP speculative decoding on CUDA single-GPU),
+  VRAM quant ladder (24GB Q4_K_M / 16GB IQ4_XS / layer-split noMTP), and a
+  new MLX path on Apple Silicon (ollama MLX engine, 4-bit).
+- Ollama version floor **0.32.15** checked at startup with a plain
+  "upgrade ollama" message (old versions 500 cryptically; 0.32.14's CUDA
+  build ran RTX 30xx on CPU).
+- Multi-GPU fan-out now skips cards under the 16GB floor; a rig where no card
+  fits runs one layer-split worker instead.
 
 ## Rollout mechanics — read before publishing
 
-2.8.2 workers still run the **startup auto-updater**, so publishing to `latest`
-rolls the fleet automatically as workers restart. This is the last release that
-propagates that way; 2.8.3 removes the updater, so every later upgrade is a manual
-operator action. One-way door — publish when that trade is intended.
+There is NO auto-update since 2.8.3: the deployed fleet stays on its version
+until operators act. **The orchestrator must serve `qwen3.8-27b-uncensored`
+in MODEL_CATALOG before any 2.9.0 worker starts** — a worker registering an
+unknown model string gets zero jobs. Publish order: orchestrator deploy →
+2.9.0 publish → announcement → migration window → final cutover (old model
+out of the catalog + legacy-worker reject gate on, which makes 2.8.x print
+the update instruction and exit).
 
 ## The publish (explicit go from leyten, never automatic)
 
@@ -30,4 +42,4 @@ npm pack --dry-run           # file list must be dist/* + README.md + package.js
 npm publish --access public  # goes to dist-tag `latest`
 ```
 
-Verify: `npm view @c0mpute/worker version` → 2.8.3, and the tarball has no `shard-*` files.
+Verify: `npm view @c0mpute/worker version` → 2.9.0, and the tarball has no `shard-*` files.

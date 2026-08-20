@@ -1,7 +1,8 @@
 import { io, Socket } from 'socket.io-client';
 import { DEFAULT_ORCHESTRATOR_URL, DEFAULT_MODEL_NAME, MAX_TOOL_ROUNDS } from './config.js';
 import { runInference, ChatMessage, ToolCall, ToolDefinition } from './inference.js';
-import { ensureSetup, NUM_CTX } from './setup.js';
+import { NUM_CTX } from './config.js';
+import { ensureSetup } from './setup.js';
 import { runBenchmark } from './benchmark.js';
 import { startImageWorker } from './image-worker.js';
 
@@ -83,8 +84,8 @@ export async function startWorker(options: WorkerOptions): Promise<void> {
         authToken: token,
         tokPerSec: Math.round(tokPerSec * 10) / 10,
         type: 'native',
-        // Effective context window (VRAM-adaptive, see pickNumCtx). Optional field:
-        // older orchestrators simply ignore it.
+        // Effective context window (VRAM-adaptive, see pickGgufVariant). Optional
+        // field: older orchestrators simply ignore it.
         numCtx: NUM_CTX,
         capabilities: { search: true, uncensored: true, longContext: true, vision: true, tools: true },
       } as any,

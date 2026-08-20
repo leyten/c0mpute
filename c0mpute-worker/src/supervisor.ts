@@ -15,8 +15,6 @@ export interface SupervisorOptions {
   gpus: number[];
   token: string;
   url: string;
-  /** WORKER_MODELS key, already resolved (and prompted for) by the parent. */
-  model: string;
 }
 
 // The first child prints one of these once its ollama has the model built and
@@ -37,18 +35,20 @@ const RESTART_DELAY_MS = 30_000;
 export function startGpuSupervisor(o: SupervisorOptions): void {
   const children = new Map<number, ChildProcess>();
   let stopping = false;
+  // Cards waiting out the 30s backoff aren't in `children`; count them so a
+  // rejection on one card can't read a mid-restart rig as "everyone rejected".
+  let pendingRestarts = 0;
 
   function spawnChild(gpu: number, onLine?: (line: string) => void): void {
     // Re-exec THIS cli: same interpreter and same exec flags (so a `tsx` dev run
     // keeps its loader), same script, plus the flags that make the child
-    // non-interactive — it must never re-prompt for mode or model.
+    // non-interactive — it must never re-prompt for the mode.
     const args = [
       ...process.execArgv,
       process.argv[1],
       '--token', o.token,
       '--url', o.url,
       '--mode', 'max',
-      '--model', o.model,
       '--gpu', String(gpu),
     ];
     const child = spawn(process.execPath, args, {
@@ -63,10 +63,26 @@ export function startGpuSupervisor(o: SupervisorOptions): void {
     child.on('exit', (code, signal) => {
       children.delete(gpu);
       if (stopping) return;
+      // exit(2) = the orchestrator REJECTED registration (banned, capped, or —
+      // at a model cutover — this version retired). Respawning would loop
+      // register→reject→exit every 30s forever; the condition needs the
+      // operator, so park the card and stop the rig once every card is parked.
+      if (code === 2) {
+        console.log(`[gpu ${gpu}] registration rejected — not restarting this card (see the error above; likely: update the worker).`);
+        if (children.size === 0 && pendingRestarts === 0) {
+          console.log('All GPU workers were rejected — stopping.');
+          process.exit(2);
+        }
+        return;
+      }
       console.log(
         `[gpu ${gpu}] worker exited (${signal || `code ${code}`}) — restarting in ${RESTART_DELAY_MS / 1000}s`
       );
-      setTimeout(() => { if (!stopping) spawnChild(gpu, onLine); }, RESTART_DELAY_MS);
+      pendingRestarts++;
+      setTimeout(() => {
+        pendingRestarts--;
+        if (!stopping) spawnChild(gpu, onLine);
+      }, RESTART_DELAY_MS);
     });
   }
 

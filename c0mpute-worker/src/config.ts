@@ -10,22 +10,58 @@ export const OLLAMA_PORT = Number(process.env.C0MPUTE_OLLAMA_PORT) || 11434;
 /** Ollama API base URL */
 export const OLLAMA_URL = `http://127.0.0.1:${OLLAMA_PORT}`;
 
-// A worker runs one model. The CLI picks the model and sets these env vars
-// before this module loads (see index.ts); when unset we fall back to the
-// registry default (Qwen3.5 27B). The model name must match a workerModel in the
-// orchestrator's MODEL_CATALOG so jobs route here.
-import { WORKER_MODELS, DEFAULT_WORKER_MODEL } from './models.js';
+// A worker runs THE model — Qwen3.8 27B Uncensored, the network's single
+// public model. Which build it runs is platform-derived here, once, so every
+// module (setup, inference, registration) sees the same picture:
+// Apple Silicon → the MLX build via ollama's MLX engine; everything else →
+// a GGUF variant picked from VRAM (see models.ts).
+import { MODEL_NAME, MLX_NUM_CTX, pickGgufVariant, GgufVariant } from './models.js';
+import { detectGpuVramMB } from './gpus.js';
 
-const defaultModel = WORKER_MODELS[DEFAULT_WORKER_MODEL];
+export const IS_APPLE_SILICON = process.platform === 'darwin' && process.arch === 'arm64';
 
-/** Ollama model name (custom model created from Modelfile). */
-export const OLLAMA_MODEL = process.env.C0MPUTE_OLLAMA_MODEL || defaultModel.ollamaModel;
+/** The GPU this worker is pinned to, if any (`--gpu N` sets CUDA_VISIBLE_DEVICES,
+ *  which is what actually restricts the ollama we spawn to that one card). */
+export const GPU_PIN = (process.env.CUDA_VISIBLE_DEVICES || '').trim();
 
-/** Base model to pull from ollama registry. */
-export const OLLAMA_BASE_MODEL = process.env.C0MPUTE_BASE_MODEL || defaultModel.baseModel;
+/** This worker owns a private per-GPU ollama (set by `--gpu`), rather than sharing
+ *  the box-wide daemon on 11434. Pinned workers must never pkill their siblings. */
+export const PINNED = !!process.env.C0MPUTE_OLLAMA_PORT;
 
-/** Human-readable model name sent to orchestrator (the catalog routing key). */
-export const DEFAULT_MODEL_NAME = process.env.C0MPUTE_MODEL_NAME || defaultModel.modelName;
+/** VRAM of every GPU this worker may use — the pinned card when `--gpu` is set,
+ *  the whole box otherwise. Empty if undetectable → variant falls back safe. */
+export const GPU_VRAM_MB = IS_APPLE_SILICON ? [] : detectGpuVramMB(GPU_PIN);
+
+/** Largest single card — what an unsplit model actually lands on. */
+export const DETECTED_VRAM_MB = GPU_VRAM_MB.length ? Math.max(...GPU_VRAM_MB) : 0;
+
+/** GGUF variant for this box (null on Apple Silicon — and null when the
+ *  detected VRAM is under the floor, which ensureSetup turns into a plain
+ *  hardware-requirements error before anything downloads). */
+export const GGUF_VARIANT: GgufVariant | null =
+  IS_APPLE_SILICON ? null : pickGgufVariant(GPU_VRAM_MB);
+
+/** The context window this worker actually runs with — baked into the model
+ *  (and rebuilt if it ever drifts, see setup.ts), so it's the effective
+ *  window, not an intent. Reported at registration. */
+export const NUM_CTX = IS_APPLE_SILICON ? MLX_NUM_CTX : (GGUF_VARIANT?.numCtx ?? 8192);
+
+/** Local ollama model name (the custom model setup.ts builds). Variant- AND
+ *  ctx-suffixed: per-GPU workers share ~/.ollama, and two cards that agree on
+ *  the quant but not the window (24GB + 48GB both land on q4km) would
+ *  otherwise rebuild one name back and forth forever — each round a full
+ *  multi-minute GGUF re-import. */
+export const OLLAMA_MODEL = process.env.C0MPUTE_OLLAMA_MODEL
+  || (IS_APPLE_SILICON
+    ? `compute-qwen38-mlx-${MLX_NUM_CTX / 1024}k`
+    : `compute-qwen38-${GGUF_VARIANT?.key ?? 'q4km'}-${(GGUF_VARIANT?.numCtx ?? 8192) / 1024}k`);
+
+/** Escape hatch for testing: when set, setup skips the packaged GGUF/MLX build
+ *  and takes the old pull-a-registry-base + create path with this base. */
+export const OLLAMA_BASE_MODEL = process.env.C0MPUTE_BASE_MODEL || '';
+
+/** Model name sent to orchestrator (the catalog routing key). */
+export const DEFAULT_MODEL_NAME = process.env.C0MPUTE_MODEL_NAME || MODEL_NAME;
 
 /**
  * How long ollama keeps the model resident in VRAM after a request. Default -1 =
@@ -46,8 +82,10 @@ export const KEEP_ALIVE: number | string = (() => {
 /** Number of tokens to generate during benchmark */
 export const BENCHMARK_TOKENS = 64;
 
-/** Minimum tok/s to register with orchestrator */
-export const MIN_TOK_PER_SEC = 2;
+/** Minimum tok/s to serve. Matches the orchestrator's own registration floor —
+ *  a lower local floor just moves the same rejection one network round-trip
+ *  later and turns it into an exit(2) restart loop. */
+export const MIN_TOK_PER_SEC = 5;
 
 /** Maximum output tokens per job */
 export const MAX_OUTPUT_TOKENS = 4096;
@@ -58,8 +96,11 @@ export const MAX_OUTPUT_TOKENS_THINKING = 8192;
 /** Maximum tool call rounds per job (prevents infinite loops) */
 export const MAX_TOOL_ROUNDS = 5;
 
-/** System prompt baked into the model */
-export const SYSTEM_PROMPT = 'You are c0mpute, an AI assistant built for the c0mpute.ai decentralized inference network. Your name is c0mpute. Be direct and concise. Always respond in English. Do not use emojis.';
+/** System prompt baked into the model. The model identifies as itself — the
+ *  product sells the model under its real name, on Compute Network; no
+ *  invented assistant persona. (Jobs normally carry the orchestrator's richer
+ *  injected prompt; this is the local fallback.) */
+export const SYSTEM_PROMPT = 'You are Qwen3.8 27B Uncensored, served on Compute Network (compute.tech), a decentralized inference network. Be direct and concise. Always respond in English. Do not use emojis.';
 
 
 

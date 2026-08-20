@@ -6,9 +6,8 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { homedir } from 'os';
 import { createInterface } from 'readline';
-import { io } from 'socket.io-client';
-import { WORKER_MODELS, DEFAULT_WORKER_MODEL, isWorkerModelKey, recommendModel, WorkerModelKey } from './models.js';
-import { listGpuIndexes } from './gpus.js';
+import { MODEL_NAME, MODEL_LABEL, APPROX_DOWNLOAD_GB, MIN_SOLO_VRAM_MB, MIN_SPLIT_TOTAL_MB } from './models.js';
+import { listGpuIndexes, queryVramMB } from './gpus.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf-8'));
@@ -16,11 +15,12 @@ const pkg = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf-
 const CONFIG_DIR = join(homedir(), '.config', 'c0mpute-worker');
 const CONFIG_FILE = join(CONFIG_DIR, 'config.json');
 
+// 'max' is the historical name for the text/LLM mode — kept as the stored
+// value so configs saved by 2.8.x keep working headless after an upgrade.
 type WorkerMode = 'max' | 'image';
 
 interface SavedConfig {
   mode?: WorkerMode;
-  model?: WorkerModelKey;
 }
 
 function readConfig(): SavedConfig {
@@ -32,8 +32,8 @@ function readConfig(): SavedConfig {
 }
 
 function saveConfig(patch: SavedConfig): void {
-  // Supervisor children are told their mode and model on the command line; the
-  // parent already saved the operator's choice, and eight children rewriting one
+  // Supervisor children are told their mode on the command line; the parent
+  // already saved the operator's choice, and eight children rewriting one
   // config file at once is only a way to corrupt it.
   if (process.env.C0MPUTE_GPU_CHILD === '1') return;
   try {
@@ -59,8 +59,8 @@ function ask(question: string): Promise<string> {
 // keystroke for unchanged setups.
 function promptMode(current?: WorkerMode): Promise<WorkerMode> {
   console.log('\nWhat should this worker run?');
-  console.log(`  1) Max worker      — text/chat inference (Ollama, ~17GB model)${current === 'max' ? '  <- current' : ''}`);
-  console.log(`  2) Image generation — text-to-image (ComfyUI + Chroma, ~14GB model)${current === 'image' ? '  <- current' : ''}`);
+  console.log(`  1) Qwen worker  — text/chat LLM (${MODEL_LABEL}, ~${APPROX_DOWNLOAD_GB}GB)${current === 'max' ? '  <- current' : ''}`);
+  console.log(`  2) Image worker — text-to-image (ComfyUI + Chroma, ~14GB model)${current === 'image' ? '  <- current' : ''}`);
   const def = current === 'image' ? 2 : current === 'max' ? 1 : null;
   return ask(`\nEnter 1-2${def ? ` [${def}]` : ''}: `).then((a) => {
     if (a === '' && current) return current; // Enter keeps the saved choice
@@ -70,9 +70,9 @@ function promptMode(current?: WorkerMode): Promise<WorkerMode> {
 
 // Resolve the worker mode: explicit --mode flag wins, otherwise re-prompt on
 // every interactive startup (defaulting to the last choice) so switching between
-// max and image never requires the --mode flag or a reset. Headless runs (no
-// TTY, e.g. pm2/systemd) reuse the saved choice silently. Don't download two
-// models — only the chosen stack is set up downstream.
+// the Qwen and image workers never requires the --mode flag or a reset. Headless
+// runs (no TTY, e.g. pm2/systemd) reuse the saved choice silently. Don't
+// download two models — only the chosen stack is set up downstream.
 async function resolveMode(flag?: string): Promise<WorkerMode> {
   if (flag === 'max' || flag === 'image') { saveConfig({ mode: flag }); return flag; }
   if (flag) throw new Error(`Invalid --mode "${flag}" (use "max" or "image").`);
@@ -86,85 +86,16 @@ async function resolveMode(flag?: string): Promise<WorkerMode> {
   return chosen;
 }
 
-// Live count of active workers per model name, read from the orchestrator's
-// stats broadcast (fires on connect). Returns null if it can't be reached —
-// selection still works, just without the live numbers.
-function fetchActiveCounts(url: string, token: string): Promise<Record<string, number> | null> {
-  return new Promise((resolve) => {
-    let done = false;
-    const socket = io(url, { auth: { token }, transports: ['websocket'], reconnection: false, timeout: 6000 });
-    const finish = (v: Record<string, number> | null) => {
-      if (done) return;
-      done = true;
-      clearTimeout(timer);
-      try { socket.close(); } catch { /* noop */ }
-      resolve(v);
-    };
-    const timer = setTimeout(() => finish(null), 7000);
-    socket.on('stats:update', (s: any) => finish((s && s.nativeByModel) || {}));
-    socket.on('connect_error', () => finish(null));
-  });
-}
-
-async function promptModel(url: string, token: string, current?: WorkerModelKey): Promise<WorkerModelKey> {
-  console.log('\nFetching live network status...');
-  const counts = await fetchActiveCounts(url, token);
-  const recommended = recommendModel(counts);
-  const keys = Object.keys(WORKER_MODELS) as WorkerModelKey[];
-
-  console.log('\nWhich model should this Max worker run?');
-  keys.forEach((key, i) => {
-    const m = WORKER_MODELS[key];
-    const active = counts ? `${counts[m.modelName] ?? 0} active` : 'active count unavailable';
-    const tags: string[] = [];
-    if (key === current) tags.push('current');
-    if (key === recommended) tags.push('recommended (fewest active)');
-    const tag = tags.length ? `  <- ${tags.join(', ')}` : '';
-    console.log(`  ${i + 1}) ${m.label} — ${m.note} · ${active}${tag}`);
-  });
-  // Default to the last saved choice; fall back to the recommendation on first run.
-  const defKey = current ?? recommended;
-  const defIndex = keys.indexOf(defKey) + 1;
-  const ans = await ask(`\nEnter 1-${keys.length} [${defIndex}]: `);
-  const idx = ans === '' ? defIndex - 1 : parseInt(ans, 10) - 1;
-  return keys[idx] ?? defKey;
-}
-
-// Resolve which model a Max worker runs: --model flag wins, otherwise re-prompt
-// on every interactive startup (defaulting to the last choice) so switching
-// models never requires the --model flag or a reset. Headless runs reuse the
-// saved choice, or fall back to the default model on first run.
-async function resolveModel(flag: string | undefined, url: string, token: string): Promise<WorkerModelKey> {
-  if (flag) {
-    if (!isWorkerModelKey(flag)) {
-      throw new Error(`Invalid --model "${flag}". Options: ${Object.keys(WORKER_MODELS).join(', ')}.`);
-    }
-    saveConfig({ model: flag });
-    return flag;
-  }
-  const savedRaw = readConfig().model;
-  const saved = savedRaw && isWorkerModelKey(savedRaw) ? savedRaw : undefined;
-  if (!process.stdin.isTTY) {
-    if (saved) {
-      console.log(`Using saved model "${saved}" (no interactive terminal). Pass --model to change.`);
-      return saved;
-    }
-    console.log(`No model chosen, defaulting to ${WORKER_MODELS[DEFAULT_WORKER_MODEL].label}. Use --model to pick (${Object.keys(WORKER_MODELS).join(', ')}).`);
-    return DEFAULT_WORKER_MODEL;
-  }
-  const chosen = await promptModel(url, token, saved);
-  saveConfig({ model: chosen });
-  return chosen;
-}
-
 /** Highest card index we run: each one owns ollama's port 11434+index. */
 const MAX_GPU_INDEX = 15;
 
 // Which GPUs this invocation drives. `--gpu` names them explicitly (one index or
-// a comma list); without it, a rig with more than one card takes them all — one
-// worker per GPU is the only way to use a multi-GPU box, since ollama puts a
-// model that fits on a single card. An EMPTY list means "pin nothing", which is
-// the classic single-daemon path a one-GPU or non-NVIDIA box has always taken.
+// a comma list); without it, a rig with more than one capable card takes them
+// all — one worker per GPU, since a card that fits the model shouldn't share.
+// An EMPTY list means "pin nothing", which is the classic single-daemon path a
+// one-GPU or non-NVIDIA box has always taken — and, new in 2.9.0, also the path
+// for rigs where NO card can hold the model alone: a single unpinned worker
+// lets ollama layer-split it across the cards (setup picks the noMTP build).
 function resolveGpus(flag: string | undefined, benchmarkOnly: boolean): number[] {
   if (flag !== undefined) {
     const list = flag.split(',').map((s) => s.trim()).filter(Boolean).map(Number);
@@ -172,6 +103,16 @@ function resolveGpus(flag: string | undefined, benchmarkOnly: boolean): number[]
       throw new Error(`Invalid --gpu "${flag}" (expected GPU indexes 0-${MAX_GPU_INDEX}, e.g. --gpu 0 or --gpu 0,2,5).`);
     }
     const pins = [...new Set(list)];
+    // A pin that names a card the box doesn't have would not fail here — the
+    // VRAM query falls back to the whole box (sizing the quant off the wrong
+    // card) while CUDA gives ollama nothing. Catch it before any download.
+    const present = listGpuIndexes();
+    if (present.length) {
+      const missing = pins.filter((n) => !present.includes(n));
+      if (missing.length) {
+        throw new Error(`--gpu ${missing.join(',')}: no such GPU (this box has: ${present.join(', ')}).`);
+      }
+    }
     if (benchmarkOnly && pins.length > 1) {
       console.log(`Note: --benchmark measures one card; using GPU ${pins[0]}.`);
       return [pins[0]];
@@ -183,12 +124,37 @@ function resolveGpus(flag: string | undefined, benchmarkOnly: boolean): number[]
   if (benchmarkOnly) return [];
   const all = listGpuIndexes();
   if (all.length < 2) return []; // one card or no NVIDIA GPU — nothing changes
+  const vram = queryVramMB('');
+  if (vram.length !== all.length) {
+    // VRAM unreadable — can't filter, so take every card like 2.8.x did.
+    const gpus = all.filter((n) => n <= MAX_GPU_INDEX);
+    console.log(`${gpus.length} GPUs detected — starting one worker per GPU (use --gpu <n> to run a single card).`);
+    return gpus;
+  }
+  const solo = all.filter((_, i) => vram[i] >= MIN_SOLO_VRAM_MB);
+  if (!solo.length) {
+    // Same combined floor the quant ladder enforces — checked here too so the
+    // rig is refused BEFORE we announce a split, install ollama, or restart
+    // the box-wide daemon for a model that can never load.
+    const total = vram.reduce((a, b) => a + b, 0);
+    if (total < MIN_SPLIT_TOTAL_MB) {
+      throw new Error(
+        `Not enough VRAM for ${MODEL_LABEL} (detected: ${vram.map((m) => `${Math.round(m / 1024)}GB`).join(' + ')}).\n` +
+        '  Minimum: a 16GB NVIDIA GPU (24GB recommended), a 24GB AMD GPU, or a 32GB+ Apple Silicon Mac.'
+      );
+    }
+    console.log(`${all.length} GPUs detected, none with enough VRAM to run ${MODEL_LABEL} alone — running one worker split across the cards.`);
+    return [];
+  }
+  if (solo.length < all.length) {
+    console.log(`${all.length} GPUs detected, ${solo.length} with enough VRAM for a worker — skipping GPU ${all.filter((n) => !solo.includes(n)).join(', ')}.`);
+  }
   // Each card gets a private ollama on 11434+index, so the same ceiling the flag
   // enforces applies here — never auto-spawn a child whose own --gpu we'd reject.
-  const gpus = all.filter((n) => n <= MAX_GPU_INDEX);
-  if (gpus.length < all.length) {
-    console.log(`${all.length} GPUs detected, using the first ${gpus.length} (--gpu supports indexes 0-${MAX_GPU_INDEX}).`);
-  } else {
+  const gpus = solo.filter((n) => n <= MAX_GPU_INDEX);
+  if (gpus.length < solo.length) {
+    console.log(`Using the first ${gpus.length} (--gpu supports indexes 0-${MAX_GPU_INDEX}).`);
+  } else if (gpus.length > 1 && solo.length === all.length) {
     console.log(`${gpus.length} GPUs detected — starting one worker per GPU (use --gpu <n> to run a single card).`);
   }
   return gpus;
@@ -202,48 +168,47 @@ program
   .version(pkg.version)
   .option('--token <token>', 'Authentication token from c0mpute.ai')
   .option('--url <url>', 'Orchestrator URL', 'https://c0mpute.ai')
-  .option('--mode <mode>', 'Worker mode: "max" (text) or "image" (image gen). Prompts on first run if omitted.')
-  .option('--model <model>', `Max model to run: ${Object.keys(WORKER_MODELS).join(' | ')}. Prompts on first run if omitted.`)
-  .option('--gpu <indexes>', 'Max mode: run only these GPUs — one index (--gpu 3) or a comma list (--gpu 0,2,5). Omitted, a multi-GPU rig runs every card, one worker each.')
+  .option('--mode <mode>', 'Worker mode: "max" (text/LLM) or "image" (image gen). Prompts on first run if omitted.')
+  .option('--model <model>', `Deprecated: the network runs a single model (${MODEL_NAME}); ignored.`)
+  .option('--gpu <indexes>', 'Text mode: run only these GPUs — one index (--gpu 3) or a comma list (--gpu 0,2,5). Omitted, a multi-GPU rig runs every capable card, one worker each.')
   .option('--benchmark', 'Run benchmark only, then exit')
   .action(async (opts) => {
     console.log(`c0mpute worker v${pkg.version}`);
 
     if (!opts.token) {
-      console.error('Error: --token is required. Get yours at https://c0mpute.ai (Worker tab).\nTo change a remembered mode/model, run "c0mpute-worker reset".');
+      console.error('Error: --token is required. Get yours at https://c0mpute.ai (Worker tab).\nTo change a remembered mode, run "c0mpute-worker reset".');
       process.exit(1);
     }
 
     try {
       const mode = await resolveMode(opts.mode);
-      console.log(`Mode: ${mode === 'image' ? 'image generation' : 'max (text)'}`);
+      console.log(`Mode: ${mode === 'image' ? 'image generation' : 'Qwen (text)'}`);
 
+      if (opts.model) {
+        console.log(`Note: --model is deprecated — every text worker now serves ${MODEL_LABEL}.`);
+      }
       if (opts.gpu !== undefined && mode !== 'max') {
-        console.log('Note: --gpu is a max-mode flag (per-GPU ollama); ignored in this mode.');
+        console.log('Note: --gpu is a text-mode flag (per-GPU ollama); ignored in this mode.');
       }
 
-      // Max workers pick a model; wire it into the env the config module reads.
-      // This MUST happen before worker.js (-> config.js) is imported, so the
-      // worker is loaded dynamically below rather than at the top of the file.
       if (mode === 'max') {
         const gpus = resolveGpus(opts.gpu, opts.benchmark);
 
-        const modelKey = await resolveModel(opts.model, opts.url, opts.token);
-        const spec = WORKER_MODELS[modelKey];
-
         // More than one card: this process becomes a supervisor and runs a child
-        // per GPU through the single-card path below. Mode and model are already
-        // resolved, so the interactive prompts happen exactly once, here.
+        // per GPU through the single-card path below. Mode is already resolved,
+        // so the interactive prompt happens exactly once, here.
         if (gpus.length > 1) {
-          console.log(`Model: ${spec.label} (${spec.modelName})`);
+          console.log(`Model: ${MODEL_LABEL} (${MODEL_NAME})`);
           const { startGpuSupervisor } = await import('./supervisor.js');
-          startGpuSupervisor({ gpus, token: opts.token, url: opts.url, model: modelKey });
+          startGpuSupervisor({ gpus, token: opts.token, url: opts.url });
           return;
         }
 
         // One card: pin it. CUDA_VISIBLE_DEVICES restricts the ollama we spawn to
         // that GPU, and the port offset gives this worker its own daemon instead
-        // of one shared 11434 the siblings would fight over.
+        // of one shared 11434 the siblings would fight over. This MUST happen
+        // before worker.js (-> config.js) is imported, so the worker is loaded
+        // dynamically below rather than at the top of the file.
         if (gpus.length === 1) {
           const gpu = gpus[0];
           // CUDA numbers devices fastest-first by default while nvidia-smi (and so
@@ -256,10 +221,7 @@ program
           console.log(`GPU: pinned to GPU ${gpu} (private ollama on port ${11434 + gpu})`);
         }
 
-        process.env.C0MPUTE_OLLAMA_MODEL = spec.ollamaModel;
-        process.env.C0MPUTE_BASE_MODEL = spec.baseModel;
-        process.env.C0MPUTE_MODEL_NAME = spec.modelName;
-        console.log(`Model: ${spec.label} (${spec.modelName})`);
+        console.log(`Model: ${MODEL_LABEL} (${MODEL_NAME})`);
       }
 
       const { startWorker } = await import('./worker.js');
@@ -277,10 +239,10 @@ program
 
 program
   .command('reset')
-  .description('Clear the saved worker mode/model so the next start re-prompts (e.g. to switch between max and image)')
+  .description('Clear the saved worker mode so the next start re-prompts (e.g. to switch between text and image)')
   .action(() => {
     clearConfig();
-    console.log('Saved worker config cleared. Next run will ask for mode (and model) again.');
+    console.log('Saved worker config cleared. Next run will ask for the mode again.');
   });
 
 program.parse();
