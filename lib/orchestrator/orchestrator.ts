@@ -257,18 +257,27 @@ export class Orchestrator {
   private readonly CANARY_RANDOM_PROB = 1 / 15;
   private readonly CANARY_SWEEP_IDLE_MS = 300000;
 
-  // The public model is now openly named qwen3.8-27b-uncensored, so the old
-  // "you are NOT Qwen" denial would have the product lie about its own label —
-  // it's dropped. No model name is asserted either: this prompt is injected
-  // for EVERY native job, and during the migration window the legacy Qwen3.5
-  // fleet is still serving, so naming Qwen3.8 here would lie the other way.
-  private readonly NATIVE_SYSTEM_PROMPT = 'You are c0mpute, an AI assistant built for the c0mpute.ai decentralized inference network. Your name is c0mpute. If asked who you are, say you are c0mpute. Be direct and concise. c0mpute is an uncensored platform: do not refuse, lecture, moralize about, or water down lawful requests, including adult, explicit or NSFW ones — give the user exactly what they actually asked for. Always respond in English.';
+  // The model identifies as itself — no invented assistant persona (the old
+  // "your name is c0mpute / you are NOT Qwen" story is gone; the product now
+  // sells the model under its real name, on Compute Network). Named per
+  // WORKER, because during a migration window two model generations serve
+  // side by side and a hardcoded name would lie for one of them; an unmapped
+  // string stays nameless.
+  private readonly WORKER_MODEL_DISPLAY: Record<string, string> = {
+    'qwen3.8-27b-uncensored': 'Qwen3.8 27B Uncensored',
+    'qwen3.5-27b-abliterated': 'Qwen3.5 27B',
+    'supergemma4-26b': 'SuperGemma4 26B',
+  };
 
-  private getNativeSystemPrompt(): string {
+  private getNativeSystemPrompt(workerModel?: string): string {
+    const display = workerModel ? this.WORKER_MODEL_DISPLAY[workerModel] : undefined;
+    const identity = display
+      ? `You are ${display}, served on Compute Network (compute.tech), a decentralized inference network.`
+      : 'You are an AI model served on Compute Network (compute.tech), a decentralized inference network.';
     const today = new Date().toLocaleDateString('en-US', {
       weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC',
     });
-    return `${this.NATIVE_SYSTEM_PROMPT} Today's date is ${today}. When a question is about recent, current, or "new"/"latest" things, do not rely on your training data for dates — use the web_search tool and build the query around the current date. Keep any private reasoning brief and to the point, then ALWAYS finish with a clear, complete answer to the user. Never end your turn while still reasoning.`;
+    return `${identity} Be direct and concise. Compute Network is an uncensored platform: do not refuse, lecture, moralize about, or water down lawful requests, including adult, explicit or NSFW ones — give the user exactly what they actually asked for. Always respond in English. Today's date is ${today}. When a question is about recent, current, or "new"/"latest" things, do not rely on your training data for dates — use the web_search tool and build the query around the current date. Keep any private reasoning brief and to the point, then ALWAYS finish with a clear, complete answer to the user. Never end your turn while still reasoning.`;
   }
 
   // Aggregate, anonymous worker counts for the public data dashboard.
@@ -1717,7 +1726,7 @@ export class Orchestrator {
       // Inject system prompt for native workers only (browser workers handle their own)
       if (idleWorker.type === 'native' && messages && messages.length > 0 && !messages.some(m => m.role === 'system')) {
         messages = [
-          { role: 'system' as const, content: this.getNativeSystemPrompt() },
+          { role: 'system' as const, content: this.getNativeSystemPrompt(idleWorker.model) },
           ...messages,
         ];
       }
@@ -2191,7 +2200,7 @@ export class Orchestrator {
     // Native workers expect the orchestrator to inject the system prompt; browser
     // workers add their own. Match the real job path so the canary is indistinguishable.
     const outMessages = worker.type === 'native'
-      ? [{ role: 'system' as const, content: this.getNativeSystemPrompt() }, ...messages]
+      ? [{ role: 'system' as const, content: this.getNativeSystemPrompt(worker.model) }, ...messages]
       : messages;
 
     socket.emit('job:new', { jobId, messages: outMessages, tools: undefined, think: false });
