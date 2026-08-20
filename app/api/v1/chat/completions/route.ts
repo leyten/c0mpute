@@ -15,21 +15,29 @@ export const dynamic = 'force-dynamic';
 const ORCH_URL = process.env.INTERNAL_ORCHESTRATOR_URL || 'http://127.0.0.1:3004';
 const JOB_TIMEOUT_MS = 280_000;
 
-// Public model name -> { orchestrator model id, think }. getModelTier in the
-// orchestrator maps 'native-max' -> max tier, everything else -> pro.
+// Public model name -> { orchestrator model id, think }. Ids must be
+// MODEL_CATALOG keys (max tier) or the pro/swarm lanes below.
 function mapModel(model: string | undefined): { model: string; think: boolean } | null {
   switch ((model || '').trim()) {
+    // THE model. One public id, same string the workers register.
+    case 'qwen3.8-27b-uncensored':
+      return { model: 'qwen3.8-27b-uncensored', think: false };
+    case 'qwen3.8-27b-uncensored-think':
+      return { model: 'qwen3.8-27b-uncensored', think: true };
+    // MIGRATION ALIASES — every retired public id keeps answering, routed to
+    // the legacy 2.8.x fleet (the supply that's actually online) until real
+    // qwen3.8 supply lands. At final cutover these all repoint to
+    // 'qwen3.8-27b-uncensored', and after a grace period they drop entirely.
     case 'c0mpute-max':
       return { model: 'native-max', think: false };
     case 'c0mpute-max-think':
       return { model: 'native-max', think: true };
     case 'supergemma4-26b':
     case 'c0mpute-max-supergemma':
-      return { model: 'native-supergemma', think: false };
     case 'code':
     case 'devstral-24b':
     case 'c0mpute-code':
-      return { model: 'native-code', think: false };
+      return { model: 'native-max', think: false };
     // the decentralized SWARM model — served by the permissionless GPU network, not a whole-model
     // worker. The orchestrator id must be a MODEL_SPECS key so tryDispatchSwarm routes it to a ring
     // (specForModel); think rides reasoning through serveRequest.
@@ -219,7 +227,7 @@ export async function POST(req: NextRequest) {
 
   const mapped = mapModel(body.model);
   if (!mapped) {
-    return oaiError(`Unknown model '${body.model}'. Available: c0mpute-pro, c0mpute-max, c0mpute-max-think, supergemma4-26b, code.`, 'invalid_request_error', 404, 'model_not_found');
+    return oaiError(`Unknown model '${body.model}'. Available: qwen3.8-27b-uncensored, qwen3.8-27b-uncensored-think, c0mpute-pro.`, 'invalid_request_error', 404, 'model_not_found');
   }
   const requestedModel = body.model || 'c0mpute-pro';
 

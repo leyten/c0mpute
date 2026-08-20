@@ -287,7 +287,7 @@ function demoSet(): DemoSet {
     days.push({ day: dayKey(d), prompts, credits });
   }
 
-  const proCost = PLANS.find(p => p.id === 'pro')?.cost ?? 10;
+  const proCost = PLANS[0].cost; // cheapest (only) chat model — drives the "prompts left" estimate
   cached = {
     balance: DEMO_BALANCE,
     freePrompts: 2,

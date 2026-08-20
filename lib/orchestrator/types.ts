@@ -205,11 +205,16 @@ export interface ModelCatalogEntry {
  * registers the matching `workerModel` string.
  */
 export const MODEL_CATALOG: Record<string, ModelCatalogEntry> = {
+  // THE public model — one name everywhere: this id, the worker's registration
+  // string, and what users see. Served by worker 2.9.0+.
+  'qwen3.8-27b-uncensored': { tier: 'max', workerModel: 'qwen3.8-27b-uncensored' },
+  // MIGRATION ONLY: the 2.8.x fleet still registers the old Qwen string, and
+  // there is no auto-update — old-id API traffic keeps routing to it until real
+  // supply moves. Removed at final cutover (together with enabling the
+  // C0MPUTE_RETIRE_LEGACY_WORKERS reject gate in orchestrator.ts).
   'native-max': { tier: 'max', workerModel: 'qwen3.5-27b-abliterated' },
-  'native-supergemma': { tier: 'max', workerModel: 'supergemma4-26b' },
-  // 'code' = devstral 24B, the agentic-coding model that powers c0mpute code.
-  // Served via the API/CLI (not the consumer chat picker). Max-tier hardware/price.
-  'native-code': { tier: 'max', workerModel: 'devstral-24b' },
+  // native-supergemma and native-code are retired: their API ids now alias to
+  // other catalog entries in /api/v1/chat/completions (mapModel).
 };
 
 /** Map user-facing model IDs to tiers (defaults to pro for browser models). */
@@ -240,8 +245,9 @@ export function selectionWeight(tokPerSec: number): number {
 
 /**
  * Whether a worker can serve a job requesting `requestedModelId`. Max models may
- * pin a specific worker model (so a supergemma job only goes to a supergemma
- * worker); pro/browser models match any browser worker running c0mpute/dolphin.
+ * pin a specific worker model (so a qwen3.8 job only goes to a worker actually
+ * running it, never to the legacy fleet); pro/browser models match any browser
+ * worker running c0mpute/dolphin.
  */
 export function workerServesModel(
   worker: { type: 'browser' | 'native' | 'image'; model: string },

@@ -21,7 +21,7 @@ export const DEMO_NETWORK_STATS: NetworkStats = {
   workersOnline: 9,
   browserWorkers: 6,
   nativeWorkers: 3,
-  nativeByModel: { 'qwen3.5-27b-abliterated': 2, 'supergemma4-26b': 1 },
+  nativeByModel: { 'qwen3.8-27b-uncensored': 3 },
   jobsInQueue: 2,
   jobsCompleted: 14206,
   tokensGenerated: 10412883,

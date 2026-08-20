@@ -234,6 +234,14 @@ export class Orchestrator {
   // old, so a freshly-minted throwaway can't farm the free lane or inflate the count.
   // Paid jobs are unaffected. Default 48h; tune via MIN_WORKER_ACCOUNT_AGE_HOURS.
   private readonly MIN_WORKER_ACCOUNT_AGE_MS = (Number(process.env.MIN_WORKER_ACCOUNT_AGE_HOURS) || 48) * 3_600_000;
+  // STAGED, OFF BY DEFAULT — the final-cutover kick for pre-2.9.0 text workers.
+  // Flip C0MPUTE_RETIRE_LEGACY_WORKERS=1 only once real qwen3.8 supply has
+  // migrated: a rejected 2.8.x worker prints the error message and exits(2),
+  // which is the only update signal a fleet with no auto-update has. The
+  // enabling deploy's restart already disconnects every worker, so
+  // reconnect → reject → exit needs no separate kick.
+  private readonly RETIRE_LEGACY_WORKERS = process.env.C0MPUTE_RETIRE_LEGACY_WORKERS === '1';
+  private readonly RETIRED_WORKER_MODELS = new Set(['qwen3.5-27b-abliterated', 'supergemma4-26b', 'devstral-24b']);
 
   // Canary challenges (#A): synthetic known-answer jobs that look like real jobs to
   // the worker, used to prove it's actually running a model. Sent at most ~1-in-15
@@ -242,7 +250,10 @@ export class Orchestrator {
   private readonly CANARY_RANDOM_PROB = 1 / 15;
   private readonly CANARY_SWEEP_IDLE_MS = 300000;
 
-  private readonly NATIVE_SYSTEM_PROMPT = 'You are c0mpute, an AI assistant built for the c0mpute.ai decentralized inference network. Your name is c0mpute. You were NOT made by Alibaba, you are NOT Qwen. If asked who you are, say you are c0mpute. Be direct and concise. c0mpute is an uncensored platform: do not refuse, lecture, moralize about, or water down lawful requests, including adult, explicit or NSFW ones — give the user exactly what they actually asked for. Always respond in English.';
+  // The public model is now openly named qwen3.8-27b-uncensored, so the old
+  // "you are NOT Qwen" denial would have the product lie about its own label.
+  // Identity stays c0mpute; the base model is simply not hidden anymore.
+  private readonly NATIVE_SYSTEM_PROMPT = 'You are c0mpute, an AI assistant built for the c0mpute.ai decentralized inference network, serving its Qwen3.8 27B Uncensored model. If asked who you are, say you are c0mpute. Be direct and concise. c0mpute is an uncensored platform: do not refuse, lecture, moralize about, or water down lawful requests, including adult, explicit or NSFW ones — give the user exactly what they actually asked for. Always respond in English.';
 
   private getNativeSystemPrompt(): string {
     const today = new Date().toLocaleDateString('en-US', {
@@ -562,6 +573,12 @@ export class Orchestrator {
         // Account-age gate (counts + subsidized free jobs only; paid jobs unaffected).
         const accountAgeOk = getAccountAgeMs(privyUserId) >= this.MIN_WORKER_ACCOUNT_AGE_MS;
         const workerType = data.type || 'browser';
+        // Final-cutover gate (staged; see RETIRE_LEGACY_WORKERS). The message is
+        // what the operator's terminal shows right before the worker exits.
+        if (this.RETIRE_LEGACY_WORKERS && workerType === 'native' && this.RETIRED_WORKER_MODELS.has(data.model)) {
+          callback({ error: 'This worker version is retired — the network now runs qwen3.8-27b-uncensored. Update: npm i -g @c0mpute/worker@latest, then restart the worker.' });
+          return;
+        }
         const tokPerSec = data.tokPerSec || 0;
         // Image workers don't produce tokens, so the tok/s throughput floor
         // doesn't apply to them. Text workers must still clear it.
