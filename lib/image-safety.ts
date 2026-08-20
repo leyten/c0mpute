@@ -1,6 +1,6 @@
 // Image-generation safety guard.
 //
-// c0mpute's image product is uncensored for ADULT content (gated behind an
+// Compute Network's image product is uncensored for ADULT content (gated behind an
 // 18+ NSFW toggle) but enforces two layers:
 //   1. PROMPT guard (this file, checkImagePromptSafety):
 //      - HARD line, always on: sexual content involving minors (CSAM). Refused
@@ -51,7 +51,7 @@ function hasAny(haystack: string, needles: string[]): boolean {
 }
 
 const CSAM_MESSAGE =
-  'This prompt was blocked. Sexual content involving minors is the one thing c0mpute will never generate. This is the only hard limit.';
+  'This prompt was blocked. Sexual content involving minors is the one thing Compute Network will never generate. This is the only hard limit.';
 
 export interface SafetyResult {
   allowed: boolean;

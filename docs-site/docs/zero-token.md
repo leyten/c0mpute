@@ -5,13 +5,13 @@ title: The $ZERO Token
 
 # The <span class="dollar">$</span>ZERO Token
 
-<span class="dollar">$</span>ZERO is the token at the center of the c0mpute economy. You don't need it to use c0mpute — inference is paid for in USDC — but <span class="dollar">$</span>ZERO is how the value the network creates flows back to the people who hold and stake it.
+<span class="dollar">$</span>ZERO is the token at the center of the Compute Network economy. You don't need it to use Compute Network — inference is paid for in USDC — but <span class="dollar">$</span>ZERO is how the value the network creates flows back to the people who hold and stake it.
 
 ## What <span class="dollar">$</span>ZERO is (and isn't)
 
 <span class="dollar">$</span>ZERO is **not** a credit you spend on AI directly. Credits are bought with USDC (**1 credit = $0.01**), and credits are what pay for inference. <span class="dollar">$</span>ZERO is a separate, value-accrual token. As the network earns, it automatically buys <span class="dollar">$</span>ZERO back and burns it, and it pays a share of revenue to everyone who stakes — and staking it also grants a **daily allowance of free credits** (see [Staking](/staking)).
 
-- **Use c0mpute** → pay in USDC
+- **Use Compute Network** → pay in USDC
 - **Hold <span class="dollar">$</span>ZERO** → benefit from buybacks and burns as the network grows
 - **Stake <span class="dollar">$</span>ZERO** → earn a share of network revenue in USDC **and** get a daily free-credit allowance
 
@@ -43,7 +43,7 @@ Inference is paid with credits. **1 credit = $0.01**, bought with USDC. Pro cost
 
 ## The loop
 
-1. People use c0mpute and pay in USDC; <span class="dollar">$</span>ZERO trades generate fees.
+1. People use Compute Network and pay in USDC; <span class="dollar">$</span>ZERO trades generate fees.
 2. Network revenue collects in the treasury.
 3. Half buys back and burns <span class="dollar">$</span>ZERO — supply shrinks.
 4. Half pays everyone staking <span class="dollar">$</span>ZERO, in USDC.

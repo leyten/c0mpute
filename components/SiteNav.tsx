@@ -256,7 +256,7 @@ export default function SiteNav() {
                 Blog
               </a>
               <a 
-                href="https://x.com/c0mpute" 
+                href="https://x.com/c0mputeAI"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="cursor-pointer pixel-sans text-fg-70 hover:text-fg transition-colors text-sm tracking-wide flex items-center gap-2"

@@ -5,7 +5,7 @@ title: c0mpute code
 
 # c0mpute code
 
-c0mpute code is an open coding agent that lives in your terminal. It reads, edits, and runs your project like the coding tools you already know, but the model runs on c0mpute's decentralized network instead of one company's servers. The file edits and shell commands run locally on your machine, under your approval. It follows the same three principles as the rest of c0mpute: **uncensored, private, decentralized**.
+c0mpute code is an open coding agent that lives in your terminal. It reads, edits, and runs your project like the coding tools you already know, but the model runs on Compute Network's decentralized GPUs instead of one company's servers. The file edits and shell commands run locally on your machine, under your approval. It follows the same three principles as the rest of Compute Network: **uncensored, private, decentralized**.
 
 ## Install
 
@@ -32,7 +32,7 @@ Describe a task and the agent works as a loop with real tools: it locates the re
 - Changes are **syntax-checked and auto-reverted** if they would break the file.
 - It **verifies its own work** by running your tests, and won't claim something is done until it actually is.
 
-The thinking runs on the network, on `qwen3.8-27b-uncensored` — the same uncensored 27B that serves every other c0mpute client, no separate coding model to keep online. The dangerous parts — your files, your shell — never leave your machine.
+The thinking runs on the network, on `qwen3.8-27b-uncensored` — the same uncensored 27B that serves every other Compute Network client, no separate coding model to keep online. The dangerous parts — your files, your shell — never leave your machine.
 
 ## Privacy
 
@@ -67,7 +67,7 @@ All settings are environment variables:
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `C0MPUTE_API_KEY` | — | Your c0mpute API key (required) |
+| `C0MPUTE_API_KEY` | — | Your Compute Network API key (required) |
 | `C0MPUTE_MODEL` | `qwen3.8-27b-uncensored` | Model id. The default is the network's uncensored 27B; the old `code` id still resolves to it as a deprecated alias |
 | `C0MPUTE_YOLO` | `0` | Set to `1` to auto-approve edits and commands |
 | `C0MPUTE_API_URL` | `https://c0mpute.ai/api/v1` | Override the API base |
@@ -77,7 +77,7 @@ All settings are environment variables:
 
 Most coding agents are owned by the company that makes them. That company sees your prompts and your code, decides your rate limit, can ban your account, and can change the terms or go down — and your workflow goes with it.
 
-c0mpute code turns that around. The model runs across many independent GPUs run by people, so there is no single provider to rate-limit you, ban you, or take it down. The models are uncensored, so it does not refuse legitimate work. Your code stays on your machine, and every line of the agent is open source. It is the same idea behind the rest of c0mpute: AI powered by people, not data centers.
+c0mpute code turns that around. The model runs across many independent GPUs run by people, so there is no single provider to rate-limit you, ban you, or take it down. The models are uncensored, so it does not refuse legitimate work. Your code stays on your machine, and every line of the agent is open source. It is the same idea behind the rest of Compute Network: AI powered by people, not data centers.
 
 ## Links
 

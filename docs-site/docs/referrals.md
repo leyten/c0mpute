@@ -5,12 +5,12 @@ title: Referrals
 
 # Referrals
 
-Invite someone to c0mpute and earn **5% of the USDC value of every prompt they pay for**. Forever, for as long as they use it.
+Invite someone to Compute Network and earn **5% of the USDC value of every prompt they pay for**. Forever, for as long as they use it.
 
 ## How it works
 
 1. Grab your link from [settings → Referrals](https://c0mpute.ai/settings#referrals). It looks like `c0mpute.ai/r/yourcode`.
-2. Share it. Anyone who lands on it can try c0mpute immediately — no account needed. The link stays valid in their browser for 30 days.
+2. Share it. Anyone who lands on it can try Compute Network immediately — no account needed. The link stays valid in their browser for 30 days.
 3. When they sign up, they're bound to you. Permanently — referrals never expire or get reassigned.
 4. From then on, every job they **pay credits for** (chat, image generation, API usage) sends 5% of its USD value to your balance.
 

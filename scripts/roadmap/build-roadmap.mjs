@@ -62,10 +62,11 @@ function textBlock(x, y, lines, { size = 20, fill = '#fff', family = FONT_MONO, 
   return `<text x="${x}" y="${y}" font-family="${family}" font-size="${size}" fill="${fill}" text-anchor="${anchor}" font-weight="${weight}" letter-spacing="${spacing}">${tspans}</text>`;
 }
 
-// c0mpute wordmark: exact copy of the site header treatment — the zero is the
-// same argent-pixel font at 1.8x on the shared baseline (app/page.tsx:139).
+// Compute Network wordmark, in the site header's pixel face. The old mark
+// scaled its zero to 1.8x on the shared baseline; the new name has no zero to
+// style, so it sets as one run at a single size.
 function wordmark(x, y, size) {
-  return `<text x="${x}" y="${y}" font-family="${FONT_PIXEL}" font-size="${size}" fill="#fff">C<tspan font-size="${size * 1.8}">0</tspan><tspan font-size="${size}">MPUTE</tspan></text>`;
+  return `<text x="${x}" y="${y}" font-family="${FONT_PIXEL}" font-size="${size}" fill="#fff">COMPUTE NETWORK</text>`;
 }
 
 // Pixel-serif titles: "$" renders in mono (argent's $ glyph is off-brand) and
@@ -240,7 +241,7 @@ const html = `<!DOCTYPE html>
     <meta charset="UTF-8">
     <meta name="robots" content="noindex, nofollow">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>c0mpute / roadmap</title>
+    <title>Compute Network / Roadmap</title>
     <link rel="stylesheet" href="https://use.typekit.net/kwe2dpm.css">
     <link rel="stylesheet" href="/roadmap-clone/css/main.min.css">
     <link rel="stylesheet" href="/roadmap-clone/css/c0mpute.css">

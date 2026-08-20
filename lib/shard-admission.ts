@@ -1,9 +1,9 @@
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 
-// Capability admission (shard ADMISSION_SPEC.md): the ONE seam where c0mpute calls the
+// Capability admission (shard ADMISSION_SPEC.md): the ONE seam where Compute Network calls the
 // shard engine. The node runs shard's probe locally and submits its MEASURED cap vector;
-// c0mpute — not the node — turns it into a role by driving `python3 -m shard.probe`
+// Compute Network — not the node — turns it into a role by driving `python3 -m shard.probe`
 // (stdin {cap, model?, spec?} -> stdout verdict). shard owns the probe + physics; we own
 // what to do with the role (store, place, price) — the boundary law, deps one way.
 //

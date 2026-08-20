@@ -1,8 +1,8 @@
-# c0mpute
+# Compute Network
 
 **Uncensored, private, decentralized AI inference.**
 
-c0mpute is an inference network where the GPUs are contributed, not rented. Anyone can plug a
+Compute Network is an inference network where the GPUs are contributed, not rented. Anyone can plug a
 machine in and earn for the tokens it serves; anyone can run a model through an OpenAI-compatible
 API without an account gate, without prompts being stored in the application database. A narrow server-side legal-safety filter blocks CSAM-related requests before dispatch. The network is coordinated by a thin orchestrator and
 settled on Solana through the `$ZERO` token.
@@ -52,14 +52,14 @@ It is built on three pillars, and every feature is measured against all three:
 
 ## API
 
-OpenAI-compatible. Point any OpenAI client at the c0mpute base URL and use a `sk-c0mpute-…` key.
+OpenAI-compatible. Point any OpenAI client at the Compute Network base URL and use a `sk-c0mpute-…` key.
 
 ```bash
 curl https://c0mpute.ai/api/v1/chat/completions \
   -H "Authorization: Bearer sk-c0mpute-..." \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "c0mpute",
+    "model": "qwen3.8-27b-uncensored",
     "messages": [{"role": "user", "content": "explain entropy in one line"}],
     "stream": true
   }'

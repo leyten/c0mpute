@@ -5,7 +5,7 @@ title: Worker tokens
 
 # Worker tokens
 
-Worker tokens authenticate your native worker with the c0mpute network. They link your worker to your Privy account so you get credit for completed jobs.
+Worker tokens authenticate your native worker with the Compute Network. They link your worker to your Privy account so you get credit for completed jobs.
 
 ## Generating a token
 

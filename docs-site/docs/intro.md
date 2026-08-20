@@ -1,12 +1,12 @@
 ---
 slug: /
 sidebar_position: 1
-title: What is c0mpute?
+title: What is Compute Network?
 ---
 
-# What is c0mpute?
+# What is Compute Network?
 
-c0mpute is a decentralized AI inference network. Instead of routing your prompts through corporate data centers, c0mpute connects you directly to a distributed network of GPU workers — regular people sharing their compute power.
+Compute Network is a decentralized AI inference network. Instead of routing your prompts through corporate data centers, Compute Network connects you directly to a distributed network of GPU workers — regular people sharing their compute power.
 
 **AI powered by people, not data centers.**
 
@@ -26,7 +26,7 @@ The [API](/api-reference) exposes two more ids: `c0mpute-pro`, an uncensored 8B 
 
 ## Credits and the <span class="dollar">$</span>ZERO token
 
-Inference is paid for with credits. **1 credit = $0.01**, bought with USDC. You don't need any token to use c0mpute.
+Inference is paid for with credits. **1 credit = $0.01**, bought with USDC. You don't need any token to use Compute Network.
 
 - Top up credits with USDC; they're spent per message
 - Workers earn 70% of the USD value of the credits spent on jobs they complete (80% if they stake), paid in USDC
@@ -43,6 +43,6 @@ See [The <span class="dollar">$</span>ZERO Token](/zero-token) for the full brea
 
 ## Why?
 
-Centralized AI providers censor their models, log your prompts, and can revoke access at any time. c0mpute is the alternative — private, uncensored, and owned by no one.
+Centralized AI providers censor their models, log your prompts, and can revoke access at any time. Compute Network is the alternative — private, uncensored, and owned by no one.
 
-Anyone can [use c0mpute](/user-guide/getting-started) or [contribute compute](/worker-guide/browser-worker) and start earning.
+Anyone can [use Compute Network](/user-guide/getting-started) or [contribute compute](/worker-guide/browser-worker) and start earning.

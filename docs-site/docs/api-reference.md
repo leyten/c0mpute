@@ -5,13 +5,13 @@ title: API
 
 # Inference API
 
-c0mpute exposes an **OpenAI-compatible** HTTP API — built for **agents**. It speaks chat completions, streaming, tool/function calling, and model discovery, so any agent framework that talks to OpenAI works by changing two things: the `base_url` and the `api_key`. Nothing else changes.
+Compute Network exposes an **OpenAI-compatible** HTTP API — built for **agents**. It speaks chat completions, streaming, tool/function calling, and model discovery, so any agent framework that talks to OpenAI works by changing two things: the `base_url` and the `api_key`. Nothing else changes.
 
 ```
 base_url:  https://c0mpute.ai/api/v1
 ```
 
-Why run your agent on c0mpute: **uncensored** models (no refusals), **decentralized** compute, large context, and your prompts are **never stored** (processed in memory and discarded — only token counts are kept for billing) and **anonymous to the worker** (the GPU running your job gets the prompt text only, never your identity). See [Building agents](#building-agents) for framework setups.
+Why run your agent on Compute Network: **uncensored** models (no refusals), **decentralized** compute, large context, and your prompts are **never stored** (processed in memory and discarded — only token counts are kept for billing) and **anonymous to the worker** (the GPU running your job gets the prompt text only, never your identity). See [Building agents](#building-agents) for framework setups.
 
 ## Authentication
 
@@ -150,7 +150,7 @@ for chunk in stream:
 
 ## Function calling (tools)
 
-Pass your own `tools`. When the model decides to call one, the response comes back with `finish_reason: "tool_calls"` and the call(s) under `message.tool_calls` — you run the tool and send the result back as a `tool` message. This is what lets agent frameworks drive their own tools on c0mpute.
+Pass your own `tools`. When the model decides to call one, the response comes back with `finish_reason: "tool_calls"` and the call(s) under `message.tool_calls` — you run the tool and send the result back as a `tool` message. This is what lets agent frameworks drive their own tools on Compute Network.
 
 ```python
 tools = [{
@@ -201,13 +201,13 @@ Pass images inline as base64; remote `https` image URLs aren't fetched in this v
 
 ## Building agents
 
-c0mpute is designed to be the **brain** for agent frameworks. Your framework keeps doing what it does — memory, system prompt / persona, the tool loop — and c0mpute is the model it calls. Memory and persona need zero special handling: they're just the messages array and a system message you already send. Tools work through the standard function-calling flow above (the model returns `tool_calls`, your framework runs them and sends results back).
+Compute Network is designed to be the **brain** for agent frameworks. Your framework keeps doing what it does — memory, system prompt / persona, the tool loop — and Compute Network is the model it calls. Memory and persona need zero special handling: they're just the messages array and a system message you already send. Tools work through the standard function-calling flow above (the model returns `tool_calls`, your framework runs them and sends results back).
 
 For agents, use **`qwen3.8-27b-uncensored`** (or `qwen3.8-27b-uncensored-think` for harder reasoning) — the 27B is far more reliable at multi-step tool use than the 8B.
 
 ### Any OpenAI-compatible framework
 
-The universal setup: point the framework's model provider at c0mpute.
+The universal setup: point the framework's model provider at Compute Network.
 
 ```
 base_url / baseURL :  https://c0mpute.ai/api/v1
@@ -245,7 +245,7 @@ const c0mpute = createOpenAI({ baseURL: "https://c0mpute.ai/api/v1", apiKey: "sk
 
 ### Hermes
 
-c0mpute is a custom OpenAI-compatible endpoint. For Hermes, use **`qwen3.8-27b-uncensored-think`** (the 27B with extended reasoning). Add it as a **custom provider** in `~/.hermes/config.yaml`, with the API key set **on the provider** (Hermes does not read `~/.hermes/.env` at runtime, so the key must live in the config or an exported env var):
+Compute Network is a custom OpenAI-compatible endpoint. For Hermes, use **`qwen3.8-27b-uncensored-think`** (the 27B with extended reasoning). Add it as a **custom provider** in `~/.hermes/config.yaml`, with the API key set **on the provider** (Hermes does not read `~/.hermes/.env` at runtime, so the key must live in the config or an exported env var):
 
 ```yaml
 custom_providers:
@@ -289,7 +289,7 @@ Default **60 requests/minute per key**. Need more? Reach out.
 
 ## Image generation
 
-`POST /api/images/generate` — generate an image and get it back inline as a base64 data URL. This is a c0mpute endpoint, separate from the OpenAI-compatible `/v1` surface. Auth uses the same `sk-c0mpute-…` bearer key (or a logged-in session).
+`POST /api/images/generate` — generate an image and get it back inline as a base64 data URL. This is a Compute Network endpoint, separate from the OpenAI-compatible `/v1` surface. Auth uses the same `sk-c0mpute-…` bearer key (or a logged-in session).
 
 ### Request
 

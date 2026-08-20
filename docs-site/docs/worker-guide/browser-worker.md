@@ -19,7 +19,7 @@ The first time you start, the model downloads to your browser's cache. This take
 
 ## Running
 
-Once the model is loaded, your browser is actively processing jobs from the c0mpute network. The worker page shows real-time stats:
+Once the model is loaded, your browser is actively processing jobs from the Compute Network. The worker page shows real-time stats:
 
 - **USDC earned** — your total claimable earnings
 - **Uptime** — how long the worker has been running
