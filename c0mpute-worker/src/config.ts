@@ -53,8 +53,8 @@ export const NUM_CTX = IS_APPLE_SILICON ? MLX_NUM_CTX : (GGUF_VARIANT?.numCtx ??
  *  multi-minute GGUF re-import. */
 export const OLLAMA_MODEL = process.env.C0MPUTE_OLLAMA_MODEL
   || (IS_APPLE_SILICON
-    ? `c0mpute-qwen38-mlx-${MLX_NUM_CTX / 1024}k`
-    : `c0mpute-qwen38-${GGUF_VARIANT?.key ?? 'q4km'}-${(GGUF_VARIANT?.numCtx ?? 8192) / 1024}k`);
+    ? `compute-qwen38-mlx-${MLX_NUM_CTX / 1024}k`
+    : `compute-qwen38-${GGUF_VARIANT?.key ?? 'q4km'}-${(GGUF_VARIANT?.numCtx ?? 8192) / 1024}k`);
 
 /** Escape hatch for testing: when set, setup skips the packaged GGUF/MLX build
  *  and takes the old pull-a-registry-base + create path with this base. */
