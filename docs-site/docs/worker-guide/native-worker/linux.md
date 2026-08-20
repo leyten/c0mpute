@@ -57,12 +57,12 @@ Go to [c0mpute.ai/earn](https://c0mpute.ai/earn), login, and get your worker tok
 ## Run the worker
 
 ```bash
-npx @c0mpute/worker --token <your-token>
+npx @compute-network/worker --token <your-token>
 ```
 
 On first run:
 1. Your ollama version is checked (0.32.15+) and configured with CUDA support
-2. The Qwen3.8 27B weights download from a pinned HuggingFace revision into `~/.config/c0mpute-worker/models` and the worker builds the model for your card. The download is kept, so a rebuild doesn't fetch it again — budget **~36GB free disk** for it plus ollama's copy
+2. The Qwen3.8 27B weights download from a pinned HuggingFace revision into `~/.config/compute-worker/models` and the worker builds the model for your card. The download is kept, so a rebuild doesn't fetch it again — budget **~36GB free disk** for it plus ollama's copy
 3. A benchmark runs to verify GPU performance
 4. The worker connects to the network and starts accepting jobs
 
@@ -84,7 +84,7 @@ Single-digit tok/s means the model is not really on the GPU — usually an old o
 ollama loads a model that fits on a **single** card, so one worker only ever drives one GPU. On a box with more than one NVIDIA card the CLI detects them all and runs **one worker per capable GPU** — no flags, nothing to configure:
 
 ```bash
-npx @c0mpute/worker --token <your-token> --mode max
+npx @compute-network/worker --token <your-token> --mode max
 # 8 GPUs detected — starting one worker per GPU (use --gpu <n> to run a single card).
 ```
 
@@ -110,8 +110,8 @@ sudo systemctl disable ollama
 ### Choosing cards
 
 ```bash
-npx @c0mpute/worker --token <your-token> --mode max --gpu 3      # only GPU 3
-npx @c0mpute/worker --token <your-token> --mode max --gpu 0,2,5  # only these three
+npx @compute-network/worker --token <your-token> --mode max --gpu 3      # only GPU 3
+npx @compute-network/worker --token <your-token> --mode max --gpu 0,2,5  # only these three
 ```
 
 Indexes are the ones `nvidia-smi` reports (0-15 supported).
@@ -144,7 +144,7 @@ The network accepts at most **10 workers per IP** (and 10 per account). On a rig
 For unattended operation, create a systemd service:
 
 ```bash
-sudo nano /etc/systemd/system/c0mpute-worker.service
+sudo nano /etc/systemd/system/compute-worker.service
 ```
 
 ```ini
@@ -153,7 +153,7 @@ Description=c0mpute Native Worker
 After=network.target
 
 [Service]
-ExecStart=/usr/bin/npx @c0mpute/worker --token YOUR_TOKEN
+ExecStart=/usr/bin/npx @compute-network/worker --token YOUR_TOKEN
 Restart=always
 RestartSec=10
 User=your-username
@@ -165,24 +165,24 @@ WantedBy=multi-user.target
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable c0mpute-worker
-sudo systemctl start c0mpute-worker
+sudo systemctl enable compute-worker
+sudo systemctl start compute-worker
 ```
 
 Check status:
 
 ```bash
-sudo systemctl status c0mpute-worker
-journalctl -u c0mpute-worker -f
+sudo systemctl status compute-worker
+journalctl -u compute-worker -f
 ```
 
-On a multi-GPU rig this is still **one** unit: the process it starts is the supervisor, and it owns the per-card workers. `journalctl -u c0mpute-worker -f` shows every card, `[gpu N]`-prefixed.
+On a multi-GPU rig this is still **one** unit: the process it starts is the supervisor, and it owns the per-card workers. `journalctl -u compute-worker -f` shows every card, `[gpu N]`-prefixed.
 
 Alternatively, use `tmux` or `screen` for a simpler setup:
 
 ```bash
 tmux new -s c0mpute
-npx @c0mpute/worker --token <your-token>
+npx @compute-network/worker --token <your-token>
 # Ctrl+B, D to detach
 ```
 
@@ -191,13 +191,13 @@ npx @c0mpute/worker --token <your-token>
 The worker does **not** update itself — it runs exactly the version you installed. That also means a long-lived service (systemd, tmux) keeps running whatever `npx` cached when you first started it. Upgrade explicitly:
 
 ```bash
-npm i -g @c0mpute/worker@latest    # then run: c0mpute-worker --token <your-token>
+npm i -g @compute-network/worker@latest    # then run: compute-worker --token <your-token>
 ```
 
 Or, if you'd rather stay on `npx`, pin `@latest` in the command (including in your systemd `ExecStart`) so each start fetches the current release:
 
 ```bash
-npx -y @c0mpute/worker@latest --token <your-token>
+npx -y @compute-network/worker@latest --token <your-token>
 ```
 
 Every start prints the version it's running (`c0mpute worker v…`).

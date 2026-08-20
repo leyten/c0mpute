@@ -91,7 +91,7 @@ export function useNativeCommand(engine: Engine) {
     }
   }, [engine]);
 
-  const command = `npx @c0mpute/worker --token ${token ?? 'YOUR_TOKEN'}`;
+  const command = `npx @compute-network/worker --token ${token ?? 'YOUR_TOKEN'}`;
   const copy = useCallback(() => {
     void navigator.clipboard.writeText(command);
     setCopied(true);

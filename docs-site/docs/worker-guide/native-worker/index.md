@@ -30,7 +30,7 @@ Native workers run **Qwen3.8 27B Uncensored** on your machine via ollama — the
 ## Quick start
 
 ```bash
-npx @c0mpute/worker --token <your-token>
+npx @compute-network/worker --token <your-token>
 ```
 
 That's it. One command. The worker downloads the weights, builds the right model for your hardware, and detects your GPU automatically.
@@ -53,7 +53,7 @@ The worker picks the build from the hardware it finds. There is nothing to confi
 
 Speculative decoding uses the model's own MTP head — it's lossless (same output, just fewer forward passes) and up to ~2.4x faster on code-heavy jobs.
 
-GGUF weights are pulled from a pinned HuggingFace revision into `~/.config/c0mpute-worker/models` and kept there, so rebuilding the model doesn't re-download it. The context window is sized to your VRAM (8K-32K) and baked into the build.
+GGUF weights are pulled from a pinned HuggingFace revision into `~/.config/compute-worker/models` and kept there, so rebuilding the model doesn't re-download it. The context window is sized to your VRAM (8K-32K) and baked into the build.
 
 ## Multi-GPU rigs
 
@@ -76,8 +76,8 @@ See [Worker tokens](/worker-guide/tokens) for more details.
 The worker has **no auto-update**: it runs exactly the version you installed, and nothing self-upgrades at startup. Upgrading is an explicit step:
 
 ```bash
-npm i -g @c0mpute/worker@latest                       # global install
-npx -y @c0mpute/worker@latest --token <your-token>    # or pin @latest in your npx command
+npm i -g @compute-network/worker@latest                       # global install
+npx -y @compute-network/worker@latest --token <your-token>    # or pin @latest in your npx command
 ```
 
 Every start prints its version (`c0mpute worker v…`), so you can always tell what a box is running.
@@ -94,7 +94,7 @@ Every start prints its version (`c0mpute worker v…`), so you can always tell w
 A native worker can run as an **image worker** instead of a text worker — it serves the [image generation](/image-generation) network by running ComfyUI + the Chroma1-HD model on your GPU, and earns per render.
 
 ```bash
-npx @c0mpute/worker --mode image --token <your-token>
+npx @compute-network/worker --mode image --token <your-token>
 ```
 
 On first run without `--mode`, the worker asks whether to run as a **Qwen (text)** worker or an **Image** worker and remembers your choice. Image mode downloads only the image model (~14GB), not the text model. A 24GB GPU (RTX 3090/4090) is recommended. Set `COMFY_DIR` if you want the worker to install/launch ComfyUI for you; otherwise point `COMFY_URL` at a ComfyUI you already run.
