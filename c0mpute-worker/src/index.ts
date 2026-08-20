@@ -6,7 +6,7 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { homedir } from 'os';
 import { createInterface } from 'readline';
-import { MODEL_NAME, MODEL_LABEL, APPROX_DOWNLOAD_GB } from './models.js';
+import { MODEL_NAME, MODEL_LABEL, APPROX_DOWNLOAD_GB, MIN_SOLO_VRAM_MB, MIN_SPLIT_TOTAL_MB } from './models.js';
 import { listGpuIndexes, queryVramMB } from './gpus.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -89,10 +89,6 @@ async function resolveMode(flag?: string): Promise<WorkerMode> {
 /** Highest card index we run: each one owns ollama's port 11434+index. */
 const MAX_GPU_INDEX = 15;
 
-/** Minimum VRAM for one card to run its own worker (the 16GB/IQ4_XS floor —
- *  must stay in step with pickGgufVariant's ladder in models.ts). */
-const MIN_SOLO_VRAM_MB = 15500;
-
 // Which GPUs this invocation drives. `--gpu` names them explicitly (one index or
 // a comma list); without it, a rig with more than one capable card takes them
 // all — one worker per GPU, since a card that fits the model shouldn't share.
@@ -107,6 +103,16 @@ function resolveGpus(flag: string | undefined, benchmarkOnly: boolean): number[]
       throw new Error(`Invalid --gpu "${flag}" (expected GPU indexes 0-${MAX_GPU_INDEX}, e.g. --gpu 0 or --gpu 0,2,5).`);
     }
     const pins = [...new Set(list)];
+    // A pin that names a card the box doesn't have would not fail here — the
+    // VRAM query falls back to the whole box (sizing the quant off the wrong
+    // card) while CUDA gives ollama nothing. Catch it before any download.
+    const present = listGpuIndexes();
+    if (present.length) {
+      const missing = pins.filter((n) => !present.includes(n));
+      if (missing.length) {
+        throw new Error(`--gpu ${missing.join(',')}: no such GPU (this box has: ${present.join(', ')}).`);
+      }
+    }
     if (benchmarkOnly && pins.length > 1) {
       console.log(`Note: --benchmark measures one card; using GPU ${pins[0]}.`);
       return [pins[0]];
@@ -127,6 +133,16 @@ function resolveGpus(flag: string | undefined, benchmarkOnly: boolean): number[]
   }
   const solo = all.filter((_, i) => vram[i] >= MIN_SOLO_VRAM_MB);
   if (!solo.length) {
+    // Same combined floor the quant ladder enforces — checked here too so the
+    // rig is refused BEFORE we announce a split, install ollama, or restart
+    // the box-wide daemon for a model that can never load.
+    const total = vram.reduce((a, b) => a + b, 0);
+    if (total < MIN_SPLIT_TOTAL_MB) {
+      throw new Error(
+        `Not enough VRAM for ${MODEL_LABEL} (detected: ${vram.map((m) => `${Math.round(m / 1024)}GB`).join(' + ')}).\n` +
+        '  Minimum: a 16GB NVIDIA GPU (24GB recommended), a 24GB AMD GPU, or a 32GB+ Apple Silicon Mac.'
+      );
+    }
     console.log(`${all.length} GPUs detected, none with enough VRAM to run ${MODEL_LABEL} alone — running one worker split across the cards.`);
     return [];
   }

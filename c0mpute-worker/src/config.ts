@@ -46,11 +46,15 @@ export const GGUF_VARIANT: GgufVariant | null =
  *  window, not an intent. Reported at registration. */
 export const NUM_CTX = IS_APPLE_SILICON ? MLX_NUM_CTX : (GGUF_VARIANT?.numCtx ?? 8192);
 
-/** Local ollama model name (the custom model setup.ts builds). Variant-suffixed
- *  so a mixed rig's per-GPU workers never clobber each other in the shared
- *  ~/.ollama store. */
+/** Local ollama model name (the custom model setup.ts builds). Variant- AND
+ *  ctx-suffixed: per-GPU workers share ~/.ollama, and two cards that agree on
+ *  the quant but not the window (24GB + 48GB both land on q4km) would
+ *  otherwise rebuild one name back and forth forever — each round a full
+ *  multi-minute GGUF re-import. */
 export const OLLAMA_MODEL = process.env.C0MPUTE_OLLAMA_MODEL
-  || (IS_APPLE_SILICON ? 'c0mpute-qwen38-mlx' : `c0mpute-qwen38-${GGUF_VARIANT?.key ?? 'q4km'}`);
+  || (IS_APPLE_SILICON
+    ? `c0mpute-qwen38-mlx-${MLX_NUM_CTX / 1024}k`
+    : `c0mpute-qwen38-${GGUF_VARIANT?.key ?? 'q4km'}-${(GGUF_VARIANT?.numCtx ?? 8192) / 1024}k`);
 
 /** Escape hatch for testing: when set, setup skips the packaged GGUF/MLX build
  *  and takes the old pull-a-registry-base + create path with this base. */
@@ -78,8 +82,10 @@ export const KEEP_ALIVE: number | string = (() => {
 /** Number of tokens to generate during benchmark */
 export const BENCHMARK_TOKENS = 64;
 
-/** Minimum tok/s to register with orchestrator */
-export const MIN_TOK_PER_SEC = 2;
+/** Minimum tok/s to serve. Matches the orchestrator's own registration floor —
+ *  a lower local floor just moves the same rejection one network round-trip
+ *  later and turns it into an exit(2) restart loop. */
+export const MIN_TOK_PER_SEC = 5;
 
 /** Maximum output tokens per job */
 export const MAX_OUTPUT_TOKENS = 4096;

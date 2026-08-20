@@ -84,8 +84,8 @@ export async function startWorker(options: WorkerOptions): Promise<void> {
         authToken: token,
         tokPerSec: Math.round(tokPerSec * 10) / 10,
         type: 'native',
-        // Effective context window (VRAM-adaptive, see pickNumCtx). Optional field:
-        // older orchestrators simply ignore it.
+        // Effective context window (VRAM-adaptive, see pickGgufVariant). Optional
+        // field: older orchestrators simply ignore it.
         numCtx: NUM_CTX,
         capabilities: { search: true, uncensored: true, longContext: true, vision: true, tools: true },
       } as any,

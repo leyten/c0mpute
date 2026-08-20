@@ -28,13 +28,17 @@ export const GGUF_BASE_URL =
 /** Vision projector (image input) — shipped alongside every GGUF variant. */
 export const GGUF_VISION_FILE = 'Qwen3.8-27B-Uncensored-vision-f16.gguf';
 export const GGUF_VISION_BYTES = 927_606_912;
+export const GGUF_VISION_SHA256 = '5ac423f8a29059dc24e51bc6a43e9380dcd57a9347f28b62591e0b3f60b7081c';
 
 export interface GgufVariant {
-  /** Suffix of the local ollama model name, so a mixed rig can hold two
+  /** Part of the local ollama model name, so a mixed rig can hold two
    *  variants in the shared ~/.ollama store without clobbering each other. */
   key: 'q4km' | 'iq4xs' | 'split';
   weightsFile: string;
   weightsBytes: number;
+  /** sha256 of the weights file at the pinned revision (HF's LFS etag) —
+   *  downloads are verified against it before they're ever trusted. */
+  sha256: string;
   /** In-model MTP speculative decoding (PARAMETER draft_num_predict 4).
    *  Lossless and ~1.5-2.4x faster, but CUDA single-GPU only: it slows
    *  layer-split loads and Metal, and is unverified on ROCm. */
@@ -49,11 +53,13 @@ const Q4_K_M: Omit<GgufVariant, 'draft' | 'numCtx'> = {
   key: 'q4km',
   weightsFile: 'Qwen3.8-27B-Uncensored-Q4_K_M.gguf',
   weightsBytes: 16_810_714_528,
+  sha256: '4c5e2db039e9325ac7724c8846c71356a24ad1cdfa28002d73ecb6be645f9675',
 };
 const IQ4_XS: Omit<GgufVariant, 'draft' | 'numCtx'> = {
   key: 'iq4xs',
   weightsFile: 'Qwen3.8-27B-Uncensored-IQ4_XS.gguf',
   weightsBytes: 15_309_039_008,
+  sha256: '53adc4bbed67044d662273356bbf3a50fdec667ac21bbf18d13e5815fbccc7f5',
 };
 /** noMTP build for multi-GPU layer splits: the MTP head halves prefill when
  *  the model spans cards, so those rigs run a build without it. */
@@ -61,7 +67,13 @@ const SPLIT: Omit<GgufVariant, 'draft' | 'numCtx'> = {
   key: 'split',
   weightsFile: 'Qwen3.8-27B-Uncensored-noMTP-IQ4_XS.gguf',
   weightsBytes: 15_082_506_720,
+  sha256: '21969928166406e8b3b63249568fb28d54a3c595c0793756acdf0d38cd73bc77',
 };
+
+/** VRAM floors, shared by the ladder below and the CLI's fan-out logic so the
+ *  two can never disagree about which boxes qualify. */
+export const MIN_SOLO_VRAM_MB = 15500;   // one card runs the model alone (IQ4_XS)
+export const MIN_SPLIT_TOTAL_MB = 20000; // combined floor for a layer-split rig
 
 /**
  * Quant ladder by VRAM. `vramMb` is one entry per GPU this worker may use (the
@@ -83,13 +95,13 @@ export function pickGgufVariant(vramMb: number[]): GgufVariant | null {
   if (largest >= 22000) {
     return { ...Q4_K_M, draft: true, numCtx: largest >= 40000 ? 32768 : 16384 };
   }
-  if (largest >= 15500) {
+  if (largest >= MIN_SOLO_VRAM_MB) {
     return { ...IQ4_XS, draft: true, numCtx: 8192 };
   }
   // No card fits the model alone, but together they might: one unpinned worker,
   // ollama splits layers across the cards, and the noMTP build keeps prefill
   // sane. Below that, the box is under the floor.
-  if (vramMb.length >= 2 && total >= 20000) {
+  if (vramMb.length >= 2 && total >= MIN_SPLIT_TOTAL_MB) {
     return { ...SPLIT, draft: false, numCtx: 8192 };
   }
   return null;

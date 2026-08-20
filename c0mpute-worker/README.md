@@ -34,13 +34,13 @@ The build is picked from your hardware, once, automatically:
 | AMD 24GB+ | GGUF Q4_K_M | off |
 | Apple Silicon, 32GB+ unified memory | MLX 4-bit via ollama's MLX engine | off (never on Metal) |
 
-The context window is VRAM-adaptive and baked into the local model; the worker reports it at registration. Weights download once (kept under `~/.config/c0mpute-worker/models` on the GGUF path, so config updates rebuild without re-downloading) and the GGUF files are fetched from a pinned revision, so every worker serves byte-identical weights.
+The context window is VRAM-adaptive and baked into the local model; the worker reports it at registration. Weights download once (kept under `~/.config/c0mpute-worker/models` on the GGUF path, so config updates rebuild without re-downloading), resume if interrupted, and are fetched from a pinned revision and sha256-verified before use — every worker serves byte-identical weights.
 
 **Ollama v0.32.15 or newer is required** — older versions can't load this model (they fail with unhelpful HTTP 500s, and some 0.32.x CUDA builds silently run RTX 30xx cards on CPU). The worker checks at startup and tells you in plain words if you need to upgrade.
 
 > Supervise ollama yourself? Set `C0MPUTE_MANAGE_OLLAMA=0` to use your running instance.
 
-**Requirements:** Node 18+, [ollama](https://ollama.com) v0.32.15+, and one of: a 16GB+ NVIDIA GPU (24GB recommended), a 24GB+ AMD GPU, or an Apple Silicon Mac with 32GB+ unified memory. ~36GB free disk (downloaded weights + ollama's own copy).
+**Requirements:** Node 18+, [ollama](https://ollama.com) v0.32.15+, and one of: a 16GB+ NVIDIA GPU (24GB recommended), a 24GB+ AMD GPU, or an Apple Silicon Mac with 32GB+ unified memory. ~40GB free disk (the downloaded weights are kept for cheap rebuilds, and ollama stores its own copy; a mixed-VRAM rig that needs two builds uses more).
 
 ## Multi-GPU rigs
 

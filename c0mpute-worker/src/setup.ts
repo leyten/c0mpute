@@ -1,5 +1,6 @@
 import { spawn, execSync, execFileSync } from 'child_process';
-import { existsSync, writeFileSync, mkdirSync, statSync, createWriteStream, renameSync, unlinkSync } from 'fs';
+import { existsSync, writeFileSync, readFileSync, mkdirSync, statSync, createWriteStream, createReadStream, renameSync, unlinkSync, rmSync } from 'fs';
+import { createHash } from 'crypto';
 import { join } from 'path';
 import os from 'os';
 import {
@@ -23,6 +24,7 @@ import {
   GGUF_BASE_URL,
   GGUF_VISION_FILE,
   GGUF_VISION_BYTES,
+  GGUF_VISION_SHA256,
   GgufVariant,
 } from './models.js';
 import { checkOllama, modelExists } from './inference.js';
@@ -260,6 +262,7 @@ async function checkOllamaVersion(): Promise<void> {
   }
   const m = raw.match(/(\d+)\.(\d+)\.(\d+)/);
   if (!m) return; // dev/nightly build strings — assume new enough
+  if (raw.startsWith('0.0.0')) return; // source builds report 0.0.0 — same assumption
   const v = [Number(m[1]), Number(m[2]), Number(m[3])];
   const tooOld =
     v[0] !== MIN_OLLAMA[0] ? v[0] < MIN_OLLAMA[0]
@@ -276,15 +279,10 @@ async function checkOllamaVersion(): Promise<void> {
   }
 }
 
-/**
- * Ensure ollama is installed, running, new enough, and the c0mpute model for
- * this box (GGUF variant or MLX build) is built and ready.
- */
-export async function ensureSetup(): Promise<void> {
-  await ensureOllamaRunning();
-  console.log('Ollama: connected');
-  await checkOllamaVersion();
-
+/** Pure hardware verdict, throwing the requirements error. Runs FIRST — before
+ *  ensureOllamaRunning — so a box that doesn't qualify is told so before we
+ *  auto-install ollama or pkill/restart a daemon on it. */
+function validateHardware(): void {
   if (IS_APPLE_SILICON) {
     const memGb = os.totalmem() / 2 ** 30;
     // ~19GB resident on a GPU-wired ceiling — a 24GB Mac thrashes, a 16GB one
@@ -294,20 +292,36 @@ export async function ensureSetup(): Promise<void> {
         `${MODEL_LABEL} needs a ${MLX_MIN_MEMORY_GB}GB+ unified-memory Mac (this one has ${Math.round(memGb)}GB).`
       );
     }
+    return;
+  }
+  if (!OLLAMA_BASE_MODEL && !GGUF_VARIANT) {
+    const seen = GPU_VRAM_MB.map((m) => `${Math.round(m / 1024)}GB`).join(' + ') || 'none';
+    throw new Error(
+      `Not enough VRAM for ${MODEL_LABEL} (detected: ${seen}).\n` +
+      '  Minimum: a 16GB NVIDIA GPU (24GB recommended), a 24GB AMD GPU, or a 32GB+ Apple Silicon Mac.'
+    );
+  }
+}
+
+/**
+ * Ensure ollama is installed, running, new enough, and the c0mpute model for
+ * this box (GGUF variant or MLX build) is built and ready.
+ */
+export async function ensureSetup(): Promise<void> {
+  validateHardware();
+
+  await ensureOllamaRunning();
+  console.log('Ollama: connected');
+  await checkOllamaVersion();
+
+  if (IS_APPLE_SILICON) {
     console.log(`Backend: MLX (Apple Silicon) · context window: ${NUM_CTX} tokens`);
   } else if (!OLLAMA_BASE_MODEL) {
-    if (!GGUF_VARIANT) {
-      const seen = GPU_VRAM_MB.map((m) => `${Math.round(m / 1024)}GB`).join(' + ') || 'none';
-      throw new Error(
-        `Not enough VRAM for ${MODEL_LABEL} (detected: ${seen}).\n` +
-        '  Minimum: a 16GB NVIDIA GPU (24GB recommended), a 24GB AMD GPU, or a 32GB+ Apple Silicon Mac.'
-      );
-    }
     console.log(
-      `Backend: GGUF ${GGUF_VARIANT.weightsFile} · context window: ${NUM_CTX} tokens ` +
+      `Backend: GGUF ${GGUF_VARIANT!.weightsFile} · context window: ${NUM_CTX} tokens ` +
       `(detected VRAM: ${DETECTED_VRAM_MB || 'unknown'} MB)`
     );
-    if (GGUF_VARIANT.key === 'split') {
+    if (GGUF_VARIANT!.key === 'split') {
       console.log('Multi-GPU layer split: noMTP build, speculative decoding off.');
     }
   }
@@ -375,7 +389,7 @@ async function buildModel(): Promise<void> {
 /** Pull a base model through ollama (registry or hf.co), streaming progress. */
 async function pullBase(base: string): Promise<void> {
   console.log(`Pulling base model: ${base}`);
-  console.log('This may take a while on first run (~17GB download)...');
+  console.log('This may take a while on first run (a multi-GB download)...');
 
   const pullRes = await fetch(`${OLLAMA_URL}/api/pull`, {
     method: 'POST',
@@ -452,47 +466,143 @@ async function createFromBase(base: string): Promise<void> {
   }
 }
 
-/** Stream a model file to disk with a progress line. Files already present at
- *  the expected size are kept (that's what makes rebuilds free). Partial
- *  downloads land in a .part and only rename on a byte-complete body. */
-async function downloadModelFile(url: string, dest: string, expectedBytes: number): Promise<void> {
-  if (existsSync(dest) && statSync(dest).size === expectedBytes) return;
-  const name = dest.split(/[\\/]/).pop();
-  const part = `${dest}.part`;
-  console.log(`Downloading ${name} (${(expectedBytes / 1e9).toFixed(1)} GB)...`);
-
-  const res = await fetch(url);
-  if (!res.ok || !res.body) {
-    throw new Error(`Download failed: ${name} → HTTP ${res.status}`);
+/** Cross-process download lock. mkdir is atomic on every platform; the pid
+ *  inside lets a successor detect a dead owner and take over. Needed because
+ *  per-GPU workers share MODELS_DIR: two writers on one .part interleave into
+ *  a byte-count-perfect but corrupt file. */
+function acquireLock(dest: string): boolean {
+  const lockDir = `${dest}.lock`;
+  const claim = () => {
+    mkdirSync(lockDir);
+    writeFileSync(join(lockDir, 'pid'), String(process.pid));
+  };
+  try {
+    claim();
+    return true;
+  } catch { /* held — check the owner below */ }
+  try {
+    const pid = Number(readFileSync(join(lockDir, 'pid'), 'utf-8'));
+    if (pid > 0) {
+      try {
+        process.kill(pid, 0); // throws ESRCH when the owner is gone
+        return false;         // owner alive — keep waiting
+      } catch (e: any) {
+        if (e?.code !== 'ESRCH') return false; // EPERM etc. — assume alive
+      }
+    }
+  } catch { /* no/unreadable pid file — treat as stale */ }
+  try {
+    rmSync(lockDir, { recursive: true, force: true });
+    claim();
+    return true;
+  } catch {
+    return false; // lost the takeover race — keep waiting
   }
-  const total = Number(res.headers.get('content-length')) || expectedBytes;
+}
 
-  const out = createWriteStream(part);
+function releaseLock(dest: string): void {
+  try { rmSync(`${dest}.lock`, { recursive: true, force: true }); } catch { /* best effort */ }
+}
+
+/** Stream a model file to disk: resumable (a leftover .part continues with a
+ *  Range request instead of re-pulling 17GB), verified (sha256 against the
+ *  pinned-revision hash before the file is ever trusted), and serialized
+ *  across per-GPU workers via the lock above. Files already present at the
+ *  expected size are kept — only verified downloads ever land on `dest`, so
+ *  presence implies integrity. */
+async function downloadModelFile(url: string, dest: string, expectedBytes: number, expectedSha: string): Promise<void> {
+  const done = () => existsSync(dest) && statSync(dest).size === expectedBytes;
+  if (done()) return;
+  const name = dest.split(/[\\/]/).pop();
+
+  let waiting = false;
+  while (!acquireLock(dest)) {
+    if (!waiting) {
+      waiting = true;
+      console.log(`Another worker is downloading ${name} — waiting...`);
+    }
+    await sleep(10_000);
+    if (done()) return; // the other worker finished it
+  }
+  try {
+    if (done()) return; // finished while we were acquiring
+    await downloadLocked(url, dest, expectedBytes, expectedSha, name!);
+  } finally {
+    releaseLock(dest);
+  }
+}
+
+async function downloadLocked(url: string, dest: string, expectedBytes: number, expectedSha: string, name: string): Promise<void> {
+  const part = `${dest}.part`;
+
+  // Resume: feed the already-downloaded bytes through the hash first, so the
+  // final digest always covers the whole file no matter how many runs it took.
+  let hash = createHash('sha256');
+  let offset = 0;
+  if (existsSync(part)) {
+    const size = statSync(part).size;
+    if (size > 0 && size < expectedBytes) {
+      offset = size;
+      console.log(`Resuming ${name} at ${(offset / 1e9).toFixed(1)} of ${(expectedBytes / 1e9).toFixed(1)} GB...`);
+      await new Promise<void>((resolve, reject) => {
+        const rs = createReadStream(part);
+        rs.on('data', (c) => hash.update(c as Buffer));
+        rs.on('end', () => resolve());
+        rs.on('error', reject);
+      });
+    } else {
+      unlinkSync(part); // empty or overshot — start clean
+    }
+  }
+  if (offset === 0) {
+    console.log(`Downloading ${name} (${(expectedBytes / 1e9).toFixed(1)} GB)...`);
+  }
+
+  const res = await fetch(url, offset > 0 ? { headers: { Range: `bytes=${offset}-` } } : undefined);
+  if (offset > 0 && res.status !== 206) {
+    // Server ignored the Range — start over from byte 0.
+    offset = 0;
+    hash = createHash('sha256');
+  }
+  if (!(res.status === 200 || res.status === 206) || !res.body) {
+    throw new Error(`Download failed: ${name} → HTTP ${res.status}. Re-run the worker to retry.`);
+  }
+
+  const out = createWriteStream(part, { flags: offset > 0 ? 'a' : 'w' });
   const reader = res.body.getReader();
-  let got = 0;
+  let got = offset;
   let lastPct = -1;
   try {
     while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
+      const { done: end, value } = await reader.read();
+      if (end) break;
+      hash.update(value);
       got += value.length;
       await new Promise<void>((resolve, reject) =>
         out.write(value, (e) => (e ? reject(e) : resolve()))
       );
-      const pct = Math.floor((got / total) * 100);
+      const pct = Math.floor((got / expectedBytes) * 100);
       if (pct !== lastPct) {
         process.stdout.write(`\r  ${name}: ${pct}%`);
         lastPct = pct;
       }
     }
   } finally {
+    // On error the .part stays behind on purpose: the next run resumes it.
     await new Promise((r) => out.end(r));
   }
   console.log('');
 
-  if (got !== total) {
+  if (got !== expectedBytes) {
+    throw new Error(`Download incomplete: ${name} (${got}/${expectedBytes} bytes) — re-run the worker to resume.`);
+  }
+  const digest = hash.digest('hex');
+  if (digest !== expectedSha) {
     try { unlinkSync(part); } catch { /* best effort */ }
-    throw new Error(`Download incomplete: ${name} (${got}/${total} bytes) — re-run the worker to retry.`);
+    throw new Error(
+      `Checksum mismatch for ${name} (got ${digest.slice(0, 12)}…, expected ${expectedSha.slice(0, 12)}…). ` +
+      'The download was corrupted — re-run the worker to retry.'
+    );
   }
   renameSync(part, dest);
 }
@@ -520,8 +630,8 @@ function ggufModelfile(v: GgufVariant): string {
  *  Modelfile directives. */
 async function createFromModelfile(v: GgufVariant): Promise<void> {
   mkdirSync(MODELS_DIR, { recursive: true });
-  await downloadModelFile(`${GGUF_BASE_URL}/${v.weightsFile}`, join(MODELS_DIR, v.weightsFile), v.weightsBytes);
-  await downloadModelFile(`${GGUF_BASE_URL}/${GGUF_VISION_FILE}`, join(MODELS_DIR, GGUF_VISION_FILE), GGUF_VISION_BYTES);
+  await downloadModelFile(`${GGUF_BASE_URL}/${v.weightsFile}`, join(MODELS_DIR, v.weightsFile), v.weightsBytes, v.sha256);
+  await downloadModelFile(`${GGUF_BASE_URL}/${GGUF_VISION_FILE}`, join(MODELS_DIR, GGUF_VISION_FILE), GGUF_VISION_BYTES, GGUF_VISION_SHA256);
 
   const modelfilePath = join(MODELS_DIR, `Modelfile.${v.key}`);
   writeFileSync(modelfilePath, ggufModelfile(v));
