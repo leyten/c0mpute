@@ -594,7 +594,7 @@ export class Orchestrator {
         // Final-cutover gate (staged; see RETIRE_LEGACY_WORKERS). The message is
         // what the operator's terminal shows right before the worker exits.
         if (this.RETIRE_LEGACY_WORKERS && workerType === 'native' && this.RETIRED_WORKER_MODELS.has(data.model)) {
-          callback({ error: 'This worker version is retired — the network now runs qwen3.8-27b-uncensored. Update: npm i -g @c0mpute/worker@latest, then restart the worker.' });
+          callback({ error: 'This worker version is retired — the network now runs qwen3.8-27b-uncensored. Update: npm i -g @compute-network/worker@latest, then restart the worker.' });
           return;
         }
         const tokPerSec = data.tokPerSec || 0;

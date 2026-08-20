@@ -34,7 +34,7 @@ ollama --version
 ## Run the worker
 
 ```bash
-npx @c0mpute/worker --token <your-token>
+npx @compute-network/worker --token <your-token>
 ```
 
 That's it. ollama automatically detects Metal on Apple Silicon — no extra drivers or configuration needed.

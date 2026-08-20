@@ -48,7 +48,7 @@ Revoked tokens stop working immediately. Any worker using that token will discon
 
 ```bash
 export C0MPUTE_TOKEN="cwt_your_token_here"
-npx @c0mpute/worker --token $C0MPUTE_TOKEN
+npx @compute-network/worker --token $C0MPUTE_TOKEN
 ```
 
 - If you accidentally expose a token, revoke it immediately and generate a new one

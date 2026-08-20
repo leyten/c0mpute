@@ -63,7 +63,7 @@ Metal auto-detects on Apple Silicon. If performance is unexpectedly low:
 
 ## Model download fails
 
-On first run the weights are pulled from a pinned HuggingFace revision into `~/.config/c0mpute-worker/models`, then built into ollama.
+On first run the weights are pulled from a pinned HuggingFace revision into `~/.config/compute-worker/models`, then built into ollama.
 
 - **Check disk space**: you need **~36GB free** — the kept download plus ollama's copy of the built model (`~/.ollama` by default). On macOS the MLX build needs ~20GB.
 - **Check internet**: try `curl -I https://huggingface.co` to verify connectivity

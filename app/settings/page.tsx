@@ -687,8 +687,8 @@ export default function SettingsPage() {
                       {tokenError && <Notice tone="error">{tokenError}</Notice>}
 
                       <CopyField
-                        text={`npx @c0mpute/worker --token ${newToken || '<token>'}`}
-                        display={`npx @c0mpute/worker --token ${newToken || '<token>'}`}
+                        text={`npx @compute-network/worker --token ${newToken || '<token>'}`}
+                        display={`npx @compute-network/worker --token ${newToken || '<token>'}`}
                         accent={!!newToken}
                       />
                       {newToken && (
