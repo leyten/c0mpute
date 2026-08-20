@@ -44,8 +44,13 @@ const MODEL_PARAMETERS: Record<string, number> = {
 };
 
 /** Downloaded GGUF files live here and STAY here: a config-drift rebuild
- *  re-runs `ollama create` from these files instead of re-downloading 17GB. */
-const MODELS_DIR = join(os.homedir(), '.config', 'c0mpute-worker', 'models');
+ *  re-runs `ollama create` from these files instead of re-downloading 17GB.
+ *  A rig that already downloaded under the pre-rebrand path keeps using it —
+ *  moving the dir would mean re-downloading 17GB for a name. */
+const LEGACY_MODELS_DIR = join(os.homedir(), '.config', 'c0mpute-worker', 'models');
+const MODELS_DIR = existsSync(LEGACY_MODELS_DIR)
+  ? LEGACY_MODELS_DIR
+  : join(os.homedir(), '.config', 'compute-worker', 'models');
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -304,7 +309,7 @@ function validateHardware(): void {
 }
 
 /**
- * Ensure ollama is installed, running, new enough, and the c0mpute model for
+ * Ensure ollama is installed, running, new enough, and the local model for
  * this box (GGUF variant or MLX build) is built and ready.
  */
 export async function ensureSetup(): Promise<void> {
@@ -362,7 +367,7 @@ export async function ensureSetup(): Promise<void> {
   console.log(`Model: ${OLLAMA_MODEL} (created)`);
 }
 
-/** Build the local c0mpute model for this box, whichever path applies. */
+/** Build the local model for this box, whichever path applies. */
 async function buildModel(): Promise<void> {
   if (OLLAMA_BASE_MODEL) {
     // Testing escape hatch (C0MPUTE_BASE_MODEL): the old registry-pull path.

@@ -12,8 +12,12 @@ import { listGpuIndexes, queryVramMB } from './gpus.js';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf-8'));
 
-const CONFIG_DIR = join(homedir(), '.config', 'c0mpute-worker');
+const CONFIG_DIR = join(homedir(), '.config', 'compute-worker');
 const CONFIG_FILE = join(CONFIG_DIR, 'config.json');
+/** Pre-rebrand location (@c0mpute/worker). Read as a fallback so a rig that
+ *  upgrades across the rename keeps its saved mode — a headless box with no
+ *  saved mode would otherwise refuse to start. Writes go to the new dir. */
+const LEGACY_CONFIG_FILE = join(homedir(), '.config', 'c0mpute-worker', 'config.json');
 
 // 'max' is the historical name for the text/LLM mode — kept as the stored
 // value so configs saved by 2.8.x keep working headless after an upgrade.
@@ -27,7 +31,11 @@ function readConfig(): SavedConfig {
   try {
     return JSON.parse(readFileSync(CONFIG_FILE, 'utf-8')) as SavedConfig;
   } catch {
-    return {};
+    try {
+      return JSON.parse(readFileSync(LEGACY_CONFIG_FILE, 'utf-8')) as SavedConfig;
+    } catch {
+      return {};
+    }
   }
 }
 
@@ -163,8 +171,8 @@ function resolveGpus(flag: string | undefined, benchmarkOnly: boolean): number[]
 const program = new Command();
 
 program
-  .name('c0mpute-worker')
-  .description('Native worker for the c0mpute.ai distributed inference network')
+  .name('compute-worker')
+  .description('Native worker for Compute Network (compute.tech), the distributed inference network')
   .version(pkg.version)
   .option('--token <token>', 'Authentication token from c0mpute.ai')
   .option('--url <url>', 'Orchestrator URL', 'https://c0mpute.ai')
@@ -173,10 +181,10 @@ program
   .option('--gpu <indexes>', 'Text mode: run only these GPUs — one index (--gpu 3) or a comma list (--gpu 0,2,5). Omitted, a multi-GPU rig runs every capable card, one worker each.')
   .option('--benchmark', 'Run benchmark only, then exit')
   .action(async (opts) => {
-    console.log(`c0mpute worker v${pkg.version}`);
+    console.log(`Compute Network worker v${pkg.version}`);
 
     if (!opts.token) {
-      console.error('Error: --token is required. Get yours at https://c0mpute.ai (Worker tab).\nTo change a remembered mode, run "c0mpute-worker reset".');
+      console.error('Error: --token is required. Get yours at https://compute.tech/earn.\nTo change a remembered mode, run "compute-worker reset".');
       process.exit(1);
     }
 
