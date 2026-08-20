@@ -13,6 +13,8 @@ import {
   getModelTier,
   workerServesModel,
   selectionWeight,
+  MAX_INPUT_TOKENS_NATIVE,
+  MAX_INPUT_TOKENS_BROWSER,
 } from './types';
 import { verifyPrivyToken } from '../privy-server';
 import { incrementPromptsSent, verifyWorkerToken, recordCompletedJob, recordEarning, spendCredits, getCreditBalance, refundCredits, isWorkerBanned, recordWorkerStrike, recordCanaryResult, consumeFreePrompt, restoreFreePrompt, getFreePromptsUsed, recordSubsidizedPrompt, getTodayFreeSubsidyUsd, getThisHourFreeSubsidyUsd, anonGrantFreePrompt, getAnonRemaining, profileHasLogin, getAccountAgeMs } from '../db';
@@ -140,6 +142,73 @@ function estimatePromptTokens(messages: ChatMessage[] | undefined): number {
     if (typeof m?.content === 'string') chars += m.content.length;
   }
   return Math.ceil(chars / 4);
+}
+
+// ── Input (context) bound ──────────────────────────────────────────────────
+// Nothing server-side limited how much prompt a job could carry: the chat client
+// resends the whole conversation every turn, and per-message billing doesn't care
+// how big that gets — so input cost was unbounded, and an obvious abuse hole the
+// moment billing moves per-token.
+//
+// The bound is deliberately user-friendly. A conversation that outgrew its budget
+// is TRIMMED — oldest messages dropped whole, system messages and the newest
+// turns kept — never rejected: being twelve turns deep is not a user error. The
+// one hard rejection is a single new message that cannot fit on its own, which no
+// amount of trimming can fix.
+//
+// Sizes come from estimatePromptTokens (chars/4 over message TEXT, the same
+// heuristic the public API route uses). Attached images ride as base64 in
+// `images[]` and are deliberately NOT counted: they are not tokens, and counting
+// their bytes would trim an entire conversation away the moment someone pastes a
+// photo. Existing image-size limits are untouched.
+
+/** Estimated-input budget for the lane this job will be served on. */
+function inputTokenBudget(model: string | undefined): number {
+  // Max tier goes to a native worker; a sharded model goes to a swarm ring, whose
+  // KV cap is larger still. Everything else is a browser worker's 4K window.
+  if (getModelTier(model) === 'max') return MAX_INPUT_TOKENS_NATIVE;
+  if (model && specForModel(model)) return MAX_INPUT_TOKENS_NATIVE;
+  return MAX_INPUT_TOKENS_BROWSER;
+}
+
+type BoundedInput =
+  | { ok: true; messages: ChatMessage[] | undefined; dropped: number }
+  | { ok: false; estTokens: number };
+
+/**
+ * Fit a job's messages inside `budget` estimated input tokens by dropping the
+ * OLDEST non-system messages, whole (a message is never split). Returns ok:false
+ * only when what is left — the system messages plus the newest message — still
+ * doesn't fit, i.e. the new message alone is too long.
+ */
+function boundInputMessages(messages: ChatMessage[] | undefined, budget: number): BoundedInput {
+  if (!messages || messages.length === 0) return { ok: true, messages, dropped: 0 };
+  if (estimatePromptTokens(messages) <= budget) return { ok: true, messages, dropped: 0 };
+
+  const kept = [...messages];
+  let dropped = 0;
+  while (kept.length > 1 && estimatePromptTokens(kept) > budget) {
+    // Oldest message that isn't a system message. Stop if the only candidate left
+    // is the newest one — that is the hard-reject case below, not something to
+    // trim away.
+    const oldest = kept.findIndex((m) => m?.role !== 'system');
+    if (oldest === -1 || oldest === kept.length - 1) break;
+    kept.splice(oldest, 1);
+    dropped++;
+  }
+  // A tool result whose assistant tool-call round was just dropped is an orphan,
+  // which is malformed history for any worker — it goes with the round it belongs
+  // to. (Same for a leading tool message a client sent with no round at all.)
+  // (splice shifts the next message into the same index, so `head` doesn't move)
+  const head = kept.findIndex((m) => m?.role !== 'system');
+  while (head > -1 && head < kept.length - 1 && kept[head]?.role === 'tool') {
+    kept.splice(head, 1);
+    dropped++;
+  }
+
+  const estTokens = estimatePromptTokens(kept);
+  if (estTokens > budget) return { ok: false, estTokens };
+  return { ok: true, messages: kept, dropped };
 }
 
 /** Read-only, exception-proof. Returns nothing and mutates nothing, so no call
@@ -760,6 +829,27 @@ export class Orchestrator {
           console.warn(`[Orchestrator] Blocked prompt from ${privyUserId} (safety policy)`);
           callback({ error: 'Content blocked by safety policy.' });
           return;
+        }
+
+        // Input (context) bound. Sits here so it covers BOTH submit paths — the
+        // chat socket and the internal API bridge, which land on this same
+        // handler — and runs before any lane is charged, so a rejected prompt
+        // costs the user nothing. `data.messages` is reassigned rather than
+        // shadowed: every downstream submitJob call then ships the bounded array
+        // by construction, including the anon lane below.
+        const inputBudget = inputTokenBudget(data.model);
+        const bounded = boundInputMessages(data.messages, inputBudget);
+        if (!bounded.ok) {
+          console.warn(`[Orchestrator] Input rejected from ${privyUserId}: ~${bounded.estTokens} tokens over the ${inputBudget}-token budget`);
+          callback({
+            error: `Your message is too long — on its own it doesn't fit the model's context window. `
+              + `Shorten it to about ${Math.floor((inputBudget * 4) / 1000)}k characters and send it again.`,
+          });
+          return;
+        }
+        if (bounded.dropped > 0) {
+          data.messages = bounded.messages;
+          console.log(`[Orchestrator] Trimmed ${bounded.dropped} oldest message(s) for ${privyUserId} to fit the ${inputBudget}-token input budget`);
         }
 
         // Rate limiting: max 20 jobs per user per 5 minutes (web UI). API jobs
