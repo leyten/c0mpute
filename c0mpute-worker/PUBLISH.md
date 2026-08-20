@@ -1,4 +1,4 @@
-# Publishing `@c0mpute/worker` — CLASSIC line (this branch)
+# Publishing `@compute-network/worker` — CLASSIC line (this branch)
 
 This is `release/worker-classic`: the package the **live network's** operators install.
 It is deliberately **shard-free** — no shard mode, no shard sources, no betanet docs.
@@ -32,6 +32,19 @@ unknown model string gets zero jobs. Publish order: orchestrator deploy →
 out of the catalog + legacy-worker reject gate on, which makes 2.8.x print
 the update instruction and exit).
 
+## Rename (2.9.0): @c0mpute/worker -> @compute-network/worker
+
+2.9.0 is the first release under the Compute Network name. npm cannot rename a
+package, so the move is: publish the new name, then deprecate every version of
+the old one with a pointer:
+
+```bash
+npm deprecate @c0mpute/worker "Moved to @compute-network/worker - npm i -g @compute-network/worker@latest"
+```
+
+Never publish new versions to @c0mpute/worker again; the cutover reject-gate
+message tells the deployed 2.8.x fleet the new install command.
+
 ## The publish (explicit go from leyten, never automatic)
 
 ```bash
@@ -42,4 +55,4 @@ npm pack --dry-run           # file list must be dist/* + README.md + package.js
 npm publish --access public  # goes to dist-tag `latest`
 ```
 
-Verify: `npm view @c0mpute/worker version` → 2.9.0, and the tarball has no `shard-*` files.
+Verify: `npm view @compute-network/worker version` → 2.9.0, and the tarball has no `shard-*` files.

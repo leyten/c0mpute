@@ -1,6 +1,6 @@
-# c0mpute-worker
+# @compute-network/worker
 
-Native CLI worker for the [c0mpute.ai](https://c0mpute.ai) distributed inference network. Connects to the orchestrator over Socket.io and serves jobs from your GPU. A worker runs in **one of two modes** — text or image — chosen on first run:
+Native CLI worker for the [Compute Network](https://compute.tech) distributed inference network. Connects to the orchestrator over Socket.io and serves jobs from your GPU. A worker runs in **one of two modes** — text or image — chosen on first run:
 
 - **Qwen (text)** — LLM inference via [ollama](https://ollama.com): **Qwen3.8 27B Uncensored**, the network's single public model (tools, vision, thinking).
 - **Image** — text-to-image via [ComfyUI](https://github.com/comfyanonymous/ComfyUI) + the uncensored Chroma1-HD model.
@@ -8,17 +8,17 @@ Native CLI worker for the [c0mpute.ai](https://c0mpute.ai) distributed inference
 ## Quick Start
 
 ```bash
-npx @c0mpute/worker --token <your-token>
+npx @compute-network/worker --token <your-token>
 ```
 
 It asks which mode to run (text or image) on every interactive start, defaulting to your last choice — just press Enter to keep it, or pick the other to switch. Skip the prompt entirely with `--mode`:
 
 ```bash
-npx @c0mpute/worker --token <your-token> --mode max     # Qwen text worker
-npx @c0mpute/worker --token <your-token> --mode image   # image worker
+npx @compute-network/worker --token <your-token> --mode max     # Qwen text worker
+npx @compute-network/worker --token <your-token> --mode image   # image worker
 ```
 
-Get a token at [c0mpute.ai/earn](https://c0mpute.ai/earn). Only the chosen mode is downloaded — never both. A rig with more than one NVIDIA card needs no extra flags: it runs one worker per capable GPU on its own (see [Multi-GPU rigs](#multi-gpu-rigs)).
+Get a token at [compute.tech/earn](https://compute.tech/earn). Only the chosen mode is downloaded — never both. A rig with more than one NVIDIA card needs no extra flags: it runs one worker per capable GPU on its own (see [Multi-GPU rigs](#multi-gpu-rigs)).
 
 ## Qwen (text) worker
 
@@ -34,7 +34,7 @@ The build is picked from your hardware, once, automatically:
 | AMD 24GB+ | GGUF Q4_K_M | off |
 | Apple Silicon, 32GB+ unified memory | MLX 4-bit via ollama's MLX engine | off (never on Metal) |
 
-The context window is VRAM-adaptive and baked into the local model; the worker reports it at registration. Weights download once (kept under `~/.config/c0mpute-worker/models` on the GGUF path, so config updates rebuild without re-downloading), resume if interrupted, and are fetched from a pinned revision and sha256-verified before use — every worker serves byte-identical weights.
+The context window is VRAM-adaptive and baked into the local model; the worker reports it at registration. Weights download once (kept under `~/.config/compute-worker/models` on the GGUF path (a pre-rename rig keeps its existing download dir), so config updates rebuild without re-downloading), resume if interrupted, and are fetched from a pinned revision and sha256-verified before use — every worker serves byte-identical weights.
 
 **Ollama v0.32.15 or newer is required** — older versions can't load this model (they fail with unhelpful HTTP 500s, and some 0.32.x CUDA builds silently run RTX 30xx cards on CPU). The worker checks at startup and tells you in plain words if you need to upgrade.
 
@@ -47,7 +47,7 @@ The context window is VRAM-adaptive and baked into the local model; the worker r
 Ollama loads a model that fits on a **single** card, so one worker only ever drives one GPU — on an 8-GPU box seven cards would sit idle. So the CLI counts the NVIDIA cards itself and, when there's more than one with enough VRAM to hold the model (16GB+), runs **one worker per capable GPU**. No flags:
 
 ```bash
-npx @c0mpute/worker --token <your-token> --mode max
+npx @compute-network/worker --token <your-token> --mode max
 # 8 GPUs detected — starting one worker per GPU (use --gpu <n> to run a single card).
 ```
 
@@ -58,8 +58,8 @@ The mode is prompted once, then the process becomes a supervisor and re-execs it
 Run a chosen card, or a chosen set, with `--gpu` (indexes as `nvidia-smi` numbers them, 0-15):
 
 ```bash
-npx @c0mpute/worker --token <your-token> --mode max --gpu 3      # only GPU 3
-npx @c0mpute/worker --token <your-token> --mode max --gpu 0,2,5  # only these three
+npx @compute-network/worker --token <your-token> --mode max --gpu 3      # only GPU 3
+npx @compute-network/worker --token <your-token> --mode max --gpu 0,2,5  # only these three
 ```
 
 **Stop any system ollama first.** GPU 0's worker owns port 11434 — ollama's own default. A pinned worker never restarts a daemon that already serves its port (every `ollama serve` looks alike to `pkill`, so killing it would take the siblings down too), which means a pre-existing box-wide ollama gets adopted as-is — and that daemon sees *every* card instead of just GPU 0:
@@ -101,7 +101,7 @@ On startup it:
 
 ```
 -V, --version    output the version number
---token <token>  Authentication token from c0mpute.ai
+--token <token>  Authentication token from compute.tech
 --url <url>      Orchestrator URL (default: "https://c0mpute.ai")
 --mode <mode>    Worker mode: "max" (text/LLM) or "image" (image gen).
                  Prompts on first run if omitted.
@@ -113,19 +113,19 @@ On startup it:
 -h, --help       display help for command
 ```
 
-`--token` is required. One subcommand: `c0mpute-worker reset` clears the saved mode so the next start re-prompts.
+`--token` is required. One subcommand: `compute-worker reset` clears the saved mode so the next start re-prompts.
 
 ## Updating
 
 There is **no auto-update** — a worker runs exactly the version you installed and nothing self-upgrades at startup (a hijacked release re-exec'ing itself on every worker is not a surface worth having). Upgrades are explicit:
 
 ```bash
-npm i -g @c0mpute/worker@latest                       # global install
-npx -y @c0mpute/worker@latest --token <your-token>    # npx: @latest fetches the current release
+npm i -g @compute-network/worker@latest                       # global install
+npx -y @compute-network/worker@latest --token <your-token>    # npx: @latest fetches the current release
 ```
 
-Every start prints the version it's running (`c0mpute worker v…`), so you can always see what a box is on.
+Every start prints the version it's running (`Compute Network worker v…`), so you can always see what a box is on.
 
 ## Earnings
 
-Workers earn credits for completing jobs — text jobs by tokens generated, image jobs per render. Check your earnings at [c0mpute.ai](https://c0mpute.ai).
+Workers earn credits for completing jobs — text jobs by tokens generated, image jobs per render. Check your earnings at [Compute Network](https://compute.tech).
