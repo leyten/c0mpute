@@ -682,6 +682,14 @@ async function modelConfigCurrent(): Promise<boolean> {
         return false;
       }
     }
+
+    // System-prompt drift also forces a rebuild — parameters alone missed it
+    // (a prompt-only change would otherwise never reach existing builds). Only
+    // enforced when /api/show actually reports a system string; if this ollama
+    // doesn't expose one, guessing would rebuild on every start.
+    if (typeof data.system === 'string' && data.system.trim() !== SYSTEM_PROMPT.trim()) {
+      return false;
+    }
     return true;
   } catch {
     return false;

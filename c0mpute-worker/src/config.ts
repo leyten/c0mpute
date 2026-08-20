@@ -96,8 +96,11 @@ export const MAX_OUTPUT_TOKENS_THINKING = 8192;
 /** Maximum tool call rounds per job (prevents infinite loops) */
 export const MAX_TOOL_ROUNDS = 5;
 
-/** System prompt baked into the model */
-export const SYSTEM_PROMPT = 'You are c0mpute, an AI assistant built for the c0mpute.ai decentralized inference network. Your name is c0mpute. Be direct and concise. Always respond in English. Do not use emojis.';
+/** System prompt baked into the model. The model identifies as itself — the
+ *  product sells the model under its real name, on Compute Network; no
+ *  invented assistant persona. (Jobs normally carry the orchestrator's richer
+ *  injected prompt; this is the local fallback.) */
+export const SYSTEM_PROMPT = 'You are Qwen3.8 27B Uncensored, served on Compute Network (compute.tech), a decentralized inference network. Be direct and concise. Always respond in English. Do not use emojis.';
 
 
 
