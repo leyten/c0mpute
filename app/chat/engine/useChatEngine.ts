@@ -16,7 +16,19 @@ import { DEMO_MODE, DEMO_NETWORK_STATS, pickDemo, demoChunks, demoSleep, makeDem
 
 const ANON_TOKEN_KEY = 'c0mpute_anon_token';
 const STOP_TOKENS = ['<|im_end|>', '<|im_end', '<|im_start|>', '<|endoftext|>'];
-const JOB_STALL_MS = 60000;
+/** Silence between streamed chunks that counts as the network going quiet.
+ *  The orchestrator kills a mid-stream stall at 60s and sends job:error, so this
+ *  sits above that plus relay slack: the server always gives up first and the
+ *  user gets its real reason instead of this generic one. An answer that keeps
+ *  streaming is never interrupted, however long it runs. */
+const JOB_STALL_MS = 90000;
+/** Patience before the FIRST chunk arrives — a much longer wait, because none of
+ *  it is the answer being slow. The server may hold a job in its queue for 180s
+ *  and then allow 120s for the first token after dispatch (orchestrator.ts
+ *  FIRST_TOKEN_MS), so giving up under 300s tells the user the network went
+ *  quiet while it is still inside its own budget — and detaches the job record,
+ *  throwing away the answer that arrives later. */
+const JOB_FIRST_CHUNK_MS = 330000;
 /** How long a finished job stays reachable for the events that land after it:
  *  a render can take minutes, and its image belongs to the turn that asked. */
 const LATE_EVENT_MS = 210000;
@@ -57,6 +69,12 @@ interface JobRecord {
   sources: SourceRef[];
   images: string[];
   completed: boolean;
+  /** Has anything been streamed yet? Picks which stall window applies. */
+  streamed: boolean;
+  /** Which socket connection this job was submitted on (see connGenRef). A job
+   *  cannot outlive its connection, so this is what tells a drop whose job it
+   *  just killed — and stops it from touching a job started after the reconnect. */
+  gen: number;
   stall: ReturnType<typeof setTimeout> | null;
 }
 
@@ -254,7 +272,7 @@ export function useChatEngine(): ChatEngine {
         refreshAnonRemaining();
         setTimeout(() => { refreshCredits(); refreshAnonRemaining(); }, 5000);
       }
-    }, JOB_STALL_MS);
+    }, a.streamed ? JOB_STALL_MS : JOB_FIRST_CHUNK_MS);
   }, [refreshCredits, refreshAnonRemaining]);
 
   const finishActive = useCallback(() => {
@@ -287,6 +305,10 @@ export function useChatEngine(): ChatEngine {
     setOnJobToken((jobId, token) => {
       const a = activeRef.current;
       if (!a || a.completed || jobId !== a.jobId) return;
+      // Every chunk re-arms the stall, and the first one switches the job to the
+      // shorter mid-stream window: from here on silence is the only failure, so
+      // the answer can take as long as it takes.
+      a.streamed = true;
       armStall();
       let clean = token;
       // replaceAll: a chunk can carry the same stop token more than once, and
@@ -383,6 +405,39 @@ export function useChatEngine(): ChatEngine {
     }
   }, [queuePosition, armStall]);
 
+  // A dropped socket ends the job that was running on it. The orchestrator keys
+  // jobs to the submitting socket and deletes them the moment it goes
+  // (cleanupUserJobs), refunding the charge when nothing was delivered;
+  // socket.io then reconnects under a NEW socket id, so no event for that job
+  // can ever reach us again. Nothing but the stall timer used to notice, which was
+  // tolerable at 60s and is not at the 330s first-chunk window — a reader on
+  // flaky wifi would watch a spinner for five and a half minutes for an answer
+  // that stopped existing immediately.
+  //
+  // connGenRef is what keeps the reconnect race honest: it counts connections,
+  // send() stamps the current one onto the job, and this only fails a job that
+  // belongs to the connection that just dropped. The next job — submitted after
+  // the reconnect, on a higher generation — is untouchable from here.
+  const connGenRef = useRef(0);
+  useEffect(() => {
+    if (isConnected) { connGenRef.current++; return; }
+    const a = activeRef.current;
+    // No jobId yet ⇒ the submit ack is still in flight and send() owns the
+    // failure (its bounded ack rejects and reports it); firing here as well
+    // would put two errors on screen for one prompt.
+    if (!a || a.completed || !a.jobId || a.gen !== connGenRef.current) return;
+    a.completed = true;
+    clearStall();
+    setBusy(false);
+    a.cb.onError?.('Lost connection to the network. Reconnect and send it again.');
+    activeRef.current = null;
+    // Same as the stall path: the server gives the charge back when nothing was
+    // delivered, so make that visible without a reload.
+    refreshCredits();
+    refreshAnonRemaining();
+    setTimeout(() => { refreshCredits(); refreshAnonRemaining(); }, 5000);
+  }, [isConnected, refreshCredits, refreshAnonRemaining]);
+
   // The stall timer and the late-image retention timer both outlive the page if
   // nothing clears them: navigate off /chat mid-answer and the stall still fires
   // into a dead component, firing four credit/anon refetches for a page nobody
@@ -392,7 +447,9 @@ export function useChatEngine(): ChatEngine {
   // ---- demo driver (preview only, offline only) ----
   const runDemo = useCallback(async (prompt: string, cb: SendCallbacks) => {
     const jobId = `demo-${Date.now()}`;
-    const a = { jobId, cb, buffer: '', thinkStart: null as number | null, thinkSeconds: null as number | null, sources: [] as SourceRef[], images: [] as string[], completed: false, stall: null as ReturnType<typeof setTimeout> | null };
+    // gen -1: a demo job runs entirely offline, on no connection at all, so the
+    // drop handler must never match it.
+    const a = { jobId, cb, buffer: '', thinkStart: null as number | null, thinkSeconds: null as number | null, sources: [] as SourceRef[], images: [] as string[], completed: false, streamed: false, gen: -1, stall: null as ReturnType<typeof setTimeout> | null };
     activeRef.current = a;
     setBusy(true);
     const script = pickDemo(prompt);
@@ -451,7 +508,7 @@ export function useChatEngine(): ChatEngine {
         cb.onError?.('Authentication expired. Please refresh and sign in again.');
         return false;
       }
-      const a = { jobId: '', cb, buffer: '', thinkStart: null as number | null, thinkSeconds: null as number | null, sources: [] as SourceRef[], images: [] as string[], completed: false, stall: null as ReturnType<typeof setTimeout> | null };
+      const a = { jobId: '', cb, buffer: '', thinkStart: null as number | null, thinkSeconds: null as number | null, sources: [] as SourceRef[], images: [] as string[], completed: false, streamed: false, gen: connGenRef.current, stall: null as ReturnType<typeof setTimeout> | null };
       activeRef.current = a;
       setBusy(true);
       const { jobId, freeRemaining } = await submitJob({ messages, model, authToken, think: think ?? false });

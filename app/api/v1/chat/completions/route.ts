@@ -14,7 +14,22 @@ export const dynamic = 'force-dynamic';
 // tied to the real user.
 
 const ORCH_URL = process.env.INTERNAL_ORCHESTRATOR_URL || 'http://127.0.0.1:3004';
-const JOB_TIMEOUT_MS = 280_000;
+// Liveness, mirroring the orchestrator: what ends a request is SILENCE, not
+// elapsed time. A thinking answer is budgeted at 8192 output tokens and the
+// fleet runs ~30-60 tok/s, so a full-length one streams for 3-5 minutes — the
+// old flat 280s ceiling cut those off mid-answer and handed the caller a
+// timeout for work that was still arriving.
+//
+// IDLE is re-armed on every job:token. Its size is set by the worst honest
+// silence before the FIRST token: the orchestrator holds a job in its queue for
+// up to 180s and then allows another 120s for the first token, so anything
+// under 300s gives up while the network is still within its own budget.
+const JOB_IDLE_TIMEOUT_MS = 330_000;
+// Absolute backstop, above the orchestrator's queue timeout plus its 600s hard
+// ceiling — a job that streams that long is the network's to kill, and its
+// job:error is a better answer than our generic timeout. Only reachable while
+// tokens keep flowing; anything wedged trips IDLE long before.
+const JOB_MAX_TIMEOUT_MS = 900_000;
 
 // Public model name -> { orchestrator model id, think }. Ids must be
 // MODEL_CATALOG keys (max tier) or the pro/swarm lanes below.
@@ -278,13 +293,15 @@ export async function POST(req: NextRequest) {
     let settled = false;
     let roleSent = false;
     let jobTimer: ReturnType<typeof setTimeout> | null = null;
+    let hardTimer: ReturnType<typeof setTimeout> | null = null;
     let heartbeat: ReturnType<typeof setInterval> | null = null;
 
     // Everything holding this request open: the socket (reconnection is off, so
-    // nothing revives it) plus the two timers. Both must die on every exit path —
+    // nothing revives it) plus the timers. All must die on every exit path —
     // an interval left running would fire forever into a dead controller.
     const release = () => {
       if (jobTimer) { clearTimeout(jobTimer); jobTimer = null; }
+      if (hardTimer) { clearTimeout(hardTimer); hardTimer = null; }
       if (heartbeat) { clearInterval(heartbeat); heartbeat = null; }
       try { socket.disconnect(); } catch {}
     };
@@ -310,8 +327,18 @@ export async function POST(req: NextRequest) {
       release();
     };
 
+    // Re-arm the idle deadline: this response is alive for as long as tokens
+    // keep arriving. Clears any previous timer, so it is also how the deadline
+    // is armed the first time.
+    const armIdle = () => {
+      if (settled) return;
+      if (jobTimer) clearTimeout(jobTimer);
+      jobTimer = setTimeout(() => finish({ message: 'Inference timed out.', type: 'timeout' }), JOB_IDLE_TIMEOUT_MS);
+    };
+
     socket.on('job:token', (d: { jobId: string; token: string }) => {
       if (jobId && d.jobId !== jobId) return;
+      armIdle();
       if (!roleSent) { roleSent = true; sendChunk({ role: 'assistant', content: '' }); }
       sendChunk({ content: d.token });
     });
@@ -360,11 +387,12 @@ export async function POST(req: NextRequest) {
     // end this response are job:complete / job:tool_calls / job:error — so a dead
     // orchestrator or a dropped transport (reconnection:false, nothing reconnects)
     // would hold the SSE response and its Node socket open forever. Bound it with
-    // the same ceiling the non-streaming lane uses, and treat a transport drop as
+    // the same windows the non-streaming lane uses, and treat a transport drop as
     // a failed job. Our own disconnect() inside finish() re-enters here, but
     // `settled` is already true by then, so it's a no-op.
     if (!settled) {
-      jobTimer = setTimeout(() => finish({ message: 'Inference timed out.', type: 'timeout' }), JOB_TIMEOUT_MS);
+      armIdle();
+      hardTimer = setTimeout(() => finish({ message: 'Inference timed out.', type: 'timeout' }), JOB_MAX_TIMEOUT_MS);
       socket.on('disconnect', () => finish({ message: 'Lost connection to the inference network.', type: 'api_error' }));
       // A queued job can sit up to ~3 min before its first token. An SSE comment is
       // ignored by every SSE parser but keeps proxies from culling an idle response.
@@ -401,16 +429,31 @@ export async function POST(req: NextRequest) {
       let completionTokens = 0;
       let jobId: string | null = null;
 
-      const timer = setTimeout(() => {
+      // Same liveness rule as the streaming lane: the idle deadline is re-armed
+      // on every token, the hard one is the absolute backstop.
+      let idleTimer: ReturnType<typeof setTimeout> | null = null;
+      const hardTimer = setTimeout(() => timedOut(), JOB_MAX_TIMEOUT_MS);
+      const clearTimers = () => {
+        if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
+        clearTimeout(hardTimer);
+      };
+      function timedOut() {
         if (settled) return;
         settled = true;
+        clearTimers();
         reject({ status: 504, type: 'timeout', message: 'Inference timed out.' });
-      }, JOB_TIMEOUT_MS);
+      }
+      const armIdle = () => {
+        if (settled) return;
+        if (idleTimer) clearTimeout(idleTimer);
+        idleTimer = setTimeout(timedOut, JOB_IDLE_TIMEOUT_MS);
+      };
+      armIdle();
 
       const fail = (status: number, type: string, message: string) => {
         if (settled) return;
         settled = true;
-        clearTimeout(timer);
+        clearTimers();
         reject({ status, type, message });
       };
 
@@ -434,13 +477,14 @@ export async function POST(req: NextRequest) {
       // Orchestrator streams tokens + completion to the submitting (this) socket.
       socket.on('job:token', (d: { jobId: string; token: string }) => {
         if (jobId && d.jobId !== jobId) return;
+        armIdle();
         completionTokens++;
       });
       socket.on('job:complete', (d: { jobId: string; response: string }) => {
         if (jobId && d.jobId !== jobId) return;
         if (settled) return;
         settled = true;
-        clearTimeout(timer);
+        clearTimers();
         resolve({ response: d.response ?? '', completionTokens });
       });
       // Tools passthrough: the model wants the agent to run a tool.
@@ -448,7 +492,7 @@ export async function POST(req: NextRequest) {
         if (jobId && d.jobId !== jobId) return;
         if (settled) return;
         settled = true;
-        clearTimeout(timer);
+        clearTimers();
         resolve({ toolCalls: d.toolCalls || [], completionTokens });
       });
       socket.on('job:error', (d: { jobId: string; error: string }) => {
