@@ -673,7 +673,7 @@
   position: relative;
 }
 
-/* Privy Modal CSS Overrides - match c0mpute style */
+/* Privy Modal CSS Overrides - match Compute Network style */
 :root {
   /* No rounded corners */
   --privy-border-radius-sm: 0px !important;

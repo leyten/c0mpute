@@ -3,7 +3,7 @@ sidebar_position: 3
 title: How it works
 ---
 
-# How c0mpute works
+# How Compute Network works
 
 ## The flow
 

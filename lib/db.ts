@@ -665,7 +665,7 @@ export function revokeWorkerToken(tokenId: string, privyId: string): boolean {
 }
 
 // ── Node identity binding (shard step 2.3) ──
-// Maps a swarm node's libp2p PeerId to its c0mpute account, recorded only after the node
+// Maps a swarm node's libp2p PeerId to its Compute Network account, recorded only after the node
 // proves it controls the key (see lib/identity.ts) under a valid cwt_ token. This is how
 // per-node pay + per-node reputation attribute to the right owner.
 

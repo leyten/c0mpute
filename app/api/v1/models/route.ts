@@ -40,10 +40,10 @@ export async function GET(req: NextRequest) {
   // nodes aren't native workers); unknown counts → assume up (same convention as above)
   const swarmUp = counts ? counts.swarmModels.includes('minimax-m2.5') : true;
   const created = 1748000000;
-  // Flat per-message pricing (credits; 1 credit = $0.01) — c0mpute bills per
+  // Flat per-message pricing (credits; 1 credit = $0.01) — Compute Network bills per
   // request, not per token. Costs mirror the orchestrator's charge table.
   const model = (id: string, available: boolean, description: string, credits: number) => ({
-    id, object: 'model', created, owned_by: 'c0mpute', available, description,
+    id, object: 'model', created, owned_by: 'compute-network', available, description,
     pricing: { type: 'per_message', credits, usd: credits / 100 },
   });
 
@@ -53,7 +53,7 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({
     object: 'list',
     data: [
-      model('qwen3.8-27b-uncensored', qwenUp, 'Qwen3.8 27B Uncensored — the c0mpute model. Tools, vision, thinking, no refusals.', 15),
+      model('qwen3.8-27b-uncensored', qwenUp, 'Qwen3.8 27B Uncensored — the Compute Network model. Tools, vision, thinking, no refusals.', 15),
       model('qwen3.8-27b-uncensored-think', qwenUp, 'Qwen3.8 27B Uncensored with extended chain-of-thought reasoning.', 20),
       model('c0mpute-pro', proUp, 'Uncensored 8B, fast, browser-powered.', 10),
       model('c0mpute-swarm', swarmUp, 'MiniMax-M2.5 (229B) served by the decentralized GPU swarm — no single host holds the model.', 10),

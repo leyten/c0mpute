@@ -48,12 +48,12 @@ export default function PrivyProvider({ children }: { children: React.ReactNode 
         // (headless: !!config.headless) but missing from PrivyClientConfig.
         ...({ headless: true } as object),
 
-        // Appearance - match c0mpute style
+        // Appearance - match Compute Network style
         appearance: {
           theme: '#0c0a09', // the editorial warm near-black
           accentColor: '#FFFFFF', // White accent
           // logo removed to prevent empty src warning
-          landingHeader: 'Sign in to c0mpute',
+          landingHeader: 'Sign in to Compute Network',
           loginMessage: 'Sign in with X to start. Your first prompts are free.',
           walletChainType: 'solana-only',
           // Show ONLY auto-detected installed Solana wallets first, then the

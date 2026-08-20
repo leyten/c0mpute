@@ -1,5 +1,5 @@
 {
-  "title": "The c0mpute roadmap",
+  "title": "The Compute Network roadmap",
   "subtitle": "Building the torrent for compute",
   "disclaimer": "This roadmap reflects current direction, not a promise of dates. Items move as the network and its priorities evolve.",
   "footnote": "*Shipped = live today, verifiable on-chain, in the app, or in published receipts. Everything else is direction, not dates.",
@@ -84,7 +84,7 @@
           "id": "net-endgame",
           "phase": "endgame",
           "status": "milestone",
-          "title": "The c0mpute network",
+          "title": "The Compute Network",
           "blurb": "The endgame: every GPU on earth can join, serve and train any model, and earn for every token it helps produce. One permissionless network: the torrent for compute."
         }
       ],
@@ -404,7 +404,7 @@
           "id": "prod-build",
           "phase": "later",
           "status": "planned",
-          "title": "Build on c0mpute",
+          "title": "Build on Compute Network",
           "blurb": "An SDK and platform surface so anyone can ship apps, agents and services on the network, paying per job like any other user."
         },
         {

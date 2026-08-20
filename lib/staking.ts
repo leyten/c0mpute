@@ -1,7 +1,7 @@
 // Custodial $ZERO staking.
 //
 // Auth is X-only (no wallet connect), so staking is custodial like everything
-// else in c0mpute: each user gets a per-user staking wallet whose key the server
+// else in Compute Network: each user gets a per-user staking wallet whose key the server
 // holds (AES-256-GCM, same DEPOSIT_WALLET_KEY as credit deposit wallets). The
 // user sends ZERO to that address; we read the on-chain balance and treat it as
 // their stake. The ZERO sits in the user's own staking wallet until they

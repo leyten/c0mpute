@@ -5,7 +5,7 @@ title: Architecture
 
 # Architecture
 
-c0mpute has three components: the **user client**, the **orchestrator**, and **workers**.
+Compute Network has three components: the **user client**, the **orchestrator**, and **workers**.
 
 ## User client
 

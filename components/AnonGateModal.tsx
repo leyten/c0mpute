@@ -29,7 +29,7 @@ const COPY = {
     secondary: 'Maybe later',
   },
   softlogin: {
-    title: 'Try c0mpute free',
+    title: 'Try Compute Network free',
     body: 'Sign in with X to get your free prompts.',
     primary: 'Sign in with X',
     secondary: 'Not now',

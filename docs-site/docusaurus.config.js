@@ -1,13 +1,15 @@
 // @ts-check
 
-// Branding is env-driven so one source tree builds both domains. Each default
-// below is the live c0mpute.ai value, so an unset environment builds the
-// c0mpute.ai docs; scripts/build-compute-tech.sh overrides them (and points
-// DOCS_CONTENT_DIR at rebranded markdown) to build docs.compute.tech.
+// Branding is env-driven so one source tree builds both domains. The hosts and
+// assets below still default to their live c0mpute.ai values; the brand name
+// now defaults to Compute Network, so an unset environment builds the docs
+// under the new name on the old domain. scripts/build-compute-tech.sh still
+// sets them explicitly (and points DOCS_CONTENT_DIR at rebranded markdown) to
+// build docs.compute.tech.
 // Anything not read from env here is shared, and changing it moves both
 // domains at once on their next build.
-const brand = process.env.DOCS_BRAND || 'c0mpute';
-const wordmark = process.env.DOCS_WORDMARK || 'C0MPUTE';
+const brand = process.env.DOCS_BRAND || 'Compute Network';
+const wordmark = process.env.DOCS_WORDMARK || 'Compute Network';
 // Where the wordmark points. The legacy docs send you to the site root they
 // are served from; compute.tech points at its own front door.
 const homeHref = process.env.DOCS_HOME_HREF || '/';
@@ -110,7 +112,7 @@ const config = {
               },
               {
                 label: 'npm',
-                href: 'https://www.npmjs.com/package/@c0mpute/worker',
+                href: 'https://www.npmjs.com/package/@compute-network/worker',
               },
             ],
           },

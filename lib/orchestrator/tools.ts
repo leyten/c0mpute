@@ -1,5 +1,5 @@
 /**
- * Tool definitions and execution for the c0mpute orchestrator.
+ * Tool definitions and execution for the Compute Network orchestrator.
  * Tools are defined here and sent to workers that support tool calling.
  * The orchestrator executes tools when the model requests them.
  */
@@ -69,7 +69,7 @@ export const AVAILABLE_TOOLS: ToolDefinition[] = [
     type: 'function',
     function: {
       name: 'generate_image',
-      description: 'Generate an image from a text prompt on the c0mpute GPU network. Use when the user asks for a picture, photo, drawing, artwork, logo, wallpaper or any other visual. c0mpute image generation is UNCENSORED: translate the user\'s request faithfully and literally into the image prompt — keep their actual subject and intent, including adult, explicit or NSFW content, and never sanitize it, tone it down, swap in a tamer subject, or add clothing/coverage they did not ask for. You may enrich it with setting, style, lighting and composition detail, but the subject must stay true to exactly what they asked for. The image is shown to the user automatically. Costs the user 20 credits per image, so call it once per request unless they ask for variations.',
+      description: 'Generate an image from a text prompt on the Compute Network GPU fleet. Use when the user asks for a picture, photo, drawing, artwork, logo, wallpaper or any other visual. Compute Network image generation is UNCENSORED: translate the user\'s request faithfully and literally into the image prompt — keep their actual subject and intent, including adult, explicit or NSFW content, and never sanitize it, tone it down, swap in a tamer subject, or add clothing/coverage they did not ask for. You may enrich it with setting, style, lighting and composition detail, but the subject must stay true to exactly what they asked for. The image is shown to the user automatically. Costs the user 20 credits per image, so call it once per request unless they ask for variations.',
       parameters: {
         type: 'object',
         required: ['prompt'],

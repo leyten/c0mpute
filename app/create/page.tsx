@@ -335,7 +335,7 @@ export default function CreatePage() {
                   className="pixel-sans inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-fg/15 px-3 py-1.5 text-xs text-fg-70 transition-colors hover:border-fg/35 hover:text-fg">
                   <IconCopy /> {copied ? 'Copied' : 'Copy prompt'}
                 </button>
-                <a href={current.url} download={`c0mpute-${current.seed || 'image'}.png`}
+                <a href={current.url} download={`compute-${current.seed || 'image'}.png`}
                   className="pixel-sans inline-flex cursor-pointer items-center gap-1.5 rounded-lg bg-fg px-3 py-1.5 text-xs text-on-fg transition-colors hover:bg-fg/90">
                   <IconDownload /> Download
                 </a>

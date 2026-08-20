@@ -1,7 +1,7 @@
-// Node identity binding (shard <-> c0mpute, step 2.3).
+// Node identity binding (shard <-> Compute Network, step 2.3).
 //
 // A swarm node proves it controls its libp2p PeerId by signing a challenge with its node
-// key (shard side: `sidecar -prove <nonce>`). c0mpute verifies that proof here, and —
+// key (shard side: `sidecar -prove <nonce>`). Compute Network verifies that proof here, and —
 // gated by the node's cwt_ worker token (which resolves to the account) — records the
 // PeerId <-> account binding. So the network knows who to pay / whose reputation to track,
 // and nobody can claim a PeerId they don't hold (no key -> no valid signature).

@@ -5,7 +5,7 @@ title: Models
 
 # Models
 
-There are no tiers. c0mpute serves **one text model** to everyone, plus a browser-powered small model and a swarm model on the API, and a separate image model. All of them are uncensored.
+There are no tiers. Compute Network serves **one text model** to everyone, plus a browser-powered small model and a swarm model on the API, and a separate image model. All of them are uncensored.
 
 ## Qwen3.8 27B Uncensored
 
@@ -63,7 +63,7 @@ Credits are deducted when you send a message. If a job fails or you disconnect, 
 
 Corporate AI models (ChatGPT, Claude, Gemini) are trained to refuse certain topics. Ask about anything the company considers sensitive and you get a refusal. These aren't safety features — they're content policies imposed by corporations.
 
-The uncensored builds c0mpute runs have had this refusal training removed. They answer your questions directly without corporate-imposed restrictions.
+The uncensored builds Compute Network runs have had this refusal training removed. They answer your questions directly without corporate-imposed restrictions.
 
 ## Web search
 
