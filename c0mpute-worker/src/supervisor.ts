@@ -15,8 +15,6 @@ export interface SupervisorOptions {
   gpus: number[];
   token: string;
   url: string;
-  /** WORKER_MODELS key, already resolved (and prompted for) by the parent. */
-  model: string;
 }
 
 // The first child prints one of these once its ollama has the model built and
@@ -41,14 +39,13 @@ export function startGpuSupervisor(o: SupervisorOptions): void {
   function spawnChild(gpu: number, onLine?: (line: string) => void): void {
     // Re-exec THIS cli: same interpreter and same exec flags (so a `tsx` dev run
     // keeps its loader), same script, plus the flags that make the child
-    // non-interactive — it must never re-prompt for mode or model.
+    // non-interactive — it must never re-prompt for the mode.
     const args = [
       ...process.execArgv,
       process.argv[1],
       '--token', o.token,
       '--url', o.url,
       '--mode', 'max',
-      '--model', o.model,
       '--gpu', String(gpu),
     ];
     const child = spawn(process.execPath, args, {

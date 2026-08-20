@@ -1,7 +1,8 @@
 import { io, Socket } from 'socket.io-client';
 import { DEFAULT_ORCHESTRATOR_URL, DEFAULT_MODEL_NAME, MAX_TOOL_ROUNDS } from './config.js';
 import { runInference, ChatMessage, ToolCall, ToolDefinition } from './inference.js';
-import { ensureSetup, NUM_CTX } from './setup.js';
+import { NUM_CTX } from './config.js';
+import { ensureSetup } from './setup.js';
 import { runBenchmark } from './benchmark.js';
 import { startImageWorker } from './image-worker.js';
 
