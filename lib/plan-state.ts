@@ -115,8 +115,26 @@ export function resolvePlanState(privyId: string): PlanState {
         description: `${PLAN_SPECS[next].name} plan renewal, ${PLAN_SPECS[next].periodCredits} credits`,
         autoRenew: true,
         pendingPlan: null,
+        // Only renew the period we actually read. Two processes resolve plan
+        // state independently, and without this both would renew the same
+        // expired period and charge for two months.
+        ifExpiresAt: row.expires_at,
       });
       if (bought) return activeState(next, expiresAt, true, null, now);
+
+      // The write was refused. Either the balance moved under us or another
+      // process renewed first — and if it did, this plan is alive and must not
+      // be lapsed. Re-read before deciding.
+      const fresh = getPlanRow(privyId);
+      if (fresh && isPaidPlanId(fresh.plan) && Date.parse(fresh.expires_at) > Date.now()) {
+        return activeState(
+          fresh.plan,
+          fresh.expires_at,
+          fresh.auto_renew === 1,
+          isPaidPlanId(fresh.pending_plan) ? fresh.pending_plan : null,
+          now,
+        );
+      }
     }
     lapsePlan(privyId);
   }
