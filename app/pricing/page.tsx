@@ -4,11 +4,9 @@
 // out rather than implied — the page exists because "unlimited" is the word
 // every centralised assistant uses for a throttle it will not name.
 //
-// Everything quotable lives in ./plans.ts. Nothing on this page charges
-// anyone: the CTAs land on /settings, where the subscription checkout wires
-// up in the NEXT RELEASE. They render enabled and navigate on purpose — a
-// greyed-out button on a price list reads as a broken site, not as an
-// honest one.
+// Everything quotable lives in ./plans.ts, which now reads the same specs the
+// checkout debits, so a price shown here cannot differ from a price charged.
+// The CTAs land on /settings#plans, where the plan is actually bought.
 import SiteNav from '@/components/SiteNav';
 import { useBrand } from '@/components/BrandProvider';
 import { CREDITS_PER_DOLLAR, CREDIT_COST, PLANS, type PricingPlan } from './plans';
