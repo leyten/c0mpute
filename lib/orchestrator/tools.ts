@@ -161,20 +161,28 @@ export async function executeTool(toolCall: ToolCall, ctx?: ToolContext): Promis
 
       const { buildImageWorkflow, IMAGE_CREDITS } = require('../image-gen');
       const { spendCredits, refundCredits } = require('../db');
-      const { consumeStakerAllowance, refundStakerAllowance } = require('../staker-allowance');
+      const { drawStakerAllowance, refundStakerAllowance } = require('../staker-allowance');
       const { STAKER_ALLOWANCE_ENABLED } = require('../tokenomics');
 
       // Pay order mirrors /create minus the onboarding free images: staker
       // allowance first, then paid credits.
+      //
+      // drawStakerAllowance, not the boolean consumeStakerAllowance: the refund
+      // below is a closure the orchestrator calls minutes later, when the render
+      // fails or times out. Allowance usage is keyed per UTC day, so a draw at
+      // 23:59 refunded at 00:01 has to decrement the row it was written to —
+      // refunding against "now" matches zero rows and silently burns the
+      // staker's allowance for a render they never received. The /create route
+      // already threads the day; this path was the one caller that did not.
       const userId = ctx.privyUserId;
-      let usedAllowance = false;
-      if (STAKER_ALLOWANCE_ENABLED && consumeStakerAllowance(userId, IMAGE_CREDITS)) {
-        usedAllowance = true;
-      } else if (!spendCredits(userId, IMAGE_CREDITS, 'Image generation (chat)')) {
+      let allowanceDay: string | null = null;
+      if (STAKER_ALLOWANCE_ENABLED) allowanceDay = drawStakerAllowance(userId, IMAGE_CREDITS);
+      if (!allowanceDay && !spendCredits(userId, IMAGE_CREDITS, 'Image generation (chat)')) {
         return fail(`The user does not have enough credits — image generation costs ${IMAGE_CREDITS} credits. Tell them to top up in Settings.`);
       }
+      const usedAllowance = allowanceDay !== null;
       const refund = () => {
-        if (usedAllowance) refundStakerAllowance(userId, IMAGE_CREDITS);
+        if (allowanceDay) refundStakerAllowance(userId, IMAGE_CREDITS, allowanceDay);
         else refundCredits(userId, IMAGE_CREDITS, 'Image generation failed (chat)');
       };
 
