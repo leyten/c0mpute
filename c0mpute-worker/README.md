@@ -32,7 +32,7 @@ The build is picked from your hardware, once, automatically:
 | NVIDIA 16GB (4080/5060 Ti 16GB…) | GGUF IQ4_XS + vision projector | on |
 | Multiple small NVIDIA cards (no single card fits) | GGUF noMTP-IQ4_XS, layer-split across cards | off |
 | AMD 24GB+ | GGUF Q4_K_M | off |
-| Apple Silicon, 32GB+ unified memory | MLX 4-bit via ollama's MLX engine | off (never on Metal) |
+| Apple Silicon, 32GB+ unified memory | GGUF noMTP Q4_K_M on Metal | off (never on Metal) |
 
 The context window is VRAM-adaptive and baked into the local model; the worker reports it at registration. Weights download once (kept under `~/.config/compute-worker/models` on the GGUF path (a pre-rename rig keeps its existing download dir), so config updates rebuild without re-downloading), resume if interrupted, and are fetched from a pinned revision and sha256-verified before use — every worker serves byte-identical weights.
 

@@ -33,7 +33,7 @@ export const GGUF_VISION_SHA256 = '5ac423f8a29059dc24e51bc6a43e9380dcd57a9347f28
 export interface GgufVariant {
   /** Part of the local ollama model name, so a mixed rig can hold two
    *  variants in the shared ~/.ollama store without clobbering each other. */
-  key: 'q4km' | 'iq4xs' | 'split';
+  key: 'q4km' | 'iq4xs' | 'split' | 'metal';
   weightsFile: string;
   weightsBytes: number;
   /** sha256 of the weights file at the pinned revision (HF's LFS etag) —
@@ -108,14 +108,21 @@ export function pickGgufVariant(vramMb: number[]): GgufVariant | null {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// MLX build (Apple Silicon): PocketAiHub/Qwen3.8-27B-Abliterated-MLX, 4bit
-// ONLY (the 2bit build ships broken tool calling — 0/8). Served through
-// ollama's MLX engine, so inference/benchmark ride the same HTTP API as GGUF.
-// No draft/MTP on Metal — it's measurably slower there.
+// Apple Silicon runs the GGUF noMTP build on Metal through the same ollama
+// path as everything else. (2.9.0 tried ollama-pulling an MLX repo; ollama's
+// hf.co ingestion is GGUF-only and 400s on MLX safetensors — a field failure
+// on day one. The faster mlx-vlm backend is a planned upgrade; the noMTP file
+// is the right Metal build regardless, since MTP measures slower there.)
 // ─────────────────────────────────────────────────────────────────────────
 
-export const MLX_BASE_MODEL = 'hf.co/PocketAiHub/Qwen3.8-27B-Abliterated-MLX:4bit';
+export const METAL: GgufVariant = {
+  key: 'metal',
+  weightsFile: 'Qwen3.8-27B-Uncensored-noMTP-Q4_K_M.gguf',
+  weightsBytes: 16_547_400_160,
+  sha256: 'dfd8fee6cd48899bb8dae0c2f59c36cac5e5ee718287d6fa1b5bcfc169c419eb',
+  draft: false,   // never on Metal
+  numCtx: 16384,
+};
 
-/** ~16.1GB of weights (~19GB resident): needs a 32GB+ unified-memory Mac. */
-export const MLX_MIN_MEMORY_GB = 32;
-export const MLX_NUM_CTX = 16384;
+/** ~16.5GB of weights resident in unified memory: needs a 32GB+ Mac. */
+export const MAC_MIN_MEMORY_GB = 32;
