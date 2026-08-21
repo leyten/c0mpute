@@ -29,7 +29,7 @@ The model is uncensored, with one hard limit: **no sexual content involving mino
 
 ## Pricing
 
-Flat **20 credits ($0.20) per image**, drawn from your credit balance or your staker daily allowance. You're charged on success and **refunded automatically** if a render fails.
+Flat **10 credits ($0.01) per image**. It comes out of your daily plan credits first, then your staker allowance, then your credit balance. You're charged on success and **refunded automatically** if a render fails.
 
 ## Model
 

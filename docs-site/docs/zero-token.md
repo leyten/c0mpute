@@ -9,7 +9,7 @@ title: The $ZERO Token
 
 ## What <span class="dollar">$</span>ZERO is (and isn't)
 
-<span class="dollar">$</span>ZERO is **not** a credit you spend on AI directly. Credits are bought with USDC (**1 credit = $0.01**), and credits are what pay for inference. <span class="dollar">$</span>ZERO is a separate, value-accrual token. As the network earns, it automatically buys <span class="dollar">$</span>ZERO back and burns it, and it pays a share of revenue to everyone who stakes — and staking it also grants a **daily allowance of free credits** (see [Staking](/staking)).
+<span class="dollar">$</span>ZERO is **not** a credit you spend on AI directly. Credits are bought with USDC (a dollar buys 500), and credits are what pay for inference. <span class="dollar">$</span>ZERO is a separate, value-accrual token. As the network earns, it automatically buys <span class="dollar">$</span>ZERO back and burns it, and it pays a share of revenue to everyone who stakes — and staking it also grants a **daily allowance of free credits** (see [Staking](/staking)).
 
 - **Use Compute Network** → pay in USDC
 - **Hold <span class="dollar">$</span>ZERO** → benefit from buybacks and burns as the network grows
@@ -39,7 +39,7 @@ See the **[Staking](/staking)** page for the full breakdown, and set it up on th
 
 ## Credits, in one line
 
-Inference is paid with credits. **1 credit = $0.01**, bought with USDC. Pro costs 10 credits per message; Max costs 15 (20 with deep thinking). Credits never expire, and they're refunded automatically if a job fails. See [Getting started](/user-guide/getting-started).
+Inference is paid with credits. A credit is **$0.001**, and a dollar buys 500 of them with USDC. Text is billed per token, so a typical message costs about a credit. Bought credits never expire and are refunded automatically if a job fails. Daily credits from a [plan](/user-guide/plans) are different: they reset every day and do not carry over. See [Getting started](/user-guide/getting-started).
 
 ## The loop
 

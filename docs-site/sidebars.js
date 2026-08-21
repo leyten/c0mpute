@@ -16,6 +16,7 @@ const sidebars = {
       label: 'User Guide',
       items: [
         'user-guide/getting-started',
+        'user-guide/plans',
         'user-guide/model-tiers',
       ],
     },

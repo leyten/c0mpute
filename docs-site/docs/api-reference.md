@@ -63,6 +63,15 @@ short-lived **hold** for the largest it could cost, and the unused part is
 returned the moment it settles. A balance check should allow for the hold, not
 just the typical cost.
 
+### Plans and API keys
+
+If the account owning the key is on a [plan](/user-guide/plans), API requests
+spend that plan's daily credits before they touch the balance. The daily credits
+reset at 00:00 UTC and do not carry over.
+
+The Free daily credits are the exception. They are for people using the app, so
+API requests never draw them and always bill the balance instead.
+
 ## Balance
 
 `GET /v1/balance` returns the credit balance left on the account that owns the key:
