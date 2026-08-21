@@ -10,7 +10,7 @@ import Reveal from './Reveal';
 
 export default function LifecycleGrid() {
   return (
-    <section className="px-4 md:px-6">
+    <section className="px-2">
       <Reveal className="max-w-[1080px] mx-auto text-center flex flex-col items-center gap-4">
         <h2 className="rv pixel-serif text-fg text-3xl md:text-[48px] md:leading-none">From announce to paid</h2>
         <p
@@ -20,7 +20,7 @@ export default function LifecycleGrid() {
           The life of a GPU on the network.
         </p>
         <p
-          className="rv pixel-sans text-fg-40 text-xs md:text-sm"
+          className="rv pixel-sans text-fg-50 text-xs md:text-sm -mt-2"
           style={{ '--d': '0.14s' } as React.CSSProperties}
         >
           This is how the betanet works. Nodes join it at launch.
@@ -35,7 +35,7 @@ export default function LifecycleGrid() {
                 key={s.n}
                 className="px-5 py-6 md:px-6 md:py-7 border-fg/10 border-b last:border-b-0 sm:[&:nth-child(2n+1)]:border-r sm:[&:nth-child(n+7)]:border-b-0 lg:border-r lg:[&:nth-child(4n)]:border-r-0 lg:[&:nth-child(n+5)]:border-b-0"
               >
-                <div className="pixel-serif step-num text-fg-40 text-base">{s.n}</div>
+                <div className="pixel-serif step-num text-fg-50 text-base">{s.n}</div>
                 <h3 className="pixel-serif text-fg text-xl mt-1">{s.title}</h3>
                 <p className="pixel-sans text-fg-60 text-[15px] mt-2 leading-snug">{s.line}</p>
               </div>

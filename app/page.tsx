@@ -135,7 +135,8 @@ export default function Home() {
 
 
       {/* Footer — full sitemap so the header doesn't have to be one */}
-      <footer className="border-t border-fg/10 mt-8">
+      <footer className="mt-20">
+        <div className="dash-rule" aria-hidden />
         <div className="max-w-6xl mx-auto px-4 md:px-6 py-10 md:py-14">
           <div className="grid grid-cols-2 md:grid-cols-5 gap-8">
             <div>
@@ -151,7 +152,7 @@ export default function Home() {
                   </span>
                 )}
               </a>
-              <p className="pixel-sans text-fg-40 text-xs mt-3 max-w-[220px]">
+              <p className="pixel-sans text-fg-60 text-sm mt-3 max-w-[240px]">
                 AI infrastructure should be open, verifiable, and owned by the people who run it.
               </p>
             </div>
@@ -199,9 +200,9 @@ export default function Home() {
                 &copy; {new Date().getFullYear()} Compute Network Inc.
               </div>
               <div className="flex items-center gap-5">
-                <a href="/terms" className="pixel-sans text-fg-40 hover:text-fg transition-colors text-xs">Terms</a>
-                <a href="/privacy" className="pixel-sans text-fg-40 hover:text-fg transition-colors text-xs">Privacy</a>
-                <a href="/acceptable-use" className="pixel-sans text-fg-40 hover:text-fg transition-colors text-xs">Acceptable Use</a>
+                <a href="/terms" className="pixel-sans text-fg-60 hover:text-fg transition-colors text-xs">Terms</a>
+                <a href="/privacy" className="pixel-sans text-fg-60 hover:text-fg transition-colors text-xs">Privacy</a>
+                <a href="/acceptable-use" className="pixel-sans text-fg-60 hover:text-fg transition-colors text-xs">Acceptable Use</a>
               </div>
             </div>
           )}

@@ -26,7 +26,7 @@ export default function Composer({
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
           placeholder="Ask the impossible."
-          className="min-w-0 flex-1 bg-transparent py-1.5 text-[16px] leading-[1.6] outline-none placeholder:opacity-50"
+          className="min-w-0 flex-1 bg-transparent py-1.5 text-[16px] leading-[1.6] outline-none placeholder:text-[color:var(--chat-dim)]"
           style={{ color: 'var(--chat-text)' }}
         />
         <button
@@ -34,7 +34,7 @@ export default function Composer({
           aria-label="Send"
           disabled={!prompt.trim()}
           className="grid h-9 w-9 shrink-0 place-items-center rounded-lg transition-all duration-150 hover:bg-[var(--chat-row-on)] active:scale-95 disabled:hover:bg-transparent"
-          style={{ color: prompt.trim() ? 'var(--chat-text)' : 'var(--chat-faint)' }}
+          style={{ color: prompt.trim() ? 'var(--chat-text)' : 'var(--chat-dim)' }}
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
             <path d="M12 19V5M12 5l-6 6M12 5l6 6" stroke="currentColor"
@@ -43,7 +43,7 @@ export default function Composer({
         </button>
       </div>
       {chips && (
-        <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+        <div className="mt-3 flex flex-wrap items-center justify-center gap-2.5">
           {chips.map((c) => (
             <button
               key={c}
@@ -52,7 +52,9 @@ export default function Composer({
               className="cursor-pointer pixel-sans text-xs rounded-full border px-3 py-1.5 transition-colors"
               style={{
                 color: 'var(--chat-dim, rgba(255,255,255,0.58))',
-                borderColor: 'var(--chat-line, rgba(255,255,255,0.08))',
+                // The rim is the only "this is a button" signal — it has to
+                // clear the card ground, not whisper at it.
+                borderColor: 'rgba(255,255,255,0.25)',
                 background: 'transparent',
               }}
             >

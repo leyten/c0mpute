@@ -25,7 +25,13 @@ const T = 2600; // one coin drop per cycle, ms
 const seg = (t: number, a: number, b: number) => Math.max(0, Math.min(1, (t - a) / (b - a)));
 
 
-export default function CoinsIdle() {
+export default function CoinsIdle({
+  /* Render the settled stacks with no falling coin — for surfaces where a
+     mid-drop frame would read as a glitch (the homepage ink cell). */
+  still: forceStill = false,
+}: {
+  still?: boolean;
+} = {}) {
   const ref = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -33,7 +39,7 @@ export default function CoinsIdle() {
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const still = forceStill || window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
     let W = 0, H = 0, raf = 0;
     const layout = () => {
@@ -103,7 +109,7 @@ export default function CoinsIdle() {
       window.removeEventListener('resize', onResize);
       clearTimeout(rz);
     };
-  }, []);
+  }, [forceStill]);
 
   return <canvas ref={ref} className="w-full h-full" />;
 }

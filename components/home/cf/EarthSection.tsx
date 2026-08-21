@@ -63,7 +63,7 @@ export default function EarthSection() {
             ].map((c, i) => (
               <div key={c.l} className="rv p-5 md:p-8 text-center" style={{ '--d': `${i * 0.08}s` } as React.CSSProperties}>
                 <div className="pixel-serif text-fg text-2xl md:text-4xl">{c.n}</div>
-                <div className="pixel-sans text-fg-45 text-xs md:text-sm mt-1.5 tracking-wide">{c.l}</div>
+                <div className="pixel-sans text-fg-50 text-xs md:text-sm mt-1.5 tracking-wide">{c.l}</div>
               </div>
             ))}
           </Reveal>
@@ -71,18 +71,18 @@ export default function EarthSection() {
       </div>
       <Reveal className="max-w-[1080px] mx-auto mt-12 text-center flex flex-col items-center gap-3">
         {LINES.map((l, i) => (
-          <p key={i} className="rv pixel-sans text-fg-60 text-sm md:text-base max-w-2xl" style={{ '--d': `${i * 0.06}s` } as React.CSSProperties}>
+          <p key={i} className="rv pixel-sans text-fg-60 text-sm md:text-base max-w-2xl [text-wrap:balance]" style={{ '--d': `${i * 0.06}s` } as React.CSSProperties}>
             {l}
           </p>
         ))}
         <div className="rv mt-4 flex flex-wrap items-center justify-center gap-6" style={{ '--d': '0.24s' } as React.CSSProperties}>
-          <a href={brand.urls.shard} target="_blank" rel="noopener noreferrer" className="cursor-pointer pixel-sans text-steel-50 light:text-steel hover:text-steel text-sm transition-colors">
+          <a href={brand.urls.shard} target="_blank" rel="noopener noreferrer" className="cursor-pointer pixel-sans text-steel hover:opacity-75 text-sm transition-opacity">
             See the live map →
           </a>
-          <a href={brand.urls.data} target="_blank" rel="noopener noreferrer" className="cursor-pointer pixel-sans text-steel-50 light:text-steel hover:text-steel text-sm transition-colors">
+          <a href={brand.urls.data} target="_blank" rel="noopener noreferrer" className="cursor-pointer pixel-sans text-steel hover:opacity-75 text-sm transition-opacity">
             Network data →
           </a>
-          <a href="https://github.com/leyten/shard" target="_blank" rel="noopener noreferrer" className="cursor-pointer pixel-sans text-steel-50 light:text-steel hover:text-steel text-sm transition-colors">
+          <a href="https://github.com/leyten/shard" target="_blank" rel="noopener noreferrer" className="cursor-pointer pixel-sans text-steel hover:opacity-75 text-sm transition-opacity">
             Read the engine on GitHub →
           </a>
         </div>

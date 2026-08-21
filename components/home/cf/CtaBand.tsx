@@ -57,7 +57,7 @@ export default function CtaBand() {
               ))}
             </div>
           )}
-          <div className="rv flex flex-col sm:flex-row items-center gap-4 sm:gap-6" style={{ '--d': '0.26s' } as React.CSSProperties}>
+          <div className="rv flex flex-col sm:flex-row items-center gap-4 sm:gap-8" style={{ '--d': '0.26s' } as React.CSSProperties}>
             <a href="/staking" className="hdr-btn hdr-btn-primary pixel-sans text-sm font-medium" style={{ '--fg': '#ffffff', '--on-fg': '#0c0a09' } as React.CSSProperties}>
               <span>Stake <span className="dollar">$</span>ZERO</span>
             </a>
@@ -70,11 +70,11 @@ export default function CtaBand() {
           </div>
         </div>
         <div className="relative z-10 h-12 border-t border-white/15 flex items-center justify-center gap-3 md:gap-8 px-4">
-          <span className="pixel-sans text-white/50 text-[10px] md:text-xs tracking-widest">OPEN MODELS</span>
-          <span className="text-white/30 text-xs" aria-hidden>·</span>
-          <span className="pixel-sans text-white/50 text-[10px] md:text-xs tracking-widest">USER-OWNED GPUS</span>
-          <span className="text-white/30 text-xs" aria-hidden>·</span>
-          <span className="pixel-sans text-white/50 text-[10px] md:text-xs tracking-widest">PAID IN USDC</span>
+          <span className="pixel-sans text-white/70 text-[10px] md:text-xs tracking-widest">OPEN MODELS</span>
+          <span className="text-white/45 text-xs" aria-hidden>·</span>
+          <span className="pixel-sans text-white/70 text-[10px] md:text-xs tracking-widest">USER-OWNED GPUS</span>
+          <span className="text-white/45 text-xs" aria-hidden>·</span>
+          <span className="pixel-sans text-white/70 text-[10px] md:text-xs tracking-widest">PAID IN USDC</span>
         </div>
       </Reveal>
     </section>

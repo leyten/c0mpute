@@ -205,14 +205,18 @@
     0 4px 12px 0 rgba(0, 0, 0, 0.35), 0 2px 12px 0 rgba(0, 0, 0, 0.3);
 
   /* The technical-drawing layer's three strokes. Alpha over the ground, not
-     fixed colors — dark grounds swallow low-alpha strokes, so each steps up. */
-  --rule: rgba(255, 255, 255, 0.16);
+     fixed colors. The rule matches the solid hairlines' deposited weight —
+     measured: 0.16 rendered the dashed rules ~1.7x the verticals they
+     bracket, which read as a box around an open ledger. */
+  --rule: rgba(255, 255, 255, 0.11);
   --dot: rgba(255, 255, 255, 0.12);
   --mark: rgba(255, 255, 255, 0.34);
   /* Ink cards on the dark ground: ink must stay the darkest surface, so the
-     card drops to true black and takes a rim. */
+     card drops to true black and takes a rim. 0.09 survives a screenshot but
+     dies on a lit non-OLED panel; 0.15 matches the trust strip's visible
+     white/15 hairline. */
   --ink-card-bg: #000000;
-  --ink-card-rim: rgba(255, 255, 255, 0.09);
+  --ink-card-rim: rgba(255, 255, 255, 0.15);
 }
 
 /* ── light ─────────────────────────────────────────────────────────────────
@@ -1265,11 +1269,11 @@ input[type='number'] {
   inset: 0;
   pointer-events: none;
   background: radial-gradient(
-    ellipse 54% 70% at 50% 48%,
-    var(--ink-card-bg) 40%,
-    transparent 80%
+    ellipse 58% 82% at 50% 52%,
+    var(--ink-card-bg) 45%,
+    transparent 86%
   );
-  opacity: 0.85;
+  opacity: 0.9;
 }
 
 /* Warm dome glow rising from the card's bottom edge (the video's static
@@ -1278,10 +1282,12 @@ input[type='number'] {
   position: absolute;
   inset: 0;
   pointer-events: none;
+  /* Center pushed further below the card so text near the bottom edge (the
+     trust strip) sits on the gradient's shoulder, not its peak. */
   background: radial-gradient(
-    ellipse 42% 34% at 50% 104%,
-    rgba(250, 224, 155, 0.55),
-    rgba(250, 224, 155, 0.12) 55%,
+    ellipse 42% 34% at 50% 114%,
+    rgba(250, 224, 155, 0.45),
+    rgba(250, 224, 155, 0.1) 55%,
     transparent 75%
   );
 }

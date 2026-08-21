@@ -26,7 +26,7 @@ export default function TwoDoors() {
               A browser tab pays $0.07 a job. Your own machine pays {NATIVE_RATE}. Paid in USDC on
               Solana. Start and stop whenever you want.
             </p>
-            <p className="pixel-sans text-white/45 text-xs mt-3 leading-relaxed max-w-md">
+            <p className="pixel-sans text-white/55 text-xs mt-3 leading-relaxed max-w-md">
               Sign in to start. The native worker needs Node.js 18 and an NVIDIA, AMD or Apple
               Silicon GPU.
             </p>
@@ -41,7 +41,7 @@ export default function TwoDoors() {
           </div>
           <div className="relative flex-1 min-h-[170px] flex items-end justify-center pb-6 px-10">
             <div className="w-full max-w-[420px] aspect-[5/2] light:invert">
-              <CoinsIdle />
+              <CoinsIdle still />
             </div>
           </div>
         </div>
@@ -49,22 +49,22 @@ export default function TwoDoors() {
         {/* Developers — the curl block is the art */}
         <div id="developers" className="rv relative rounded-2xl border border-fg/10 bg-fg/[0.02] hover:bg-fg/[0.04] transition-colors overflow-hidden flex flex-col">
           <div className="p-6 md:p-10 flex flex-col min-w-0 flex-1">
-            <div className="pixel-sans text-fg-40 text-xs tracking-widest mb-3">FOR DEVELOPERS</div>
+            <div className="pixel-sans text-fg-50 text-xs tracking-widest mb-3">FOR DEVELOPERS</div>
             <h3 className="pixel-serif text-fg text-2xl md:text-3xl leading-tight">OpenAI-compatible, live now</h3>
             <p className="pixel-sans text-fg-70 text-sm md:text-base mt-3 leading-relaxed max-w-md">
               Change the base URL and the key. Every response is backed by the receipts underneath
               it. The betanet API opens at launch.
             </p>
-            <pre className="mt-6 rounded-lg bg-recess-soft border border-fg/10 p-4 overflow-x-auto text-[12.5px] leading-relaxed text-fg-70" style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>
+            <div className="flex-1 flex items-center min-h-0 my-2"><pre className="w-full rounded-lg bg-recess-soft border border-fg/10 p-4 overflow-x-auto text-[12.5px] leading-relaxed text-fg-70" style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>
 {`curl ${brand.urls.api}/chat/completions \\
   -H "Authorization: Bearer $KEY" \\
   -d '{"model": "qwen3.8-27b-uncensored", "messages": [...]}'`}
-            </pre>
+            </pre></div>
             <div className="mt-auto pt-6 flex items-center gap-5">
               <a href={brand.urls.docs} target="_blank" rel="noopener noreferrer" className="hdr-btn pixel-sans text-sm font-medium">
                 <span>Read the docs</span>
               </a>
-              <a href={`${brand.urls.docs}/api`} target="_blank" rel="noopener noreferrer" className="cursor-pointer pixel-sans text-steel-50 light:text-steel hover:text-steel text-sm transition-colors">
+              <a href={`${brand.urls.docs}/api`} target="_blank" rel="noopener noreferrer" className="cursor-pointer pixel-sans text-steel hover:opacity-75 text-sm transition-opacity">
                 API reference →
               </a>
             </div>

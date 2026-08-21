@@ -93,7 +93,7 @@ export default function CfGlobe({ onReady }: { onReady?: () => void }) {
       const yaw = -0.4 - (still ? 0 : t * 0.0000314); // 1.8 deg/s, land drifts left-to-right
       const tilt = 0.15;
       ctx.save();
-      ctx.translate(W / 2, 0.66 * H);
+      ctx.translate(W / 2, 0.68 * H);
       ctx.rotate(-0.25); // the reference's z-roll
 
       // graticule, front hemisphere only
