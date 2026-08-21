@@ -12,7 +12,7 @@ Turn your browser tab into a GPU worker and start earning USDC. No installation 
 1. Go to [c0mpute.ai/earn](https://c0mpute.ai/earn)
 2. Log in with your X (Twitter) account
 3. **On a laptop, point Chrome at your real GPU first.** Open `chrome://flags/#force-high-performance-gpu`, set it to **Enabled** and restart the browser. On Windows laptops Chrome generally runs on the integrated GPU, and a page asking for a high-performance adapter does not change that — so without this flag a machine with a discrete card can end up doing all the work on integrated graphics, many times slower.
-4. Browser workers run **Qwen3 8B Uncensored** — ~4.3GB download, needs ~6GB VRAM, serves the browser lane (`c0mpute-pro` requests and free prompts)
+4. Browser workers run **Qwen3.5 Uncensored** and serve the browser lane (`c0mpute-pro` requests and free prompts). Your tab picks the size it can hold: **9B** (~5.1GB download, needs ~6.4GB VRAM) on a card with the room, **4B** (~2.4GB download, needs ~4GB VRAM) otherwise. There is nothing to choose.
 5. Click **Start Worker**
 
 The first time you start, the model downloads to your browser's cache. This takes a few minutes depending on your connection. After that, subsequent starts are instant.
@@ -33,12 +33,12 @@ Keep the tab open and active. If you close it or navigate away, the worker stops
 - **Use Chrome or Edge** — they have the best WebGPU support
 - **Don't minimize the tab** — some browsers throttle background tabs, which kills performance
 - **Check your GPU** — open `chrome://gpu` to verify WebGPU is enabled and using your discrete GPU
-- **A second tab fits on a large card, but don't count on it** — each worker needs roughly 5.2GB (4.3GB of weights, ~576MB of KV cache at 4k context, ~160MB of workspace), so a 24GB card has room for three. They still share one GPU, and we have not measured whether two tabs together out-earn one. On an 8GB card there is only room for one.
+- **A second tab fits on a large card, but don't count on it** — a 9B worker needs about 6.4GB (weights, KV cache at 4k context, and workspace), so a 24GB card has room for three. They still share one GPU, and we have not measured whether two tabs together out-earn one. On an 8GB card there is only room for one.
 
 ## Requirements
 
 - A browser with WebGPU support (Chrome 113+, Edge 113+, Firefox 130+ with flag)
-- A GPU with ~6GB free VRAM (RTX 3060+, M1+, etc.) to run Qwen3 8B Uncensored
+- A GPU with ~4GB free VRAM to run Qwen3.5 4B Uncensored, or ~6.4GB (RTX 3060+, M1+, etc.) to run the 9B
 
 ## Earnings
 

@@ -34,7 +34,7 @@ The orchestrator does not store conversations. It routes traffic and moves on.
 
 Browser workers run LLMs directly in your browser tab using [WebGPU](https://developer.mozilla.org/en-US/docs/Web/API/WebGPU_API) through the WebLLM library. No installation required — just open the page and click start.
 
-Browser workers run **Qwen3 8B Uncensored** and serve the browser lane — `c0mpute-pro` API requests and free prompts. ~4.3GB download, ~6GB VRAM required, uncensored.
+Browser workers run **Qwen3.5 Uncensored** and serve the browser lane — `c0mpute-pro` API requests and free prompts. The tab picks the size its GPU can hold when you start it: 9B (~5.1GB download, ~6.4GB VRAM) or 4B (~2.4GB download, ~4GB VRAM). Both are uncensored.
 
 The model downloads once and caches in the browser. Subsequent starts are instant.
 
@@ -53,7 +53,7 @@ Image workers are a third worker type: independent GPUs running [ComfyUI](https:
 | Lane | Worker type | Model |
 |------|-------------|-------|
 | Chat + `qwen3.8-27b-uncensored` | Native (ollama) | Qwen3.8 27B Uncensored |
-| `c0mpute-pro` + free prompts | Browser (WebGPU) | Qwen3 8B Uncensored |
+| `c0mpute-pro` + free prompts | Browser (WebGPU) | Qwen3.5 Uncensored, 9B or 4B |
 | Image generation | ComfyUI | Chroma1-HD |
 
 ## Worker selection

@@ -20,7 +20,7 @@ The central routing layer. A Node.js server using Socket.io that coordinates eve
 - **Worker registry** — tracks all connected workers: type (browser/native/image), model, status (idle/busy), performance stats
 - **Model routing** — directs jobs to the correct worker type:
   - `qwen3.8-27b-uncensored` (chat and API) → native workers
-  - `c0mpute-pro` and free prompts → browser workers running Qwen3 8B Uncensored
+  - `c0mpute-pro` and free prompts → browser workers running Qwen3.5 Uncensored
   - image jobs → image workers
 - **Worker selection** — among the eligible idle workers serving the requested model, picks one by weighted-random choice (weight = measured tokens/sec), spreading earnings while favoring speed
 - **Tool calls** — when a model requests the `web_search` tool, runs the Brave Search API query, fetches and extracts content from the top 3 results, and returns it to the model as a tool result
@@ -34,7 +34,7 @@ The orchestrator does **not** store conversations or prompt content. It routes t
 
 Run in a browser tab using WebLLM, which leverages WebGPU for GPU-accelerated inference:
 
-- **Qwen3 8B Uncensored** (~4.3GB) — serves the browser lane: `c0mpute-pro` requests and free prompts
+- **Qwen3.5 Uncensored**, 9B (~5.1GB) or 4B (~2.4GB) depending on what the tab's GPU can hold — serves the browser lane: `c0mpute-pro` requests and free prompts
 
 Models download once and cache in the browser. Workers connect to the orchestrator via Socket.io, receive job assignments, run inference, and stream tokens back.
 

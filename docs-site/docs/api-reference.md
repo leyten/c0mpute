@@ -29,7 +29,7 @@ Requests are billed to the credit balance of the account that owns the key. Top 
 | --- | --- |
 | `qwen3.8-27b-uncensored` | Uncensored Qwen3.8 27B with tools, vision, and large context. The network's model — it also powers [c0mpute code](/c0mpute-code). |
 | `qwen3.8-27b-uncensored-think` | The same model with extended chain-of-thought reasoning. |
-| `c0mpute-pro` | Uncensored 8B. Fast, runs on the broad browser worker pool. |
+| `c0mpute-pro` | Uncensored Qwen3.5. Fast, runs on the broad browser worker pool. Answered by a 9B or a 4B depending on the worker that picks it up. |
 | `c0mpute-swarm` | MiniMax-M2.5 (229B), served by the decentralized GPU swarm. Availability depends on a swarm ring being ready. |
 
 `GET /v1/models` lists them with a live `available` flag (the 27B requires a native GPU worker to be online) and a `pricing` object (`{ "type": "per_token", "usd_per_m_input": 0.15, "usd_per_m_output": 0.90 }`). Always check availability if you depend on the 27B.
@@ -200,7 +200,7 @@ r2 = client.chat.completions.create(model="qwen3.8-27b-uncensored", messages=mes
 print(r2.choices[0].message.content)                 # "The weather in Paris is 18°C and sunny."
 ```
 
-Tool calling and vision are most reliable on `qwen3.8-27b-uncensored`. The Pro 8B can attempt tools but is less consistent.
+Tool calling and vision are most reliable on `qwen3.8-27b-uncensored`. The browser lane can attempt tools but is less consistent.
 
 ## Vision
 
@@ -226,7 +226,7 @@ Pass images inline as base64; remote `https` image URLs aren't fetched in this v
 
 Compute Network is designed to be the **brain** for agent frameworks. Your framework keeps doing what it does — memory, system prompt / persona, the tool loop — and Compute Network is the model it calls. Memory and persona need zero special handling: they're just the messages array and a system message you already send. Tools work through the standard function-calling flow above (the model returns `tool_calls`, your framework runs them and sends results back).
 
-For agents, use **`qwen3.8-27b-uncensored`** (or `qwen3.8-27b-uncensored-think` for harder reasoning) — the 27B is far more reliable at multi-step tool use than the 8B.
+For agents, use **`qwen3.8-27b-uncensored`** (or `qwen3.8-27b-uncensored-think` for harder reasoning) — the 27B is far more reliable at multi-step tool use than the browser lane.
 
 ### Any OpenAI-compatible framework
 

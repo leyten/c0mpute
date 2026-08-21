@@ -26,9 +26,9 @@ What it can do:
 
 - **Cost:** billed per token, at the same rate as every other text model
 - **Model id:** `c0mpute-pro`
-- Uncensored **Qwen3 8B**, run by **browser workers** on WebGPU — ~4.3GB download, ~6GB VRAM
+- Uncensored **Qwen3.5**, run by **browser workers** on WebGPU — 9B on a card that can hold it, 4B otherwise
 
-The browser lane: a small, fast model on the widest supply in the network. It also serves free prompts. It can attempt tool calls but is less consistent at them than the 27B, so for agents use `qwen3.8-27b-uncensored`.
+The browser lane: a small, fast model on the widest supply in the network. Each worker serves the largest rung its GPU can hold, so a request is answered by the 9B or the 4B depending on who picks it up. It also serves free prompts. It can attempt tool calls but is less consistent at them than the 27B, so for agents use `qwen3.8-27b-uncensored`.
 
 ## c0mpute-swarm
 
