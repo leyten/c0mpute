@@ -204,8 +204,10 @@ export default function Pricing() {
           <div className="mt-12 md:mt-14 rounded-2xl border border-fg/10 bg-fg/[0.02] px-6 py-5 md:px-8 md:py-6">
             <div className="pixel-sans text-fg text-sm">Pay in USDC</div>
             <p className="pixel-sans text-fg-55 text-[13.5px] leading-relaxed mt-1.5 max-w-2xl">
-              Plans and top-ups are paid in USDC and settle on-chain straight into your balance.
-              Card payments are coming, at the same prices.
+              Plans and top-ups are paid in USDC on Solana. You send the amount to your own deposit
+              address and it settles on-chain: a plan starts when it lands, a top-up goes into your
+              balance. There is no card on file and no subscription to cancel. Card payments are
+              coming, at the same prices.
             </p>
           </div>
         </div>
