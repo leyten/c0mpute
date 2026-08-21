@@ -999,14 +999,24 @@ input[type='number'] {
   opacity: 1;
 }
 
-/* The raised card both the dropdown and the mobile menu are cut from:
-   raise ground, hairline, 8px frame around an inner hairlined surface. */
+/* The raised card both the dropdown and the mobile menu are cut from —
+   the reference's two-surface construction: an 8px frame a half-step off
+   the page holding a brighter inner surface with its own hairline. The
+   frame sits BETWEEN the page and the inner surface tonally; when the two
+   layers share one colour the construction collapses into a double border,
+   which is exactly what it must not read as. */
 .nav-card {
-  background: var(--raise);
+  background: color-mix(in oklab, var(--raise) 55%, var(--background));
   border: 1px solid color-mix(in oklab, var(--fg) 10%, transparent);
   border-radius: 12px;
   padding: 8px;
   box-shadow: var(--shadow-stack);
+}
+.nav-card-inner {
+  background: var(--raise);
+  border: 1px solid color-mix(in oklab, var(--fg) 7%, transparent);
+  border-radius: 6px;
+  overflow: hidden;
 }
 
 /* Header buttons — a three-layer construction. The element carries a hairline

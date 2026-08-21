@@ -219,14 +219,13 @@ export default function SiteNav({
         <div className="h-[54px] md:h-[72px] flex items-center justify-between md:grid md:grid-cols-[1fr_auto_1fr] gap-3">
           {/* Left: logo */}
           <div className="flex items-center">
-            {/* A soft wash of the page colour rides behind the wordmark: on a
-                plain ground it is invisible, but when the scroll story's dot
-                field runs under the floating logo, the dots fade out beneath
-                the letterforms instead of shredding them. */}
+            {/* The wordmark rides in the same pill language as the header's
+                buttons — solid page ground and a hairline — so it stays
+                legible when the scroll story's dot field runs under the
+                floating bar. */}
             <a
               href="/"
-              className="cursor-pointer pixel-serif-logo text-fg text-lg md:text-xl font-bold flex items-center gap-2 md:gap-2.5 px-5 -mx-5 py-3 -my-3"
-              style={{ background: 'radial-gradient(closest-side, var(--background) 55%, transparent 100%)' }}
+              className="cursor-pointer pixel-serif-logo text-fg text-lg md:text-xl font-bold inline-flex items-center gap-2 md:gap-2.5 h-[38px] px-4 -ml-1 rounded-full border border-fg/10 bg-background"
             >
               {brand.mark ? (
                 <>
@@ -303,16 +302,17 @@ export default function SiteNav({
               onBlur={onNavBlur}
             >
               <div className={`nav-panel ${panelOn ? 'on' : ''}`}>
-                {/* One border only: the card's. Rows are rounded hover cells
-                    inside the padded frame, not a second bordered surface. */}
+                {/* The reference construction: recessed frame, brighter inner
+                    surface. The tonal step between the two is what keeps it
+                    from reading as a double border. */}
                 <div className="nav-card w-[360px]">
-                  <div className="nav-panel-content flex flex-col">
+                  <div className="nav-panel-content nav-card-inner divide-y divide-fg/5">
                     {tokenItems.map((item) => (
                       <a
                         key={item.label}
                         href={item.href}
                         {...(item.ext ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
-                        className="cursor-pointer block rounded-lg px-4 py-3 hover:bg-fg/[0.05] transition-colors"
+                        className="cursor-pointer block px-4 py-3 hover:bg-fg/[0.04] transition-colors"
                       >
                         <span className="block pixel-sans text-fg text-sm font-medium">{item.label}</span>
                         <span className="block pixel-sans text-fg-45 text-xs mt-0.5">{item.note}</span>
@@ -387,19 +387,21 @@ export default function SiteNav({
                   </button>
                   {userMenuOpen && (
                     <div className="nav-pop origin-top-right absolute right-0 top-full mt-2 nav-card min-w-[180px] z-50">
-                      <a
-                        href="/settings"
-                        onClick={() => setUserMenuOpen(false)}
-                        className="cursor-pointer pixel-sans text-sm block w-full rounded-lg px-4 py-2.5 text-left text-fg-70 hover:text-fg hover:bg-fg/[0.05] transition-colors"
-                      >
-                        Settings
-                      </a>
-                      <button
-                        onClick={() => { logout(); setUserMenuOpen(false); }}
-                        className="cursor-pointer pixel-sans text-sm w-full rounded-lg px-4 py-2.5 text-left text-fg-70 hover:text-fg hover:bg-fg/[0.05] transition-colors"
-                      >
-                        Logout
-                      </button>
+                      <div className="nav-card-inner">
+                        <a
+                          href="/settings"
+                          onClick={() => setUserMenuOpen(false)}
+                          className="cursor-pointer pixel-sans text-sm block w-full px-4 py-2.5 text-left text-fg-70 hover:text-fg hover:bg-fg/[0.04] transition-colors"
+                        >
+                          Settings
+                        </a>
+                        <button
+                          onClick={() => { logout(); setUserMenuOpen(false); }}
+                          className="cursor-pointer pixel-sans text-sm w-full px-4 py-2.5 text-left text-fg-70 hover:text-fg hover:bg-fg/[0.04] transition-colors border-t border-fg/5"
+                        >
+                          Logout
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -439,7 +441,7 @@ export default function SiteNav({
         {/* Mobile menu — the same raised card as the dropdown */}
         {menuOpen && (
           <nav aria-label="Menu" className="md:hidden nav-pop origin-top nav-card mt-1 pointer-events-auto">
-            <div className="px-4 py-4 flex flex-col gap-4">
+            <div className="nav-card-inner px-4 py-4 flex flex-col gap-4">
               <a
                 href="/chat"
                 className="cursor-pointer pixel-sans text-fg-70 hover:text-fg transition-colors text-sm tracking-wide"
