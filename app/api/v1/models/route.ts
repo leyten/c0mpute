@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { io } from 'socket.io-client';
 import { resolveApiKey } from '@/lib/db';
+import { TEXT_USD_PER_M_INPUT, TEXT_USD_PER_M_OUTPUT } from '@/lib/tokenomics';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -40,11 +41,18 @@ export async function GET(req: NextRequest) {
   // nodes aren't native workers); unknown counts → assume up (same convention as above)
   const swarmUp = counts ? counts.swarmModels.includes('minimax-m2.5') : true;
   const created = 1748000000;
-  // Flat per-message pricing (credits; 1 credit = $0.01) — Compute Network bills per
-  // request, not per token. Costs mirror the orchestrator's charge table.
-  const model = (id: string, available: boolean, description: string, credits: number) => ({
-    id, object: 'model', created, owned_by: 'compute-network', available, description,
-    pricing: { type: 'per_message', credits, usd: credits / 100 },
+  // Per-TOKEN pricing. This replaces a flat `per_message` object that quoted a
+  // fixed credit charge per request — text is metered per token now, so a fixed
+  // per-request price would be a published lie. One rate card for every text
+  // model: nothing here is per-model, and it is imported rather than restated so
+  // the catalog cannot drift from what the orchestrator charges.
+  const pricing = {
+    type: 'per_token' as const,
+    usd_per_m_input: TEXT_USD_PER_M_INPUT,
+    usd_per_m_output: TEXT_USD_PER_M_OUTPUT,
+  };
+  const model = (id: string, available: boolean, description: string) => ({
+    id, object: 'model', created, owned_by: 'compute-network', available, description, pricing,
   });
 
   // Retired ids (c0mpute-max, supergemma4-26b, code, …) still answer in
@@ -53,10 +61,10 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({
     object: 'list',
     data: [
-      model('qwen3.8-27b-uncensored', qwenUp, 'Qwen3.8 27B Uncensored — the Compute Network model. Tools, vision, thinking, no refusals.', 15),
-      model('qwen3.8-27b-uncensored-think', qwenUp, 'Qwen3.8 27B Uncensored with extended chain-of-thought reasoning.', 20),
-      model('c0mpute-pro', proUp, 'Uncensored 8B, fast, browser-powered.', 10),
-      model('c0mpute-swarm', swarmUp, 'MiniMax-M2.5 (229B) served by the decentralized GPU swarm — no single host holds the model.', 10),
+      model('qwen3.8-27b-uncensored', qwenUp, 'Qwen3.8 27B Uncensored — the Compute Network model. Tools, vision, thinking, no refusals.'),
+      model('qwen3.8-27b-uncensored-think', qwenUp, 'Qwen3.8 27B Uncensored with extended chain-of-thought reasoning. Thinking tokens bill as output; there is no surcharge.'),
+      model('c0mpute-pro', proUp, 'Uncensored 8B, fast, browser-powered.'),
+      model('c0mpute-swarm', swarmUp, 'MiniMax-M2.5 (229B) served by the decentralized GPU swarm — no single host holds the model.'),
     ],
   });
 }

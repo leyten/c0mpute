@@ -1,8 +1,9 @@
 import Database from 'better-sqlite3';
 import path from 'path';
-import { CREDITS_PER_USD } from './token-price';
+import { CREDITS_PER_USD, CREDITS_PER_DOLLAR_PURCHASED } from './token-price';
+import type { SubsidyKind } from './orchestrator/types';
 import { WORKER_REVENUE_SHARE, MIN_WITHDRAWAL_USD } from './tokenomics';
-import { realizeMargin } from './treasury-ledger';
+import { realizeMargin, creditPlanRevenue } from './treasury-ledger';
 import { recordReferralEarning, getReferralEarningsTotal } from './referrals';
 
 const DB_PATH = path.join(process.cwd(), 'data', 'c0mpute.db');
@@ -318,10 +319,11 @@ function ensureEarningsTables() {
   // separately from self-solvent paid earnings. Throws (and we ignore) if the
   // column already exists.
   try { db.exec('ALTER TABLE worker_earnings ADD COLUMN subsidized INTEGER NOT NULL DEFAULT 0'); } catch {}
-  // subsidy_kind distinguishes 'free' (onboarding/anon free prompts) from
-  // 'allowance' (staker daily allowance). They draw from SEPARATE daily caps, so
-  // the free-prompt cap accounting (getTodayFreeSubsidyUsd) must exclude
-  // 'allowance' rows. NULL = legacy/paid. Throws (ignored) if it already exists.
+  // subsidy_kind says which lane funded the job: 'free' (onboarding/anon free
+  // prompts), 'free_grant' (the Free daily grant), 'allowance' (staker daily
+  // allowance) or 'plan' (a paid plan's daily grant). Only the first two are
+  // treasury-subsidized, and the free cap accounting counts exactly those.
+  // NULL = legacy/paid. Throws (ignored) if it already exists.
   try { db.exec('ALTER TABLE worker_earnings ADD COLUMN subsidy_kind TEXT'); } catch {}
 }
 
@@ -342,7 +344,7 @@ export function recordEarning(data: {
   // caller passes the tier's list price here while creditsCharged stays 0.
   payoutCredits?: number;
   subsidized?: boolean; // true => treasury-funded (free prompt), not self-solvent
-  subsidyKind?: 'free' | 'allowance'; // which daily cap it draws from (separate caps)
+  subsidyKind?: SubsidyKind; // which lane funded it; see isFreeSubsidyKind
   // The PAYING user. When set and the job carries real revenue, their referrer
   // earns REFERRAL_REVENUE_SHARE of it, netted from treasury's margin below —
   // worker pay is untouched (split becomes 70/25/5 base, 80/15/5 boosted).
@@ -388,17 +390,23 @@ export function recordEarning(data: {
   return earning;
 }
 
-// Total USD of FREE-PROMPT treasury-subsidized worker earnings booked since
-// 00:00 UTC today. Used to enforce the daily free-prompt subsidy cap. Excludes
-// staker-allowance subsidies — those have their own separate daily pool cap, so
-// the two never draw from each other's budget.
+// Total USD of FREE-TIER treasury-subsidized worker earnings booked since 00:00
+// UTC today. Used to enforce the daily free subsidy cap.
+//
+// An INCLUDE list, not an exclude list: this counts the welcome prompts and the
+// Free daily grant, and nothing else. Staker allowances have their own pool cap
+// and plan grants were prepaid, so neither belongs in a budget meant to bound
+// what the treasury gives away. Written as "which lanes are free" rather than
+// "which lanes are not allowance" so that adding a funded lane later cannot
+// silently charge it to the free tier's budget. NULL is legacy free-prompt
+// rows, from before the column existed.
 export function getTodayFreeSubsidyUsd(): number {
   ensureEarningsTables();
   const db = getDb();
   const midnight = new Date();
   midnight.setUTCHours(0, 0, 0, 0);
   const row = db.prepare(
-    "SELECT COALESCE(SUM(earning_usd), 0) as total FROM worker_earnings WHERE subsidized = 1 AND (subsidy_kind IS NULL OR subsidy_kind != 'allowance') AND created_at >= ?"
+    "SELECT COALESCE(SUM(earning_usd), 0) as total FROM worker_earnings WHERE subsidized = 1 AND (subsidy_kind IS NULL OR subsidy_kind IN ('free', 'free_grant')) AND created_at >= ?"
   ).get(midnight.toISOString()) as { total: number };
   return row.total;
 }
@@ -411,7 +419,7 @@ export function getThisHourFreeSubsidyUsd(): number {
   const hourStart = new Date();
   hourStart.setUTCMinutes(0, 0, 0);
   const row = db.prepare(
-    "SELECT COALESCE(SUM(earning_usd), 0) as total FROM worker_earnings WHERE subsidized = 1 AND (subsidy_kind IS NULL OR subsidy_kind != 'allowance') AND created_at >= ?"
+    "SELECT COALESCE(SUM(earning_usd), 0) as total FROM worker_earnings WHERE subsidized = 1 AND (subsidy_kind IS NULL OR subsidy_kind IN ('free', 'free_grant')) AND created_at >= ?"
   ).get(hourStart.toISOString()) as { total: number };
   return row.total;
 }
@@ -1326,11 +1334,290 @@ export function refundCredits(privyId: string, amount: number, description?: str
  * over this table filters on `type` ('deposit' / 'spend'), so a 0-amount row of
  * a new type cannot shift any total.
  */
-export function recordSubsidizedPrompt(privyId: string, type: 'free_prompt' | 'staker_allowance', description: string): void {
+export function recordSubsidizedPrompt(
+  privyId: string,
+  type: 'free_prompt' | 'staker_allowance' | 'plan_grant' | 'free_grant',
+  description: string,
+): void {
   ensureCreditTables();
   const db = getDb();
   db.prepare('INSERT INTO credit_transactions (id, privy_id, type, amount, description, tx_hash, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
     .run(crypto.randomUUID(), privyId, type, 0, description, null, new Date().toISOString());
+}
+
+// ── Plan periods ──
+//
+// A plan is a prepaid period, not a card subscription: buying one debits the
+// credit balance and moves an expiry date. Storage lives here, beside the
+// ledger, because the debit and the period have to be ONE transaction — a
+// balance that moved without the period moving is a user who paid for nothing,
+// and the reverse is a month nobody paid for.
+//
+// One row per user, kept after it expires: it holds the auto-renew preference
+// and it is the record of what they were on. "Active" is expires_at in the
+// future, never a status column that could disagree with the date.
+
+function ensurePlanTables() {
+  const db = getDb();
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS user_plans (
+      privy_id TEXT PRIMARY KEY,
+      plan TEXT NOT NULL,
+      started_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      auto_renew INTEGER NOT NULL DEFAULT 1,
+      pending_plan TEXT,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS plan_events (
+      id TEXT PRIMARY KEY,
+      privy_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      plan TEXT NOT NULL,
+      credits INTEGER NOT NULL DEFAULT 0,
+      expires_at TEXT,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_plan_events_privy ON plan_events(privy_id);
+  `);
+  // When this period was settled as ended. The once-only marker for the lapse:
+  // an expired plan is resolved on every request, and without it the lapse
+  // either writes a row each time or (worse) books no event at all on the
+  // commonest cancellation, which is auto-renew off plus a period running out.
+  // Cleared whenever a new period is written. Throws (ignored) if it exists.
+  try { db.exec('ALTER TABLE user_plans ADD COLUMN lapsed_at TEXT'); } catch {}
+}
+
+export interface PlanRow {
+  privy_id: string;
+  plan: string;
+  started_at: string;
+  expires_at: string;
+  auto_renew: number;
+  pending_plan: string | null;
+  lapsed_at: string | null;
+  updated_at: string;
+}
+
+/**
+ * What a plan did and when. The credit ledger records the money; this records
+ * the state changes, including the ones that move no money — a plan that lapsed
+ * because the balance did not cover it leaves no ledger row at all, and "why am
+ * I back on Free" has to be answerable.
+ */
+export type PlanEventKind = 'purchase' | 'renew' | 'upgrade' | 'downgrade_scheduled' | 'lapse';
+
+export function getPlanRow(privyId: string): PlanRow | null {
+  ensurePlanTables();
+  return (getDb().prepare('SELECT * FROM user_plans WHERE privy_id = ?').get(privyId) as PlanRow | undefined) ?? null;
+}
+
+export function getPlanEvents(privyId: string, limit = 20): PlanEventRow[] {
+  ensurePlanTables();
+  return getDb()
+    .prepare('SELECT * FROM plan_events WHERE privy_id = ? ORDER BY created_at DESC LIMIT ?')
+    .all(privyId, limit) as PlanEventRow[];
+}
+
+export interface PlanEventRow {
+  id: string;
+  privy_id: string;
+  kind: string;
+  plan: string;
+  credits: number;
+  expires_at: string | null;
+  created_at: string;
+}
+
+/**
+ * Buy a period: debit the balance and move the expiry, atomically.
+ *
+ * The ONE function that turns credits into plan time. A card checkout, an
+ * "earn your subscription" reward, an admin grant — all of them land here, and
+ * none of them get to invent their own way of writing a period. `credits: 0` is
+ * allowed for exactly that reason (a comped period still needs the same row and
+ * the same event); it simply skips the debit.
+ *
+ * Returns false if the balance did not cover it, having changed nothing:
+ * spendCredits refuses before it writes, so the surrounding transaction commits
+ * empty rather than half.
+ */
+export function purchasePlanPeriod(args: {
+  privyId: string;
+  plan: string;
+  credits: number;
+  /** When the new period ends. Callers own the calendar; this owns the write. */
+  expiresAt: string;
+  kind: PlanEventKind;
+  /** Ledger description for the debit. User-visible in the credit history. */
+  description: string;
+  autoRenew?: boolean;
+  /** A scheduled downgrade that this period consumed. Cleared unless set. */
+  pendingPlan?: string | null;
+  /**
+   * Compare-and-set on the state the caller read. The write only happens if the
+   * stored row still looks the way it did when the decision was made, so a
+   * caller cannot act on a period another process has already moved.
+   *
+   *   a string — the row must exist with exactly this expires_at
+   *   null     — there must be NO ACTIVE period (no row, or an expired one)
+   *   omitted  — no check, for callers with no prior read to protect
+   *
+   * Both plan writes need it. Two processes serve this app (the orchestrator
+   * and the Next.js routes) and both resolve plan state on their own requests.
+   * A plan that expires between them is read as "expired, renew it" by each, so
+   * without the guard a user who loads the page while sending a message is
+   * charged for two months — and two clicks on a first purchase buy two.
+   */
+  ifExpiresAt?: string | null;
+}): boolean {
+  ensurePlanTables();
+  ensureCreditTables();
+  const db = getDb();
+  const now = new Date().toISOString();
+
+  const txn = db.transaction(() => {
+    if (args.ifExpiresAt !== undefined) {
+      const current = db.prepare('SELECT expires_at FROM user_plans WHERE privy_id = ?').get(args.privyId) as
+        | { expires_at: string }
+        | undefined;
+      // Checked INSIDE the transaction, so the row cannot move between the
+      // check and the write.
+      if (args.ifExpiresAt === null) {
+        // The caller believed there was no active period. A row that has since
+        // become active means someone else got there first.
+        if (current && Date.parse(current.expires_at) > Date.now()) return false;
+      } else if (!current || current.expires_at !== args.ifExpiresAt) {
+        return false;
+      }
+    }
+    if (args.credits > 0 && !spendCredits(args.privyId, args.credits, args.description)) return false;
+
+    const existing = db.prepare('SELECT started_at FROM user_plans WHERE privy_id = ?').get(args.privyId) as
+      | { started_at: string }
+      | undefined;
+    // started_at is when this run of paid membership began, not when this
+    // period did — a renewal continues the run, a fresh purchase starts one.
+    const startedAt = args.kind === 'purchase' || !existing ? now : existing.started_at;
+    const autoRenew = args.autoRenew === undefined ? 1 : args.autoRenew ? 1 : 0;
+
+    db.prepare(
+      `INSERT INTO user_plans (privy_id, plan, started_at, expires_at, auto_renew, pending_plan, lapsed_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, NULL, ?)
+       ON CONFLICT(privy_id) DO UPDATE SET
+         plan = excluded.plan,
+         started_at = excluded.started_at,
+         expires_at = excluded.expires_at,
+         auto_renew = excluded.auto_renew,
+         pending_plan = excluded.pending_plan,
+         lapsed_at = NULL,
+         updated_at = excluded.updated_at`
+    ).run(args.privyId, args.plan, startedAt, args.expiresAt, autoRenew, args.pendingPlan ?? null, now);
+
+    db.prepare(
+      'INSERT INTO plan_events (id, privy_id, kind, plan, credits, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    ).run(crypto.randomUUID(), args.privyId, args.kind, args.plan, args.credits, args.expiresAt, now);
+
+    return true;
+  });
+
+  const bought = txn() as boolean;
+
+  // Book the cash outside the transaction, because treasury-ledger.ts holds its
+  // own connection and cannot join this one. Same shape recordEarning already
+  // uses for realizeMargin, and the same failure mode: if this throws after the
+  // period commits, the treasury under-reports its own revenue. That is an
+  // attribution gap, never a lost or double-taken payment — the money moved in
+  // the transaction above.
+  //
+  // Only a purchase that actually took credits books revenue. A comped period
+  // (credits: 0) brought in no cash and must not invent any.
+  if (bought && args.credits > 0) {
+    creditPlanRevenue(args.credits / CREDITS_PER_DOLLAR_PURCHASED, `${args.kind}:${args.plan}:${args.privyId}`);
+  }
+  return bought;
+}
+
+/**
+ * USD paid to workers for jobs funded by a PLAN grant.
+ *
+ * The other half of the plan margin. Derived from worker_earnings exactly as the
+ * free-tier subsidy total is, rather than debited from the bucket, so the two
+ * sides stay independently checkable and a bug in one cannot quietly consume the
+ * other. Pair with the plan_revenue bucket: revenue minus this is the floor the
+ * plans are actually clearing.
+ */
+export function getPlanFundedPayoutsUsd(sinceIso?: string): number {
+  ensureEarningsTables();
+  const db = getDb();
+  const row = (sinceIso
+    ? db.prepare("SELECT COALESCE(SUM(earning_usd), 0) as total FROM worker_earnings WHERE subsidy_kind = 'plan' AND created_at >= ?").get(sinceIso)
+    : db.prepare("SELECT COALESCE(SUM(earning_usd), 0) as total FROM worker_earnings WHERE subsidy_kind = 'plan'").get()
+  ) as { total: number };
+  return row.total;
+}
+
+/**
+ * Mark an expired plan as done for good.
+ *
+ * Auto-renew is turned OFF here on purpose. A plan lapses because the balance
+ * could not cover it; if the flag stayed on, the user's next top-up would be
+ * silently eaten by a renewal they had stopped expecting. Coming back is a
+ * decision they make, not one their deposit makes for them.
+ */
+export function lapsePlan(privyId: string): void {
+  ensurePlanTables();
+  const db = getDb();
+  const now = new Date().toISOString();
+  const txn = db.transaction(() => {
+    const row = db.prepare('SELECT plan, lapsed_at FROM user_plans WHERE privy_id = ?').get(privyId) as
+      | { plan: string; lapsed_at: string | null }
+      | undefined;
+    // Already settled. An expired plan is resolved on every request, so this is
+    // the common path and it must write nothing at all.
+    if (!row || row.lapsed_at) return;
+    db.prepare(
+      'UPDATE user_plans SET auto_renew = 0, pending_plan = NULL, lapsed_at = ?, updated_at = ? WHERE privy_id = ?'
+    ).run(now, now, privyId);
+    db.prepare(
+      'INSERT INTO plan_events (id, privy_id, kind, plan, credits, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    ).run(crypto.randomUUID(), privyId, 'lapse', row.plan, 0, null, now);
+  });
+  txn();
+}
+
+/** Turn auto-renew on or off. No money moves. */
+export function setPlanAutoRenew(privyId: string, enabled: boolean): boolean {
+  ensurePlanTables();
+  const res = getDb()
+    .prepare('UPDATE user_plans SET auto_renew = ?, updated_at = ? WHERE privy_id = ?')
+    .run(enabled ? 1 : 0, new Date().toISOString(), privyId);
+  return res.changes > 0;
+}
+
+/**
+ * Schedule a move to a cheaper plan at the end of the current period. No money
+ * moves now — the user keeps what they paid for until it runs out. Passing null
+ * cancels a scheduled change.
+ */
+export function schedulePlanChange(privyId: string, pendingPlan: string | null): boolean {
+  ensurePlanTables();
+  const db = getDb();
+  const now = new Date().toISOString();
+  const txn = db.transaction(() => {
+    const res = db
+      .prepare('UPDATE user_plans SET pending_plan = ?, updated_at = ? WHERE privy_id = ?')
+      .run(pendingPlan, now, privyId);
+    if (res.changes === 0) return false;
+    if (pendingPlan) {
+      db.prepare(
+        'INSERT INTO plan_events (id, privy_id, kind, plan, credits, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      ).run(crypto.randomUUID(), privyId, 'downgrade_scheduled', pendingPlan, 0, null, now);
+    }
+    return true;
+  });
+  return txn() as boolean;
 }
 
 // ── Free onboarding prompts ──

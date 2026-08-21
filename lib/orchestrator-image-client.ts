@@ -1,4 +1,5 @@
 import { io, Socket } from 'socket.io-client';
+import type { SubsidyKind } from './orchestrator/types';
 
 // Submit an image render to the orchestrator and await the PNG. Mirrors the
 // internal socket bridge the chat API uses (app/api/v1/chat/completions), but
@@ -16,7 +17,7 @@ export class ImageJobError extends Error {
 
 export async function submitImageJob(
   workflow: Record<string, unknown>,
-  meta: { privyId: string; seed?: number; width?: number; height?: number; creditsCharged?: number; subsidized?: boolean }
+  meta: { privyId: string; seed?: number; width?: number; height?: number; creditsCharged?: number; subsidized?: boolean; subsidyKind?: SubsidyKind }
 ): Promise<ImageJobResult> {
   const internalSecret = process.env.INTERNAL_API_SECRET;
   if (!internalSecret) throw new ImageJobError('INTERNAL_API_SECRET not configured', 'CONFIG');
@@ -31,7 +32,7 @@ export async function submitImageJob(
     socket.on('image:done', (d: any) => finish(() => resolve({ image: d.image, jobId: d.jobId, seed: d.seed, width: d.width, height: d.height })));
     socket.on('image:error', (d: any) => finish(() => reject(new ImageJobError(d.error || 'Image generation failed.', d.code))));
     socket.on('connect', () => {
-      socket.emit('image:submit', { workflow, privyUserId: meta.privyId, seed: meta.seed, width: meta.width, height: meta.height, creditsCharged: meta.creditsCharged, subsidized: meta.subsidized }, (ack: any) => {
+      socket.emit('image:submit', { workflow, privyUserId: meta.privyId, seed: meta.seed, width: meta.width, height: meta.height, creditsCharged: meta.creditsCharged, subsidized: meta.subsidized, subsidyKind: meta.subsidyKind }, (ack: any) => {
         if (ack?.error) finish(() => reject(new ImageJobError(ack.error, ack.code)));
         // else accepted — wait for image:done / image:error
       });

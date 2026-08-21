@@ -214,6 +214,7 @@ export default function Composer({
             ><Tune /></button>
 
             <div className="ml-auto flex shrink-0 items-center gap-2.5">
+              <DailyMeter engine={engine} />
               {value.length > MAX_CHARS - 200 && (
                 <span className="text-[12px] tabular-nums" style={{ color: over ? 'var(--danger)' : 'var(--cu-faint)' }}>
                   {value.length}/{MAX_CHARS}
@@ -251,3 +252,36 @@ function SendControl({
   );
 }
 
+
+
+/** Credits left in today's grant.
+ *
+ *  Sits in the bar rather than under the slab because the composer wants
+ *  nothing beneath it, and it is the one number a metered account needs while
+ *  it is typing. Deliberately quiet — a count and two words, no progress bar —
+ *  until the day is nearly gone, when it turns and starts saying so.
+ *
+ *  Hidden while the count is unknown, so it never flashes a zero the account
+ *  does not have, and hidden on the narrowest screens like the Thinking label
+ *  above it: the model name is the element meant to give, and on a phone there
+ *  is nothing left for it to give.
+ */
+function DailyMeter({ engine }: { engine: ChatEngine }) {
+  const grant = engine.credits.dailyGrant;
+  if (!grant || grant.total <= 0) return null;
+  const fraction = grant.remaining / grant.total;
+  const out = grant.remaining <= 0;
+  const low = fraction <= 0.15;
+  return (
+    <a
+      href="/settings#plans"
+      title={out
+        ? 'Today\u2019s credits are gone. They come back at 00:00 UTC.'
+        : `${grant.remaining} of ${grant.total} credits left today. Resets 00:00 UTC.`}
+      className="shrink-0 whitespace-nowrap text-[12px] tabular-nums transition-colors hover:opacity-80 max-[460px]:hidden"
+      style={{ color: out || low ? 'var(--danger)' : 'var(--cu-faint)' }}
+    >
+      {out ? 'None left today' : `${grant.remaining} left today`}
+    </a>
+  );
+}

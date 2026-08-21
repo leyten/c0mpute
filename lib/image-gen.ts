@@ -12,7 +12,14 @@
 
 import { randomUUID } from 'crypto';
 
-export const IMAGE_CREDITS = Number(process.env.IMAGE_CREDITS || 20); // $0.20 at 1 credit = $0.01
+// One render, everywhere images are charged. $0.01 at 1 credit = $0.001 — down
+// 20x from the old flat $0.20, in the same change as the per-token text
+// repricing and for the same reason: leaving images at $0.20 while a text
+// message falls to ~$0.0007 pays an image worker ~219x what a text worker earns
+// per GPU-hour, and the fleet would abandon text.
+// A deployment that overrides IMAGE_CREDITS in .env.local is still on the OLD
+// denomination and must be re-set (20 → 10) with this release.
+export const IMAGE_CREDITS = Number(process.env.IMAGE_CREDITS || 10); // $0.01 at 1 credit = $0.001
 export const COMFY_URL = (process.env.COMFY_URL || 'http://127.0.0.1:8188').replace(/\/$/, '');
 // Chroma1-HD (Flux-schnell-derived) is a 3-file model: the diffusion UNet, a T5
 // text encoder, and the Flux VAE. Unlike SDXL there is no all-in-one checkpoint.

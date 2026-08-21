@@ -38,7 +38,7 @@ Here is what the renderer handles:
 
 | Model | Runs on | Cost |
 |-------|---------|------|
-| Qwen3.8 27B Uncensored | GPU workers | 15 cr |
+| Qwen3.8 27B Uncensored | GPU workers | ≈ 1 cr / message |
 | Chroma1-HD (images) | GPU workers | per render |
 
 > Blockquotes render like this, for quoted context.

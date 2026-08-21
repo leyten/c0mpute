@@ -12,6 +12,8 @@
  * shard. This file is the c0mpute-side data model those seams read and write.
  */
 
+import type { SubsidyKind } from './types';
+
 /**
  * What a node advertises when it announces (§2a of NETWORK_ARCHITECTURE.md). Unlike WorkerCapabilities
  * (product feature flags: search/vision/tools), placement needs HARDWARE — because select_ring fits
@@ -222,13 +224,13 @@ export interface StageEarning {
   // subsidy lane ride along so the earning books referral + treasury-vs-paid exactly like a classic job.
   revenueCredits?: number;
   payerPrivyId?: string;
-  subsidyKind?: 'free' | 'allowance';
+  subsidyKind?: SubsidyKind;
 }
 
 /** The job's collected-revenue basis, threaded from dispatch to settlement so the payout splits
  *  exactly what was charged (self-solvent: pay a share of collected, never more). */
 export interface JobRevenue {
-  credits: number;             // creditsCharged (paid) or subsidyCredits (free/allowance, treasury-funded)
-  subsidyKind?: 'free' | 'allowance';   // set ⇒ treasury-funded, booked as subsidized (creditsCharged 0)
+  credits: number;             // creditsCharged (paid) or subsidyCredits (any lane the user paid nothing for)
+  subsidyKind?: SubsidyKind;   // set ⇒ the user paid no credits; see isFreeSubsidyKind for who funds it
   payerPrivyId?: string;       // the requester, for the referral cut
 }

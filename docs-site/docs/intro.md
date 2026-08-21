@@ -20,15 +20,16 @@ Chat runs on **Qwen3.8 27B Uncensored** (`qwen3.8-27b-uncensored`) — one model
 
 | Model | Cost | Where it runs | Notes |
 |-------|------|---------------|-------|
-| **Qwen3.8 27B Uncensored** | 15 credits (20 with thinking) | Native workers | uncensored; web search + tools, image input, thinking mode |
+| **Qwen3.8 27B Uncensored** | about 1 credit a message | Native workers | uncensored; web search + tools, image input, thinking mode |
 
-The [API](/api-reference) exposes two more ids: `c0mpute-pro`, an uncensored 8B served by the browser worker pool (10 credits), and `c0mpute-swarm`, MiniMax-M2.5 split across a swarm of GPUs (10 credits). [Image generation](/image-generation) runs on its own pool of image workers.
+The [API](/api-reference) exposes two more ids: `c0mpute-pro`, an uncensored 8B served by the browser worker pool, and `c0mpute-swarm`, MiniMax-M2.5 split across a swarm of GPUs. Both bill at the same per-token rate. [Image generation](/image-generation) runs on its own pool of image workers.
 
 ## Credits and the <span class="dollar">$</span>ZERO token
 
-Inference is paid for with credits. **1 credit = $0.01**, bought with USDC. You don't need any token to use Compute Network.
+Inference is paid for with credits. A credit is **$0.001**, and a dollar buys 500 of them. You don't need any token to use Compute Network.
 
-- Top up credits with USDC; they're spent per message
+- Sign in and you get free credits every day. A [plan](/user-guide/plans) gives you more
+- Top up with USDC for anything past the day's credits; text is billed per token
 - Workers earn 70% of the USD value of the credits spent on jobs they complete (80% if they stake), paid in USDC
 
 <span class="dollar">$</span>ZERO is a separate, value-accrual token. Network revenue automatically buys it back and burns it, and pays a share to everyone who stakes it.

@@ -1,5 +1,5 @@
 ---
-sidebar_position: 2
+sidebar_position: 3
 title: Models
 ---
 
@@ -9,7 +9,7 @@ There are no tiers. Compute Network serves **one text model** to everyone, plus 
 
 ## Qwen3.8 27B Uncensored
 
-- **Cost:** 15 credits per message (20 with thinking)
+- **Cost:** billed per token, about 1 credit for a typical message
 - **Model ids:** `qwen3.8-27b-uncensored`, `qwen3.8-27b-uncensored-think`
 - Runs on **native workers** via ollama — consumer GPUs, not a data center
 - **Uncensored** — refusal behavior removed
@@ -20,11 +20,11 @@ What it can do:
 
 - **Web search and tools** — the model decides when to search, calls the tool, and answers grounded in the results with citations. Through the API you can hand it your own functions the same way.
 - **Vision** — send it an image and it reads it. (Image *input*. Making pictures is the image model below.)
-- **Thinking mode** — extended chain-of-thought before it answers, for harder problems. 20 credits instead of 15.
+- **Thinking mode** — extended chain-of-thought before it answers, for harder problems. There is no surcharge. Thinking tokens are output tokens, so a thinking answer costs more only because it is longer.
 
 ## c0mpute-pro
 
-- **Cost:** 10 credits per message
+- **Cost:** billed per token, at the same rate as every other text model
 - **Model id:** `c0mpute-pro`
 - Uncensored **Qwen3 8B**, run by **browser workers** on WebGPU — ~4.3GB download, ~6GB VRAM
 
@@ -32,7 +32,7 @@ The browser lane: a small, fast model on the widest supply in the network. It al
 
 ## c0mpute-swarm
 
-- **Cost:** 10 credits per message
+- **Cost:** billed per token, at the same rate as every other text model
 - **Model id:** `c0mpute-swarm`
 - **MiniMax-M2.5 (229B)**, split across a swarm of contributor GPUs — no single machine holds the whole model
 
@@ -40,24 +40,39 @@ A 229B model running on hardware that could never hold it alone. Availability de
 
 ## Image generation
 
-- **Cost:** 20 credits per image
+- **Cost:** 10 credits per image
 - **Chroma1-HD** on dedicated image workers, uncensored
 
 Available both as a tool the text model calls when you ask it for a picture, and as a direct endpoint. See [Image generation](/image-generation).
 
-## Credit costs at a glance
+## What things cost
 
-| What | Credits | USD |
-|------|---------|-----|
-| Message on `qwen3.8-27b-uncensored` | 15 | $0.15 |
-| …with thinking | 20 | $0.20 |
-| Message on `c0mpute-pro` | 10 | $0.10 |
-| Message on `c0mpute-swarm` | 10 | $0.10 |
-| Image | 20 | $0.20 |
+Text is billed per token. One rate card covers every text model, so the model
+you pick changes the answer, not the price.
 
-Credits are priced at $0.01 each and bought with USDC.
+| | USD per 1M tokens |
+|---|---|
+| Input | $0.15 |
+| Output | $0.90 |
 
-Credits are deducted when you send a message. If a job fails or you disconnect, credits are refunded automatically.
+A credit is $0.001. Requests round up to whole credits with a floor of 1, so a
+typical message of about 1,200 tokens in and 600 out costs about 1 credit.
+
+| What | Credits |
+|------|---------|
+| Typical message | about 1 |
+| Image | 10 |
+
+Length is the price. A short question costs less than a long one, and a long
+answer costs more than a short one. There is no separate charge for thinking.
+
+Most people never pay per message, because a [plan](/user-guide/plans) grants
+credits every day. Credits also come from topping up with USDC at 500 credits
+per dollar.
+
+When you send a message we hold the most it could cost, then charge what it
+actually cost when the answer finishes and give the rest back. If a job fails or
+you disconnect, the whole hold is refunded.
 
 ## What "uncensored" means
 

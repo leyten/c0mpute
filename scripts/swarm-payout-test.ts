@@ -22,6 +22,12 @@ import { io as ioc, type Socket as ClientSocket } from 'socket.io-client';
 import { attachSwarmLoop } from '../lib/orchestrator/swarm-loop';
 import type { Seam } from '../lib/orchestrator/swarm';
 import type { RingPlan, SettleResult, BlockSketch, StageEarning } from '../lib/orchestrator/swarm-types';
+import { CREDITS_PER_USD } from '../lib/token-price';
+
+/** The fixture's collected charge, chosen so the flat-by-layers split has a
+ *  remainder to resolve. Its USD value follows the live credit denomination. */
+const JOB_CREDITS = 100;
+const JOB_USD = JOB_CREDITS / CREDITS_PER_USD;
 
 let failed = false;
 function check(cond: boolean, msg: string) { console.log(`${cond ? 'ok  ' : 'FAIL'}  ${msg}`); if (!cond) failed = true; }
@@ -102,11 +108,11 @@ async function main() {
   });
   await allReady;
 
-  // a PAID job that collected 100 credits ($1.00)
+  // a PAID job that collected JOB_CREDITS credits
   await new Promise<void>((resolve) => {
     handle.serveRequest({
       model: 'minimax-m2.5', messages: [{ role: 'user', content: 'q' }],
-      revenue: { credits: 100, payerPrivyId: 'buyer-1' },
+      revenue: { credits: JOB_CREDITS, payerPrivyId: 'buyer-1' },
       onToken: () => {}, onDone: () => setTimeout(resolve, 250), onError: () => resolve(),
     });
   });
@@ -118,19 +124,21 @@ async function main() {
   // (1) flat-by-layers revenue split: 100 credits × 40/62 = 65 (largest-remainder), 22/62 = 35
   check(big.revenueCredits === 65 && small.revenueCredits === 35,
     `revenue split flat by layers: ${big.revenueCredits} / ${small.revenueCredits} (want 65 / 35)`);
-  check((big.revenueCredits! + small.revenueCredits!) === 100, 'stage revenue sums to the collected charge (self-solvent)');
+  check((big.revenueCredits! + small.revenueCredits!) === JOB_CREDITS, 'stage revenue sums to the collected charge (self-solvent)');
   // (2) payer + subsidy threading
   check(captured.every((e) => e.payerPrivyId === 'buyer-1'), 'payer threaded to every stage (referral)');
   check(captured.every((e) => e.subsidyKind === undefined), 'paid job: no subsidy lane');
   // (3) per-worker cut AFTER the split — staked stage keeps 80%, unstaked 70%
-  const keptBig = (big.revenueCredits! / 100) * shareFor(big.account);     // staked: 0.65 × 0.8 = $0.52
-  const keptSmall = (small.revenueCredits! / 100) * shareFor(small.account); // unstaked: 0.35 × 0.7 = $0.245
-  check(Math.abs(keptBig - 0.52) < 1e-9, `staked stage keeps 80% of its slice ($${keptBig.toFixed(3)}, want 0.520)`);
-  check(Math.abs(keptSmall - 0.245) < 1e-9, `unstaked stage keeps 70% of its slice ($${keptSmall.toFixed(3)}, want 0.245)`);
-  const platform = 1.0 - keptBig - keptSmall;
-  check(platform > 0 && Math.abs(platform - 0.235) < 1e-9, `platform keeps the rest, per-worker ($${platform.toFixed(3)}) — NOT a blended cut`);
-  // a blended 0.75 cut would have paid 1.0×0.75 = 0.75; the true per-worker payout is 0.765 — proving they differ
-  check(Math.abs((keptBig + keptSmall) - 0.765) < 1e-9, 'per-worker payout (0.765) ≠ blended-average payout (0.750)');
+  // Stated as fractions of the collected charge so the assertions survive a
+  // credit redenomination — only JOB_USD moves when CREDITS_PER_USD does.
+  const keptBig = (big.revenueCredits! / CREDITS_PER_USD) * shareFor(big.account);     // staked:   0.65 × 0.8 = 0.52 of the charge
+  const keptSmall = (small.revenueCredits! / CREDITS_PER_USD) * shareFor(small.account); // unstaked: 0.35 × 0.7 = 0.245 of the charge
+  check(Math.abs(keptBig - 0.52 * JOB_USD) < 1e-12, `staked stage keeps 80% of its slice ($${keptBig.toFixed(6)}, want ${(0.52 * JOB_USD).toFixed(6)})`);
+  check(Math.abs(keptSmall - 0.245 * JOB_USD) < 1e-12, `unstaked stage keeps 70% of its slice ($${keptSmall.toFixed(6)}, want ${(0.245 * JOB_USD).toFixed(6)})`);
+  const platform = JOB_USD - keptBig - keptSmall;
+  check(platform > 0 && Math.abs(platform - 0.235 * JOB_USD) < 1e-12, `platform keeps the rest, per-worker ($${platform.toFixed(6)}) — NOT a blended cut`);
+  // a blended 0.75 cut would have paid 0.750 of the charge; the true per-worker payout is 0.765 — proving they differ
+  check(Math.abs((keptBig + keptSmall) - 0.765 * JOB_USD) < 1e-12, 'per-worker payout (0.765) ≠ blended-average payout (0.750)');
 
   // (4) free/allowance job books the subsidy lane
   captured.length = 0;

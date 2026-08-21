@@ -13,12 +13,16 @@ No lengthy sign-up, no password. Just authorize with X and you're in. A Solana w
 
 ## 2. Get credits
 
-To send messages:
+Signing in puts you on the Free plan, which gives you 20 credits a day. That is
+about 20 messages, and it costs nothing. See [Plans](/user-guide/plans) for the
+bigger ones.
+
+To go past the day's credits, top up:
 
 1. Go to **Settings** → **Account** (the deposit address is in the credits/account section)
 2. Copy your **deposit address**
 3. Send **USDC** (on Solana) to that address
-4. **1 credit = $0.01** — credits appear in your account automatically once the transaction confirms
+4. **A dollar buys 500 credits** — they appear in your account automatically once the transaction confirms
 
 If you accidentally send native **SOL** instead of USDC to your deposit address, it's automatically detected and returned to your wallet (you'll see a note on the deposit page).
 
@@ -30,9 +34,9 @@ There is no tier to pick and no model picker. Every message goes to the same mod
 
 | Model | Cost | Notes |
 |-------|------|-------|
-| **Qwen3.8 27B Uncensored** | 15 cr/msg (20 with thinking) | Uncensored; web search, image input, thinking mode |
+| **Qwen3.8 27B Uncensored** | about 1 credit a message | Uncensored; web search, image input, thinking mode |
 
-Turn on thinking when you want the model to reason at length before answering — it costs 20 credits instead of 15.
+Turn on thinking when you want the model to reason at length before answering. There is no surcharge for it. Thinking costs more only because it writes more.
 
 See [Models](/user-guide/model-tiers) for the rest of what the network serves.
 

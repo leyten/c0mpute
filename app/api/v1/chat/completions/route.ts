@@ -90,6 +90,24 @@ function estimateTokens(text: string): number {
   return Math.max(1, Math.ceil((text || '').length / 4));
 }
 
+/** What the orchestrator actually billed the job on — see JobUsage in
+ *  lib/orchestrator/types.ts. Structurally typed rather than imported so this
+ *  route keeps no compile-time dependency on the orchestrator bundle. */
+type BilledUsage = { inputTokens: number; outputTokens: number; credits: number };
+
+/**
+ * The `usage` block. Prefers the orchestrator's billed counts so what a caller
+ * reads is what their balance was charged for — its input count is measured
+ * after history trimming, and its output count is the server's own token count.
+ * Falls back to the local estimate only when a job ended without reporting one
+ * (a rejection path), which is also all this endpoint ever had.
+ */
+function usageBlock(billed: BilledUsage | undefined, promptTokens: number, completionTokens: number) {
+  const prompt = billed?.inputTokens ?? promptTokens;
+  const completion = billed?.outputTokens ?? completionTokens;
+  return { prompt_tokens: prompt, completion_tokens: completion, total_tokens: prompt + completion };
+}
+
 function safeJsonParse(s: any): Record<string, unknown> {
   if (s && typeof s === 'object') return s;
   try { return JSON.parse(s); } catch { return {}; }
@@ -292,6 +310,12 @@ export async function POST(req: NextRequest) {
     const pending: string[] = [];
     let settled = false;
     let roleSent = false;
+    // Fallbacks for the usage chunk when a job ends without reporting what it
+    // was billed on. Same two estimates the non-streaming lane has always used.
+    const promptTokensForStream = estimateTokens(
+      workerMessages.map((m: any) => (typeof m?.content === 'string' ? m.content : '')).join('\n')
+    );
+    let streamedTokens = 0;
     let jobTimer: ReturnType<typeof setTimeout> | null = null;
     let hardTimer: ReturnType<typeof setTimeout> | null = null;
     let heartbeat: ReturnType<typeof setInterval> | null = null;
@@ -311,6 +335,16 @@ export async function POST(req: NextRequest) {
     };
     const sendChunk = (delta: any, finish: string | null = null) =>
       raw(`data: ${JSON.stringify({ id, object: 'chat.completion.chunk', created, model: requestedModel, choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`);
+    // The stream never reported usage at all, so a streaming caller had no way to
+    // see what they were charged for. Sent as OpenAI does it — one final chunk
+    // with no choices, only on stream_options.include_usage — because an
+    // unrequested extra frame is a compatibility risk for strict clients.
+    const wantsUsage = (body as any)?.stream_options?.include_usage === true;
+    const sendUsage = (billed?: BilledUsage) => {
+      if (!wantsUsage) return;
+      const usage = usageBlock(billed, promptTokensForStream, streamedTokens);
+      raw(`data: ${JSON.stringify({ id, object: 'chat.completion.chunk', created, model: requestedModel, choices: [], usage })}\n\n`);
+    };
     // `err` ⇒ the job failed after the 200 headers were already on the wire, so
     // there is no status code left to fail with. The only thing an OpenAI SDK
     // reads as a failure is a data frame whose payload carries an `error` object
@@ -339,19 +373,22 @@ export async function POST(req: NextRequest) {
     socket.on('job:token', (d: { jobId: string; token: string }) => {
       if (jobId && d.jobId !== jobId) return;
       armIdle();
+      streamedTokens++;
       if (!roleSent) { roleSent = true; sendChunk({ role: 'assistant', content: '' }); }
       sendChunk({ content: d.token });
     });
-    socket.on('job:complete', (d: { jobId: string; response: string }) => {
+    socket.on('job:complete', (d: { jobId: string; response: string; usage?: BilledUsage }) => {
       if (jobId && d.jobId !== jobId) return;
       if (!roleSent) { roleSent = true; sendChunk({ role: 'assistant', content: d.response ?? '' }); }
       sendChunk({}, 'stop');
+      sendUsage(d.usage);
       finish();
     });
-    socket.on('job:tool_calls', (d: { jobId: string; toolCalls: any[] }) => {
+    socket.on('job:tool_calls', (d: { jobId: string; toolCalls: any[]; usage?: BilledUsage }) => {
       if (jobId && d.jobId !== jobId) return;
       const tc = mapToolCallsOut(d.toolCalls).map((t, i) => ({ index: i, ...t }));
       sendChunk({ role: 'assistant', content: null, tool_calls: tc }, 'tool_calls');
+      sendUsage(d.usage);
       finish();
     });
     socket.on('job:error', (d: { jobId: string; error: string }) => {
@@ -417,7 +454,7 @@ export async function POST(req: NextRequest) {
   // ── Bridge: internal Socket.io client → orchestrator ──
   let socket: Socket | null = null;
   try {
-    const result = await new Promise<{ response?: string; toolCalls?: any[]; completionTokens: number }>((resolve, reject) => {
+    const result = await new Promise<{ response?: string; toolCalls?: any[]; completionTokens: number; usage?: BilledUsage }>((resolve, reject) => {
       socket = io(ORCH_URL, {
         auth: { token: internalSecret },
         transports: ['websocket'],
@@ -480,20 +517,20 @@ export async function POST(req: NextRequest) {
         armIdle();
         completionTokens++;
       });
-      socket.on('job:complete', (d: { jobId: string; response: string }) => {
+      socket.on('job:complete', (d: { jobId: string; response: string; usage?: BilledUsage }) => {
         if (jobId && d.jobId !== jobId) return;
         if (settled) return;
         settled = true;
         clearTimers();
-        resolve({ response: d.response ?? '', completionTokens });
+        resolve({ response: d.response ?? '', completionTokens, usage: d.usage });
       });
       // Tools passthrough: the model wants the agent to run a tool.
-      socket.on('job:tool_calls', (d: { jobId: string; toolCalls: any[] }) => {
+      socket.on('job:tool_calls', (d: { jobId: string; toolCalls: any[]; usage?: BilledUsage }) => {
         if (jobId && d.jobId !== jobId) return;
         if (settled) return;
         settled = true;
         clearTimers();
-        resolve({ toolCalls: d.toolCalls || [], completionTokens });
+        resolve({ toolCalls: d.toolCalls || [], completionTokens, usage: d.usage });
       });
       socket.on('job:error', (d: { jobId: string; error: string }) => {
         if (jobId && d.jobId !== jobId) return;
@@ -522,11 +559,7 @@ export async function POST(req: NextRequest) {
           finish_reason: isToolCalls ? 'tool_calls' : 'stop',
         },
       ],
-      usage: {
-        prompt_tokens: promptTokens,
-        completion_tokens: completionTokens,
-        total_tokens: promptTokens + completionTokens,
-      },
+      usage: usageBlock(result.usage, promptTokens, completionTokens),
     });
   } catch (err: any) {
     const status = err?.status ?? 500;

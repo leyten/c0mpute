@@ -4,6 +4,17 @@ import { Server } from 'socket.io';
 import { Orchestrator } from '../lib/orchestrator/orchestrator';
 import { ServerToClientEvents, ClientToServerEvents } from '../lib/orchestrator/types';
 import { STAKER_ALLOWANCE_ENABLED, STAKER_ALLOWANCE_ALLOWLIST } from '../lib/tokenomics';
+import { assertCreditDenomination } from '../lib/denomination-guard';
+
+// Before a single request is served: refuse to run a build whose credit
+// denomination does not match the ledger it is pointed at. Shipping the
+// repricing without the migration makes every stored balance worth a tenth of
+// what it says, and nothing throws. See lib/denomination-guard.ts.
+//
+// Placed below the imports because that is where it actually runs — module
+// imports are hoisted, so a call written between them would not go first no
+// matter how it reads. Everything above is declaration; nothing has listened yet.
+assertCreditDenomination();
 
 const PORT = process.env.PORT || process.env.SOCKET_PORT || 3001;
 console.log(

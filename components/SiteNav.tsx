@@ -17,6 +17,7 @@ const EXPO = 'cubic-bezier(0.19, 1, 0.22, 1)';
 const TABS = [
   { href: '/chat', label: 'Chat' },
   { href: '/create', label: 'Create' },
+  { href: '/pricing', label: 'Pricing' },
   { href: '/earn', label: 'Earn' },
 ];
 
@@ -455,6 +456,13 @@ export default function SiteNav({
                 onClick={() => setMenuOpen(false)}
               >
                 Create
+              </a>
+              <a
+                href="/pricing"
+                className="cursor-pointer pixel-sans text-fg-70 hover:text-fg transition-colors text-sm tracking-wide"
+                onClick={() => setMenuOpen(false)}
+              >
+                Pricing
               </a>
               <a
                 href="/earn"

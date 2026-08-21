@@ -3,6 +3,27 @@
    lines are hard stairsteps, fills are Bayer-dither patterns. No curves,
    no gradients, no antialiasing. */
 
+// Mirrors lib/token-price.ts CREDITS_PER_USD. Every credit figure in the
+// database is denominated in these units, historic rows included — the
+// redenomination migration rescaled them — so one divisor covers the whole
+// series.
+const CREDITS_PER_USD = 1000;
+
+// Mirrors CREDITS_PER_DOLLAR_PURCHASED. Deposits are the one series that must
+// NOT use the value rate: a credit is worth $0.001 when it is spent, but a
+// dollar only BUYS 500 of them. Dividing deposits by the value rate reported
+// half the cash that actually arrived.
+//
+// HISTORIC ROWS ARE SHOWN HIGH, and this is a deliberate single treatment.
+// Deposits taken before the two rates split were credited at 100 per dollar and
+// then multiplied by ten by the migration, so their cash value is credits/1000,
+// not credits/500 — every one of them reads at twice what was really received.
+// The alternative, a hardcoded cutover date in a static file, buys accuracy for
+// a shrinking set of rows at the cost of a constant nobody will remember to
+// keep true. The error is bounded, it only ever runs one way, and it decays as
+// real deposits accumulate.
+const CREDITS_PER_DOLLAR_PURCHASED = 500;
+
 const SHADES = { max: 'rgba(255,255,255,0.95)', pro: 'rgba(255,255,255,0.55)', image: 'rgba(255,255,255,0.28)', other: 'rgba(255,255,255,0.15)' };
 const GRID = 'rgba(255,255,255,0.07)';
 const TXT = 'rgba(255,255,255,0.45)';
@@ -271,12 +292,21 @@ function render() {
 
   // ---- revenue ----
   const rv = d.revenue;
-  const depositTotal = rv.depositEvents.reduce((s, e) => s + e.amount, 0) / 100;
+  const depositTotal = rv.depositEvents.reduce((s, e) => s + e.amount, 0) / CREDITS_PER_DOLLAR_PURCHASED;
   const payoutTotal = rv.payoutEvents.reduce((s, e) => s + e.usd, 0);
-  const spendTotal = rv.spendDaily.reduce((s, e) => s + e.credits, 0) / 100;
+  // Net of refunds. A prompt reserves the worst case it could cost and is
+  // settled down when the answer stops, so gross spend counts the whole
+  // reservation and the refund that gave most of it back. Plan purchases are
+  // excluded too: they are a spend of credits, but they buy a month, not
+  // inference, and one lands as a bar taller than a week of real usage.
+  const grossSpend = rv.spendDaily
+    .filter((e) => e.tier !== 'plan')
+    .reduce((s, e) => s + e.credits, 0);
+  const refunds = (rv.refundDaily || []).reduce((s, e) => s + e.credits, 0);
+  const spendTotal = Math.max(0, grossSpend - refunds) / CREDITS_PER_USD;
   document.getElementById('revenue-cards').innerHTML = [
     card(usd(depositTotal), 'USDC deposited (lifetime)'),
-    card(usd(spendTotal), 'credits spent (lifetime)'),
+    card(usd(spendTotal), 'inference revenue (lifetime, net)'),
     card(usd(payoutTotal), 'paid out to workers'),
   ].join('');
   const spd = seriesByDay(rv.spendDaily, days30, 'tier', 'credits');
@@ -287,7 +317,7 @@ function render() {
   ]);
   const depDays = dayRange(rv.depositEvents[0]?.day || daysAgo(29), today());
   const dep = seriesByDay(rv.depositEvents, depDays, null, 'amount');
-  stepLine(charts.deposits, depDays, cumulative(depDays, dep(null)).map((v) => v / 100), { fmtV: usd });
+  stepLine(charts.deposits, depDays, cumulative(depDays, dep(null)).map((v) => v / CREDITS_PER_DOLLAR_PURCHASED), { fmtV: usd });
   const payDays = dayRange(rv.payoutEvents[0]?.day || daysAgo(29), today());
   const pay = seriesByDay(rv.payoutEvents, payDays, null, 'usd');
   stepLine(charts.payouts, payDays, cumulative(payDays, pay(null)), { fmtV: usd });

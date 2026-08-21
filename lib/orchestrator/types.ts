@@ -64,6 +64,28 @@ export interface ToolDefinition {
   };
 }
 
+/**
+ * Which lane funded a job the user paid no credits for. See Job.subsidyKind
+ * below for what each one means.
+ */
+export type SubsidyKind = 'free' | 'free_grant' | 'allowance' | 'plan';
+
+/**
+ * Does this lane spend the TREASURY's money?
+ *
+ * The daily/hourly free-subsidy caps exist to bound what the network gives
+ * away, so they must gate exactly the lanes nobody paid for and nothing else.
+ * A plan grant was prepaid and a staker allowance was already pool-capped when
+ * it was drawn; putting either under the free caps would let a quiet day of
+ * onboarding traffic stop paying workers for inference that was funded.
+ *
+ * The same predicate gates the new-account worker check, for the same reason:
+ * it exists to stop a fresh sybil account serving its own free jobs.
+ */
+export function isFreeSubsidyKind(kind: SubsidyKind | undefined): boolean {
+  return kind === 'free' || kind === 'free_grant';
+}
+
 // Job types
 export interface Job {
   id: string;
@@ -73,16 +95,43 @@ export interface Job {
   messages?: ChatMessage[];
   requestedModel?: string;
   think?: boolean;
+  // Credits currently HELD from the user's balance for this job. A reservation
+  // until settleJobCharge runs, the real per-token price after — so every refund
+  // path gives back whatever is still held without knowing which it is.
   creditsCharged?: number;
-  // Worker-pay basis (tier list price in credits) for a free-prompt job, where
-  // creditsCharged is 0 but the worker is still paid out of the treasury. 0 for
+  // Worker-pay basis in credits for a job the user paid nothing for (free prompt
+  // or staker allowance), where creditsCharged is 0 but the worker is still paid
+  // out of the treasury. Reserved then settled exactly like creditsCharged, so
+  // the treasury's subsidy is the job's REAL cost, not its worst case. 0 for
   // paid jobs (they pay from creditsCharged).
   subsidyCredits?: number;
-  // Which subsidy lane funded this job (when subsidyCredits > 0): 'free' = the
-  // onboarding free-prompt lane (gated by the daily free-subsidy cap at payout),
-  // 'allowance' = the staker inference allowance (already pool-capped at consume
-  // time, so the worker is paid unconditionally).
-  subsidyKind?: 'free' | 'allowance';
+  // Estimated input tokens (chars/4) measured at submit, AFTER history trimming
+  // — the input half of the price. Frozen here because the messages array is
+  // what was actually shipped to the worker, and settlement happens minutes
+  // later on a job record, not on a request.
+  inputTokens?: number;
+  // The UTC day a daily-allowance draw was written to (staker, plan or free
+  // grant alike). A job charged at 23:59 and settled at 00:01 has to release
+  // against the row it drew from, or it burns yesterday's allowance and
+  // inflates today's.
+  allowanceDay?: string;
+  // Set once the reservation has been turned into the real charge. Latched like
+  // `refunded`: a job that reaches two teardown paths settles exactly once.
+  settled?: boolean;
+  // Which lane funded this job, when the user paid no credits for it.
+  //
+  //   'free'       — the onboarding welcome prompts (a lifetime count, not a
+  //                  daily grant). Treasury-subsidized, gated by the daily
+  //                  free-subsidy cap at payout.
+  //   'free_grant' — the standing Free daily grant. Also treasury-subsidized
+  //                  and under the same cap, but credit-denominated, so an
+  //                  unused reservation is released back to the day's bucket.
+  //   'allowance'  — the staker inference allowance. Pool-capped when it was
+  //                  drawn, so the worker is paid unconditionally.
+  //   'plan'       — a paid plan's daily grant. NOT a subsidy: the period was
+  //                  prepaid, so the worker is paid out of that revenue and
+  //                  the free-subsidy caps must never gate it.
+  subsidyKind?: SubsidyKind;
   // Set once the job's charge has been given back (credits, free prompt or
   // allowance). Guards against a job that reaches two failure paths being
   // credited twice.
@@ -131,6 +180,23 @@ export interface ChatMessage {
   tool_name?: string;
 }
 
+/**
+ * What a finished job was actually BILLED on — not an estimate made anywhere
+ * else. `inputTokens` is the count measured at submit, after history trimming,
+ * so it is the prompt the worker really received; `outputTokens` is the
+ * orchestrator's own count of streamed tokens, capped at the lane's output
+ * ceiling; `credits` is the settled charge those two produced.
+ *
+ * Exists so the public API can report a `usage` block that agrees with the
+ * ledger. Optional on the wire: a job that ends on a rejection path is torn down
+ * without one, and no client may assume it is there.
+ */
+export interface JobUsage {
+  inputTokens: number;
+  outputTokens: number;
+  credits: number;
+}
+
 // Socket event types
 export interface ServerToClientEvents {
   'job:searching': (data: { jobId: string }) => void;
@@ -144,8 +210,8 @@ export interface ServerToClientEvents {
   'job:file': (data: { jobId: string; name: string; mime: string; data: string }) => void;
   'job:assigned': (data: { jobId: string; workerId: string }) => void;
   'job:token': (data: { jobId: string; token: string }) => void;
-  'job:complete': (data: { jobId: string; response: string }) => void;
-  'job:tool_calls': (data: { jobId: string; toolCalls: ToolCall[] }) => void;
+  'job:complete': (data: { jobId: string; response: string; usage?: JobUsage }) => void;
+  'job:tool_calls': (data: { jobId: string; toolCalls: ToolCall[]; usage?: JobUsage }) => void;
   'job:error': (data: { jobId: string; error: string }) => void;
   'queue:position': (data: { position: number }) => void;
   'job:new': (data: { jobId: string; messages?: ChatMessage[]; tools?: ToolDefinition[]; think?: boolean }) => void;
@@ -174,7 +240,7 @@ export interface ClientToServerEvents {
    *  name is already the orchestrator -> worker direction. */
   'job:abort': (data: { jobId: string }) => void;
   // Image generation. Internal web -> orchestrator: submit a render.
-  'image:submit': (data: { workflow: Record<string, unknown>; privyUserId?: string; model?: string; seed?: number; width?: number; height?: number; creditsCharged?: number; subsidized?: boolean }, callback: (response: { jobId: string } | { error: string; code?: string }) => void) => void;
+  'image:submit': (data: { workflow: Record<string, unknown>; privyUserId?: string; model?: string; seed?: number; width?: number; height?: number; creditsCharged?: number; subsidized?: boolean; subsidyKind?: SubsidyKind }, callback: (response: { jobId: string } | { error: string; code?: string }) => void) => void;
   // Image worker -> orchestrator: result or failure.
   'image:result': (data: { jobId: string; image: string }) => void;
   'image:failed': (data: { jobId: string; error: string }) => void;
@@ -295,4 +361,39 @@ export const MAX_INPUT_TOKENS_NATIVE = 12_000;
 // inference time.
 export const MAX_INPUT_TOKENS_BROWSER = 1_800;
 
+// ── Output budget ──
+// The most output one request can be BILLED and PAID for, by lane. Both halves
+// matter: it is the ceiling the submit-time reservation is sized against, and
+// the same number caps the settled charge, so worker pay stays exactly a share
+// of what the user was charged no matter how long a worker keeps streaming.
+//
+// A cap here is NOT just a reservation size. Settlement clamps the charge to
+// what was held, so a cap set below what the lane can actually generate is a
+// permanent discount on every request that exceeds it, never a deferred charge —
+// and the worker, paid a share of that charge, is underpaid by the same
+// fraction. Each lane's number is therefore the most that lane can really emit.
+//
+// NATIVE: the worker's own output budget (c0mpute-worker/src/config.ts
+// MAX_OUTPUT_TOKENS), which is also the cap the orchestrator has always applied
+// to the payout token count.
 export const MAX_OUTPUT_TOKENS = 4096;
+// NATIVE + thinking: the worker raises its budget to 8192 when thinking is on
+// (MAX_OUTPUT_TOKENS_THINKING, same file), because the reasoning and the answer
+// share it. Billing follows. Capped at 4096 instead, a full-length thinking
+// answer would bill for half the tokens it generated — deleting the retired
+// deep-think surcharge twice over — and would pay the worker half rate for the
+// most expensive work on the network.
+export const MAX_OUTPUT_TOKENS_THINKING = 8192;
+// BROWSER: what the browser worker actually asks its model for
+// (BROWSER_MAX_OUTPUT_TOKENS in app/earn/engine/useWorkerEngine.ts). A browser
+// answer cannot exceed it, so reserving the native cap here would hold twice
+// what the lane can ever spend. No separate thinking budget — one window serves
+// both.
+export const MAX_OUTPUT_TOKENS_BROWSER = 2048;
+// SWARM: the `maxNew` the orchestrator puts on every swarm dispatch, so an
+// honest ring cannot exceed it. Billing to the native 4096 would hold 8x what
+// the lane can spend — and because a swarm job's token count is incremented per
+// relayed frame from a coordinator that is a permissionless stranger paid out of
+// that very count, it would also leave 8x of headroom for a ring to inflate its
+// own revenue. Exported so the dispatch and the meter read one number.
+export const MAX_OUTPUT_TOKENS_SWARM = 512;

@@ -4,9 +4,11 @@ import {
   WorkerInfo,
   WorkerCapabilities,
   Job,
+  SubsidyKind,
   ChatMessage,
   ToolCall,
   ToolDefinition,
+  JobUsage,
   ServerToClientEvents,
   ClientToServerEvents,
   NetworkStats,
@@ -15,14 +17,20 @@ import {
   selectionWeight,
   MAX_INPUT_TOKENS_NATIVE,
   MAX_INPUT_TOKENS_BROWSER,
+  MAX_OUTPUT_TOKENS,
+  MAX_OUTPUT_TOKENS_THINKING,
+  MAX_OUTPUT_TOKENS_BROWSER,
+  MAX_OUTPUT_TOKENS_SWARM,
+  isFreeSubsidyKind,
 } from './types';
 import { verifyPrivyToken } from '../privy-server';
 import { incrementPromptsSent, verifyWorkerToken, recordCompletedJob, recordEarning, spendCredits, getCreditBalance, refundCredits, isWorkerBanned, recordWorkerStrike, recordCanaryResult, consumeFreePrompt, restoreFreePrompt, getFreePromptsUsed, recordSubsidizedPrompt, getTodayFreeSubsidyUsd, getThisHourFreeSubsidyUsd, anonGrantFreePrompt, getAnonRemaining, profileHasLogin, getAccountAgeMs } from '../db';
-import { FREE_PROMPT_LIMIT, FREE_SUBSIDY_DAILY_CAP_USD, FREE_SUBSIDY_HOURLY_CAP_USD, STAKER_ALLOWANCE_ENABLED, ANON_FREE_PROMPT_LIMIT, ANON_IP_DAILY_CAP, WORKER_STAKED_REVENUE_SHARE, TIER_CREDIT_COST } from '../tokenomics';
+import { FREE_PROMPT_LIMIT, FREE_SUBSIDY_DAILY_CAP_USD, FREE_SUBSIDY_HOURLY_CAP_USD, STAKER_ALLOWANCE_ENABLED, ANON_FREE_PROMPT_LIMIT, ANON_IP_DAILY_CAP, WORKER_STAKED_REVENUE_SHARE, textCreditCost, textCreditReservation } from '../tokenomics';
 import { verifyAnonToken } from '../anon-auth';
 import { CREDITS_PER_USD } from '../token-price';
 import { getWorkerRevenueShare } from '../staking';
-import { consumeStakerAllowance, recordStakerRequest, refundStakerAllowance } from '../staker-allowance';
+import { drawStakerAllowance, recordStakerRequest, refundStakerAllowance } from '../staker-allowance';
+import { resolvePlanState, drawDailyGrant, refundDailyGrant, dailyGrantRemaining, type DailyGrantDraw } from '../plan-state';
 import { scanOutput, BLOCKED_MESSAGE } from '../safety';
 import { AVAILABLE_TOOLS, executeToolCalls } from './tools';
 import { attachSwarmLoop } from './swarm-loop';
@@ -52,6 +60,11 @@ interface ImageJob {
   height?: number;
   creditsCharged: number;
   subsidized: boolean;
+  // Which lane funded a subsidized render. Renders used to book every one of
+  // them as 'free', which put staker-allowance images under the free-subsidy
+  // cap they already have their own pool ceiling for — and would put prepaid
+  // plan images there too.
+  subsidyKind?: SubsidyKind;
   status: 'pending' | 'processing';
   assignedWorkerSocketId?: string;
   timer?: ReturnType<typeof setTimeout>;
@@ -172,6 +185,30 @@ function inputTokenBudget(model: string | undefined): number {
   if (getModelTier(model) === 'max') return MAX_INPUT_TOKENS_NATIVE;
   if (model && specForModel(model)) return MAX_INPUT_TOKENS_NATIVE;
   return MAX_INPUT_TOKENS_BROWSER;
+}
+
+/** Billable-output ceiling for the lane this job will be served on — the size of
+ *  the submit-time reservation, and the cap on what settlement can charge.
+ *  Because settlement clamps to the hold, it has to be the most the lane can
+ *  generate IN ONE ROUND, or the excess is billed to nobody and the worker is
+ *  paid for none of it.
+ *
+ *  Per round, not per job. A server-side tool loop settles each round on its own
+ *  reservation, so a job that calls three tools can generate up to three times
+ *  this number across its life. That is not a treasury leak — every round holds
+ *  and settles its own credits, and worker pay is a share of the same clamped
+ *  figure — but it does mean this is not a ceiling on what a single job can cost
+ *  a user, and anything quoting it as one is wrong.
+ *
+ *  The swarm test comes FIRST here, unlike in inputTokenBudget where both
+ *  branches return the same number and the order cannot matter. A sharded model
+ *  is pro-tier by catalog, so testing the tier first would hand the swarm lane
+ *  the browser cap — and its true ceiling is neither, it is the `maxNew` the
+ *  swarm dispatch puts on every request. */
+function outputTokenCap(model: string | undefined, think?: boolean): number {
+  if (model && specForModel(model)) return MAX_OUTPUT_TOKENS_SWARM;
+  if (getModelTier(model) === 'max') return think ? MAX_OUTPUT_TOKENS_THINKING : MAX_OUTPUT_TOKENS;
+  return MAX_OUTPUT_TOKENS_BROWSER;
 }
 
 type BoundedInput =
@@ -583,22 +620,127 @@ export class Orchestrator {
       restoreFreePrompt(job.privyUserId);
       console.log(`[Orchestrator] Free prompt restored to ${job.privyUserId} (${reason})`);
     } else if (job.subsidyKind === 'allowance' && job.subsidyCredits) {
-      refundStakerAllowance(job.privyUserId, job.subsidyCredits);
+      // Keyed to the day the draw was written to, not to now: a job charged at
+      // 23:59 and refunded at 00:01 must decrement the row it drew from.
+      refundStakerAllowance(job.privyUserId, job.subsidyCredits, job.allowanceDay);
       console.log(`[Orchestrator] Staker allowance restored to ${job.privyUserId} (${job.subsidyCredits}cr, ${reason})`);
+    } else if ((job.subsidyKind === 'plan' || job.subsidyKind === 'free_grant') && job.subsidyCredits) {
+      // Same day-keying as the allowance lane: the credits go back to the day
+      // they were DRAWN from, which after midnight is yesterday — where they are
+      // worthless, because a grant is use-or-lose.
+      //
+      // That is the correct trade and not an oversight. Refunding into today's
+      // bucket would hand back credits that were never taken from it, letting a
+      // job submitted at 23:59 inflate the next day's grant. Losing the value of
+      // a refund in the minutes around midnight is the smaller error, and the
+      // alternative is a way to mint grant credits.
+      refundDailyGrant(job.privyUserId, job.subsidyKind === 'plan' ? 'plan' : 'free', job.subsidyCredits, job.allowanceDay);
+      console.log(`[Orchestrator] Daily grant restored to ${job.privyUserId} (${job.subsidyCredits}cr, ${reason})`);
     }
   }
 
   /**
-   * Settle a job the liveness sweep just gave up on. Every kill path the flat
-   * timeout used to run, unchanged: tell the user, give the charge back, stop
-   * and free the worker, drop the job.
+   * Turn this job's reservation into its real price.
+   *
+   * Text is billed per token, so submit could only hold the worst case this
+   * request could reach. Here the answer is over and the price is known: charge
+   * the measured input plus what was actually generated, and hand back the rest
+   * of the hold to whichever lane paid it. Nothing new is ever charged — the
+   * settled figure is clamped to what was already held, so a job can only ever
+   * get cheaper between submit and completion. That is what keeps settlement
+   * from being a second charge that can fail on a balance the user has since
+   * spent elsewhere.
+   *
+   * Output is capped at the lane's ceiling, the same number the reservation was
+   * sized against and the same one the payout token count has always used, so
+   * worker pay stays exactly a share of what the user was charged.
+   *
+   * Latched: a job that reaches two teardown paths settles once. Runs BEFORE any
+   * refund decision, so a path that then refunds gives back the settled charge
+   * and the two together return the whole hold.
+   */
+  private settleJobCharge(job: Job, outputTokens: number) {
+    if (job.settled || job.refunded) return;
+    job.settled = true;
+    const paid = (job.creditsCharged ?? 0) > 0;
+    const held = paid ? job.creditsCharged! : (job.subsidyCredits ?? 0);
+    if (held <= 0) return;
+
+    const billedOutput = Math.min(Math.max(0, outputTokens), outputTokenCap(job.requestedModel, job.think));
+    const actual = Math.min(textCreditCost(job.inputTokens ?? 0, billedOutput), held);
+    const release = held - actual;
+
+    if (paid) {
+      job.creditsCharged = actual;
+      if (release > 0 && job.privyUserId) {
+        refundCredits(job.privyUserId, release, 'Unused reservation released');
+      }
+    } else {
+      // Every lane the user paid no credits for: the worker is paid out of this
+      // basis, so it must be the job's REAL cost, not its worst case. The
+      // welcome prompt itself is spent either way (it is a count, not credits);
+      // the allowance and grant draws are credit-denominated, so the unused part
+      // of the reservation goes back into the day's bucket to be spent again.
+      job.subsidyCredits = actual;
+      if (release > 0 && job.privyUserId) {
+        if (job.subsidyKind === 'allowance') {
+          refundStakerAllowance(job.privyUserId, release, job.allowanceDay);
+        } else if (job.subsidyKind === 'plan' || job.subsidyKind === 'free_grant') {
+          refundDailyGrant(job.privyUserId, job.subsidyKind === 'plan' ? 'plan' : 'free', release, job.allowanceDay);
+        }
+      }
+    }
+
+    // The swarm settles its stages from the revenue frozen at dispatch, on its
+    // own timeline and without re-reading this job. Updating the frozen object
+    // is the only thing that stops N shards splitting a reservation the user was
+    // never charged.
+    const swarmRevenue = this.swarmRevenue.get(job.id);
+    if (swarmRevenue) swarmRevenue.credits = actual;
+  }
+
+  /**
+   * What this job was billed on, for the public API's `usage` block. Read AFTER
+   * settlement, so it reports the charge that was actually taken rather than an
+   * estimate made somewhere else — the API's own chars/4 count is taken before
+   * the orchestrator trims history, and its "completion tokens" is a count of
+   * SSE frames.
+   */
+  private jobUsage(job: Job): JobUsage {
+    const outputTokens = Math.min(job.serverTokenCount ?? 0, outputTokenCap(job.requestedModel, job.think));
+    const credits = (job.creditsCharged ?? 0) > 0 ? job.creditsCharged! : (job.subsidyCredits ?? 0);
+    return { inputTokens: job.inputTokens ?? 0, outputTokens, credits };
+  }
+
+  /**
+   * Settle a job the liveness sweep just gave up on: tell the user, square the
+   * money, stop and free the worker, drop the job.
+   *
+   * DELIVERY-AWARE, like every other teardown path. The rule everywhere is that
+   * the user pays for what reached them and nothing more:
+   *
+   *   nothing streamed  -> full refund, the request bought nothing
+   *   tokens streamed   -> settle at the real cost of those tokens, and the
+   *                        worker is paid its share of them
+   *
+   * The stall sweep used to refund unconditionally, which was the one path that
+   * broke the rule. Because the sweep's own silence window is
+   * `serverTokenCount ? JOB_STALL_MS : FIRST_TOKEN_MS`, the branch that fires
+   * here after a stall is BY DEFINITION a job that streamed — so the
+   * unconditional refund handed back a delivered answer in full while the worker
+   * that generated it was paid for none of it.
+   *
+   * The user is still told the job failed, because it did: the answer stopped
+   * early. Being charged for the part that arrived is the same deal every other
+   * interrupted path already gives them.
    */
   private failStalledJob(jobId: string, job: Job, reason: string) {
     const userSocket = this.io.sockets.sockets.get(job.userSocketId);
     if (userSocket) {
       userSocket.emit('job:error', { jobId, error: 'Job timed out during processing' });
     }
-    this.refundJobCharges(job, 'Job timed out during processing');
+    if (job.serverTokenCount) this.settleJobCharge(job, job.serverTokenCount);
+    else this.refundJobCharges(job, 'Job timed out during processing');
     if (job.assignedWorker) {
       const worker = this.findWorkerById(job.assignedWorker);
       if (worker) {
@@ -637,6 +779,11 @@ export class Orchestrator {
       if (!job) return false;
       const userSocket = this.io.sockets.sockets.get(job.userSocketId);
       if (!userSocket) {
+        // Queued, so nothing was ever delivered — the charge has to go back.
+        // The disconnect sweep normally gets here first; this is the backstop
+        // for a socket that vanished without one, and it used to drop the job
+        // while silently keeping what it held.
+        this.refundJobCharges(job, 'User gone before dispatch');
         this.jobs.delete(jobId);
         return false;
       }
@@ -887,15 +1034,23 @@ export class Orchestrator {
           this.rateLimits.set(privyUserId, recentJobs);
         }
 
-        // Credit check for Pro/Max tiers. Deep thinking (Max only) costs a bit
-        // more since it generates ~2x the tokens and runs ~2x longer.
+        // Credit RESERVATION. Text is billed per token, so the real price is not
+        // known until the answer stops — reserve the worst case this request can
+        // reach (its measured input plus a full-length answer at the lane's
+        // output cap), then settle down to the real number at completion and
+        // give the difference straight back. Thinking is not surcharged: thinking
+        // tokens are output tokens and are already counted as they stream.
         const requestedTierForCredits = getModelTier(data.model);
         const deepThinking = data.think === true && requestedTierForCredits === 'max';
-        let creditCost = 0;
-        if (requestedTierForCredits === 'max') creditCost = deepThinking ? TIER_CREDIT_COST.maxDeep : TIER_CREDIT_COST.max;
-        else if (requestedTierForCredits === 'pro') creditCost = TIER_CREDIT_COST.pro;
-        // List price of the tier, kept after creditCost is zeroed by a free
-        // prompt — it's the basis we still pay the worker (treasury-funded).
+        // The bounded array, so what we price is what the worker is shipped.
+        const inputTokens = estimatePromptTokens(data.messages);
+        // `data.think`, not `deepThinking`: the worker raises its output budget
+        // whenever thinking is on, so that is what decides how much can be
+        // generated — and therefore how much has to be reserved.
+        let creditCost = textCreditReservation(inputTokens, outputTokenCap(data.model, data.think === true));
+        // The reservation, kept after creditCost is zeroed by a free prompt —
+        // it's the basis we still pay the worker (treasury-funded), and it is
+        // settled down to the real cost alongside the paid lane.
         const listCredits = creditCost;
 
         // Anonymous visitors (pre-login): free prompts ONLY. Triple-gated by the
@@ -937,7 +1092,7 @@ export class Orchestrator {
             }
             return;
           }
-          const anonJob = this.submitJob(socket.id, data.messages, data.model, privyUserId, deepThinking, 0, listCredits, undefined, false, 'free');
+          const anonJob = this.submitJob(socket.id, data.messages, data.model, privyUserId, deepThinking, 0, listCredits, inputTokens, undefined, undefined, false, 'free');
           if (anonJob) {
             callback({ jobId: anonJob.id, freeRemaining: grant.remaining });
             console.log(`[Orchestrator] Anon free prompt used by ${privyUserId} (${requestedTierForCredits}), ${grant.remaining} left`);
@@ -961,8 +1116,13 @@ export class Orchestrator {
         // account-creation cap, not by the login type.
         // API-originated jobs always charge — never consume onboarding free
         // prompts or the treasury subsidy (that path is human-onboarding only).
+        // Resolved once and threaded through both lanes below: resolution can
+        // renew or lapse a period, and doing it twice in one submit would mean
+        // the welcome-prompt guard and the grant draw could disagree about which
+        // plan the user is on.
+        const planState = resolvePlanState(privyUserId);
         let usedFreePrompt = false;
-        if (creditCost > 0 && !isInternal && profileHasLogin(privyUserId)) {
+        if (creditCost > 0 && !isInternal && profileHasLogin(privyUserId) && planState.plan === 'free') {
           // Same subsidy-cap reservation as the anon path: only grant the onboarding
           // free prompt if the daily cap can still pay a worker for it (worst-case
           // share). If not, fall through to staker allowance / credits — the user
@@ -992,15 +1152,97 @@ export class Orchestrator {
           }
         }
 
+        // Daily grant: every signed-in account has one, sized by its plan (Free
+        // 20/day, Pro 300, Max 750), metered per UTC day and use-or-lose. This is
+        // the main lane now — the welcome prompts above are a fixed lifetime
+        // count that predates it, honoured until they run out.
+        //
+        // ORDER. The grant comes before the staker allowance and the balance
+        // because it is the thing that expires: credits keep, a grant does not,
+        // so spending anything else first would throw the grant away. The
+        // welcome prompts sit ahead of it for the same reason in reverse — they
+        // are already the user's, and burning today's grant while a lifetime
+        // count sits unused would quietly take something from a new account.
+        //
+        // A user on a PAID PLAN skips the welcome prompts entirely (the guard is
+        // on that block's condition): those are treasury-subsidized, and a
+        // subscriber drawing on the free-subsidy budget would charge prepaid
+        // usage to the lane meant for people who have not paid.
+        // Mark the account active for the staker 7-day gate BEFORE any lane can
+        // zero creditCost. Doing it inside the staker branch below meant that
+        // the moment a subscriber's grant covered their traffic they stopped
+        // touching staker_last_request, went inactive after
+        // STAKER_ALLOWANCE_ACTIVE_DAYS, and silently lost the allowance — the
+        // people most likely to stake being exactly the people it hit.
+        if (STAKER_ALLOWANCE_ENABLED) recordStakerRequest(privyUserId);
+
+        // A free-only ("resale") key may spend the STAKING ALLOWANCE and nothing
+        // else. The grant is the owner's prepaid money every bit as much as
+        // their balance is, so the key must not reach it either — without this
+        // the holder of a resale key burns a Max grant the owner paid $30 for.
+        // The rejection itself still happens after the allowance lane below.
+        const resaleKey = isInternal && data.freeOnly === true;
+
+        let grantDraw: DailyGrantDraw | null = null;
+        if (creditCost > 0 && !resaleKey) {
+          // The free half of the grant is treasury money, so it answers to the
+          // same caps as the welcome prompts and, like them, is not available to
+          // API keys. A plan grant is prepaid revenue and is subject to neither.
+          //
+          // BOTH caps, daily and hourly. free_grant payouts count against the
+          // hourly budget (getThisHourFreeSubsidyUsd), so gating on the daily
+          // one alone let signed-in traffic drain the hour's $3 and lock anon
+          // visitors out of a lane nothing was throttling.
+          const projectedSubsidyUsd = (listCredits / CREDITS_PER_USD) * WORKER_STAKED_REVENUE_SHARE;
+          const freeGrantAllowed = !isInternal
+            && getTodayFreeSubsidyUsd() + projectedSubsidyUsd <= FREE_SUBSIDY_DAILY_CAP_USD
+            && getThisHourFreeSubsidyUsd() + projectedSubsidyUsd <= FREE_SUBSIDY_HOURLY_CAP_USD;
+          // Admission, exactly as the welcome prompts get it: a FREE-lane job no
+          // connected worker is eligible to serve would otherwise sit in the
+          // queue until the stall timer and fail three minutes later, having
+          // spent the grant. Refuse it now instead, with the reason.
+          //
+          // Free only. What makes a job unservable is the new-account worker
+          // gate, and that applies to treasury-subsidized lanes alone — a plan
+          // grant is prepaid, so any idle worker may serve it.
+          //
+          // The remaining-credits read is advisory (the draw below stays the
+          // atomic authority), so a race just falls through to the next lane
+          // rather than refusing someone who was going to pay anyway.
+          if (freeGrantAllowed
+            && planState.plan === 'free'
+            && dailyGrantRemaining(privyUserId, planState) >= creditCost
+            && this.freeJobIsUnservable(data.model)) {
+            console.log(`[Orchestrator] Free grant refused for ${privyUserId} (${requestedTierForCredits}): no eligible worker online`);
+            callback({ error: FREE_NO_CAPACITY_MESSAGE, code: 'FREE_NO_CAPACITY' });
+            return;
+          }
+          grantDraw = drawDailyGrant(privyUserId, creditCost, freeGrantAllowed, planState);
+          if (grantDraw) {
+            creditCost = 0;
+            recordSubsidizedPrompt(
+              privyUserId,
+              grantDraw.source === 'plan' ? 'plan_grant' : 'free_grant',
+              `${requestedTierForCredits}${deepThinking ? ' deep-thinking' : ''} prompt (${grantDraw.plan} daily grant)`,
+            );
+            console.log(`[Orchestrator] ${grantDraw.plan} daily grant used by ${privyUserId} (${requestedTierForCredits}, ${listCredits}cr)`);
+          }
+        }
+
         // Staker inference allowance: matured-stake holders draw a daily pro-rata
         // allowance of free inference from a capped pool before paying USDC. Worker
         // still paid from the treasury subsidy lane. Applies to the API too — the
         // allowance is the same credit pool as normal usage. (Anon sockets are
         // handled above; onboarding free prompts above stay human-only.)
         let usedStakerAllowance = false;
+        // The day the draw was written to. Settlement releases the unused part of
+        // the reservation minutes later, which can land on the other side of
+        // midnight UTC — refunding against "now" would decrement a row the draw
+        // never touched.
+        let allowanceDay: string | null = null;
         if (creditCost > 0 && STAKER_ALLOWANCE_ENABLED) {
-          recordStakerRequest(privyUserId); // mark active for the 7-day gate
-          if (consumeStakerAllowance(privyUserId, creditCost)) {
+          allowanceDay = drawStakerAllowance(privyUserId, creditCost);
+          if (allowanceDay) {
             creditCost = 0;
             usedStakerAllowance = true;
             recordSubsidizedPrompt(privyUserId, 'staker_allowance', `${requestedTierForCredits}${deepThinking ? ' deep-thinking' : ''} prompt (staking allowance)`);
@@ -1012,7 +1254,7 @@ export class Orchestrator {
         // If the allowance didn't cover this job, reject here instead of falling
         // through to the owner's deposited USDC — this is what lets a staker safely
         // hand a resale key to a third party without exposing their real balance.
-        if (creditCost > 0 && isInternal && data.freeOnly === true) {
+        if (creditCost > 0 && resaleKey) {
           callback({ error: 'Insufficient staking allowance for this key. Resale keys can only spend the daily staking allowance.', code: 'ALLOWANCE_EXHAUSTED' });
           return;
         }
@@ -1020,10 +1262,13 @@ export class Orchestrator {
         if (creditCost > 0) {
           const creditBalance = getCreditBalance(privyUserId);
           if (creditBalance.balance < creditCost) {
-            callback({ error: `Insufficient credits. Need ${creditCost} credits, have ${creditBalance.balance.toFixed(0)}. Top up with USDC.` });
+            // Floor, not round: a balance of 0.6 credits used to be reported as
+            // "have 1" — telling a user they had enough for the job we had just
+            // refused. It reads low or exact, never high.
+            callback({ error: `Insufficient credits. This request reserves up to ${creditCost} credits (unused credits come straight back); you have ${Math.floor(creditBalance.balance)}. Top up with USDC.` });
             return;
           }
-          const spent = spendCredits(privyUserId, creditCost, `${requestedTierForCredits}${deepThinking ? ' deep-thinking' : ''} prompt`);
+          const spent = spendCredits(privyUserId, creditCost, `${requestedTierForCredits} prompt (reserved)`);
           if (!spent) {
             callback({ error: 'Failed to deduct credits. Try again.' });
             return;
@@ -1034,9 +1279,19 @@ export class Orchestrator {
         // caller's own tools (the model's tool calls get returned to the agent,
         // not executed server-side).
         const toolPassthrough = isInternal && Array.isArray(data.tools) && data.tools.length > 0;
-        const subsidyCredits = (usedFreePrompt || usedStakerAllowance) ? listCredits : 0;
-        const subsidyKind = usedStakerAllowance ? 'allowance' : (usedFreePrompt ? 'free' : undefined);
-        const job = this.submitJob(socket.id, data.messages, data.model, privyUserId, deepThinking, creditCost, subsidyCredits, toolPassthrough ? data.tools : undefined, toolPassthrough, subsidyKind, isInternal);
+        const subsidyCredits = (usedFreePrompt || usedStakerAllowance || grantDraw) ? listCredits : 0;
+        const subsidyKind: SubsidyKind | undefined = usedStakerAllowance
+          ? 'allowance'
+          : grantDraw
+            ? (grantDraw.source === 'plan' ? 'plan' : 'free_grant')
+            : usedFreePrompt
+              ? 'free'
+              : undefined;
+        // Whichever daily bucket paid, settlement releases against the day it
+        // was drawn from. Only one of these can be set: each lane runs only
+        // while creditCost is still positive and zeroes it on success.
+        const drawDay = allowanceDay ?? grantDraw?.day;
+        const job = this.submitJob(socket.id, data.messages, data.model, privyUserId, deepThinking, creditCost, subsidyCredits, inputTokens, drawDay, toolPassthrough ? data.tools : undefined, toolPassthrough, subsidyKind, isInternal);
         if (job) {
           callback({ jobId: job.id });
           console.log(`[Orchestrator] Job submitted: ${job.id} (model: ${data.model || 'any'}${deepThinking ? ', deep-thinking' : ''}) user=${privyUserId}`);
@@ -1051,7 +1306,9 @@ export class Orchestrator {
           } else if (usedFreePrompt) {
             restoreFreePrompt(privyUserId);
           } else if (usedStakerAllowance) {
-            refundStakerAllowance(privyUserId, listCredits);
+            refundStakerAllowance(privyUserId, listCredits, allowanceDay ?? undefined);
+          } else if (grantDraw) {
+            refundDailyGrant(privyUserId, grantDraw.source, listCredits, grantDraw.day);
           }
           callback({ error: 'Failed to submit job' });
         }
@@ -1124,6 +1381,7 @@ export class Orchestrator {
           height: data.height,
           creditsCharged: Number(data.creditsCharged) || 0,
           subsidized: data.subsidized === true,
+          subsidyKind: data.subsidyKind,
           status: 'pending',
           submittedAt: Date.now(),
         });
@@ -1154,12 +1412,19 @@ export class Orchestrator {
             let payoutCredits = job.subsidized ? 0 : job.creditsCharged;
             let subsidized = false;
             if (job.subsidized && worker.privyUserId !== job.privyUserId) {
-              const subsidyUsd = (job.creditsCharged / CREDITS_PER_USD) * workerShare;
-              if (getTodayFreeSubsidyUsd() + subsidyUsd <= FREE_SUBSIDY_DAILY_CAP_USD) {
+              if (!isFreeSubsidyKind(job.subsidyKind)) {
+                // Funded lanes: the staker pool ceiling and the plan purchase
+                // already bounded these, so pay and leave the free budget alone.
                 payoutCredits = job.creditsCharged;
                 subsidized = true;
               } else {
-                console.log(`[Orchestrator] Free-image subsidy cap reached — worker ${worker.privyUserId} not paid for job ${job.id}`);
+                const subsidyUsd = (job.creditsCharged / CREDITS_PER_USD) * workerShare;
+                if (getTodayFreeSubsidyUsd() + subsidyUsd <= FREE_SUBSIDY_DAILY_CAP_USD) {
+                  payoutCredits = job.creditsCharged;
+                  subsidized = true;
+                } else {
+                  console.log(`[Orchestrator] Free-image subsidy cap reached — worker ${worker.privyUserId} not paid for job ${job.id}`);
+                }
               }
             }
             // Render time, on the SAME basis as a text job's duration_ms: server-
@@ -1177,7 +1442,7 @@ export class Orchestrator {
               creditsCharged: job.subsidized ? 0 : job.creditsCharged,
               payoutCredits,
               subsidized,
-              subsidyKind: subsidized ? 'free' : undefined,
+              subsidyKind: subsidized ? (job.subsidyKind ?? 'free') : undefined,
               tokensGenerated: 0,
               revenueShare: workerShare,
               payerPrivyId: job.privyUserId,
@@ -1231,6 +1496,10 @@ export class Orchestrator {
         // get the prompt back, repeat.
         if (!job.serverTokenCount) {
           this.refundJobCharges(job, 'User cancelled before any output');
+        } else {
+          // Stopped mid-answer: they keep the text, so they pay for the text —
+          // not for the full-length answer the reservation was sized against.
+          this.settleJobCharge(job, job.serverTokenCount);
         }
         if (job.assignedWorker) {
           const workerSocketId = this.findWorkerSocketId(job.assignedWorker);
@@ -1276,8 +1545,14 @@ export class Orchestrator {
   private handlePassthroughToolCalls(workerSocket: Socket, job: Job, toolCalls: ToolCall[]) {
     const jobId = job.id;
 
+    // A tool-call round is a completed billable turn — the worker generated the
+    // call and is paid for it below — so its reservation settles here, on the
+    // tokens it actually produced. Ahead of the emit, so the usage the caller is
+    // handed is the charge that was actually taken.
+    this.settleJobCharge(job, job.serverTokenCount || 0);
+
     const userSocket = this.io.sockets.sockets.get(job.userSocketId);
-    if (userSocket) userSocket.emit('job:tool_calls', { jobId, toolCalls });
+    if (userSocket) userSocket.emit('job:tool_calls', { jobId, toolCalls, usage: this.jobUsage(job) });
 
     const worker = job.assignedWorker ? this.findWorkerById(job.assignedWorker) : undefined;
     if (worker) {
@@ -1297,16 +1572,39 @@ export class Orchestrator {
             tier: worker.type === 'native' ? 'max' : 'pro',
             tokensGenerated: cappedTokens,
           });
+          // Same payout rules as a finished answer (handleJobComplete). This
+          // read only creditsCharged, which is 0 on every lane the user paid no
+          // credits for — so recordEarning saw a payout of 0, returned without
+          // inserting, and the worker was paid NOTHING for a tool-call round it
+          // really generated. That was survivable while the lanes were free
+          // prompts and staker allowances; a plan grant is prepaid revenue and
+          // subscriber API traffic is exactly this path.
           const revenueCredits = job.creditsCharged || 0;
+          const workerShare = getWorkerRevenueShare(worker.privyUserId);
+          let payoutCredits = revenueCredits;
+          let subsidized = false;
+          if (revenueCredits === 0 && (job.subsidyCredits || 0) > 0 && worker.privyUserId !== job.privyUserId) {
+            if (!isFreeSubsidyKind(job.subsidyKind)) {
+              payoutCredits = job.subsidyCredits!;
+              subsidized = true;
+            } else {
+              const subsidyUsd = (job.subsidyCredits! / CREDITS_PER_USD) * workerShare;
+              if (getTodayFreeSubsidyUsd() + subsidyUsd <= FREE_SUBSIDY_DAILY_CAP_USD) {
+                payoutCredits = job.subsidyCredits!;
+                subsidized = true;
+              }
+            }
+          }
           recordEarning({
             privyId: worker.privyUserId,
             jobId,
             tier: worker.type === 'native' ? 'max' : 'pro',
             creditsCharged: revenueCredits,
-            payoutCredits: revenueCredits,
-            subsidized: false,
+            payoutCredits,
+            subsidized,
+            subsidyKind: job.subsidyKind,
             tokensGenerated: cappedTokens,
-            revenueShare: getWorkerRevenueShare(worker.privyUserId),
+            revenueShare: workerShare,
             payerPrivyId: job.privyUserId,
           });
         } catch (err) {
@@ -1398,6 +1696,7 @@ export class Orchestrator {
           height: pi.height,
           creditsCharged: pi.creditsCharged,
           subsidized: pi.subsidized,
+          subsidyKind: pi.subsidyKind,
         })
           .then((image) => {
             const us = this.io.sockets.sockets.get(job.userSocketId);
@@ -1445,6 +1744,11 @@ export class Orchestrator {
         // to steal. This repo is public; assume the trick is found.
         if (!job.serverTokenCount) {
           this.refundJobCharges(job, 'User disconnected before any output');
+        } else {
+          // Same rule as Stop: no completion path will ever run for this job, so
+          // the hold has to be resolved here or the user keeps paying for an
+          // answer length they never received.
+          this.settleJobCharge(job, job.serverTokenCount);
         }
         if (job.assignedWorker) {
           const workerSocketId = this.findWorkerSocketId(job.assignedWorker);
@@ -1531,6 +1835,9 @@ export class Orchestrator {
               // concatenated — and would be paid for the first worker's tokens
               // on top. Fail it instead; the client keeps the partial it has.
               userSocket.emit('job:error', { jobId, error: 'The worker dropped mid-answer.' });
+              // The partial is theirs to keep, so it is theirs to pay for — but
+              // only the partial. No completion path runs after this delete.
+              this.settleJobCharge(job, job.serverTokenCount);
               this.jobs.delete(jobId);
             } else {
               job.status = 'pending';
@@ -1542,6 +1849,7 @@ export class Orchestrator {
             // charge has to go back before the job does. (Canaries have no
             // privyUserId and refundJobCharges no-ops on them.)
             if (!job.serverTokenCount) this.refundJobCharges(job, 'Worker gone, user gone');
+            else this.settleJobCharge(job, job.serverTokenCount);
             this.jobs.delete(jobId);
           }
         }
@@ -1573,7 +1881,7 @@ export class Orchestrator {
    *  from booking unpaid credits as revenue and paying a referral out of them. */
   renderImageInternal(
     workflow: Record<string, unknown>,
-    meta: { privyUserId: string; seed?: number; width?: number; height?: number; creditsCharged: number; subsidized: boolean },
+    meta: { privyUserId: string; seed?: number; width?: number; height?: number; creditsCharged: number; subsidized: boolean; subsidyKind?: SubsidyKind },
   ): Promise<string> {
     return new Promise((resolve, reject) => {
       const jobId = uuidv4();
@@ -1587,6 +1895,7 @@ export class Orchestrator {
         height: meta.height,
         creditsCharged: meta.creditsCharged,
         subsidized: meta.subsidized,
+        subsidyKind: meta.subsidyKind,
         status: 'pending',
         submittedAt: Date.now(),
       });
@@ -1672,9 +1981,11 @@ export class Orchestrator {
     think: boolean = false,
     creditsCharged: number = 0,
     subsidyCredits: number = 0,
+    inputTokens: number = 0,
+    allowanceDay?: string,
     clientTools?: ToolDefinition[],
     toolPassthrough: boolean = false,
-    subsidyKind?: 'free' | 'allowance',
+    subsidyKind?: SubsidyKind,
     internal: boolean = false,
   ): Job | null {
     try {
@@ -1689,6 +2000,8 @@ export class Orchestrator {
         think,
         creditsCharged,
         subsidyCredits,
+        inputTokens,
+        allowanceDay,
         subsidyKind,
         clientTools,
         toolPassthrough,
@@ -1746,7 +2059,10 @@ export class Orchestrator {
     this.swarmLoop.serveRequest({
       model,
       messages: job.messages ?? [],
-      params: { maxNew: 512, reasoning: !!job.think, tools: job.toolPassthrough ? job.clientTools : undefined },
+      // maxNew and the billing cap are one constant: a ring that could generate
+      // more than the meter bills for would be serving tokens nobody pays for,
+      // and a meter above maxNew would be headroom for a coordinator to inflate.
+      params: { maxNew: MAX_OUTPUT_TOKENS_SWARM, reasoning: !!job.think, tools: job.toolPassthrough ? job.clientTools : undefined },
       revenue,
       // A job whose charge has already been given back (user vanished before a single token,
       // swarm error) is settled: stop streaming and don't deliver an answer nobody paid for.
@@ -1759,8 +2075,12 @@ export class Orchestrator {
       },
       onDone: (response) => {
         if (job.refunded) { fin(); return; }
+        // A swarm answer never passes through handleJobComplete, so this is the
+        // only place its reservation can become the real charge — and it must
+        // happen before fin() drops the frozen revenue the stages settle from.
+        this.settleJobCharge(job, job.serverTokenCount ?? 0);
         probeGarbagePrefix(response, job.id, () => ({ workerId: `swarm:${model}`, model }));
-        userSocket()?.emit('job:complete', { jobId: job.id, response }); fin();
+        userSocket()?.emit('job:complete', { jobId: job.id, response, usage: this.jobUsage(job) }); fin();
       },
       onError: (message) => {
         // a swarm that never served owes nothing — refund the charge (classic jobs already refund
@@ -1787,11 +2107,11 @@ export class Orchestrator {
    * in `this.workers` is dispatchable by construction — and both callers read
    * that one map.
    */
-  private workerCanServe(worker: WorkerInfo, requestedModel: string | undefined, subsidyKind?: 'free' | 'allowance'): boolean {
+  private workerCanServe(worker: WorkerInfo, requestedModel: string | undefined, subsidyKind?: SubsidyKind): boolean {
     if (!workerServesModel(worker, requestedModel)) return false;
     // Subsidized free jobs (treasury pays the worker) only go to aged accounts,
     // so a freshly-minted throwaway can't farm the free lane. Paid jobs are open.
-    if (subsidyKind === 'free' && !worker.accountAgeOk) return false;
+    if (isFreeSubsidyKind(subsidyKind) && !worker.accountAgeOk) return false;
     return true;
   }
 
@@ -1805,7 +2125,7 @@ export class Orchestrator {
    * prompt. Paid and staker-allowance jobs are never gated on this — they can
    * afford to wait for a worker to show up.
    */
-  private hasEligibleWorker(requestedModel: string | undefined, subsidyKind?: 'free' | 'allowance'): boolean {
+  private hasEligibleWorker(requestedModel: string | undefined, subsidyKind?: SubsidyKind): boolean {
     for (const worker of this.workers.values()) {
       if (this.workerCanServe(worker, requestedModel, subsidyKind)) return true;
     }
@@ -1833,11 +2153,15 @@ export class Orchestrator {
   private processQueue() {
     if (this.jobQueue.length === 0) return;
 
-    // Clean stale
+    // Clean stale. Same rule as the sweep's queued branch: a job that never
+    // reached a worker owes the user its charge back before it is dropped.
+    // refundJobCharges is latched, so whichever path gets here first wins and
+    // the other is a no-op.
     this.jobQueue = this.jobQueue.filter(jobId => {
       const job = this.jobs.get(jobId);
       if (!job) return false;
       if (!this.io.sockets.sockets.get(job.userSocketId)) {
+        this.refundJobCharges(job, 'User gone before dispatch');
         this.jobs.delete(jobId);
         return false;
       }
@@ -1987,6 +2311,10 @@ export class Orchestrator {
   // a failure the network owes the user for.
   private blockJobForSafety(job: Job) {
     const jobId = job.id;
+    // Not refunded, but still settled: no completion path runs after this, so
+    // without it the user would keep paying the worst-case reservation for a job
+    // that stopped the moment the scan tripped. They pay for what was generated.
+    this.settleJobCharge(job, job.serverTokenCount ?? 0);
     const userSocket = this.io.sockets.sockets.get(job.userSocketId);
     if (userSocket) userSocket.emit('job:error', { jobId, error: BLOCKED_MESSAGE });
     const worker = job.assignedWorker ? this.findWorkerById(job.assignedWorker) : undefined;
@@ -2034,6 +2362,14 @@ export class Orchestrator {
     }
 
     const tokensGenerated = job.serverTokenCount || 0;
+
+    // Price the job before any branch below decides what to do with it. Every
+    // exit from here on either keeps the settled charge or refunds it, and both
+    // are correct because settlement already gave back the unused hold. Sitting
+    // above the branches is deliberate: think-burnout, fake-speed and incoherent
+    // jobs are all delivered to the user without a refund, and each of them
+    // would otherwise keep the whole worst-case reservation.
+    this.settleJobCharge(job, tokensGenerated);
 
     // Think-burnout: the model reasoned until its budget ran out and never wrote
     // an answer. Placed ahead of every path below, because all of them tell the
@@ -2206,8 +2542,11 @@ export class Orchestrator {
           tokensGenerated: cappedTokens,
           durationMs: duration > 0 ? duration : undefined,
         });
-        // Worker pay basis. Paid jobs pay out of their own revenue. Free-prompt
-        // jobs (revenue 0) still pay the worker the tier list price, funded by
+        // Worker pay basis. Both figures are the SETTLED per-token cost — the
+        // reservation was resolved at the top of this method — so the worker's
+        // cut is a share of what the user actually paid, and the treasury's
+        // subsidy is what the job actually cost. Paid jobs pay out of their own
+        // revenue. Free-prompt jobs (revenue 0) still pay the worker, funded by
         // the treasury — but only when it's not a self-deal (worker serving
         // their own prompt) and the private daily subsidy cap has room, so a
         // sybil farm can't drain the treasury overnight.
@@ -2216,9 +2555,24 @@ export class Orchestrator {
         let payoutCredits = revenueCredits;
         let subsidized = false;
         if (revenueCredits === 0 && (job.subsidyCredits || 0) > 0 && worker.privyUserId !== job.privyUserId) {
-          if (job.subsidyKind === 'allowance') {
-            // Staker allowance: the daily pool ceiling was already enforced when
-            // the allowance was consumed at submit time, so pay unconditionally.
+          if (!isFreeSubsidyKind(job.subsidyKind)) {
+            // Funded lanes. A staker allowance was bounded by the daily pool
+            // ceiling when it was drawn; a plan grant was paid for when the
+            // period was bought. Either way the money exists, so the worker is
+            // paid unconditionally and the free-subsidy budget is not touched.
+            //
+            // `subsidized` here means "not self-solvent from THIS job's
+            // revenue", which is true of a plan job — the revenue arrived when
+            // the period was bought. It does NOT mean given away, and
+            // subsidy_kind is what tells the two apart in reporting.
+            //
+            // Plan economics ARE booked, just not from here. The purchase
+            // credits the plan_revenue bucket with the cash it took
+            // (creditPlanRevenue, lib/treasury-ledger.ts) and this payout is
+            // attributed by subsidy_kind (getPlanFundedPayoutsUsd, lib/db.ts);
+            // revenue minus payouts is the margin floor, on /api/admin. Nothing
+            // is realised as margin here on purpose — a plan job carries no
+            // revenue of its own, and the money it spends arrived a month ago.
             payoutCredits = job.subsidyCredits!;
             subsidized = true;
           } else {
@@ -2253,7 +2607,7 @@ export class Orchestrator {
 
     const userSocket = this.io.sockets.sockets.get(job.userSocketId);
     if (userSocket) {
-      userSocket.emit('job:complete', { jobId, response });
+      userSocket.emit('job:complete', { jobId, response, usage: this.jobUsage(job) });
     }
 
     // Tell the worker a real job landed so it can log/count it. Canaries return
@@ -2524,6 +2878,10 @@ export class Orchestrator {
     // complete answer for free.
     if (!job.serverTokenCount) {
       this.refundJobCharges(job, 'Job failed: ' + error.slice(0, 50));
+    } else {
+      // Streamed then errored: the reader keeps what arrived and pays for that
+      // much, never for the reservation's full-length answer.
+      this.settleJobCharge(job, job.serverTokenCount);
     }
 
     this.jobs.delete(jobId);

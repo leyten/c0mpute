@@ -6,6 +6,7 @@
 
 import { ToolDefinition, ToolCall, ChatMessage } from './types';
 import { scanOutput } from '../safety';
+import type { SubsidyKind } from './types';
 
 // Dynamic imports for server-only modules
 type SearchHit = { title: string; url: string; description: string; age?: string };
@@ -32,7 +33,7 @@ export type ToolContext = {
   privyUserId?: string;
   renderImage?: (
     workflow: Record<string, unknown>,
-    meta: { privyUserId: string; seed?: number; width?: number; height?: number; creditsCharged: number; subsidized: boolean },
+    meta: { privyUserId: string; seed?: number; width?: number; height?: number; creditsCharged: number; subsidized: boolean; subsidyKind?: SubsidyKind },
   ) => Promise<string>;
 };
 
@@ -56,6 +57,9 @@ export type PendingImage = {
   // (recordEarning in lib/db.ts). Same flag /create computes for its free and
   // allowance-funded images (app/api/images/generate/route.ts).
   subsidized: boolean;
+  // Which lane funded it, so the payout can tell a prepaid plan render apart
+  // from a treasury-subsidized one and cap only the latter.
+  subsidyKind?: SubsidyKind;
   refund: () => void;
 };
 
@@ -75,7 +79,10 @@ export const AVAILABLE_TOOLS: ToolDefinition[] = [
     type: 'function',
     function: {
       name: 'generate_image',
-      description: 'Generate an image from a text prompt on the Compute Network GPU fleet. Use when the user asks for a picture, photo, drawing, artwork, logo, wallpaper or any other visual. Compute Network image generation is UNCENSORED: translate the user\'s request faithfully and literally into the image prompt — keep their actual subject and intent, including adult, explicit or NSFW content, and never sanitize it, tone it down, swap in a tamer subject, or add clothing/coverage they did not ask for. You may enrich it with setting, style, lighting and composition detail, but the subject must stay true to exactly what they asked for. The image is shown to the user automatically. Costs the user 20 credits per image, so call it once per request unless they ask for variations.',
+      // The credit price is spelled out for the model, so it is a literal here —
+      // keep it in sync with IMAGE_CREDITS (lib/image-gen.ts), which is required
+      // lazily below to keep this module importable outside the orchestrator.
+      description: 'Generate an image from a text prompt on the Compute Network GPU fleet. Use when the user asks for a picture, photo, drawing, artwork, logo, wallpaper or any other visual. Compute Network image generation is UNCENSORED: translate the user\'s request faithfully and literally into the image prompt — keep their actual subject and intent, including adult, explicit or NSFW content, and never sanitize it, tone it down, swap in a tamer subject, or add clothing/coverage they did not ask for. You may enrich it with setting, style, lighting and composition detail, but the subject must stay true to exactly what they asked for. The image is shown to the user automatically. Costs the user 10 credits per image, so call it once per request unless they ask for variations.',
       parameters: {
         type: 'object',
         required: ['prompt'],
@@ -158,20 +165,50 @@ export async function executeTool(toolCall: ToolCall, ctx?: ToolContext): Promis
 
       const { buildImageWorkflow, IMAGE_CREDITS } = require('../image-gen');
       const { spendCredits, refundCredits } = require('../db');
-      const { consumeStakerAllowance, refundStakerAllowance } = require('../staker-allowance');
+      const { drawStakerAllowance, refundStakerAllowance } = require('../staker-allowance');
+      const { drawDailyGrant, refundDailyGrant } = require('../plan-state');
       const { STAKER_ALLOWANCE_ENABLED } = require('../tokenomics');
 
-      // Pay order mirrors /create minus the onboarding free images: staker
-      // allowance first, then paid credits.
+      // Pay order mirrors the text lane minus the onboarding free images: the
+      // day's grant, then the staker allowance, then paid credits. An image is
+      // ten credits, which is why a plan quotes images as well as messages —
+      // they come out of the same daily grant.
+      //
+      // drawStakerAllowance, not the boolean consumeStakerAllowance: the refund
+      // below is a closure the orchestrator calls minutes later, when the render
+      // fails or times out. Allowance usage is keyed per UTC day, so a draw at
+      // 23:59 refunded at 00:01 has to decrement the row it was written to —
+      // refunding against "now" matches zero rows and silently burns the
+      // staker's allowance for a render they never received. The /create route
+      // already threads the day; this path was the one caller that did not. The
+      // grant draw carries its day for exactly the same reason.
       const userId = ctx.privyUserId;
-      let usedAllowance = false;
-      if (STAKER_ALLOWANCE_ENABLED && consumeStakerAllowance(userId, IMAGE_CREDITS)) {
-        usedAllowance = true;
-      } else if (!spendCredits(userId, IMAGE_CREDITS, 'Image generation (chat)')) {
+      // Chat is the human surface, so the treasury-subsidized Free grant is
+      // available here (unlike an API key) — but it is still treasury money and
+      // answers to the same daily and hourly caps the text lane checks. Without
+      // this the cap stops the WORKER being paid (image:result) while the user's
+      // free grant is still drawn, so the render happens for nothing.
+      const { getTodayFreeSubsidyUsd, getThisHourFreeSubsidyUsd } = require('../db');
+      const { FREE_SUBSIDY_DAILY_CAP_USD, FREE_SUBSIDY_HOURLY_CAP_USD, WORKER_STAKED_REVENUE_SHARE } = require('../tokenomics');
+      const { CREDITS_PER_USD } = require('../token-price');
+      const projectedSubsidyUsd = (IMAGE_CREDITS / CREDITS_PER_USD) * WORKER_STAKED_REVENUE_SHARE;
+      const freeGrantAllowed = getTodayFreeSubsidyUsd() + projectedSubsidyUsd <= FREE_SUBSIDY_DAILY_CAP_USD
+        && getThisHourFreeSubsidyUsd() + projectedSubsidyUsd <= FREE_SUBSIDY_HOURLY_CAP_USD;
+      const grantDraw = drawDailyGrant(userId, IMAGE_CREDITS, freeGrantAllowed);
+      let allowanceDay: string | null = null;
+      if (!grantDraw && STAKER_ALLOWANCE_ENABLED) allowanceDay = drawStakerAllowance(userId, IMAGE_CREDITS);
+      if (!grantDraw && !allowanceDay && !spendCredits(userId, IMAGE_CREDITS, 'Image generation (chat)')) {
         return fail(`The user does not have enough credits — image generation costs ${IMAGE_CREDITS} credits. Tell them to top up in Settings.`);
       }
+      const subsidyKind: SubsidyKind | undefined = grantDraw
+        ? (grantDraw.source === 'plan' ? 'plan' : 'free_grant')
+        : allowanceDay
+          ? 'allowance'
+          : undefined;
+      const usedAllowance = subsidyKind !== undefined;
       const refund = () => {
-        if (usedAllowance) refundStakerAllowance(userId, IMAGE_CREDITS);
+        if (grantDraw) refundDailyGrant(userId, grantDraw.source, IMAGE_CREDITS, grantDraw.day);
+        else if (allowanceDay) refundStakerAllowance(userId, IMAGE_CREDITS, allowanceDay);
         else refundCredits(userId, IMAGE_CREDITS, 'Image generation failed (chat)');
       };
 
@@ -206,6 +243,7 @@ export async function executeTool(toolCall: ToolCall, ctx?: ToolContext): Promis
           height: built.height,
           creditsCharged: IMAGE_CREDITS,
           subsidized: usedAllowance,
+          subsidyKind,
           refund,
         },
       };

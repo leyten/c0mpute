@@ -9,7 +9,7 @@ import {
   setDepositProgress,
 } from '@/lib/db';
 import {
-  CREDITS_PER_USD,
+  CREDITS_PER_DOLLAR_PURCHASED,
   getConfiguredDepositTokens,
   getTokenUsdPrice,
 } from '@/lib/token-price';
@@ -102,7 +102,10 @@ export async function POST(req: NextRequest) {
           notes.push(`${token.kind} price unavailable, try again shortly`);
         } else {
           const usdValue = newTokens * priceUsd;
-          const credits = Math.floor(usdValue * CREDITS_PER_USD);
+          // The PURCHASE rate, not the value rate: this is the only place a
+          // dollar turns into credits, so it is the only place the two may
+          // differ (see lib/token-price.ts).
+          const credits = Math.floor(usdValue * CREDITS_PER_DOLLAR_PURCHASED);
           if (credits > 0) {
             addCredits(privyId, credits, undefined, `${token.kind} deposit`);
             setDepositProgress(privyId, token.mint, onChainBalance);

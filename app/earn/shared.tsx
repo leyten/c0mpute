@@ -18,7 +18,23 @@ export const PHASE: Record<string, string> = {
   working: 'Serving a job',
 };
 
-export const NATIVE_RATE = '$0.10–0.14';
+/* What a worker is paid, in the unit the network actually bills in.
+ *
+ * Text is metered per token at $0.90 per million output tokens
+ * (TEXT_USD_PER_M_OUTPUT), and a worker keeps 70% of what a job charges, or 80%
+ * with enough ZERO staked (WORKER_REVENUE_SHARE / WORKER_STAKED_REVENUE_SHARE).
+ * That is $0.63 to $0.72 per million tokens generated.
+ *
+ * Written out rather than imported because those constants read process.env,
+ * which is not the same object in a client bundle. If the rate card moves, this
+ * moves with it.
+ *
+ * The old "$0.07 a job" and "$0.10–0.14 a job" are gone because a job no longer
+ * has a price. A short answer and a long one used to cost a user the same and
+ * pay a worker the same; now length is the price on both sides, so quoting a
+ * figure per job would be quoting a number that does not exist. */
+export const WORKER_RATE = '$0.63–0.72';
+export const WORKER_RATE_UNIT = 'per million tokens';
 export const SWARM_NOTE = 'When the new network launches, the same command joins a swarm.';
 
 export function Eyebrow({ children, tone }: { children: React.ReactNode; tone?: 'steel' }) {
