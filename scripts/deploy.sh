@@ -115,7 +115,12 @@ git -C "$PROD" checkout -q --detach "$SHA"
 # the existing tree is reused, which keeps a deploy under a minute.
 if ! git -C "$PROD" diff --quiet "$CURRENT" "$SHA" -- package-lock.json 2>/dev/null; then
   say "package-lock.json changed — reinstalling dependencies"
-  (cd "$PROD" && npm ci --omit=dev --no-audit --no-fund) || die "npm ci failed"
+  # FULL install, not --omit=dev: this tree BUILDS (next build needs typescript,
+  # tailwind and friends from devDependencies). --omit=dev only ever worked
+  # because the lockfile never moved; the first release that moved it (e0018e3)
+  # stripped the toolchain mid-deploy and failed the build with services
+  # already stopped.
+  (cd "$PROD" && npm ci --no-audit --no-fund) || die "npm ci failed"
 fi
 
 say "building"
