@@ -1,24 +1,20 @@
 /**
- * The published price list.
+ * The published price list — the COPY half of it.
  *
- * One place, because these numbers are quoted on the pricing page, in the
- * checkout, and by whatever hands out the daily grant — and three copies of a
- * price is how somebody ends up billed for a plan we never advertised.
+ * Every number on this page now comes from lib/plans.ts, which is what the
+ * checkout debits and what hands out the daily grant. This file holds only the
+ * words: who a plan is for, what to call the button. A price quoted here can no
+ * longer disagree with the price charged, because there is nothing here to
+ * disagree with.
  *
- * BILLING BACKEND: this file is the seam. The subscription release imports it,
- * or replaces it outright once plans and their payment-provider price ids live
- * server-side. Nothing here charges anyone today; it is copy and arithmetic.
- *
- * IT DOES NOT MATCH THE LIVE LEDGER YET, AND THAT IS DELIBERATE. Today
- * lib/token-price.ts prices a credit at a cent (CREDITS_PER_USD = 100) and
- * lib/tokenomics.ts charges 10-20 of them per prompt. The plans below assume
- * the redenominated credit these prices were approved against: a tenth of a
- * cent, one per typical message. Whoever wires the checkout has to land that
- * repricing in the same change, or a subscriber will be granted 300 credits a
- * day and watch twenty of them buy a single prompt.
+ * The seam this file promised is closed: lib/plans.ts is the source of truth,
+ * and a future card checkout prices against the same specs rather than a copy.
  */
 
-export type PricingPlanId = 'free' | 'pro' | 'max';
+import { PLAN_SPECS, planMonthlyUsd, type PlanId } from '@/lib/plans';
+import { CREDITS_PER_DOLLAR_PURCHASED } from '@/lib/token-price';
+
+export type PricingPlanId = PlanId;
 
 export interface PricingPlan {
   id: PricingPlanId;
@@ -38,13 +34,13 @@ export interface PricingPlan {
   featured?: boolean;
 }
 
-/** What a dollar buys when you top up outright (no subscription). FINAL,
- *  owner-approved 2026-08-21: retail sits above the plans' effective rate on
- *  purpose, Venice-style, so subscribing is always the better deal. The
- *  internal value of a credit stays a tenth of a cent; the gap between the
- *  two is the subscription incentive, and this page only ever quotes THIS
- *  number. */
-export const CREDITS_PER_DOLLAR = 500;
+/** What a dollar buys when you top up outright (no subscription). Retail sits
+ *  above the plans' effective rate on purpose, Venice-style, so subscribing is
+ *  always the better deal. The internal value of a credit stays a tenth of a
+ *  cent; the gap between the two is the subscription incentive, and this page
+ *  only ever quotes THIS number — which is also the rate a plan purchase is
+ *  priced at, so the dollar figures below are the same arithmetic a buyer does. */
+export const CREDITS_PER_DOLLAR = CREDITS_PER_DOLLAR_PURCHASED;
 
 /** What the common actions spend. A message is the unit; the rest are multiples. */
 export const CREDIT_COST = {
@@ -52,12 +48,16 @@ export const CREDIT_COST = {
   image: 10,
 } as const;
 
+// The prices and grants below are read from lib/plans.ts, which is what the
+// checkout debits and what the grant engine hands out. The prose stays written
+// out by hand: "about 300 typical messages" is a claim about the model, not a
+// number this file is entitled to compute, and it wants a human when it moves.
 export const PLANS: PricingPlan[] = [
   {
     id: 'free',
     name: 'Free',
-    monthly: 0,
-    dailyCredits: 20,
+    monthly: planMonthlyUsd('free'),
+    dailyCredits: PLAN_SPECS.free.dailyCredits,
     allowance: 'About 20 typical messages a day.',
     blurb: 'The whole model, in small daily helpings.',
     features: [
@@ -70,8 +70,8 @@ export const PLANS: PricingPlan[] = [
   {
     id: 'pro',
     name: 'Pro',
-    monthly: 12,
-    dailyCredits: 300,
+    monthly: planMonthlyUsd('pro'),
+    dailyCredits: PLAN_SPECS.pro.dailyCredits,
     allowance: 'About 300 typical messages, or 30 images, a day.',
     blurb: 'Enough for a working day, every day.',
     features: [
@@ -80,14 +80,14 @@ export const PLANS: PricingPlan[] = [
       'Vision, thinking and web-search tools all day',
       'Top up when a day runs long',
     ],
-    cta: { label: 'Choose Pro', href: '/settings' },
+    cta: { label: 'Choose Pro', href: '/settings#plans' },
     featured: true,
   },
   {
     id: 'max',
     name: 'Max',
-    monthly: 30,
-    dailyCredits: 750,
+    monthly: planMonthlyUsd('max'),
+    dailyCredits: PLAN_SPECS.max.dailyCredits,
     allowance: 'About 750 typical messages, or 75 images, a day.',
     blurb: 'For agents, long tool runs and heavy days.',
     features: [
@@ -96,6 +96,6 @@ export const PLANS: PricingPlan[] = [
       'Room for agent loops and long context',
       'More images before the day runs out',
     ],
-    cta: { label: 'Choose Max', href: '/settings' },
+    cta: { label: 'Choose Max', href: '/settings#plans' },
   },
 ];
