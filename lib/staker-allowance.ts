@@ -12,6 +12,14 @@
 // subsidy lane as the free-prompt feature: the user pays 0, the worker is still
 // paid, funded by the treasury — see the orchestrator billing + completion paths.
 //
+// The per-day METERING lives in lib/allowance.ts now -- this file kept the only
+// copy of it until plan and free grants needed the same thing, so the draw /
+// refund / midnight machinery moved there and 'staker' became one source among
+// several. Everything this module exports behaves exactly as it did: same
+// signatures, same pool ceiling, same active-staker gate, same day-keyed refund.
+// What is left here is the part that is genuinely about STAKING -- who is
+// eligible, and what their pro-rata share of the pool comes to.
+//
 // Mirrors the codebase pattern of a per-module sqlite handle on data/c0mpute.db
 // (WAL, so multiple connections to the same file are fine).
 
@@ -29,20 +37,18 @@ import {
   WORKER_REVENUE_SHARE,
 } from './tokenomics';
 import { CREDITS_PER_USD } from './token-price';
+import { drawAllowance, refundAllowance, getAllowanceUsed, getSourceUsedToday, utcDay } from './allowance';
 
 let _db: Database.Database | null = null;
 function getDb(): Database.Database {
   if (!_db) {
     _db = new Database(path.join(process.cwd(), 'data', 'c0mpute.db'));
     _db.pragma('journal_mode = WAL');
+    // staker_allowance_usage is NOT created here any more: lib/allowance.ts owns
+    // the metering table and carries this one's live rows over on first use.
+    // Existing databases keep theirs -- it is the migration's source, and the
+    // way back if this release is rolled back.
     _db.exec(`
-      CREATE TABLE IF NOT EXISTS staker_allowance_usage (
-        privy_id TEXT NOT NULL,
-        day TEXT NOT NULL,
-        used INTEGER NOT NULL DEFAULT 0,
-        updated_at TEXT NOT NULL,
-        PRIMARY KEY (privy_id, day)
-      );
       CREATE TABLE IF NOT EXISTS staker_last_request (
         privy_id TEXT PRIMARY KEY,
         last_request_at TEXT NOT NULL
@@ -50,10 +56,6 @@ function getDb(): Database.Database {
     `);
   }
   return _db;
-}
-
-function utcDay(): string {
-  return new Date().toISOString().slice(0, 10); // YYYY-MM-DD (UTC)
 }
 
 /** Record that a user made a request — drives the active-staker gate. */
@@ -150,28 +152,13 @@ export function computeDailyAllowance(privyId: string): number {
  */
 export function drawStakerAllowance(privyId: string, credits: number): string | null {
   if (!STAKER_ALLOWANCE_ENABLED || credits <= 0) return null;
-  const db = getDb();
-  const day = utcDay();
-  const now = new Date().toISOString();
-  const txn = db.transaction(() => {
-    const allowance = computeDailyAllowance(privyId);
-    if (allowance <= 0) return false;
-    const usedRow = db.prepare('SELECT used FROM staker_allowance_usage WHERE privy_id = ? AND day = ?').get(privyId, day) as
-      | { used: number }
-      | undefined;
-    const used = usedRow?.used ?? 0;
-    if (used + credits > allowance) return false; // exceeds this user's allowance
-    const globalUsed = (db.prepare('SELECT COALESCE(SUM(used), 0) AS total FROM staker_allowance_usage WHERE day = ?').get(day) as {
-      total: number;
-    }).total;
-    if (globalUsed + credits > STAKER_ALLOWANCE_DAILY_POOL_CREDITS) return false; // global pool exhausted
-    db.prepare(
-      `INSERT INTO staker_allowance_usage (privy_id, day, used, updated_at) VALUES (?, ?, ?, ?)
-       ON CONFLICT(privy_id, day) DO UPDATE SET used = used + ?, updated_at = ?`
-    ).run(privyId, day, credits, now, credits, now);
-    return true;
+  return drawAllowance(privyId, 'staker', credits, {
+    // Resolved inside the engine's transaction, exactly as before: the stake
+    // formula reads live rows, and computing it beforehand would leave a gap
+    // between what the user is owed and what they take.
+    resolveAllowance: () => computeDailyAllowance(privyId),
+    dailyPoolCredits: STAKER_ALLOWANCE_DAILY_POOL_CREDITS,
   });
-  return (txn() as boolean) ? day : null;
 }
 
 /** Boolean form of drawStakerAllowance, for callers that never refund a draw. */
@@ -192,11 +179,9 @@ export function consumeStakerAllowance(privyId: string, credits: number): boolea
  * back allowance that wasn't drawn.
  */
 export function refundStakerAllowance(privyId: string, credits: number, day: string = utcDay()): void {
-  if (credits <= 0) return;
-  const db = getDb();
-  db.prepare(
-    'UPDATE staker_allowance_usage SET used = MAX(0, used - ?), updated_at = ? WHERE privy_id = ? AND day = ?'
-  ).run(credits, new Date().toISOString(), privyId, day);
+  // Deliberately NOT gated on STAKER_ALLOWANCE_ENABLED: a draw made while the
+  // flag was on must still be refundable after it is turned off.
+  refundAllowance(privyId, 'staker', credits, day);
 }
 
 /**
@@ -206,11 +191,7 @@ export function refundStakerAllowance(privyId: string, credits: number, day: str
  */
 export function getStakerAllowanceTodayTotals(): { creditsToday: number; subsidyUsd: number } {
   if (!STAKER_ALLOWANCE_ENABLED) return { creditsToday: 0, subsidyUsd: 0 };
-  const db = getDb();
-  const row = db.prepare('SELECT COALESCE(SUM(used), 0) AS used FROM staker_allowance_usage WHERE day = ?').get(utcDay()) as {
-    used: number;
-  };
-  const creditsToday = row.used;
+  const creditsToday = getSourceUsedToday('staker');
   const subsidyUsd = (creditsToday / CREDITS_PER_USD) * WORKER_REVENUE_SHARE;
   return { creditsToday, subsidyUsd };
 }
@@ -223,11 +204,7 @@ export function getStakerAllowanceStatus(privyId: string): {
   remaining: number;
 } {
   if (!STAKER_ALLOWANCE_ENABLED) return { enabled: false, dailyAllowance: 0, usedToday: 0, remaining: 0 };
-  const db = getDb();
   const allowance = computeDailyAllowance(privyId);
-  const row = db.prepare('SELECT used FROM staker_allowance_usage WHERE privy_id = ? AND day = ?').get(privyId, utcDay()) as
-    | { used: number }
-    | undefined;
-  const used = row?.used ?? 0;
+  const used = getAllowanceUsed(privyId, 'staker');
   return { enabled: true, dailyAllowance: allowance, usedToday: used, remaining: Math.max(0, allowance - used) };
 }
