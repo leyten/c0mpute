@@ -42,9 +42,11 @@ export const POOL_BURN_SPLIT = pct('POOL_BURN_SPLIT', 0.5);
 // Minimum USD a worker/staker can withdraw in one payout.
 export const MIN_WITHDRAWAL_USD = 1.0;
 
-// Free Pro-tier prompts each new X account gets before needing to top up USDC.
-// Lets a brand-new signup actually try the product (free tier was removed, so
-// they otherwise land with 0 credits). Max/native tier always costs credits.
+// Free prompts each new account gets before needing to top up USDC — ANY tier,
+// Max/native included (the orchestrator zeroes the tier's credit cost and pays
+// the worker its list price out of the treasury). Lets a brand-new signup
+// actually try the product (free tier was removed, so they otherwise land with
+// 0 credits).
 export const FREE_PROMPT_LIMIT = Number(process.env.FREE_PROMPT_LIMIT || 5);
 
 // Onboarding free IMAGE generations per account (separate pool from free text

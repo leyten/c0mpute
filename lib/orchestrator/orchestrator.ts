@@ -1369,6 +1369,7 @@ export class Orchestrator {
           width: pi.width,
           height: pi.height,
           creditsCharged: pi.creditsCharged,
+          subsidized: pi.subsidized,
         })
           .then((image) => {
             const us = this.io.sockets.sockets.get(job.userSocketId);
@@ -1538,10 +1539,13 @@ export class Orchestrator {
     return true;
   }
 
-  /** Render an image on the worker pool from inside the orchestrator (chat tool). */
+  /** Render an image on the worker pool from inside the orchestrator (chat tool).
+   *  `subsidized` says the credits were NOT paid (staker allowance funded them),
+   *  exactly as /create passes it on image:submit — it is what keeps image:result
+   *  from booking unpaid credits as revenue and paying a referral out of them. */
   renderImageInternal(
     workflow: Record<string, unknown>,
-    meta: { privyUserId: string; seed?: number; width?: number; height?: number; creditsCharged: number },
+    meta: { privyUserId: string; seed?: number; width?: number; height?: number; creditsCharged: number; subsidized: boolean },
   ): Promise<string> {
     return new Promise((resolve, reject) => {
       const jobId = uuidv4();
@@ -1554,7 +1558,7 @@ export class Orchestrator {
         width: meta.width,
         height: meta.height,
         creditsCharged: meta.creditsCharged,
-        subsidized: false,
+        subsidized: meta.subsidized,
         status: 'pending',
         submittedAt: Date.now(),
       });

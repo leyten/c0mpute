@@ -32,7 +32,7 @@ export type ToolContext = {
   privyUserId?: string;
   renderImage?: (
     workflow: Record<string, unknown>,
-    meta: { privyUserId: string; seed?: number; width?: number; height?: number; creditsCharged: number },
+    meta: { privyUserId: string; seed?: number; width?: number; height?: number; creditsCharged: number; subsidized: boolean },
   ) => Promise<string>;
 };
 
@@ -50,6 +50,12 @@ export type PendingImage = {
   width?: number;
   height?: number;
   creditsCharged: number;
+  // The render collected NO revenue — it was funded by the staker allowance, not
+  // by credits the user paid. Booking it as revenue would pay a referrer 5% of
+  // money nobody spent and credit phantom margin to the buyback pool
+  // (recordEarning in lib/db.ts). Same flag /create computes for its free and
+  // allowance-funded images (app/api/images/generate/route.ts).
+  subsidized: boolean;
   refund: () => void;
 };
 
@@ -199,6 +205,7 @@ export async function executeTool(toolCall: ToolCall, ctx?: ToolContext): Promis
           width: built.width,
           height: built.height,
           creditsCharged: IMAGE_CREDITS,
+          subsidized: usedAllowance,
           refund,
         },
       };
