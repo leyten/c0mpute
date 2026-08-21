@@ -1381,6 +1381,12 @@ function ensurePlanTables() {
     );
     CREATE INDEX IF NOT EXISTS idx_plan_events_privy ON plan_events(privy_id);
   `);
+  // When this period was settled as ended. The once-only marker for the lapse:
+  // an expired plan is resolved on every request, and without it the lapse
+  // either writes a row each time or (worse) books no event at all on the
+  // commonest cancellation, which is auto-renew off plus a period running out.
+  // Cleared whenever a new period is written. Throws (ignored) if it exists.
+  try { db.exec('ALTER TABLE user_plans ADD COLUMN lapsed_at TEXT'); } catch {}
 }
 
 export interface PlanRow {
@@ -1390,6 +1396,7 @@ export interface PlanRow {
   expires_at: string;
   auto_renew: number;
   pending_plan: string | null;
+  lapsed_at: string | null;
   updated_at: string;
 }
 
@@ -1487,14 +1494,15 @@ export function purchasePlanPeriod(args: {
     const autoRenew = args.autoRenew === undefined ? 1 : args.autoRenew ? 1 : 0;
 
     db.prepare(
-      `INSERT INTO user_plans (privy_id, plan, started_at, expires_at, auto_renew, pending_plan, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO user_plans (privy_id, plan, started_at, expires_at, auto_renew, pending_plan, lapsed_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, NULL, ?)
        ON CONFLICT(privy_id) DO UPDATE SET
          plan = excluded.plan,
          started_at = excluded.started_at,
          expires_at = excluded.expires_at,
          auto_renew = excluded.auto_renew,
          pending_plan = excluded.pending_plan,
+         lapsed_at = NULL,
          updated_at = excluded.updated_at`
     ).run(args.privyId, args.plan, startedAt, args.expiresAt, autoRenew, args.pendingPlan ?? null, now);
 
@@ -1521,14 +1529,15 @@ export function lapsePlan(privyId: string): void {
   const db = getDb();
   const now = new Date().toISOString();
   const txn = db.transaction(() => {
-    const row = db.prepare('SELECT plan, auto_renew FROM user_plans WHERE privy_id = ?').get(privyId) as
-      | { plan: string; auto_renew: number }
+    const row = db.prepare('SELECT plan, lapsed_at FROM user_plans WHERE privy_id = ?').get(privyId) as
+      | { plan: string; lapsed_at: string | null }
       | undefined;
-    if (!row) return;
-    db.prepare('UPDATE user_plans SET auto_renew = 0, pending_plan = NULL, updated_at = ? WHERE privy_id = ?').run(now, privyId);
-    // Only the first crossing books an event; a lapsed plan is resolved on
-    // every request, and one lapse should not write a row each time.
-    if (row.auto_renew === 0) return;
+    // Already settled. An expired plan is resolved on every request, so this is
+    // the common path and it must write nothing at all.
+    if (!row || row.lapsed_at) return;
+    db.prepare(
+      'UPDATE user_plans SET auto_renew = 0, pending_plan = NULL, lapsed_at = ?, updated_at = ? WHERE privy_id = ?'
+    ).run(now, now, privyId);
     db.prepare(
       'INSERT INTO plan_events (id, privy_id, kind, plan, credits, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
     ).run(crypto.randomUUID(), privyId, 'lapse', row.plan, 0, null, now);

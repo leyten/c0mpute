@@ -1137,14 +1137,35 @@ export class Orchestrator {
         // on that block's condition): those are treasury-subsidized, and a
         // subscriber drawing on the free-subsidy budget would charge prepaid
         // usage to the lane meant for people who have not paid.
+        // Mark the account active for the staker 7-day gate BEFORE any lane can
+        // zero creditCost. Doing it inside the staker branch below meant that
+        // the moment a subscriber's grant covered their traffic they stopped
+        // touching staker_last_request, went inactive after
+        // STAKER_ALLOWANCE_ACTIVE_DAYS, and silently lost the allowance — the
+        // people most likely to stake being exactly the people it hit.
+        if (STAKER_ALLOWANCE_ENABLED) recordStakerRequest(privyUserId);
+
+        // A free-only ("resale") key may spend the STAKING ALLOWANCE and nothing
+        // else. The grant is the owner's prepaid money every bit as much as
+        // their balance is, so the key must not reach it either — without this
+        // the holder of a resale key burns a Max grant the owner paid $30 for.
+        // The rejection itself still happens after the allowance lane below.
+        const resaleKey = isInternal && data.freeOnly === true;
+
         let grantDraw: DailyGrantDraw | null = null;
-        if (creditCost > 0) {
+        if (creditCost > 0 && !resaleKey) {
           // The free half of the grant is treasury money, so it answers to the
-          // same daily cap as the welcome prompts and, like them, is not
-          // available to API keys. A plan grant is prepaid revenue and is
-          // subject to neither.
+          // same caps as the welcome prompts and, like them, is not available to
+          // API keys. A plan grant is prepaid revenue and is subject to neither.
+          //
+          // BOTH caps, daily and hourly. free_grant payouts count against the
+          // hourly budget (getThisHourFreeSubsidyUsd), so gating on the daily
+          // one alone let signed-in traffic drain the hour's $3 and lock anon
+          // visitors out of a lane nothing was throttling.
+          const projectedSubsidyUsd = (listCredits / CREDITS_PER_USD) * WORKER_STAKED_REVENUE_SHARE;
           const freeGrantAllowed = !isInternal
-            && getTodayFreeSubsidyUsd() + (listCredits / CREDITS_PER_USD) * WORKER_STAKED_REVENUE_SHARE <= FREE_SUBSIDY_DAILY_CAP_USD;
+            && getTodayFreeSubsidyUsd() + projectedSubsidyUsd <= FREE_SUBSIDY_DAILY_CAP_USD
+            && getThisHourFreeSubsidyUsd() + projectedSubsidyUsd <= FREE_SUBSIDY_HOURLY_CAP_USD;
           grantDraw = drawDailyGrant(privyUserId, creditCost, freeGrantAllowed, planState);
           if (grantDraw) {
             creditCost = 0;
@@ -1169,7 +1190,6 @@ export class Orchestrator {
         // never touched.
         let allowanceDay: string | null = null;
         if (creditCost > 0 && STAKER_ALLOWANCE_ENABLED) {
-          recordStakerRequest(privyUserId); // mark active for the 7-day gate
           allowanceDay = drawStakerAllowance(privyUserId, creditCost);
           if (allowanceDay) {
             creditCost = 0;
@@ -1183,7 +1203,7 @@ export class Orchestrator {
         // If the allowance didn't cover this job, reject here instead of falling
         // through to the owner's deposited USDC — this is what lets a staker safely
         // hand a resale key to a third party without exposing their real balance.
-        if (creditCost > 0 && isInternal && data.freeOnly === true) {
+        if (creditCost > 0 && resaleKey) {
           callback({ error: 'Insufficient staking allowance for this key. Resale keys can only spend the daily staking allowance.', code: 'ALLOWANCE_EXHAUSTED' });
           return;
         }

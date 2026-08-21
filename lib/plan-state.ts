@@ -50,6 +50,12 @@ export interface PlanState {
   dailyCredits: number;
   /** True when a paid period ran out and was not renewed. Drives the notice. */
   lapsed: boolean;
+  /**
+   * This call is what renewed the period. Only a mutating caller cares: buyPlan
+   * has to know that the click it is serving already bought a month, or it
+   * charges for a second one and reports the price of one.
+   */
+  justRenewed?: boolean;
 }
 
 const FREE_STATE: PlanState = {
@@ -98,8 +104,11 @@ export function resolvePlanState(privyId: string): PlanState {
   }
 
   // The period is over. Renew it if the user asked us to and the balance
-  // covers it; otherwise this is where the plan ends.
-  if (row.auto_renew === 1 || pending) {
+  // covers it; otherwise this is where the plan ends. lapsePlan runs on EVERY
+  // route out of here — the commonest cancellation of all is auto-renew off
+  // plus a period running out, and gating the lapse on auto_renew meant that
+  // one booked no event at all.
+  {
     const next: PaidPlanId = pending ?? row.plan;
     const cost = PLAN_SPECS[next].periodCredits;
     if (row.auto_renew === 1 && getCreditBalance(privyId).balance >= cost) {
@@ -120,7 +129,7 @@ export function resolvePlanState(privyId: string): PlanState {
         // expired period and charge for two months.
         ifExpiresAt: row.expires_at,
       });
-      if (bought) return activeState(next, expiresAt, true, null, now);
+      if (bought) return { ...activeState(next, expiresAt, true, null, now), justRenewed: true };
 
       // The write was refused. Either the balance moved under us or another
       // process renewed first — and if it did, this plan is alive and must not
@@ -209,6 +218,13 @@ export function buyPlan(privyId: string, plan: PlanId): BuyPlanResult {
   const now = Date.now();
   const balance = getCreditBalance(privyId).balance;
   const spec = PLAN_SPECS[plan];
+
+  // Resolving may have auto-renewed an expired period a moment ago. If that
+  // bought the very plan being asked for, this click is already paid: charging
+  // again would take two periods for one press and report the price of one.
+  if (state.justRenewed && state.plan === plan) {
+    return { ok: true, action: 'renew', state, creditsSpent: spec.periodCredits };
+  }
 
   // Moving DOWN mid-period: no money moves and nothing is taken away. The
   // period they paid for runs to the end, then the cheaper plan starts.

@@ -184,8 +184,17 @@ export async function executeTool(toolCall: ToolCall, ctx?: ToolContext): Promis
       // grant draw carries its day for exactly the same reason.
       const userId = ctx.privyUserId;
       // Chat is the human surface, so the treasury-subsidized Free grant is
-      // available here (unlike an API key).
-      const grantDraw = drawDailyGrant(userId, IMAGE_CREDITS, true);
+      // available here (unlike an API key) — but it is still treasury money and
+      // answers to the same daily and hourly caps the text lane checks. Without
+      // this the cap stops the WORKER being paid (image:result) while the user's
+      // free grant is still drawn, so the render happens for nothing.
+      const { getTodayFreeSubsidyUsd, getThisHourFreeSubsidyUsd } = require('../db');
+      const { FREE_SUBSIDY_DAILY_CAP_USD, FREE_SUBSIDY_HOURLY_CAP_USD, WORKER_STAKED_REVENUE_SHARE } = require('../tokenomics');
+      const { CREDITS_PER_USD } = require('../token-price');
+      const projectedSubsidyUsd = (IMAGE_CREDITS / CREDITS_PER_USD) * WORKER_STAKED_REVENUE_SHARE;
+      const freeGrantAllowed = getTodayFreeSubsidyUsd() + projectedSubsidyUsd <= FREE_SUBSIDY_DAILY_CAP_USD
+        && getThisHourFreeSubsidyUsd() + projectedSubsidyUsd <= FREE_SUBSIDY_HOURLY_CAP_USD;
+      const grantDraw = drawDailyGrant(userId, IMAGE_CREDITS, freeGrantAllowed);
       let allowanceDay: string | null = null;
       if (!grantDraw && STAKER_ALLOWANCE_ENABLED) allowanceDay = drawStakerAllowance(userId, IMAGE_CREDITS);
       if (!grantDraw && !allowanceDay && !spendCredits(userId, IMAGE_CREDITS, 'Image generation (chat)')) {

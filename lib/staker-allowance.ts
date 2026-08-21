@@ -48,6 +48,13 @@ function getDb(): Database.Database {
     // the metering table and carries this one's live rows over on first use.
     // Existing databases keep theirs -- it is the migration's source, and the
     // way back if this release is rolled back.
+    //
+    // DEPLOY NOTE: restart the orchestrator and the Next.js server together.
+    // Both hold this database, and while one is on the old build it keeps
+    // writing the old table where the new build cannot see it. The carry-over
+    // takes the higher of the two counts so the gap can never re-grant, but it
+    // only runs at process start -- a staggered deploy leaves one process
+    // metering a stale bucket until it restarts.
     _db.exec(`
       CREATE TABLE IF NOT EXISTS staker_last_request (
         privy_id TEXT PRIMARY KEY,

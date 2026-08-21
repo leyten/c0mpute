@@ -56,14 +56,27 @@ function getDb(): Database.Database {
     // empty bucket and every staker gets a second full allowance for the day.
     //
     // Only today and later: a draw only ever reads the current day's row, so
-    // history is not worth copying, and bounding it keeps this cheap to run on
-    // every boot. INSERT OR IGNORE, so it can never overwrite a row this engine
-    // has already written -- which is what makes it safe to run every time
-    // rather than once behind a marker.
+    // history is not worth copying, and bounding it keeps this cheap.
+    //
+    // MAX, not INSERT OR IGNORE. Two processes hold this database (the
+    // orchestrator and the Next.js routes) and a deploy restarts them at
+    // different moments, so for a window the old process is still writing the
+    // old table while the new one meters the new. Insert-if-absent resolves
+    // that window by keeping whichever row happened to exist, which can be the
+    // LOWER of the two and re-grants the difference. MAX always keeps the
+    // higher usage, so every divergence resolves in the treasury's favour and
+    // the worst case is a staker being metered slightly early, never twice.
+    //
+    // This is a mitigation, not a proof of correctness: usage the old process
+    // writes after this runs is only picked up at the next restart. Deploy both
+    // processes together, and read the note in staker-allowance.ts.
     try {
       _db.prepare(
-        `INSERT OR IGNORE INTO daily_allowance_usage (privy_id, source, day, used, updated_at)
-         SELECT privy_id, 'staker', day, used, updated_at FROM staker_allowance_usage WHERE day >= ?`
+        `INSERT INTO daily_allowance_usage (privy_id, source, day, used, updated_at)
+         SELECT privy_id, 'staker', day, used, updated_at FROM staker_allowance_usage WHERE day >= ?
+         ON CONFLICT(privy_id, source, day) DO UPDATE SET
+           used = MAX(used, excluded.used),
+           updated_at = excluded.updated_at`
       ).run(utcDay());
     } catch {
       /* staker_allowance_usage not created yet -- nothing to carry over */

@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyPrivyToken } from '@/lib/privy-server';
-import { resolveApiKeyFull, spendCredits, refundCredits, consumeFreeImage, refundFreeImage, getTodayFreeSubsidyUsd, reverseWorkerEarning } from '@/lib/db';
+import { resolveApiKeyFull, spendCredits, refundCredits, consumeFreeImage, refundFreeImage, getTodayFreeSubsidyUsd, getThisHourFreeSubsidyUsd, reverseWorkerEarning } from '@/lib/db';
 import { drawStakerAllowance, refundStakerAllowance } from '@/lib/staker-allowance';
 import { drawDailyGrant, refundDailyGrant } from '@/lib/plan-state';
-import { STAKER_ALLOWANCE_ENABLED, FREE_IMAGE_LIMIT, FREE_SUBSIDY_DAILY_CAP_USD } from '@/lib/tokenomics';
+import { STAKER_ALLOWANCE_ENABLED, FREE_IMAGE_LIMIT, FREE_SUBSIDY_DAILY_CAP_USD, FREE_SUBSIDY_HOURLY_CAP_USD, WORKER_STAKED_REVENUE_SHARE } from '@/lib/tokenomics';
+import { CREDITS_PER_USD } from '@/lib/token-price';
 import { buildImageWorkflow, IMAGE_CREDITS, IMAGE_MODEL_ID } from '@/lib/image-gen';
 import { submitImageJob, ImageJobError } from '@/lib/orchestrator-image-client';
 import { checkImagePromptSafety, classifyImageNsfw } from '@/lib/image-safety';
@@ -79,8 +80,14 @@ export async function POST(req: NextRequest) {
   // reach the owner's prepaid plan grant any more than it reaches their balance.
   // allowFree is false for any API key: the treasury-subsidized Free grant is
   // for people using the app, exactly as in the text lane. A plan grant is the
-  // owner's prepaid money and does travel with a normal key.
-  const grantDraw = freeOnly ? null : drawDailyGrant(privyId, IMAGE_CREDITS, !isApiKey);
+  // owner's prepaid money and does travel with a normal key. The Free half also
+  // answers to the same subsidy caps as every other treasury-funded lane —
+  // freeImagesOpen below only ever gated the ONBOARDING images.
+  const projectedSubsidyUsd = (IMAGE_CREDITS / CREDITS_PER_USD) * WORKER_STAKED_REVENUE_SHARE;
+  const freeGrantAllowed = !isApiKey
+    && getTodayFreeSubsidyUsd() + projectedSubsidyUsd <= FREE_SUBSIDY_DAILY_CAP_USD
+    && getThisHourFreeSubsidyUsd() + projectedSubsidyUsd <= FREE_SUBSIDY_HOURLY_CAP_USD;
+  const grantDraw = freeOnly ? null : drawDailyGrant(privyId, IMAGE_CREDITS, freeGrantAllowed);
   if (!grantDraw && freeImagesOpen && consumeFreeImage(privyId, FREE_IMAGE_LIMIT)) {
     usedFreeImage = true;
   } else if (!grantDraw) {
