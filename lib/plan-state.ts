@@ -34,6 +34,7 @@ import {
   schedulePlanChange,
   getCreditBalance,
 } from './db';
+import { drawAllowance, refundAllowance } from './allowance';
 
 export interface PlanState {
   /** What the account is on after resolution. Free is the floor, not an error. */
@@ -128,6 +129,46 @@ export function dailyGrantFor(state: PlanState): { source: 'plan' | 'free'; cred
   return state.plan === 'free'
     ? { source: 'free', credits: PLAN_SPECS.free.dailyCredits }
     : { source: 'plan', credits: PLAN_SPECS[state.plan].dailyCredits };
+}
+
+export interface DailyGrantDraw {
+  source: 'plan' | 'free';
+  /** The UTC day the draw was written to. Refunds MUST be keyed to it. */
+  day: string;
+  plan: PlanId;
+}
+
+/**
+ * Draw against today's grant, resolving the plan on the way past.
+ *
+ * `allowFree` gates the treasury-subsidized half. The rule the codebase already
+ * follows is that subsidized lanes are human-onboarding only while funded lanes
+ * work everywhere, so an API key draws a plan grant (its owner paid for it) and
+ * never the Free one.
+ *
+ * All-or-nothing, like every other draw: a request that does not fit inside
+ * what is left of the grant takes none of it and falls through to the next
+ * source. Splitting one job across the grant and the balance would mean every
+ * refund path downstream had to split it back the same way.
+ */
+export function drawDailyGrant(
+  privyId: string,
+  credits: number,
+  allowFree: boolean,
+  /** Pass an already-resolved state to avoid renewing/lapsing twice in one request. */
+  resolved?: PlanState,
+): DailyGrantDraw | null {
+  if (credits <= 0) return null;
+  const state = resolved ?? resolvePlanState(privyId);
+  const grant = dailyGrantFor(state);
+  if (grant.source === 'free' && !allowFree) return null;
+  const day = drawAllowance(privyId, grant.source, credits, { resolveAllowance: () => grant.credits });
+  return day ? { source: grant.source, day, plan: state.plan } : null;
+}
+
+/** Give back grant credits drawn earlier, against the day they were drawn. */
+export function refundDailyGrant(privyId: string, source: 'plan' | 'free', credits: number, day?: string): void {
+  refundAllowance(privyId, source, credits, day);
 }
 
 export type BuyPlanResult =

@@ -4,6 +4,7 @@ import {
   WorkerInfo,
   WorkerCapabilities,
   Job,
+  SubsidyKind,
   ChatMessage,
   ToolCall,
   ToolDefinition,
@@ -20,6 +21,7 @@ import {
   MAX_OUTPUT_TOKENS_THINKING,
   MAX_OUTPUT_TOKENS_BROWSER,
   MAX_OUTPUT_TOKENS_SWARM,
+  isFreeSubsidyKind,
 } from './types';
 import { verifyPrivyToken } from '../privy-server';
 import { incrementPromptsSent, verifyWorkerToken, recordCompletedJob, recordEarning, spendCredits, getCreditBalance, refundCredits, isWorkerBanned, recordWorkerStrike, recordCanaryResult, consumeFreePrompt, restoreFreePrompt, getFreePromptsUsed, recordSubsidizedPrompt, getTodayFreeSubsidyUsd, getThisHourFreeSubsidyUsd, anonGrantFreePrompt, getAnonRemaining, profileHasLogin, getAccountAgeMs } from '../db';
@@ -28,6 +30,7 @@ import { verifyAnonToken } from '../anon-auth';
 import { CREDITS_PER_USD } from '../token-price';
 import { getWorkerRevenueShare } from '../staking';
 import { drawStakerAllowance, recordStakerRequest, refundStakerAllowance } from '../staker-allowance';
+import { resolvePlanState, drawDailyGrant, refundDailyGrant, type DailyGrantDraw } from '../plan-state';
 import { scanOutput, BLOCKED_MESSAGE } from '../safety';
 import { AVAILABLE_TOOLS, executeToolCalls } from './tools';
 import { attachSwarmLoop } from './swarm-loop';
@@ -609,6 +612,12 @@ export class Orchestrator {
       // 23:59 and refunded at 00:01 must decrement the row it drew from.
       refundStakerAllowance(job.privyUserId, job.subsidyCredits, job.allowanceDay);
       console.log(`[Orchestrator] Staker allowance restored to ${job.privyUserId} (${job.subsidyCredits}cr, ${reason})`);
+    } else if ((job.subsidyKind === 'plan' || job.subsidyKind === 'free_grant') && job.subsidyCredits) {
+      // Same day-keying as the allowance lane. A grant is use-or-lose, so a job
+      // that never answered has to go back into TODAY'S bucket to be worth
+      // anything — which is exactly what the drawn day gives us.
+      refundDailyGrant(job.privyUserId, job.subsidyKind === 'plan' ? 'plan' : 'free', job.subsidyCredits, job.allowanceDay);
+      console.log(`[Orchestrator] Daily grant restored to ${job.privyUserId} (${job.subsidyCredits}cr, ${reason})`);
     }
   }
 
@@ -649,13 +658,18 @@ export class Orchestrator {
         refundCredits(job.privyUserId, release, 'Unused reservation released');
       }
     } else {
-      // Free and allowance lanes: the treasury pays the worker out of this
-      // basis, so it must be the job's REAL cost, not its worst case. The free
-      // prompt itself is spent either way — only the allowance draw is credit-
-      // denominated and can be given back.
+      // Every lane the user paid no credits for: the worker is paid out of this
+      // basis, so it must be the job's REAL cost, not its worst case. The
+      // welcome prompt itself is spent either way (it is a count, not credits);
+      // the allowance and grant draws are credit-denominated, so the unused part
+      // of the reservation goes back into the day's bucket to be spent again.
       job.subsidyCredits = actual;
-      if (release > 0 && job.subsidyKind === 'allowance' && job.privyUserId) {
-        refundStakerAllowance(job.privyUserId, release, job.allowanceDay);
+      if (release > 0 && job.privyUserId) {
+        if (job.subsidyKind === 'allowance') {
+          refundStakerAllowance(job.privyUserId, release, job.allowanceDay);
+        } else if (job.subsidyKind === 'plan' || job.subsidyKind === 'free_grant') {
+          refundDailyGrant(job.privyUserId, job.subsidyKind === 'plan' ? 'plan' : 'free', release, job.allowanceDay);
+        }
       }
     }
 
@@ -1066,8 +1080,13 @@ export class Orchestrator {
         // account-creation cap, not by the login type.
         // API-originated jobs always charge — never consume onboarding free
         // prompts or the treasury subsidy (that path is human-onboarding only).
+        // Resolved once and threaded through both lanes below: resolution can
+        // renew or lapse a period, and doing it twice in one submit would mean
+        // the welcome-prompt guard and the grant draw could disagree about which
+        // plan the user is on.
+        const planState = resolvePlanState(privyUserId);
         let usedFreePrompt = false;
-        if (creditCost > 0 && !isInternal && profileHasLogin(privyUserId)) {
+        if (creditCost > 0 && !isInternal && profileHasLogin(privyUserId) && planState.plan === 'free') {
           // Same subsidy-cap reservation as the anon path: only grant the onboarding
           // free prompt if the daily cap can still pay a worker for it (worst-case
           // share). If not, fall through to staker allowance / credits — the user
@@ -1094,6 +1113,42 @@ export class Orchestrator {
             usedFreePrompt = true;
             recordSubsidizedPrompt(privyUserId, 'free_prompt', `${requestedTierForCredits}${deepThinking ? ' deep-thinking' : ''} prompt (welcome grant)`);
             console.log(`[Orchestrator] Free prompt used by ${privyUserId} (${requestedTierForCredits})`);
+          }
+        }
+
+        // Daily grant: every signed-in account has one, sized by its plan (Free
+        // 20/day, Pro 300, Max 750), metered per UTC day and use-or-lose. This is
+        // the main lane now — the welcome prompts above are a fixed lifetime
+        // count that predates it, honoured until they run out.
+        //
+        // ORDER. The grant comes before the staker allowance and the balance
+        // because it is the thing that expires: credits keep, a grant does not,
+        // so spending anything else first would throw the grant away. The
+        // welcome prompts sit ahead of it for the same reason in reverse — they
+        // are already the user's, and burning today's grant while a lifetime
+        // count sits unused would quietly take something from a new account.
+        //
+        // A user on a PAID PLAN skips the welcome prompts entirely (the guard is
+        // on that block's condition): those are treasury-subsidized, and a
+        // subscriber drawing on the free-subsidy budget would charge prepaid
+        // usage to the lane meant for people who have not paid.
+        let grantDraw: DailyGrantDraw | null = null;
+        if (creditCost > 0) {
+          // The free half of the grant is treasury money, so it answers to the
+          // same daily cap as the welcome prompts and, like them, is not
+          // available to API keys. A plan grant is prepaid revenue and is
+          // subject to neither.
+          const freeGrantAllowed = !isInternal
+            && getTodayFreeSubsidyUsd() + (listCredits / CREDITS_PER_USD) * WORKER_STAKED_REVENUE_SHARE <= FREE_SUBSIDY_DAILY_CAP_USD;
+          grantDraw = drawDailyGrant(privyUserId, creditCost, freeGrantAllowed, planState);
+          if (grantDraw) {
+            creditCost = 0;
+            recordSubsidizedPrompt(
+              privyUserId,
+              grantDraw.source === 'plan' ? 'plan_grant' : 'free_grant',
+              `${requestedTierForCredits}${deepThinking ? ' deep-thinking' : ''} prompt (${grantDraw.plan} daily grant)`,
+            );
+            console.log(`[Orchestrator] ${grantDraw.plan} daily grant used by ${privyUserId} (${requestedTierForCredits}, ${listCredits}cr)`);
           }
         }
 
@@ -1148,9 +1203,19 @@ export class Orchestrator {
         // caller's own tools (the model's tool calls get returned to the agent,
         // not executed server-side).
         const toolPassthrough = isInternal && Array.isArray(data.tools) && data.tools.length > 0;
-        const subsidyCredits = (usedFreePrompt || usedStakerAllowance) ? listCredits : 0;
-        const subsidyKind = usedStakerAllowance ? 'allowance' : (usedFreePrompt ? 'free' : undefined);
-        const job = this.submitJob(socket.id, data.messages, data.model, privyUserId, deepThinking, creditCost, subsidyCredits, inputTokens, allowanceDay ?? undefined, toolPassthrough ? data.tools : undefined, toolPassthrough, subsidyKind, isInternal);
+        const subsidyCredits = (usedFreePrompt || usedStakerAllowance || grantDraw) ? listCredits : 0;
+        const subsidyKind: SubsidyKind | undefined = usedStakerAllowance
+          ? 'allowance'
+          : grantDraw
+            ? (grantDraw.source === 'plan' ? 'plan' : 'free_grant')
+            : usedFreePrompt
+              ? 'free'
+              : undefined;
+        // Whichever daily bucket paid, settlement releases against the day it
+        // was drawn from. Only one of these can be set: each lane runs only
+        // while creditCost is still positive and zeroes it on success.
+        const drawDay = allowanceDay ?? grantDraw?.day;
+        const job = this.submitJob(socket.id, data.messages, data.model, privyUserId, deepThinking, creditCost, subsidyCredits, inputTokens, drawDay, toolPassthrough ? data.tools : undefined, toolPassthrough, subsidyKind, isInternal);
         if (job) {
           callback({ jobId: job.id });
           console.log(`[Orchestrator] Job submitted: ${job.id} (model: ${data.model || 'any'}${deepThinking ? ', deep-thinking' : ''}) user=${privyUserId}`);
@@ -1166,6 +1231,8 @@ export class Orchestrator {
             restoreFreePrompt(privyUserId);
           } else if (usedStakerAllowance) {
             refundStakerAllowance(privyUserId, listCredits, allowanceDay ?? undefined);
+          } else if (grantDraw) {
+            refundDailyGrant(privyUserId, grantDraw.source, listCredits, grantDraw.day);
           }
           callback({ error: 'Failed to submit job' });
         }
@@ -1809,7 +1876,7 @@ export class Orchestrator {
     allowanceDay?: string,
     clientTools?: ToolDefinition[],
     toolPassthrough: boolean = false,
-    subsidyKind?: 'free' | 'allowance',
+    subsidyKind?: SubsidyKind,
     internal: boolean = false,
   ): Job | null {
     try {
@@ -1931,11 +1998,11 @@ export class Orchestrator {
    * in `this.workers` is dispatchable by construction — and both callers read
    * that one map.
    */
-  private workerCanServe(worker: WorkerInfo, requestedModel: string | undefined, subsidyKind?: 'free' | 'allowance'): boolean {
+  private workerCanServe(worker: WorkerInfo, requestedModel: string | undefined, subsidyKind?: SubsidyKind): boolean {
     if (!workerServesModel(worker, requestedModel)) return false;
     // Subsidized free jobs (treasury pays the worker) only go to aged accounts,
     // so a freshly-minted throwaway can't farm the free lane. Paid jobs are open.
-    if (subsidyKind === 'free' && !worker.accountAgeOk) return false;
+    if (isFreeSubsidyKind(subsidyKind) && !worker.accountAgeOk) return false;
     return true;
   }
 
@@ -1949,7 +2016,7 @@ export class Orchestrator {
    * prompt. Paid and staker-allowance jobs are never gated on this — they can
    * afford to wait for a worker to show up.
    */
-  private hasEligibleWorker(requestedModel: string | undefined, subsidyKind?: 'free' | 'allowance'): boolean {
+  private hasEligibleWorker(requestedModel: string | undefined, subsidyKind?: SubsidyKind): boolean {
     for (const worker of this.workers.values()) {
       if (this.workerCanServe(worker, requestedModel, subsidyKind)) return true;
     }
@@ -2379,9 +2446,29 @@ export class Orchestrator {
         let payoutCredits = revenueCredits;
         let subsidized = false;
         if (revenueCredits === 0 && (job.subsidyCredits || 0) > 0 && worker.privyUserId !== job.privyUserId) {
-          if (job.subsidyKind === 'allowance') {
-            // Staker allowance: the daily pool ceiling was already enforced when
-            // the allowance was consumed at submit time, so pay unconditionally.
+          if (!isFreeSubsidyKind(job.subsidyKind)) {
+            // Funded lanes. A staker allowance was bounded by the daily pool
+            // ceiling when it was drawn; a plan grant was paid for when the
+            // period was bought. Either way the money exists, so the worker is
+            // paid unconditionally and the free-subsidy budget is not touched.
+            //
+            // `subsidized` here means "not self-solvent from THIS job's
+            // revenue", which is true of a plan job — the revenue arrived when
+            // the period was bought. It does NOT mean given away, and
+            // subsidy_kind is what tells the two apart in reporting.
+            //
+            // OPEN: plan revenue does not reach the treasury buckets. A PAYG job
+            // realises its margin as it is served (recordEarning in lib/db.ts);
+            // a plan purchase is a credit spend with no recordEarning, and the
+            // grant jobs it funds carry revenue 0, so realizeMargin sees a
+            // negative and ignores it. Booking the purchase as margin up front
+            // would credit the buyback and staker buckets money still owed to
+            // workers, so this books nothing rather than something wrong. The
+            // two credit rates make it subtler than it looks: a Pro month is $12
+            // of cash but 6,000 credits of INTERNAL value ($6), while a
+            // fully-spent month of grants can pay workers up to $7.20 — healthy
+            // against the cash, underwater against the internal value. Needs a
+            // decision on plan revenue accounting before plans carry volume.
             payoutCredits = job.subsidyCredits!;
             subsidized = true;
           } else {

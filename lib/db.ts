@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import path from 'path';
 import { CREDITS_PER_USD } from './token-price';
+import type { SubsidyKind } from './orchestrator/types';
 import { WORKER_REVENUE_SHARE, MIN_WITHDRAWAL_USD } from './tokenomics';
 import { realizeMargin } from './treasury-ledger';
 import { recordReferralEarning, getReferralEarningsTotal } from './referrals';
@@ -318,10 +319,11 @@ function ensureEarningsTables() {
   // separately from self-solvent paid earnings. Throws (and we ignore) if the
   // column already exists.
   try { db.exec('ALTER TABLE worker_earnings ADD COLUMN subsidized INTEGER NOT NULL DEFAULT 0'); } catch {}
-  // subsidy_kind distinguishes 'free' (onboarding/anon free prompts) from
-  // 'allowance' (staker daily allowance). They draw from SEPARATE daily caps, so
-  // the free-prompt cap accounting (getTodayFreeSubsidyUsd) must exclude
-  // 'allowance' rows. NULL = legacy/paid. Throws (ignored) if it already exists.
+  // subsidy_kind says which lane funded the job: 'free' (onboarding/anon free
+  // prompts), 'free_grant' (the Free daily grant), 'allowance' (staker daily
+  // allowance) or 'plan' (a paid plan's daily grant). Only the first two are
+  // treasury-subsidized, and the free cap accounting counts exactly those.
+  // NULL = legacy/paid. Throws (ignored) if it already exists.
   try { db.exec('ALTER TABLE worker_earnings ADD COLUMN subsidy_kind TEXT'); } catch {}
 }
 
@@ -342,7 +344,7 @@ export function recordEarning(data: {
   // caller passes the tier's list price here while creditsCharged stays 0.
   payoutCredits?: number;
   subsidized?: boolean; // true => treasury-funded (free prompt), not self-solvent
-  subsidyKind?: 'free' | 'allowance'; // which daily cap it draws from (separate caps)
+  subsidyKind?: SubsidyKind; // which lane funded it; see isFreeSubsidyKind
   // The PAYING user. When set and the job carries real revenue, their referrer
   // earns REFERRAL_REVENUE_SHARE of it, netted from treasury's margin below —
   // worker pay is untouched (split becomes 70/25/5 base, 80/15/5 boosted).
@@ -388,17 +390,23 @@ export function recordEarning(data: {
   return earning;
 }
 
-// Total USD of FREE-PROMPT treasury-subsidized worker earnings booked since
-// 00:00 UTC today. Used to enforce the daily free-prompt subsidy cap. Excludes
-// staker-allowance subsidies — those have their own separate daily pool cap, so
-// the two never draw from each other's budget.
+// Total USD of FREE-TIER treasury-subsidized worker earnings booked since 00:00
+// UTC today. Used to enforce the daily free subsidy cap.
+//
+// An INCLUDE list, not an exclude list: this counts the welcome prompts and the
+// Free daily grant, and nothing else. Staker allowances have their own pool cap
+// and plan grants were prepaid, so neither belongs in a budget meant to bound
+// what the treasury gives away. Written as "which lanes are free" rather than
+// "which lanes are not allowance" so that adding a funded lane later cannot
+// silently charge it to the free tier's budget. NULL is legacy free-prompt
+// rows, from before the column existed.
 export function getTodayFreeSubsidyUsd(): number {
   ensureEarningsTables();
   const db = getDb();
   const midnight = new Date();
   midnight.setUTCHours(0, 0, 0, 0);
   const row = db.prepare(
-    "SELECT COALESCE(SUM(earning_usd), 0) as total FROM worker_earnings WHERE subsidized = 1 AND (subsidy_kind IS NULL OR subsidy_kind != 'allowance') AND created_at >= ?"
+    "SELECT COALESCE(SUM(earning_usd), 0) as total FROM worker_earnings WHERE subsidized = 1 AND (subsidy_kind IS NULL OR subsidy_kind IN ('free', 'free_grant')) AND created_at >= ?"
   ).get(midnight.toISOString()) as { total: number };
   return row.total;
 }
@@ -411,7 +419,7 @@ export function getThisHourFreeSubsidyUsd(): number {
   const hourStart = new Date();
   hourStart.setUTCMinutes(0, 0, 0);
   const row = db.prepare(
-    "SELECT COALESCE(SUM(earning_usd), 0) as total FROM worker_earnings WHERE subsidized = 1 AND (subsidy_kind IS NULL OR subsidy_kind != 'allowance') AND created_at >= ?"
+    "SELECT COALESCE(SUM(earning_usd), 0) as total FROM worker_earnings WHERE subsidized = 1 AND (subsidy_kind IS NULL OR subsidy_kind IN ('free', 'free_grant')) AND created_at >= ?"
   ).get(hourStart.toISOString()) as { total: number };
   return row.total;
 }

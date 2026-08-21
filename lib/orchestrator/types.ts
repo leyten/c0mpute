@@ -64,6 +64,28 @@ export interface ToolDefinition {
   };
 }
 
+/**
+ * Which lane funded a job the user paid no credits for. See Job.subsidyKind
+ * below for what each one means.
+ */
+export type SubsidyKind = 'free' | 'free_grant' | 'allowance' | 'plan';
+
+/**
+ * Does this lane spend the TREASURY's money?
+ *
+ * The daily/hourly free-subsidy caps exist to bound what the network gives
+ * away, so they must gate exactly the lanes nobody paid for and nothing else.
+ * A plan grant was prepaid and a staker allowance was already pool-capped when
+ * it was drawn; putting either under the free caps would let a quiet day of
+ * onboarding traffic stop paying workers for inference that was funded.
+ *
+ * The same predicate gates the new-account worker check, for the same reason:
+ * it exists to stop a fresh sybil account serving its own free jobs.
+ */
+export function isFreeSubsidyKind(kind: SubsidyKind | undefined): boolean {
+  return kind === 'free' || kind === 'free_grant';
+}
+
 // Job types
 export interface Job {
   id: string;
@@ -88,18 +110,28 @@ export interface Job {
   // what was actually shipped to the worker, and settlement happens minutes
   // later on a job record, not on a request.
   inputTokens?: number;
-  // The UTC day a staker-allowance draw was written to. A job charged at 23:59
-  // and settled at 00:01 has to release against the row it drew from, or it
-  // burns yesterday's allowance and inflates today's.
+  // The UTC day a daily-allowance draw was written to (staker, plan or free
+  // grant alike). A job charged at 23:59 and settled at 00:01 has to release
+  // against the row it drew from, or it burns yesterday's allowance and
+  // inflates today's.
   allowanceDay?: string;
   // Set once the reservation has been turned into the real charge. Latched like
   // `refunded`: a job that reaches two teardown paths settles exactly once.
   settled?: boolean;
-  // Which subsidy lane funded this job (when subsidyCredits > 0): 'free' = the
-  // onboarding free-prompt lane (gated by the daily free-subsidy cap at payout),
-  // 'allowance' = the staker inference allowance (already pool-capped at consume
-  // time, so the worker is paid unconditionally).
-  subsidyKind?: 'free' | 'allowance';
+  // Which lane funded this job, when the user paid no credits for it.
+  //
+  //   'free'       — the onboarding welcome prompts (a lifetime count, not a
+  //                  daily grant). Treasury-subsidized, gated by the daily
+  //                  free-subsidy cap at payout.
+  //   'free_grant' — the standing Free daily grant. Also treasury-subsidized
+  //                  and under the same cap, but credit-denominated, so an
+  //                  unused reservation is released back to the day's bucket.
+  //   'allowance'  — the staker inference allowance. Pool-capped when it was
+  //                  drawn, so the worker is paid unconditionally.
+  //   'plan'       — a paid plan's daily grant. NOT a subsidy: the period was
+  //                  prepaid, so the worker is paid out of that revenue and
+  //                  the free-subsidy caps must never gate it.
+  subsidyKind?: SubsidyKind;
   // Set once the job's charge has been given back (credits, free prompt or
   // allowance). Guards against a job that reaches two failure paths being
   // credited twice.
