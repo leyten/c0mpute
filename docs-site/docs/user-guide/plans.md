@@ -32,40 +32,54 @@ of your credit balance, so topping up is the way to keep going on a heavy day.
 
 ## Buying a plan
 
-Plans are paid for with credits, not a card.
+Plans are paid for in USDC on Solana. No card, and no credits.
 
-1. Top up with USDC on the [settings page](https://c0mpute.ai/settings). You get
-   500 credits per dollar.
-2. Go to [Plans](https://c0mpute.ai/settings#plans) and pick one.
+1. Go to [Plans](https://c0mpute.ai/settings#plans) and pick a plan and a
+   length. You can buy 1, 3 or 12 months at a time.
+2. The page shows the exact amount and your deposit address. Send that amount of
+   USDC to it.
+3. Press check for payment. The plan starts as soon as the money lands.
 
-A month of Pro costs 6,000 credits. A month of Max costs 15,000. That is the
-same $12 and $30 as the table above, at the rate a dollar buys credits.
+A month of Pro is 12 USDC. A month of Max is 30 USDC. Three months of Pro is 36,
+a year is 144. The amount on the page is always the whole price of what you
+picked.
 
-Doing it this way means there is no card on file and no subscription to cancel
-through a support form. A plan is a month you already paid for.
+It is the same address you top up credits with, and the same check. While a
+purchase is waiting, USDC arriving there counts towards the plan instead of
+buying credits.
 
-## Renewing
+You can send it in more than one transfer. Each one is held against the
+purchase, and the page shows how much has arrived and how much is left. The plan
+starts on the transfer that completes the price. Anything over the price becomes
+credits at 500 per dollar.
 
-Auto-renew is on when you buy. At the end of the month we take the next month
-from your credit balance and carry on.
+A quote is good for 24 hours. If it runs out before the full amount arrives,
+everything you have sent is added to your balance as credits at 500 per dollar,
+there and then. The same happens if you cancel the purchase, or pick a different
+plan instead. Money that arrives is never lost.
 
-If your balance does not cover it, the plan ends and you go back to Free. We do
-not keep trying, and we do not take the money later when you top up. Buying
-again is up to you.
+A purchase you have not completed can be cancelled on the Plans page. Picking a
+different plan replaces it, so there is only ever one amount to send.
 
-You can turn auto-renew off at any time on the Plans page. The plan then runs to
-the end of the period you paid for and stops.
+## When the month ends
+
+The plan runs out and you go back to Free. Nothing is taken from your balance,
+and there is no subscription to cancel because there was never anything on file.
+The Plans page shows the days you have left and sells you another month whenever
+you want one.
 
 ## Changing plan
 
-**Moving up** happens straight away. Whatever is left of your current month is
-worth credits, and those credits go towards the new plan. Upgrading from Pro to
-Max halfway through a month costs 12,000 credits instead of 15,000, and starts a
-fresh month of Max.
+**Moving up** happens straight away. You pay the full price of the new plan, and
+the time left on the old one comes across as extra days at the price ratio. Half
+a month of Pro left when you buy a month of Max is 6 extra days, so you get 36
+days of Max for 30 USDC.
 
-**Moving down** happens at the end of the month. You keep what you paid for
-until it runs out, then the cheaper plan starts. Nothing is refunded because
-nothing is taken.
+**Moving down** waits. There is no refund and nothing to convert downwards, so
+the month you paid for runs to the end and then you buy the cheaper plan. The
+Plans page will not let you pay for it before then.
+
+Buying the plan you are already on adds months to the end of it.
 
 ## Order things are paid for
 

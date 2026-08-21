@@ -11,19 +11,45 @@ import { useBrand } from '@/components/BrandProvider';
 type Tab = 'account' | 'plans' | 'worker' | 'developer' | 'usage' | 'referrals';
 
 /* What /api/credits reports about the plan. The server resolves it — a period
-   that has run out renews or lapses there, not here — so this is a readout, not
-   a state machine. */
+   that has run out lapses there, not here — so this is a readout, not a state
+   machine. */
 type PlanPayload = {
   id: 'free' | 'pro' | 'max';
   name: string;
   expiresAt: string | null;
   daysLeft: number;
-  autoRenew: boolean;
-  pendingPlan: 'free' | 'pro' | 'max' | null;
   lapsed: boolean;
 };
 type GrantPayload = { source: 'plan' | 'free'; total: number; used: number; remaining: number; resetsAt: string };
-type PlanOffer = { id: 'pro' | 'max'; name: string; dailyCredits: number; periodCredits: number; monthlyUsd: number };
+type PlanOffer = { id: 'pro' | 'max'; name: string; dailyCredits: number; monthlyUsd: number };
+/* A purchase quoted and waiting to be paid. Pressing a plan button opens one;
+   the plan itself starts when the USDC lands. */
+type PlanIntentPayload = {
+  id: string;
+  plan: 'pro' | 'max';
+  planName: string;
+  months: number;
+  amountUsd: number;
+  paidUsd: number;
+  remainingUsd: number;
+  expiresAt: string;
+  expired: boolean;
+  released: boolean;
+};
+/* What the deposit checker reports back when a payment bought a period. */
+type PlanPaymentPayload = {
+  planName: string;
+  months: number;
+  excessCredits: number;
+  carriedOverDays: number;
+};
+/* And when it only part-paid one. */
+type PlanHoldPayload = {
+  planName: string;
+  paidUsd: number;
+  expectedUsd: number;
+  remainingUsd: number;
+};
 
 /* The ledger's own words for a transaction type. The subsidized kinds cost 0
    credits and are there so a free prompt still shows up in the history. */
@@ -216,25 +242,32 @@ export default function SettingsPage() {
   const [withdrawSuccess, setWithdrawSuccess] = useState<string | null>(null);
 
   // Usage tab state
-  const [credits, setCredits] = useState<{balance: number; totalDeposited?: number; totalSpent?: number; depositWallet?: string; recentTransactions?: {created_at: string; type: string; amount: number; description: string}[]; plan?: PlanPayload; dailyGrant?: GrantPayload; config?: {creditsPerUsd: number; creditsPerDollarPurchased?: number; plans?: PlanOffer[]; freeDailyCredits?: number}} | null>(null);
+  const [credits, setCredits] = useState<{balance: number; totalDeposited?: number; totalSpent?: number; depositWallet?: string; recentTransactions?: {created_at: string; type: string; amount: number; description: string}[]; plan?: PlanPayload; planIntent?: PlanIntentPayload | null; dailyGrant?: GrantPayload; config?: {creditsPerUsd: number; creditsPerDollarPurchased?: number; plans?: PlanOffer[]; planMonths?: number[]; freeDailyCredits?: number}} | null>(null);
   // Plans tab state. One busy flag: every action on this tab moves the same
   // money, so two of them must never be in flight at once.
   const [planBusy, setPlanBusy] = useState(false);
   const [planError, setPlanError] = useState<string | null>(null);
   const [planSuccess, setPlanSuccess] = useState<string | null>(null);
+  // "Nothing has arrived yet" is neither of those. A payment still in flight
+  // must not be shown in the red that means something went wrong.
+  const [planNotice, setPlanNotice] = useState<string | null>(null);
+  // How many months the next purchase buys. One picker for both plans — the
+  // choice is about length, not about which plan it applies to.
+  const [planMonths, setPlanMonths] = useState(1);
   const [usage, setUsage] = useState<{totalRequests: number; totalTokens: number; byModel: {model: string; requests: number; tokens: number}[]} | null>(null);
   const [checkingDeposit, setCheckingDeposit] = useState(false);
   const [depositResult, setDepositResult] = useState<string | null>(null);
   const [topUpUsd, setTopUpUsd] = useState('');
 
-  /* Buy, renew, upgrade or schedule a downgrade. The SERVER decides which of
-     those this is from the account's current state — the button only names a
-     plan. Keeping that decision in one place is what stops the page and the
-     checkout disagreeing about what "choose Pro" means for someone already on
-     Max. */
+  /* Open or drop a purchase. Nothing here moves money: the server quotes the
+     amount, and the plan starts when that USDC arrives at the deposit address.
+     The SERVER decides what a purchase means for the account's current state —
+     a first month, more months on the end, or an upgrade — so the page never
+     has to guess what "choose Pro" means for someone already on Max. */
   const planAction = async (body: Record<string, unknown>) => {
     setPlanError(null);
     setPlanSuccess(null);
+    setPlanNotice(null);
     setPlanBusy(true);
     try {
       const t = await getAccessToken();
@@ -245,25 +278,48 @@ export default function SettingsPage() {
         body: JSON.stringify(body),
       });
       const data = await res.json();
-      if (!res.ok) {
-        setPlanError(data.creditsNeeded
-          ? `${data.error} You need ${Number(data.creditsNeeded).toLocaleString()} more credits.`
-          : data.error || 'Something went wrong.');
-        return;
+      if (!res.ok) { setPlanError(data.error || 'Something went wrong.'); return; }
+      // Say what to do next. The payment card appears above the plans, and a
+      // new card further up the page is easy to press a button and miss.
+      const released = Number(data.releasedCredits ?? 0);
+      const gaveBack = released > 0 ? ` The ${released.toLocaleString()} credits are USDC you had already sent towards the purchase this replaced.` : '';
+      if (data.intent) {
+        setPlanNotice(`Quote ready. Send ${data.intent.amountUsd} USDC to the address shown to start ${data.intent.planName}.${gaveBack}`);
+      } else if (released > 0) {
+        setPlanNotice(`Cancelled. The USDC you had sent was added to your balance as ${released.toLocaleString()} credits.`);
       }
-      const PLAN_DONE: Record<string, string> = {
-        purchase: 'Plan active. Your daily credits start now.',
-        renew: 'Renewed. The new period is added to the end of the current one.',
-        upgrade: 'Upgraded. The unused part of your old plan went towards it.',
-        downgrade_scheduled: 'Scheduled. You keep what you have until the period ends.',
-      };
-      setPlanSuccess(typeof body.action === 'string' && body.action === 'auto_renew'
-        ? (body.enabled ? 'Auto-renew is on.' : 'Auto-renew is off. The plan ends when the period does.')
-        : PLAN_DONE[data.action] ?? 'Done.');
       await fetchCredits();
     } catch {
       setPlanError('Something went wrong.');
     } finally {
+      setPlanBusy(false);
+    }
+  };
+
+  /* The same check the top-up box runs. A plan payment and a plain top-up
+     arrive on the same rail, so there is one endpoint and one button behind
+     both — only the sentence they produce differs. */
+  const checkPlanPayment = async () => {
+    setPlanError(null);
+    setPlanSuccess(null);
+    setPlanNotice(null);
+    setPlanBusy(true);
+    try {
+      const { ok, data } = await postDepositCheck();
+      if (!ok) { setPlanError(data.error || 'Check failed.'); return; }
+      // Money that arrived but did not buy the plan — late, or short of the
+      // price — still arrived. Saying "nothing yet" would have them send again.
+      if (data.plan || data.hold || (data.credited ?? 0) > 0) setPlanSuccess(describeDepositCheck(data));
+      else setPlanNotice(data.message === 'No new deposits found'
+        ? 'Nothing has arrived yet. Payments usually land within a minute.'
+        : (data.message ?? 'Nothing has arrived yet.'));
+    } catch {
+      setPlanError('Check failed.');
+    } finally {
+      // Always, including after an error: the settle may have committed and the
+      // failure be something after it, and the page must not go on showing a
+      // plan the account does not have, or miss one it does.
+      await fetchCredits();
       setPlanBusy(false);
     }
   };
@@ -342,6 +398,8 @@ export default function SettingsPage() {
       fetchAllowance();
     } else if (activeTab === 'referrals') {
       fetchReferrals();
+    } else if (activeTab === 'plans') {
+      fetchCredits();
     } else if (activeTab === 'usage') {
       fetchCredits();
       fetchUsage();
@@ -373,22 +431,24 @@ export default function SettingsPage() {
       balance: 4210,
       totalDeposited: 10000,
       totalSpent: 5790,
+      depositWallet: '4Nd1mQTvExAMPLEpreV1eWaDDressonLy11111111111',
       recentTransactions: [
         { created_at: new Date(Date.now() - 3_600_000).toISOString(), type: 'spend', amount: -2, description: 'Chat, 1,834 tokens' },
         { created_at: new Date(Date.now() - 7_200_000).toISOString(), type: 'plan_grant', amount: 300, description: 'Pro daily credits' },
-        { created_at: new Date(Date.now() - day).toISOString(), type: 'spend', amount: -6000, description: 'Pro plan, 6000 credits' },
         { created_at: new Date(Date.now() - 2 * day).toISOString(), type: 'deposit', amount: 5000, description: 'USDC deposit' },
       ],
-      plan: { id: 'pro', name: 'Pro', expiresAt: new Date(Date.now() + 14 * day).toISOString(), daysLeft: 14, autoRenew: true, pendingPlan: null, lapsed: false },
+      plan: { id: 'pro', name: 'Pro', expiresAt: new Date(Date.now() + 14 * day).toISOString(), daysLeft: 14, lapsed: false },
+      planIntent: null,
       dailyGrant: { source: 'plan', total: 300, used: 37, remaining: 263, resetsAt: nextUtcMidnight },
       config: {
         creditsPerUsd: 1000,
         creditsPerDollarPurchased: 500,
         freeDailyCredits: 20,
         plans: [
-          { id: 'pro', name: 'Pro', dailyCredits: 300, periodCredits: 6000, monthlyUsd: 12 },
-          { id: 'max', name: 'Max', dailyCredits: 750, periodCredits: 15000, monthlyUsd: 30 },
+          { id: 'pro', name: 'Pro', dailyCredits: 300, monthlyUsd: 12 },
+          { id: 'max', name: 'Max', dailyCredits: 750, monthlyUsd: 30 },
         ],
+        planMonths: [1, 3, 12],
       },
     });
   }, [demoView]);
@@ -503,21 +563,47 @@ export default function SettingsPage() {
     finally { setWithdrawLoading(false); }
   };
 
+  /* One request behind both check buttons. A deposit pays for an open plan
+     purchase first and becomes credits otherwise, so the same call answers
+     "did my top-up land" and "did my plan payment land". */
+  const postDepositCheck = async (): Promise<{ ok: boolean; data: { credited?: number; newBalance?: number; plan?: PlanPaymentPayload; hold?: PlanHoldPayload; message?: string; error?: string } }> => {
+    const t = await getAccessToken();
+    const res = await fetch('/api/credits/check-deposit', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'check' }),
+    });
+    return { ok: res.ok, data: await res.json() };
+  };
+
+  const describeDepositCheck = (data: { credited?: number; plan?: PlanPaymentPayload; hold?: PlanHoldPayload; message?: string }): string => {
+    if (data.plan) {
+      const months = data.plan.months > 1 ? ` for ${data.plan.months} months` : '';
+      const carried = data.plan.carriedOverDays > 0
+        ? ` Your old plan carried over ${data.plan.carriedOverDays} extra days.`
+        : '';
+      const change = data.plan.excessCredits > 0
+        ? ` The extra ${data.plan.excessCredits.toLocaleString()} credits went to your balance.`
+        : '';
+      return `${data.plan.planName} is active${months}.${carried}${change}`;
+    }
+    if (data.hold) {
+      return `${data.hold.paidUsd} of ${data.hold.expectedUsd} USDC received. Send ${data.hold.remainingUsd} more to start ${data.hold.planName}.`;
+    }
+    if ((data.credited ?? 0) > 0) return `+${data.credited} credits added` + (data.message ? `. ${data.message}` : '');
+    return data.message || 'No new deposits found';
+  };
+
   const checkDeposit = async () => {
     setCheckingDeposit(true);
     setDepositResult(null);
     try {
-      const t = await getAccessToken();
-      const res = await fetch('/api/credits/check-deposit', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'check' }),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        if (data.credited > 0) {
-          setCredits(prev => prev ? { ...prev, balance: data.newBalance } : prev);
-          setDepositResult(`+${data.credited} credits added` + (data.message ? `. ${data.message}` : ''));
+      const { ok, data } = await postDepositCheck();
+      if (ok) {
+        if (data.plan || data.hold || (data.credited ?? 0) > 0) {
+          setCredits(prev => prev ? { ...prev, balance: data.newBalance ?? prev.balance } : prev);
+          setDepositResult(describeDepositCheck(data));
+          if (data.plan || data.hold) fetchCredits();
         } else {
           setDepositResult(data.message || 'No new deposits found');
         }
@@ -778,22 +864,35 @@ export default function SettingsPage() {
                 const plan = credits?.plan;
                 const grant = credits?.dailyGrant;
                 const offers = credits?.config?.plans ?? [];
+                const monthChoices = credits?.config?.planMonths ?? [1];
                 const freeDaily = credits?.config?.freeDailyCredits ?? 0;
-                const balance = credits?.balance ?? 0;
+                const perDollar = credits?.config?.creditsPerDollarPurchased ?? 500;
+                const intent = credits?.planIntent ?? null;
+                /* The payment card owns the notices while it is on screen,
+                   because its buttons are the ones producing them. */
+                const paying = !!intent && !intent.expired;
                 const onFree = !plan || plan.id === 'free';
                 const rank = (id: string) => (id === 'max' ? 2 : id === 'pro' ? 1 : 0);
-                /* What pressing this plan's button will do. The server decides
-                   for real; this only has to name the button honestly. */
+                /* Whole dollars stay whole. The figure is something a person
+                   has to type into a wallet, so it is quoted the way they will
+                   type it. */
+                const money = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(2));
+                /* A cheaper plan cannot be bought over a dearer one that is
+                   still running: nothing is refunded and there is no proration
+                   downwards, so it waits for the period to end. The server
+                   refuses it as well; this only saves the click. */
+                const blocked = (offer: PlanOffer) => !onFree && rank(offer.id) < rank(plan!.id);
                 const labelFor = (offer: PlanOffer) => {
+                  if (blocked(offer)) return `Wait for ${plan!.name} to end`;
                   if (onFree) return `Get ${offer.name}`;
-                  if (plan!.id === offer.id) return 'Add a month';
-                  return rank(offer.id) > rank(plan!.id) ? `Upgrade to ${offer.name}` : `Switch to ${offer.name}`;
+                  if (plan!.id === offer.id) return planMonths === 1 ? 'Add a month' : `Add ${planMonths} months`;
+                  return `Upgrade to ${offer.name}`;
                 };
                 return (
                   <>
                     <Card
                       title="Your plan"
-                      description="Plans are prepaid months bought with credits. Buying one takes the credits from your balance now, and grants you a fresh batch every day at 00:00 UTC."
+                      description="Plans are prepaid months bought with USDC. You send the amount to your deposit address and the plan starts when it lands. There is no card and nothing to cancel."
                       footer={
                         <p className="pixel-sans text-fg-40 text-[11px]">
                           Daily credits do not carry over. Anything left when the day ends is gone.
@@ -825,44 +924,123 @@ export default function SettingsPage() {
                           {grant.remaining.toLocaleString()} of {grant.total.toLocaleString()} credits left today. Resets at 00:00 UTC.
                         </p>
                       )}
-                      {!onFree && plan!.pendingPlan && (
-                        <p className="pixel-sans text-fg-50 text-[13px] leading-relaxed mt-2">
-                          Switching to {plan!.pendingPlan} when this period ends.
-                        </p>
-                      )}
                       {!onFree && (
-                        <div className="flex items-center justify-between gap-4 mt-5 pt-4 border-t border-fg/[0.06]">
-                          <div className="min-w-0">
-                            <p className="pixel-sans text-fg text-sm">Auto-renew</p>
-                            <p className="pixel-sans text-fg-50 text-[12px] leading-relaxed mt-0.5">
-                              {plan!.autoRenew
-                                ? 'We take the next month from your balance when this one ends.'
-                                : 'This plan ends when the period does.'}
-                            </p>
-                          </div>
-                          <button
-                            onClick={() => planAction({ action: 'auto_renew', enabled: !plan!.autoRenew })}
-                            disabled={planBusy}
-                            aria-label="Toggle auto-renew"
-                            className={`relative w-11 h-6 rounded-full transition-colors disabled:opacity-40 flex-shrink-0 ${plan!.autoRenew ? 'bg-emerald-400/70' : 'bg-fg/15'}`}
-                          >
-                            <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-fg transition-all ${plan!.autoRenew ? 'left-[22px]' : 'left-0.5'}`} />
-                          </button>
-                        </div>
+                        <p className="pixel-sans text-fg-50 text-[13px] leading-relaxed mt-2">
+                          {plan!.daysLeft <= 7
+                            ? `Your ${plan!.name} month ends in ${plan!.daysLeft} day${plan!.daysLeft === 1 ? '' : 's'}. Buy another below to keep it running.`
+                            : `Your ${plan!.name} month runs until ${new Date(plan!.expiresAt!).toLocaleDateString()}. It ends there unless you buy another.`}
+                        </p>
                       )}
                     </Card>
 
+                    {intent && !intent.expired && (
+                      <Card
+                        title="Send your payment"
+                        description={`${intent.planName} for ${intent.months} month${intent.months === 1 ? '' : 's'}. The plan starts as soon as the full amount has arrived.`}
+                        footer={
+                          <p className="pixel-sans text-fg-40 text-[11px] leading-relaxed">
+                            This quote is held until {new Date(intent.expiresAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}. If it runs out first, everything you have sent is added to your balance as credits at {perDollar.toLocaleString()} per dollar. So is anything you send over the price. Nothing is ever lost.
+                          </p>
+                        }
+                      >
+                        <div className="space-y-4">
+                          <div className="border border-fg/[0.06] bg-fg/[0.02] rounded-xl px-4 py-3.5">
+                            <div className="pixel-sans text-fg-40 text-[10px] uppercase tracking-[0.14em]">
+                              {intent.paidUsd > 0 ? 'Still to send' : 'Amount to send'}
+                            </div>
+                            <div className="pixel-serif text-fg text-3xl mt-1.5 tabular-nums">
+                              {money(intent.remainingUsd)} <span className="pixel-sans text-fg-50 text-sm">USDC</span>
+                            </div>
+                            {intent.paidUsd > 0 && (
+                              <p className="pixel-sans text-fg-50 text-[13px] leading-relaxed mt-2">
+                                {money(intent.paidUsd)} of {money(intent.amountUsd)} USDC received and held for this plan.
+                              </p>
+                            )}
+                          </div>
+
+                          <div>
+                            <div className="pixel-sans text-fg-40 text-[10px] uppercase tracking-[0.14em] mb-2">Your deposit address</div>
+                            <CopyField
+                              text={credits?.depositWallet ?? null}
+                              display={credits?.depositWallet || 'Deposit address unavailable'}
+                              accent={!!credits?.depositWallet}
+                              wrap
+                            />
+                            <p className="pixel-sans text-fg-40 text-[11px] mt-1.5">
+                              Send only USDC (SPL token) on Solana. Other tokens will be lost. You can send it in
+                              more than one transfer, and each one counts towards the plan.
+                            </p>
+                            {intent.paidUsd > 0 && (
+                              <p className="pixel-sans text-fg-40 text-[11px] mt-1.5">
+                                Cancelling, or picking a different plan, turns the {money(intent.paidUsd)} USDC you
+                                have sent into credits.
+                              </p>
+                            )}
+                          </div>
+
+                          <div className="flex flex-wrap gap-3">
+                            <button onClick={checkPlanPayment} disabled={planBusy} className={btnPrimary}>
+                              {planBusy ? 'Checking' : 'Check for payment'}
+                            </button>
+                            <button onClick={() => planAction({ action: 'cancel' })} disabled={planBusy} className={btnSecondary}>
+                              Cancel
+                            </button>
+                          </div>
+                          {/* Beside the buttons that produced it. When there is
+                              no payment in flight the same three lines render in
+                              the card below, next to the buttons there. */}
+                          {planError && <Notice tone="error">{planError}</Notice>}
+                          {planNotice && <Notice tone="info">{planNotice}</Notice>}
+                          {planSuccess && <Notice tone="success">{planSuccess}</Notice>}
+                        </div>
+                      </Card>
+                    )}
+
+                    {intent && intent.expired && (
+                      <Card
+                        title="Purchase expired"
+                        description={`Your ${intent.planName} payment window closed before the full amount arrived.`}
+                      >
+                        <div className="space-y-4">
+                          <Notice tone="info">
+                            {intent.paidUsd > 0
+                              ? `The ${money(intent.paidUsd)} USDC you had sent was added to your balance as credits at ${perDollar.toLocaleString()} per dollar. Nothing is lost. Pick a plan below to start again.`
+                              : `USDC you send now is added to your balance as credits at ${perDollar.toLocaleString()} per dollar. Nothing is lost. Pick a plan below to get a fresh amount to send.`}
+                          </Notice>
+                          <button onClick={() => planAction({ action: 'cancel' })} disabled={planBusy} className={btnSecondary}>
+                            Dismiss
+                          </button>
+                        </div>
+                      </Card>
+                    )}
+
                     <Card
                       title={onFree ? 'Choose a plan' : 'Change plan'}
-                      description={`You have ${balance.toLocaleString()} credits. Free gives you ${freeDaily} credits a day and costs nothing.`}
+                      description={`Paid in USDC on Solana. Free gives you ${freeDaily} credits a day and costs nothing.`}
                       footer={
-                        <p className="pixel-sans text-fg-40 text-[11px]">
-                          Moving up takes effect now and the unused part of your plan goes towards it. Moving down takes effect when the period ends.
+                        <p className="pixel-sans text-fg-40 text-[11px] leading-relaxed">
+                          Moving up starts the new plan now, and whatever is left of the old one comes across as extra days. Buying the plan you are on adds months to the end. Moving down waits until the period you paid for runs out.
                         </p>
                       }
                     >
                       {offers.length === 0 && (
                         <p className="pixel-sans text-fg-40 text-[13px]">Loading plans.</p>
+                      )}
+                      {offers.length > 0 && monthChoices.length > 1 && (
+                        <div className="flex items-center gap-2 mb-4">
+                          <span className="pixel-sans text-fg-40 text-[10px] uppercase tracking-[0.14em] mr-1">Months</span>
+                          {monthChoices.map((m) => (
+                            <button
+                              key={m}
+                              onClick={() => setPlanMonths(m)}
+                              className={`cursor-pointer pixel-sans text-[13px] px-3 py-1.5 rounded-lg border transition-colors ${
+                                planMonths === m ? 'border-fg/25 bg-fg/[0.06] text-fg' : 'border-fg/10 text-fg-50 hover:text-fg-80'
+                              }`}
+                            >
+                              {m}
+                            </button>
+                          ))}
+                        </div>
                       )}
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         {offers.map((offer) => {
@@ -883,11 +1061,14 @@ export default function SettingsPage() {
                                 <span className="pixel-sans text-fg-40 text-[12px] ml-1.5">a month</span>
                               </p>
                               <p className="pixel-sans text-fg-50 text-[13px] leading-relaxed mt-2">
-                                {offer.dailyCredits.toLocaleString()} credits a day, for {offer.periodCredits.toLocaleString()} credits.
+                                {offer.dailyCredits.toLocaleString()} credits a day.
+                                {planMonths > 1
+                                  ? ` ${planMonths} months costs ${money(offer.monthlyUsd * planMonths)} USDC.`
+                                  : ` One month costs ${money(offer.monthlyUsd)} USDC.`}
                               </p>
                               <button
-                                onClick={() => planAction({ action: 'buy', plan: offer.id })}
-                                disabled={planBusy}
+                                onClick={() => planAction({ action: 'buy', plan: offer.id, months: planMonths })}
+                                disabled={planBusy || blocked(offer)}
                                 className={`${current ? btnSecondary : btnPrimary} w-full mt-4 py-2.5`}
                               >
                                 {planBusy ? 'Working' : labelFor(offer)}
@@ -896,8 +1077,9 @@ export default function SettingsPage() {
                           );
                         })}
                       </div>
-                      {planError && <div className="mt-4"><Notice tone="error">{planError}</Notice></div>}
-                      {planSuccess && <div className="mt-4"><Notice tone="success">{planSuccess}</Notice></div>}
+                      {!paying && planError && <div className="mt-4"><Notice tone="error">{planError}</Notice></div>}
+                      {!paying && planNotice && <div className="mt-4"><Notice tone="info">{planNotice}</Notice></div>}
+                      {!paying && planSuccess && <div className="mt-4"><Notice tone="success">{planSuccess}</Notice></div>}
                     </Card>
                   </>
                 );

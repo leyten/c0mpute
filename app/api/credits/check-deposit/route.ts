@@ -7,6 +7,7 @@ import {
   addCredits,
   getDepositProgress,
   setDepositProgress,
+  creditDeposit,
 } from '@/lib/db';
 import {
   CREDITS_PER_DOLLAR_PURCHASED,
@@ -15,6 +16,7 @@ import {
 } from '@/lib/token-price';
 import { isTreasuryConfigured, sweepDepositToken } from '@/lib/payout';
 import { refundStraySol } from '@/lib/sol-refund';
+import { applyDepositToPlan, type PlanPayment, type PlanHold } from '@/lib/plan-state';
 
 // Rate limit: 1 check per 10 seconds per user
 const lastCheck: Map<string, number> = new Map();
@@ -74,6 +76,8 @@ export async function POST(req: NextRequest) {
     const tokens = getConfiguredDepositTokens();
 
     let totalCredited = 0;
+    let planPayment: PlanPayment | null = null;
+    let planHold: PlanHold | null = null;
     const notes: string[] = [];
 
     for (const token of tokens) {
@@ -102,15 +106,50 @@ export async function POST(req: NextRequest) {
           notes.push(`${token.kind} price unavailable, try again shortly`);
         } else {
           const usdValue = newTokens * priceUsd;
-          // The PURCHASE rate, not the value rate: this is the only place a
-          // dollar turns into credits, so it is the only place the two may
-          // differ (see lib/token-price.ts).
-          const credits = Math.floor(usdValue * CREDITS_PER_DOLLAR_PURCHASED);
-          if (credits > 0) {
-            addCredits(privyId, credits, undefined, `${token.kind} deposit`);
-            setDepositProgress(privyId, token.mint, onChainBalance);
-            totalCredited += credits;
+          // A plan the user asked to buy is paid FIRST, out of the same money.
+          // applyDepositToPlan settles the period, the deposit marker and any
+          // change in one transaction, and returns null whenever this deposit
+          // is not a plan payment — which is every deposit unless an unexpired
+          // intent is open and the amount covers it. 'retry' means this money
+          // is spoken for: credit nothing and let the next check see it.
+          const applied = applyDepositToPlan(privyId, {
+            usd: usdValue,
+            mint: token.mint,
+            creditedBefore: alreadyCredited,
+            creditedAfter: onChainBalance,
+          });
+          if (applied === 'retry') {
+            notes.push('This payment is still going through, give it a moment');
+          } else if (applied?.kind === 'held') {
+            // Part of a plan price. Accounted for on the marker and waiting on
+            // the intent for the rest — not credits, and not lost.
+            planHold = applied;
             fullyCredited = true;
+          } else if (applied) {
+            planPayment = applied;
+            totalCredited += applied.excessCredits;
+            fullyCredited = true;
+          } else {
+            // The PURCHASE rate, not the value rate: this is the only place a
+            // dollar turns into credits, so it is the only place the two may
+            // differ (see lib/token-price.ts).
+            const credits = Math.floor(usdValue * CREDITS_PER_DOLLAR_PURCHASED);
+            // The credit and the marker move together, and only if the marker
+            // is still where it was read a moment ago at the top of this loop.
+            // Two checks that overlap on a slow RPC both see the same
+            // unaccounted balance, and without the compare-and-set both pay
+            // for it.
+            if (credits > 0 && creditDeposit({
+              privyId,
+              mint: token.mint,
+              credits,
+              description: `${token.kind} deposit`,
+              creditedBefore: alreadyCredited,
+              creditedAfter: onChainBalance,
+            })) {
+              totalCredited += credits;
+              fullyCredited = true;
+            }
           }
         }
       }
@@ -148,6 +187,27 @@ export async function POST(req: NextRequest) {
 
     const updated = getCreditBalance(privyId);
 
+    // A plan payment is its own answer: the money bought a period, and the
+    // credited figure is only the change. Reported separately so the page can
+    // say what was activated instead of quoting a credit count for it.
+    if (planPayment) {
+      return NextResponse.json({
+        credited: totalCredited,
+        newBalance: updated.balance,
+        plan: planPayment,
+        ...(solNote ? { message: solNote } : {}),
+      });
+    }
+    // Money arrived and is being held towards a plan. Reported on its own so
+    // the page can show the progress rather than say nothing turned up.
+    if (planHold) {
+      return NextResponse.json({
+        credited: 0,
+        balance: updated.balance,
+        hold: planHold,
+        ...(solNote ? { message: solNote } : {}),
+      });
+    }
     if (totalCredited > 0) {
       return NextResponse.json({ credited: totalCredited, newBalance: updated.balance, ...(solNote ? { message: solNote } : {}) });
     }
