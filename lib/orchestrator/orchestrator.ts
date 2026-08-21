@@ -189,9 +189,16 @@ function inputTokenBudget(model: string | undefined): number {
 
 /** Billable-output ceiling for the lane this job will be served on — the size of
  *  the submit-time reservation, and the cap on what settlement can charge.
- *  Because settlement clamps to the hold, this is a real price ceiling, not just
- *  a reservation size: it has to be the most the lane can actually generate, or
- *  the excess is billed to nobody and the worker is paid for none of it.
+ *  Because settlement clamps to the hold, it has to be the most the lane can
+ *  generate IN ONE ROUND, or the excess is billed to nobody and the worker is
+ *  paid for none of it.
+ *
+ *  Per round, not per job. A server-side tool loop settles each round on its own
+ *  reservation, so a job that calls three tools can generate up to three times
+ *  this number across its life. That is not a treasury leak — every round holds
+ *  and settles its own credits, and worker pay is a share of the same clamped
+ *  figure — but it does mean this is not a ceiling on what a single job can cost
+ *  a user, and anything quoting it as one is wrong.
  *
  *  The swarm test comes FIRST here, unlike in inputTokenBudget where both
  *  branches return the same number and the order cannot matter. A sharded model
@@ -618,9 +625,15 @@ export class Orchestrator {
       refundStakerAllowance(job.privyUserId, job.subsidyCredits, job.allowanceDay);
       console.log(`[Orchestrator] Staker allowance restored to ${job.privyUserId} (${job.subsidyCredits}cr, ${reason})`);
     } else if ((job.subsidyKind === 'plan' || job.subsidyKind === 'free_grant') && job.subsidyCredits) {
-      // Same day-keying as the allowance lane. A grant is use-or-lose, so a job
-      // that never answered has to go back into TODAY'S bucket to be worth
-      // anything — which is exactly what the drawn day gives us.
+      // Same day-keying as the allowance lane: the credits go back to the day
+      // they were DRAWN from, which after midnight is yesterday — where they are
+      // worthless, because a grant is use-or-lose.
+      //
+      // That is the correct trade and not an oversight. Refunding into today's
+      // bucket would hand back credits that were never taken from it, letting a
+      // job submitted at 23:59 inflate the next day's grant. Losing the value of
+      // a refund in the minutes around midnight is the smaller error, and the
+      // alternative is a way to mint grant credits.
       refundDailyGrant(job.privyUserId, job.subsidyKind === 'plan' ? 'plan' : 'free', job.subsidyCredits, job.allowanceDay);
       console.log(`[Orchestrator] Daily grant restored to ${job.privyUserId} (${job.subsidyCredits}cr, ${reason})`);
     }
