@@ -23,9 +23,14 @@ export type ChatState = 'idle' | 'queued' | 'streaming' | 'error';
 // zero — without it, an off-hour with no 27B worker online turns every prompt
 // (the whole anonymous funnel included) into "no free capacity". Remove it at
 // cutover and the picker collapses to the single model.
+// `cost` / `costLabel` are a YARDSTICK, not a price. Text is metered per token
+// ($0.15/M in, $0.90/M out — lib/tokenomics.ts), so a message has no fixed
+// charge; both models bill from the same rate card and a typical message lands
+// at about one credit on either. The label says "about" for that reason, and
+// the number exists only so a credit balance can be spoken in messages.
 export const PLANS = [
-  { id: 'qwen38' as const, name: 'Qwen3.8 27B Uncensored', cost: 15, costLabel: '15 cr', modelId: 'qwen3.8-27b-uncensored', tier: 'max' as const, workerModel: 'qwen3.8-27b-uncensored', vision: true, thinking: true, description: 'Tools, vision, thinking — no refusals', features: ['Qwen3.8 27B model', 'Native inference', 'No refusals', 'Web search (tool calling)', 'Vision (image input)', 'Thinking mode'] },
-  { id: 'pro' as const, name: 'Qwen3 8B', cost: 10, costLabel: '10 cr', modelId: 'Qwen3-8B-c0mpute-q4f16_1-MLC', tier: 'pro' as const, workerModel: null, vision: false, thinking: false, description: 'Smaller, browser-powered', features: ['Qwen3 8B model', 'Browser-powered', 'No refusals'] },
+  { id: 'qwen38' as const, name: 'Qwen3.8 27B Uncensored', cost: 1, costLabel: '≈ 1 cr / message', modelId: 'qwen3.8-27b-uncensored', tier: 'max' as const, workerModel: 'qwen3.8-27b-uncensored', vision: true, thinking: true, description: 'Tools, vision, thinking — no refusals', features: ['Qwen3.8 27B model', 'Native inference', 'No refusals', 'Web search (tool calling)', 'Vision (image input)', 'Thinking mode'] },
+  { id: 'pro' as const, name: 'Qwen3 8B', cost: 1, costLabel: '≈ 1 cr / message', modelId: 'Qwen3-8B-c0mpute-q4f16_1-MLC', tier: 'pro' as const, workerModel: null, vision: false, thinking: false, description: 'Smaller, browser-powered', features: ['Qwen3 8B model', 'Browser-powered', 'No refusals'] },
 ] as const;
 export type PlanId = typeof PLANS[number]['id'];
 export type Plan = typeof PLANS[number];

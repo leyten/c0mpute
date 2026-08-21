@@ -32,22 +32,36 @@ Requests are billed to the credit balance of the account that owns the key. Top 
 | `c0mpute-pro` | Uncensored 8B. Fast, runs on the broad browser worker pool. |
 | `c0mpute-swarm` | MiniMax-M2.5 (229B), served by the decentralized GPU swarm. Availability depends on a swarm ring being ready. |
 
-`GET /v1/models` lists them with a live `available` flag (the 27B requires a native GPU worker to be online) and a `pricing` object (`{ "type": "per_message", "credits": 10, "usd": 0.10 }`). Always check availability if you depend on the 27B.
+`GET /v1/models` lists them with a live `available` flag (the 27B requires a native GPU worker to be online) and a `pricing` object (`{ "type": "per_token", "usd_per_m_input": 0.15, "usd_per_m_output": 0.90 }`). Always check availability if you depend on the 27B.
 
 > The older model ids (`c0mpute-max`, `supergemma4-26b`, `code`) are deprecated aliases. They still answer during the migration window and will be removed — point new integrations at the ids above.
 
 ## Pricing
 
-Billing is **flat per request** — you know the exact cost before you send it, no token math:
+Billing is **per token**, one rate card for every text model:
 
-| Model | Credits / request | USD / request |
-| --- | --- | --- |
-| `qwen3.8-27b-uncensored` | 15 | $0.15 |
-| `qwen3.8-27b-uncensored-think` | 20 | $0.20 |
-| `c0mpute-pro` | 10 | $0.10 |
-| `c0mpute-swarm` | 10 | $0.10 |
+| | USD / 1M tokens |
+| --- | --- |
+| Input | $0.15 |
+| Output | $0.90 |
 
-1 credit = $0.01. Buy credits with USDC from the [dashboard](https://c0mpute.ai/settings). A request that returns a tool call (one step of an agent loop) is one request. Rate limit: 60 requests/minute per key.
+Thinking tokens are output tokens and carry no surcharge, so
+`qwen3.8-27b-uncensored-think` costs the same per token as the base model — it
+simply tends to generate more of them.
+
+1 credit = $0.001, and a request is rounded up to whole credits with a floor of
+1, so a typical message (~1,200 in / ~600 out) costs about 1 credit. Credits are
+bought with USDC from the [dashboard](https://c0mpute.ai/settings) at 500 credits
+per dollar. Every response carries a `usage` block with the counts you were
+actually billed on; streaming responses include it in a final chunk when you send
+`"stream_options": {"include_usage": true}`. A request that returns a tool call
+(one step of an agent loop) bills for the tokens it generated. Rate limit: 60
+requests/minute per key.
+
+Because the final cost is only known once the answer stops, a request places a
+short-lived **hold** for the largest it could cost, and the unused part is
+returned the moment it settles. A balance check should allow for the hold, not
+just the typical cost.
 
 ## Balance
 
@@ -61,10 +75,10 @@ curl https://c0mpute.ai/api/v1/balance \
 ```json
 {
   "object": "balance",
-  "credits": 1250,
+  "credits": 12500,
   "usd": 12.50,
-  "total_deposited": 2000,
-  "total_spent": 750
+  "total_deposited": 20000,
+  "total_spent": 7500
 }
 ```
 
@@ -72,7 +86,7 @@ Use it to check remaining credit before a batch of requests or to surface a low-
 
 ## Image generation
 
-`POST /v1/images/generations` — OpenAI-compatible, uncensored image generation (Chroma1-HD on contributor GPUs). 20 credits per image. Images are returned inline as base64 and **never stored** server-side.
+`POST /v1/images/generations` — OpenAI-compatible, uncensored image generation (Chroma1-HD on contributor GPUs). 10 credits ($0.01) per image. Images are returned inline as base64 and **never stored** server-side.
 
 ```bash
 curl https://c0mpute.ai/api/v1/images/generations \
@@ -312,11 +326,11 @@ Default **60 requests/minute per key**. Need more? Reach out.
   "seed": 31337,
   "width": 1024,
   "height": 1024,
-  "credits_charged": 20
+  "credits_charged": 10
 }
 ```
 
-The image is returned inline and **never stored** server-side. **20 credits ($0.20)** per image, refunded automatically on failure.
+The image is returned inline and **never stored** server-side. **10 credits ($0.01)** per image, refunded automatically on failure.
 
 ### Errors
 
