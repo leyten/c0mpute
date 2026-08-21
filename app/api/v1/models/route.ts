@@ -63,7 +63,7 @@ export async function GET(req: NextRequest) {
     data: [
       model('qwen3.8-27b-uncensored', qwenUp, 'Qwen3.8 27B Uncensored — the Compute Network model. Tools, vision, thinking, no refusals.'),
       model('qwen3.8-27b-uncensored-think', qwenUp, 'Qwen3.8 27B Uncensored with extended chain-of-thought reasoning. Thinking tokens bill as output; there is no surcharge.'),
-      model('c0mpute-pro', proUp, 'Uncensored 8B, fast, browser-powered.'),
+      model('c0mpute-pro', proUp, 'Uncensored Qwen3.5, fast, browser-powered. Answered by a 9B or a 4B depending on the worker that picks it up.'),
       model('c0mpute-swarm', swarmUp, 'MiniMax-M2.5 (229B) served by the decentralized GPU swarm — no single host holds the model.'),
     ],
   });
