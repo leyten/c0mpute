@@ -150,7 +150,9 @@ function Staking({ data }: { data: UsageData }) {
     );
   }
 
-  const prompts = data.proCost && data.proCost > 0 ? Math.floor(remaining / data.proCost) : null;
+  const messages = data.typicalMessageCredits && data.typicalMessageCredits > 0
+    ? Math.floor(remaining / data.typicalMessageCredits)
+    : null;
   return (
     <div>
       <div className="flex items-baseline justify-between gap-3 text-[12px]">
@@ -165,9 +167,9 @@ function Staking({ data }: { data: UsageData }) {
         )}
       </div>
       <p className="mt-2 text-[11.5px] tabular-nums" style={{ color: 'var(--cu-faint)' }}>
-        {prompts === null
+        {messages === null
           ? 'Resets 00:00 UTC.'
-          : `≈ ${prompts} Pro ${prompts === 1 ? 'prompt' : 'prompts'} left · resets 00:00 UTC`}
+          : `≈ ${messages} typical ${messages === 1 ? 'message' : 'messages'} left · resets 00:00 UTC`}
       </p>
     </div>
   );

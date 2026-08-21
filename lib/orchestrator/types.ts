@@ -73,11 +73,28 @@ export interface Job {
   messages?: ChatMessage[];
   requestedModel?: string;
   think?: boolean;
+  // Credits currently HELD from the user's balance for this job. A reservation
+  // until settleJobCharge runs, the real per-token price after — so every refund
+  // path gives back whatever is still held without knowing which it is.
   creditsCharged?: number;
-  // Worker-pay basis (tier list price in credits) for a free-prompt job, where
-  // creditsCharged is 0 but the worker is still paid out of the treasury. 0 for
+  // Worker-pay basis in credits for a job the user paid nothing for (free prompt
+  // or staker allowance), where creditsCharged is 0 but the worker is still paid
+  // out of the treasury. Reserved then settled exactly like creditsCharged, so
+  // the treasury's subsidy is the job's REAL cost, not its worst case. 0 for
   // paid jobs (they pay from creditsCharged).
   subsidyCredits?: number;
+  // Estimated input tokens (chars/4) measured at submit, AFTER history trimming
+  // — the input half of the price. Frozen here because the messages array is
+  // what was actually shipped to the worker, and settlement happens minutes
+  // later on a job record, not on a request.
+  inputTokens?: number;
+  // The UTC day a staker-allowance draw was written to. A job charged at 23:59
+  // and settled at 00:01 has to release against the row it drew from, or it
+  // burns yesterday's allowance and inflates today's.
+  allowanceDay?: string;
+  // Set once the reservation has been turned into the real charge. Latched like
+  // `refunded`: a job that reaches two teardown paths settles exactly once.
+  settled?: boolean;
   // Which subsidy lane funded this job (when subsidyCredits > 0): 'free' = the
   // onboarding free-prompt lane (gated by the daily free-subsidy cap at payout),
   // 'allowance' = the staker inference allowance (already pool-capped at consume
@@ -295,4 +312,21 @@ export const MAX_INPUT_TOKENS_NATIVE = 12_000;
 // inference time.
 export const MAX_INPUT_TOKENS_BROWSER = 1_800;
 
+// ── Output budget ──
+// The most output one request can be BILLED and PAID for, by lane. Both halves
+// matter: it is the ceiling the submit-time reservation is sized against, and
+// the same number caps the settled charge, so worker pay stays exactly a share
+// of what the user was charged no matter how long a worker keeps streaming.
+//
+// NATIVE: the worker's own output budget (c0mpute-worker/src/config.ts
+// MAX_OUTPUT_TOKENS), which is also the cap the orchestrator has always applied
+// to the payout token count. Thinking runs to 8192 there, and is deliberately
+// NOT reserved for: thinking tokens are ordinary output tokens, and reserving
+// double for a job that usually answers in a few hundred would hold twice the
+// credits for nothing. Anything past 4096 rides free.
 export const MAX_OUTPUT_TOKENS = 4096;
+// BROWSER: what the browser worker actually asks its model for
+// (BROWSER_MAX_OUTPUT_TOKENS in app/earn/engine/useWorkerEngine.ts). A browser
+// answer cannot exceed it, so reserving the native cap here would hold twice
+// what the lane can ever spend.
+export const MAX_OUTPUT_TOKENS_BROWSER = 2048;

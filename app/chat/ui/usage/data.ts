@@ -51,8 +51,9 @@ export interface UsageData {
    *  is not being issued even to an account that still has some left. */
   freePromptsPaused: boolean;
   staker: StakerLane;
-  /** What a Pro prompt costs, so a credit figure can be said in prompts. */
-  proCost: number | null;
+  /** What a typical message costs, so a credit figure can be said in messages.
+   *  Text is metered per token, so this is a yardstick and never a fixed price. */
+  typicalMessageCredits: number | null;
   /** Daily counts, or null when there is no history to draw. */
   days: UsageDay[] | null;
   /** `days` only reaches as far back as the recent activity window. */
@@ -126,7 +127,7 @@ interface Remote {
     freePromptLimit?: number;
     freePromptsPaused?: boolean;
     stakerAllowance?: { enabled?: boolean; dailyAllowance?: number; remaining?: number };
-    config?: { tierCredits?: { pro?: number } };
+    config?: { typicalMessageCredits?: number };
     recentTransactions?: { id: string; type: string; amount: number; description?: string | null; created_at: string }[];
   } | null;
 }
@@ -177,7 +178,7 @@ export function useUsage(engine: ChatEngine): UsageData {
         freeLimit: credits.freeLimit ?? set.freeLimit,
         freePromptsPaused: false,
         staker: set.staker,
-        proCost: set.proCost,
+        typicalMessageCredits: set.typicalMessageCredits,
         days: set.days,
         partial: false,
         models: set.models,
@@ -213,7 +214,7 @@ export function useUsage(engine: ChatEngine): UsageData {
         daily: sa?.dailyAllowance ?? 0,
         remaining: sa?.remaining ?? credits.stakerAllowance,
       },
-      proCost: remote?.credits?.config?.tierCredits?.pro ?? null,
+      typicalMessageCredits: remote?.credits?.config?.typicalMessageCredits ?? null,
       days: days.length ? days : null,
       // the window is a ceiling, not a year: only a full page means there is
       // older activity the squares cannot see
@@ -234,7 +235,7 @@ interface DemoSet {
   freePrompts: number;
   freeLimit: number;
   staker: StakerLane;
-  proCost: number;
+  typicalMessageCredits: number;
   days: UsageDay[];
   models: ModelUse[];
 }
@@ -287,13 +288,13 @@ function demoSet(): DemoSet {
     days.push({ day: dayKey(d), prompts, credits });
   }
 
-  const proCost = PLANS.find(p => p.id === 'pro')?.cost ?? 10;
+  const typicalMessageCredits = PLANS.find(p => p.id === 'pro')?.cost ?? 1;
   cached = {
     balance: DEMO_BALANCE,
     freePrompts: 2,
     freeLimit: 5,
     staker: { enabled: true, daily: 400, remaining: 260 },
-    proCost,
+    typicalMessageCredits,
     days,
     models: [...perModel.values()].sort((a, b) => b.prompts - a.prompts),
   };

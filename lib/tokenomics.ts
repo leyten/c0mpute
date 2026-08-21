@@ -8,6 +8,8 @@
 //   trading fees    → 35% into the buyback pool, 65% to leyten's profit
 //   the pool        → split 50/50: half buys+burns ZERO, half pays stakers in USDC
 
+import { CREDITS_PER_USD } from './token-price';
+
 // ── ZERO token ──
 
 // Backend reads ZERO_TOKEN_MINT; the frontend reads NEXT_PUBLIC_ZERO_TOKEN_ADDRESS.
@@ -110,13 +112,59 @@ export const STAKER_ALLOWANCE_ALLOWLIST = (process.env.STAKER_ALLOWANCE_ALLOWLIS
   .map((s) => s.trim())
   .filter(Boolean);
 
-// ── Prompt pricing ──
+// ── Text pricing (per token) ──
+//
+// One rate card for every text lane — native, browser and swarm alike. Anchored
+// to Venice Uncensored ($0.20/$0.90), the only like-for-like comparable for what
+// we actually sell; input sits at output/6, the middle of the market's /4.5-/7
+// convention, because we sell 32K context and vision (where image tokens bill as
+// input).
+//
+// This replaces a flat per-tier charge table (pro 10 / max 15 / maxDeep 20
+// credits). That table priced a typical message at ~$82/M blended — 205x the
+// comparable — and its deep-thinking surcharge double-charged, since thinking
+// tokens ARE output tokens and already land in the server's token count. There
+// is no surcharge here and no per-tier price: length is the price.
+export const TEXT_USD_PER_M_INPUT = 0.15;
+export const TEXT_USD_PER_M_OUTPUT = 0.90;
 
-// What one prompt costs the user, by tier. Deep thinking (Max only) costs more
-// because it generates ~2x the tokens and runs ~2x as long. The orchestrator
-// charges from here, and /api/credits hands the same numbers to the client, so
-// nothing in the UI has to guess what a prompt costs.
-export const TIER_CREDIT_COST = { pro: 10, max: 15, maxDeep: 20 } as const;
+// A representative message, used only to say a credit price in plain language
+// ("about a credit a message"). Measured over 30 days of max-tier traffic:
+// output p50 446 / mean 613, and input assumed at 1,200 since it was never
+// metered. Never a billing input — the meter is what actually charges.
+export const TYPICAL_INPUT_TOKENS = 1_200;
+export const TYPICAL_OUTPUT_TOKENS = 613;
+
+/**
+ * What a text request costs, in whole credits, from the tokens it moved.
+ *
+ * Rounded UP, minimum 1: a request that reaches a worker has a real cost, and
+ * the alternative — fractional credits — makes every balance a float and every
+ * displayed number a rounding decision. The ceiling is worth about a hundredth
+ * of a cent, so it cannot distort the rate card.
+ *
+ * Integer arithmetic throughout. The rates carry two decimals, so scaling by 100
+ * makes the numerator exact and keeps a cost of exactly one credit from
+ * ceil()ing to two on a float that landed at 1.0000000000000002.
+ */
+export function textCreditCost(inputTokens: number, outputTokens: number): number {
+  const inTok = Math.max(0, Math.floor(inputTokens || 0));
+  const outTok = Math.max(0, Math.floor(outputTokens || 0));
+  // µUSD × 100: a token at $0.90/M is 0.90 µUSD, so × 100 it is the integer 90.
+  const scaledMicroUsd = inTok * Math.round(TEXT_USD_PER_M_INPUT * 100)
+    + outTok * Math.round(TEXT_USD_PER_M_OUTPUT * 100);
+  const scaledMicroUsdPerCredit = (1_000_000 / CREDITS_PER_USD) * 100;
+  return Math.max(1, Math.ceil(scaledMicroUsd / scaledMicroUsdPerCredit));
+}
+
+/**
+ * The most this request can cost: its measured input plus a full-length answer
+ * at the lane's output cap. Held at submit, settled down to the real cost at
+ * completion, difference returned. See the orchestrator's reserve/settle path.
+ */
+export function textCreditReservation(inputTokens: number, outputTokenCap: number): number {
+  return textCreditCost(inputTokens, outputTokenCap);
+}
 
 // ── Worker revenue share ──
 
