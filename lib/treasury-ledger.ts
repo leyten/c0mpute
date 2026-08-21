@@ -9,6 +9,9 @@
 //   staker_rewards — USDC earmarked to pay stakers (paid out as USDC)
 //   profit         — leyten's cut
 //
+// Attribution-only bucket (NOT spendable, never distributed):
+//   plan_revenue   — cash taken for prepaid plan periods
+//
 // NOT tracked here (they're liabilities derived from existing tables):
 //   unspent credits  = users' refundable money  (sum of user_credits.balance)
 //   pending payouts   = workers' earned money     (sum of unpaid worker_earnings)
@@ -54,7 +57,29 @@ function getDb(): Database.Database {
   return _db;
 }
 
-export type Bucket = 'buyback' | 'staker_rewards' | 'profit';
+export type Bucket = 'buyback' | 'staker_rewards' | 'profit' | 'plan_revenue';
+
+/**
+ * Book the cash a plan period was sold for.
+ *
+ * ATTRIBUTION ONLY. Nothing spends this bucket — the keeper touches buyback and
+ * staker_rewards, and nothing else — so crediting it cannot put a distribution
+ * at risk. It exists because a plan purchase was previously invisible here: a
+ * pay-as-you-go job realises its margin as it is served, but a plan is a credit
+ * spend with no job attached, and the grant jobs it funds carry revenue 0. Plan
+ * income simply did not appear in the ledger.
+ *
+ * The figure is CASH, not the internal value of the credits spent. A Pro month
+ * is 6,000 credits, which is $6 at the value rate but $12 at the rate the user
+ * actually bought them for, and $12 is what the treasury received. Pairing it
+ * with plan-funded worker payouts (getPlanFundedPayoutsUsd in lib/db.ts) is what
+ * makes the margin floor observable.
+ */
+export function creditPlanRevenue(usd: number, meta?: string): void {
+  if (usd <= 0) return;
+  const db = getDb();
+  credit(db, 'plan_revenue', usd, 'plan_revenue', meta);
+}
 
 function credit(db: Database.Database, bucket: Bucket, usd: number, event: string, meta?: string) {
   if (usd <= 0) return;
@@ -114,6 +139,7 @@ export function getAllBuckets(): Record<Bucket, number> {
     buyback: getBucket('buyback'),
     staker_rewards: getBucket('staker_rewards'),
     profit: getBucket('profit'),
+    plan_revenue: getBucket('plan_revenue'),
   };
 }
 

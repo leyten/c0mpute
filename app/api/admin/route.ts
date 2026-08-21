@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Database from 'better-sqlite3';
 import path from 'path';
+import { getBucket } from '@/lib/treasury-ledger';
+import { getPlanFundedPayoutsUsd } from '@/lib/db';
 
 let _db: Database.Database | null = null;
 function getDb(): Database.Database {
@@ -39,9 +41,21 @@ export async function GET(req: NextRequest) {
     const recentJobs = db.prepare('SELECT * FROM completed_jobs ORDER BY completed_at DESC LIMIT 20').all();
     const recentPayouts = db.prepare('SELECT * FROM worker_payouts ORDER BY created_at DESC LIMIT 10').all();
 
+    // Plan economics. Revenue is the cash taken for periods; payouts are what
+    // workers were paid for jobs those periods funded. The difference is the
+    // margin floor the plans are clearing.
+    //
+    // Admin-only, like profit on /api/treasury and for the same reason: plan
+    // revenue divided by the price of a month is the subscriber count, and that
+    // is a business figure, not a transparency one.
+    const planRevenueUsd = getBucket('plan_revenue');
+    const planFundedPayoutsUsd = getPlanFundedPayoutsUsd();
+
     return NextResponse.json({
       totalUsers, totalJobs, totalTokensGenerated, totalEarningsPaid,
       totalCreditsDeposited, totalCreditsSpent, activeWorkerTokens,
+      planRevenueUsd, planFundedPayoutsUsd,
+      planMarginUsd: planRevenueUsd - planFundedPayoutsUsd,
       recentJobs, recentPayouts,
     });
   }

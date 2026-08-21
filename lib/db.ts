@@ -1,9 +1,9 @@
 import Database from 'better-sqlite3';
 import path from 'path';
-import { CREDITS_PER_USD } from './token-price';
+import { CREDITS_PER_USD, CREDITS_PER_DOLLAR_PURCHASED } from './token-price';
 import type { SubsidyKind } from './orchestrator/types';
 import { WORKER_REVENUE_SHARE, MIN_WITHDRAWAL_USD } from './tokenomics';
-import { realizeMargin } from './treasury-ledger';
+import { realizeMargin, creditPlanRevenue } from './treasury-ledger';
 import { recordReferralEarning, getReferralEarningsTotal } from './referrals';
 
 const DB_PATH = path.join(process.cwd(), 'data', 'c0mpute.db');
@@ -1522,7 +1522,40 @@ export function purchasePlanPeriod(args: {
     return true;
   });
 
-  return txn() as boolean;
+  const bought = txn() as boolean;
+
+  // Book the cash outside the transaction, because treasury-ledger.ts holds its
+  // own connection and cannot join this one. Same shape recordEarning already
+  // uses for realizeMargin, and the same failure mode: if this throws after the
+  // period commits, the treasury under-reports its own revenue. That is an
+  // attribution gap, never a lost or double-taken payment — the money moved in
+  // the transaction above.
+  //
+  // Only a purchase that actually took credits books revenue. A comped period
+  // (credits: 0) brought in no cash and must not invent any.
+  if (bought && args.credits > 0) {
+    creditPlanRevenue(args.credits / CREDITS_PER_DOLLAR_PURCHASED, `${args.kind}:${args.plan}:${args.privyId}`);
+  }
+  return bought;
+}
+
+/**
+ * USD paid to workers for jobs funded by a PLAN grant.
+ *
+ * The other half of the plan margin. Derived from worker_earnings exactly as the
+ * free-tier subsidy total is, rather than debited from the bucket, so the two
+ * sides stay independently checkable and a bug in one cannot quietly consume the
+ * other. Pair with the plan_revenue bucket: revenue minus this is the floor the
+ * plans are actually clearing.
+ */
+export function getPlanFundedPayoutsUsd(sinceIso?: string): number {
+  ensureEarningsTables();
+  const db = getDb();
+  const row = (sinceIso
+    ? db.prepare("SELECT COALESCE(SUM(earning_usd), 0) as total FROM worker_earnings WHERE subsidy_kind = 'plan' AND created_at >= ?").get(sinceIso)
+    : db.prepare("SELECT COALESCE(SUM(earning_usd), 0) as total FROM worker_earnings WHERE subsidy_kind = 'plan'").get()
+  ) as { total: number };
+  return row.total;
 }
 
 /**
