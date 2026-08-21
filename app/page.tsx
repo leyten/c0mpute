@@ -4,9 +4,11 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import AnonGateModal from '@/components/AnonGateModal';
 import SiteNav from '@/components/SiteNav';
-import LifecycleScroll from '@/components/home/LifecycleScroll';
-import HeroBlock from '@/components/home/HeroBlock';
-import Doors from '@/components/home/Doors';
+import HeroCard from '@/components/home/cf/HeroCard';
+import EarthSection from '@/components/home/cf/EarthSection';
+import LifecycleGrid from '@/components/home/cf/LifecycleGrid';
+import BentoDoors from '@/components/home/cf/BentoDoors';
+import CtaBand from '@/components/home/cf/CtaBand';
 import { LogoMark } from '@/components/Logo';
 import { useBrand } from '@/components/BrandProvider';
 import { useAuth } from '@/hooks/useAuth';
@@ -104,16 +106,28 @@ export default function Home() {
           onSignIn={() => { login(); setAnonModalOpen(false); }}
         />
       )}
-      {/* Header — homepage mode: transparent, scrubs away over the hero */}
-      <SiteNav overHero />
+      {/* Header — homepage mode: transparent, scrubs away over the hero,
+          white chrome while the ink card is under it */}
+      <SiteNav overHero inkHero />
 
-      {/* Hero + the scroll story: one continuous globe stage */}
-      <LifecycleScroll hero={<HeroBlock onSubmit={handleSubmit} />} />
+      {/* Technical-drawing ground: dot field in the gutters, dashed content
+          column edges. Sits behind everything. */}
+      <div className="blueprint hidden md:block" aria-hidden>
+        <div className="blueprint-dots" />
+        <div className="blueprint-col" />
+      </div>
 
-
-
-      {/* Doors */}
-      <Doors />
+      {/* The page in the reference grammar: ink hero card, globe section,
+          lifecycle grid, bento doors, closing ink band. 48/64/80 section gap. */}
+      <main className="relative flex flex-col gap-12 md:gap-16 xl:gap-20 pb-4">
+        <HeroCard onSubmit={handleSubmit} />
+        <div className="dash-rule" aria-hidden />
+        <EarthSection />
+        <LifecycleGrid />
+        <BentoDoors />
+        <div className="dash-rule opacity-50" aria-hidden />
+        <CtaBand onSubmit={handleSubmit} />
+      </main>
 
 
       {/* Footer — full sitemap so the header doesn't have to be one */}

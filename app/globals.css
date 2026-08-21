@@ -1147,3 +1147,192 @@ input[type='number'] {
     animation: none !important;
   }
 }
+
+/* ── CF-grammar homepage ─────────────────────────────────────────────────────
+   The homepage rebuilt on cloudflare.com's layout system (measured 2026-08):
+   a single-ground page whose contrast comes from inset full-bleed ink cards
+   and hairline panels, dressed as a technical drawing — a centred content
+   column with dashed edge rules over a faint dot field, dashed section
+   dividers, and 14px registration squares straddling panel corners. Motion is
+   an entrance-only reveal system (fade + 20px rise, power1.out) plus idle
+   loops; nothing is scroll-driven. Consumed by app/page.tsx and
+   components/home/cf/*. */
+
+/* Technical-drawing ground. The dot field is 1480 wide; the content column
+   (1200) paints the page colour back over it, so dots live in the gutters. */
+.blueprint {
+  position: absolute;
+  inset: 0;
+  z-index: -10;
+  pointer-events: none;
+  overflow: hidden;
+}
+.blueprint-dots {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(1480px, 100%);
+  background-image: radial-gradient(
+    color-mix(in oklab, var(--fg) 8%, transparent) 0.75px,
+    transparent 0.75px
+  );
+  background-size: 12px 12px;
+}
+.blueprint-col {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(1200px, 100%);
+  background: var(--background);
+}
+.blueprint-col::before,
+.blueprint-col::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background-image: linear-gradient(
+    to bottom,
+    color-mix(in oklab, var(--fg) 10%, transparent) 50%,
+    transparent 50%
+  );
+  background-size: 1px 32px;
+}
+.blueprint-col::before { left: 0; }
+.blueprint-col::after { right: 0; }
+
+/* Dashed full-bleed horizontal rule (16 on / 16 off). */
+.dash-rule {
+  height: 1px;
+  width: 100%;
+  background-image: repeating-linear-gradient(
+    90deg,
+    color-mix(in oklab, var(--fg) 10%, transparent) 0 16px,
+    transparent 16px 32px
+  );
+}
+
+/* Registration square straddling a panel corner. */
+.corner-mark {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  background: var(--background);
+  border: 1px solid color-mix(in oklab, var(--fg) 10%, transparent);
+  z-index: 1;
+}
+.corner-mark.on-ink {
+  width: 8px;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.5);
+  border-radius: 1.5px;
+}
+
+/* The ink card: the hero and the CTA band. Deliberately NOT themed — like a
+   photo veil, the card is dark in both themes (on the dark theme the border
+   and the wave are what set it off). The chat vars are restated dark so the
+   product composer renders correctly inside it under the light theme. */
+.ink-card {
+  position: relative;
+  background: #0c0a09;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+  --chat-surface: rgba(255, 255, 255, 0.045);
+  --chat-row-on: rgba(255, 255, 255, 0.06);
+  --chat-text: rgba(255, 255, 255, 0.92);
+  --chat-faint: rgba(255, 255, 255, 0.38);
+}
+
+/* Warm dome glow rising from the card's bottom edge (the video's static
+   gradient, restated in CSS). */
+.ink-glow {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(
+    ellipse 42% 34% at 50% 104%,
+    rgba(250, 224, 155, 0.55),
+    rgba(250, 224, 155, 0.12) 55%,
+    transparent 75%
+  );
+}
+
+/* Header over the ink hero: the CF data-nav-on-dark treatment. Restates the
+   ink ladder white so every nav surface (text, hairlines, pill, buttons)
+   follows; flipped by SiteNav while the dark card is under the bar. */
+.hdr-on-ink {
+  --fg: #ffffff;
+  --on-fg: #0c0a09;
+  --fg-90: rgba(255, 255, 255, 0.9);
+  --fg-70: rgba(255, 255, 255, 0.7);
+  --fg-50: rgba(255, 255, 255, 0.5);
+  --fg-45: rgba(255, 255, 255, 0.45);
+  --fg-40: rgba(255, 255, 255, 0.4);
+  --fg-30: rgba(255, 255, 255, 0.3);
+  --fg-20: rgba(255, 255, 255, 0.2);
+  --raise: #141210;
+}
+
+/* Entrance reveals — the Keyframe presets, CSS-only. A Reveal wrapper adds
+   .in when the block crosses the viewport; children carry .rv (block: fade +
+   20px rise, 600ms power1.out) or .rv-word (hero display type: fade + rise +
+   blur, 1s, staggered per word via --d). */
+.rv {
+  opacity: 0;
+  transform: translateY(20px);
+  transition:
+    opacity 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94) var(--d, 0s),
+    transform 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94) var(--d, 0s);
+}
+.in .rv,
+.in.rv {
+  opacity: 1;
+  transform: none;
+}
+.rv-word {
+  display: inline-block;
+  white-space: pre;
+  opacity: 0;
+  transform: translateY(20px);
+  filter: blur(12px);
+  transition:
+    opacity 1s cubic-bezier(0.22, 1, 0.36, 1) var(--d, 0s),
+    transform 1s cubic-bezier(0.22, 1, 0.36, 1) var(--d, 0s),
+    filter 0.8s cubic-bezier(0.22, 1, 0.36, 1) var(--d, 0s);
+}
+.in .rv-word {
+  opacity: 1;
+  transform: none;
+  filter: none;
+}
+
+/* The globe's entrance (its own ready signal, not the reveal observer). */
+.globe-enter {
+  opacity: 0;
+  transform: scale(0.97);
+  transition:
+    opacity 0.9s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.9s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.globe-enter.on {
+  opacity: 0.9;
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rv,
+  .rv-word,
+  .globe-enter {
+    opacity: 1 !important;
+    transform: none !important;
+    filter: none !important;
+    transition: none !important;
+  }
+  .globe-enter.on { opacity: 0.9 !important; }
+}

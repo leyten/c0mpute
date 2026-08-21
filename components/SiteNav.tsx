@@ -25,8 +25,13 @@ export default function SiteNav({
       over the first 80px of scroll (the logo stays; a primary CTA fades in
       past the hero). Everywhere else the bar is solid and static. */
   overHero = false,
+  /** The homepage's ink hero card slides under the bar on scroll; while it
+      does, the header wears .hdr-on-ink (white ladder) so the chrome stays
+      legible. Only meaningful together with overHero. */
+  inkHero = false,
 }: {
   overHero?: boolean;
+  inkHero?: boolean;
 }) {
   const brand = useBrand();
   const { isLoading, isAuthenticated, login, logout, xUsername, walletAddress } = useAuth();
@@ -158,6 +163,7 @@ export default function SiteNav({
   const scrubTabsRef = useRef<HTMLDivElement>(null);
   const scrubUtilRef = useRef<HTMLDivElement>(null);
   const ctaRef = useRef<HTMLAnchorElement>(null);
+  const headerRef = useRef<HTMLElement>(null);
   useEffect(() => {
     if (!overHero) return;
     let raf = 0;
@@ -181,6 +187,18 @@ export default function SiteNav({
       ctaRef.current?.classList.toggle('on', scrub && y > window.innerHeight * 0.7);
       // The tabs are gone past 78px — a panel they anchored must not float on.
       if (scrub && y >= 78 && panelOnRef.current) { cancelClose(); commitClose(); }
+      // White chrome while ANY ink card (hero or the closing band) crosses
+      // the bar's midline — not its edges, or the flip fires while the bar
+      // is still visibly on paper.
+      if (inkHero && headerRef.current) {
+        const mid = window.innerWidth >= 768 ? 36 : 27;
+        let onInk = false;
+        document.querySelectorAll('.ink-card').forEach((c) => {
+          const r = c.getBoundingClientRect();
+          if (r.top < mid && r.bottom > mid) onInk = true;
+        });
+        headerRef.current.classList.toggle('hdr-on-ink', onInk);
+      }
     };
     const onScroll = () => { if (!raf) raf = requestAnimationFrame(apply); };
     window.addEventListener('scroll', onScroll, { passive: true });
@@ -192,7 +210,7 @@ export default function SiteNav({
       if (raf) cancelAnimationFrame(raf);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [overHero]);
+  }, [overHero, inkHero]);
 
   const userDisplay = xUsername
     ? `@${xUsername}`
@@ -211,6 +229,7 @@ export default function SiteNav({
   // hidden behind the bar can be clicked through it.
   return (
     <header
+      ref={headerRef}
       className={`fixed top-0 left-0 right-0 z-50 ${
         overHero ? 'pointer-events-none' : 'pointer-events-auto bg-background'
       } [&_a]:pointer-events-auto [&_button]:pointer-events-auto`}
