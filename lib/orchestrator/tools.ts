@@ -6,6 +6,7 @@
 
 import { ToolDefinition, ToolCall, ChatMessage } from './types';
 import { scanOutput } from '../safety';
+import type { SubsidyKind } from './types';
 
 // Dynamic imports for server-only modules
 type SearchHit = { title: string; url: string; description: string; age?: string };
@@ -32,7 +33,7 @@ export type ToolContext = {
   privyUserId?: string;
   renderImage?: (
     workflow: Record<string, unknown>,
-    meta: { privyUserId: string; seed?: number; width?: number; height?: number; creditsCharged: number; subsidized: boolean },
+    meta: { privyUserId: string; seed?: number; width?: number; height?: number; creditsCharged: number; subsidized: boolean; subsidyKind?: SubsidyKind },
   ) => Promise<string>;
 };
 
@@ -56,6 +57,9 @@ export type PendingImage = {
   // (recordEarning in lib/db.ts). Same flag /create computes for its free and
   // allowance-funded images (app/api/images/generate/route.ts).
   subsidized: boolean;
+  // Which lane funded it, so the payout can tell a prepaid plan render apart
+  // from a treasury-subsidized one and cap only the latter.
+  subsidyKind?: SubsidyKind;
   refund: () => void;
 };
 
@@ -162,10 +166,13 @@ export async function executeTool(toolCall: ToolCall, ctx?: ToolContext): Promis
       const { buildImageWorkflow, IMAGE_CREDITS } = require('../image-gen');
       const { spendCredits, refundCredits } = require('../db');
       const { drawStakerAllowance, refundStakerAllowance } = require('../staker-allowance');
+      const { drawDailyGrant, refundDailyGrant } = require('../plan-state');
       const { STAKER_ALLOWANCE_ENABLED } = require('../tokenomics');
 
-      // Pay order mirrors /create minus the onboarding free images: staker
-      // allowance first, then paid credits.
+      // Pay order mirrors the text lane minus the onboarding free images: the
+      // day's grant, then the staker allowance, then paid credits. An image is
+      // ten credits, which is why a plan quotes images as well as messages —
+      // they come out of the same daily grant.
       //
       // drawStakerAllowance, not the boolean consumeStakerAllowance: the refund
       // below is a closure the orchestrator calls minutes later, when the render
@@ -173,16 +180,26 @@ export async function executeTool(toolCall: ToolCall, ctx?: ToolContext): Promis
       // 23:59 refunded at 00:01 has to decrement the row it was written to —
       // refunding against "now" matches zero rows and silently burns the
       // staker's allowance for a render they never received. The /create route
-      // already threads the day; this path was the one caller that did not.
+      // already threads the day; this path was the one caller that did not. The
+      // grant draw carries its day for exactly the same reason.
       const userId = ctx.privyUserId;
+      // Chat is the human surface, so the treasury-subsidized Free grant is
+      // available here (unlike an API key).
+      const grantDraw = drawDailyGrant(userId, IMAGE_CREDITS, true);
       let allowanceDay: string | null = null;
-      if (STAKER_ALLOWANCE_ENABLED) allowanceDay = drawStakerAllowance(userId, IMAGE_CREDITS);
-      if (!allowanceDay && !spendCredits(userId, IMAGE_CREDITS, 'Image generation (chat)')) {
+      if (!grantDraw && STAKER_ALLOWANCE_ENABLED) allowanceDay = drawStakerAllowance(userId, IMAGE_CREDITS);
+      if (!grantDraw && !allowanceDay && !spendCredits(userId, IMAGE_CREDITS, 'Image generation (chat)')) {
         return fail(`The user does not have enough credits — image generation costs ${IMAGE_CREDITS} credits. Tell them to top up in Settings.`);
       }
-      const usedAllowance = allowanceDay !== null;
+      const subsidyKind: SubsidyKind | undefined = grantDraw
+        ? (grantDraw.source === 'plan' ? 'plan' : 'free_grant')
+        : allowanceDay
+          ? 'allowance'
+          : undefined;
+      const usedAllowance = subsidyKind !== undefined;
       const refund = () => {
-        if (allowanceDay) refundStakerAllowance(userId, IMAGE_CREDITS, allowanceDay);
+        if (grantDraw) refundDailyGrant(userId, grantDraw.source, IMAGE_CREDITS, grantDraw.day);
+        else if (allowanceDay) refundStakerAllowance(userId, IMAGE_CREDITS, allowanceDay);
         else refundCredits(userId, IMAGE_CREDITS, 'Image generation failed (chat)');
       };
 
@@ -217,6 +234,7 @@ export async function executeTool(toolCall: ToolCall, ctx?: ToolContext): Promis
           height: built.height,
           creditsCharged: IMAGE_CREDITS,
           subsidized: usedAllowance,
+          subsidyKind,
           refund,
         },
       };

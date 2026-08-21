@@ -60,6 +60,11 @@ interface ImageJob {
   height?: number;
   creditsCharged: number;
   subsidized: boolean;
+  // Which lane funded a subsidized render. Renders used to book every one of
+  // them as 'free', which put staker-allowance images under the free-subsidy
+  // cap they already have their own pool ceiling for — and would put prepaid
+  // plan images there too.
+  subsidyKind?: SubsidyKind;
   status: 'pending' | 'processing';
   assignedWorkerSocketId?: string;
   timer?: ReturnType<typeof setTimeout>;
@@ -1305,6 +1310,7 @@ export class Orchestrator {
           height: data.height,
           creditsCharged: Number(data.creditsCharged) || 0,
           subsidized: data.subsidized === true,
+          subsidyKind: data.subsidyKind,
           status: 'pending',
           submittedAt: Date.now(),
         });
@@ -1335,12 +1341,19 @@ export class Orchestrator {
             let payoutCredits = job.subsidized ? 0 : job.creditsCharged;
             let subsidized = false;
             if (job.subsidized && worker.privyUserId !== job.privyUserId) {
-              const subsidyUsd = (job.creditsCharged / CREDITS_PER_USD) * workerShare;
-              if (getTodayFreeSubsidyUsd() + subsidyUsd <= FREE_SUBSIDY_DAILY_CAP_USD) {
+              if (!isFreeSubsidyKind(job.subsidyKind)) {
+                // Funded lanes: the staker pool ceiling and the plan purchase
+                // already bounded these, so pay and leave the free budget alone.
                 payoutCredits = job.creditsCharged;
                 subsidized = true;
               } else {
-                console.log(`[Orchestrator] Free-image subsidy cap reached — worker ${worker.privyUserId} not paid for job ${job.id}`);
+                const subsidyUsd = (job.creditsCharged / CREDITS_PER_USD) * workerShare;
+                if (getTodayFreeSubsidyUsd() + subsidyUsd <= FREE_SUBSIDY_DAILY_CAP_USD) {
+                  payoutCredits = job.creditsCharged;
+                  subsidized = true;
+                } else {
+                  console.log(`[Orchestrator] Free-image subsidy cap reached — worker ${worker.privyUserId} not paid for job ${job.id}`);
+                }
               }
             }
             // Render time, on the SAME basis as a text job's duration_ms: server-
@@ -1358,7 +1371,7 @@ export class Orchestrator {
               creditsCharged: job.subsidized ? 0 : job.creditsCharged,
               payoutCredits,
               subsidized,
-              subsidyKind: subsidized ? 'free' : undefined,
+              subsidyKind: subsidized ? (job.subsidyKind ?? 'free') : undefined,
               tokensGenerated: 0,
               revenueShare: workerShare,
               payerPrivyId: job.privyUserId,
@@ -1589,6 +1602,7 @@ export class Orchestrator {
           height: pi.height,
           creditsCharged: pi.creditsCharged,
           subsidized: pi.subsidized,
+          subsidyKind: pi.subsidyKind,
         })
           .then((image) => {
             const us = this.io.sockets.sockets.get(job.userSocketId);
@@ -1773,7 +1787,7 @@ export class Orchestrator {
    *  from booking unpaid credits as revenue and paying a referral out of them. */
   renderImageInternal(
     workflow: Record<string, unknown>,
-    meta: { privyUserId: string; seed?: number; width?: number; height?: number; creditsCharged: number; subsidized: boolean },
+    meta: { privyUserId: string; seed?: number; width?: number; height?: number; creditsCharged: number; subsidized: boolean; subsidyKind?: SubsidyKind },
   ): Promise<string> {
     return new Promise((resolve, reject) => {
       const jobId = uuidv4();
@@ -1787,6 +1801,7 @@ export class Orchestrator {
         height: meta.height,
         creditsCharged: meta.creditsCharged,
         subsidized: meta.subsidized,
+        subsidyKind: meta.subsidyKind,
         status: 'pending',
         submittedAt: Date.now(),
       });
