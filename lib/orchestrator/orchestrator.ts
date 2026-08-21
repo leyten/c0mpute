@@ -13,6 +13,8 @@ import {
   getModelTier,
   workerServesModel,
   selectionWeight,
+  MAX_INPUT_TOKENS_NATIVE,
+  MAX_INPUT_TOKENS_BROWSER,
 } from './types';
 import { verifyPrivyToken } from '../privy-server';
 import { incrementPromptsSent, verifyWorkerToken, recordCompletedJob, recordEarning, spendCredits, getCreditBalance, refundCredits, isWorkerBanned, recordWorkerStrike, recordCanaryResult, consumeFreePrompt, restoreFreePrompt, getFreePromptsUsed, recordSubsidizedPrompt, getTodayFreeSubsidyUsd, getThisHourFreeSubsidyUsd, anonGrantFreePrompt, getAnonRemaining, profileHasLogin, getAccountAgeMs } from '../db';
@@ -54,6 +56,9 @@ interface ImageJob {
   assignedWorkerSocketId?: string;
   timer?: ReturnType<typeof setTimeout>;
   submittedAt: number;
+  // Epoch ms this job was handed to an image worker. The basis for the
+  // duration_ms recorded on completion — see the note at image:result.
+  dispatchedAt?: number;
 }
 
 // ── [garbage-prefix] probe (diagnostics only) ──────────────────────────────
@@ -140,6 +145,88 @@ function estimatePromptTokens(messages: ChatMessage[] | undefined): number {
     if (typeof m?.content === 'string') chars += m.content.length;
   }
   return Math.ceil(chars / 4);
+}
+
+// ── Input (context) bound ──────────────────────────────────────────────────
+// Nothing server-side limited how much prompt a job could carry: the chat client
+// resends the whole conversation every turn, and per-message billing doesn't care
+// how big that gets — so input cost was unbounded, and an obvious abuse hole the
+// moment billing moves per-token.
+//
+// The bound is deliberately user-friendly. A conversation that outgrew its budget
+// is TRIMMED — oldest messages dropped whole, system messages and the newest
+// turns kept — never rejected: being twelve turns deep is not a user error. The
+// one hard rejection is a single new message that cannot fit on its own, which no
+// amount of trimming can fix.
+//
+// Sizes come from estimatePromptTokens (chars/4 over message TEXT, the same
+// heuristic the public API route uses). Attached images ride as base64 in
+// `images[]` and are deliberately NOT counted: they are not tokens, and counting
+// their bytes would trim an entire conversation away the moment someone pastes a
+// photo. Existing image-size limits are untouched.
+
+/** Estimated-input budget for the lane this job will be served on. */
+function inputTokenBudget(model: string | undefined): number {
+  // Max tier goes to a native worker; a sharded model goes to a swarm ring, whose
+  // KV cap is larger still. Everything else is a browser worker's 4K window.
+  if (getModelTier(model) === 'max') return MAX_INPUT_TOKENS_NATIVE;
+  if (model && specForModel(model)) return MAX_INPUT_TOKENS_NATIVE;
+  return MAX_INPUT_TOKENS_BROWSER;
+}
+
+type BoundedInput =
+  | { ok: true; messages: ChatMessage[] | undefined; dropped: number }
+  | { ok: false; estTokens: number };
+
+/**
+ * Fit a job's messages inside `budget` estimated input tokens by dropping the
+ * OLDEST non-system messages, whole (a message is never split). Returns ok:false
+ * only when what is left — the system messages plus the newest message — still
+ * doesn't fit, i.e. the new message alone is too long.
+ */
+function boundInputMessages(messages: ChatMessage[] | undefined, budget: number): BoundedInput {
+  if (!messages || messages.length === 0) return { ok: true, messages, dropped: 0 };
+
+  // Every size is measured ONCE and the rest is index arithmetic over that array.
+  // Re-measuring the conversation after each drop reads better but is quadratic
+  // in the MESSAGE COUNT, and this runs on the single-process orchestrator's
+  // event loop: one payload of a few hundred thousand tiny messages (well inside
+  // socket.io's 16MB frame cap) would otherwise freeze every stream, worker and
+  // image job on the network for tens of seconds. Counted in chars so the
+  // comparison stays exactly estimatePromptTokens': ceil(chars/4) <= budget is
+  // the same test as chars <= budget*4.
+  const charBudget = budget * 4;
+  const chars = messages.map((m) => (typeof m?.content === 'string' ? m.content.length : 0));
+  let total = 0;
+  for (const c of chars) total += c;
+  if (total <= charBudget) return { ok: true, messages, dropped: 0 };
+
+  const cut: boolean[] = new Array(messages.length).fill(false);
+  const newest = messages.length - 1;
+  let dropped = 0;
+  // Oldest first, whole messages only. A system message carries instructions the
+  // answer depends on and the newest message is what the user actually asked, so
+  // neither is ever a candidate — which is also why the loop can run out of
+  // candidates and leave `total` over budget (the hard reject below).
+  for (let i = 0; i < newest && total > charBudget; i++) {
+    if (messages[i]?.role === 'system') continue;
+    cut[i] = true;
+    dropped++;
+    total -= chars[i];
+  }
+  // A tool result whose assistant tool-call round was just dropped is an orphan,
+  // which is malformed history for any worker — it goes with the round it belongs
+  // to. (Same for a leading tool message a client sent with no round at all.)
+  for (let i = 0; i < newest; i++) {
+    if (cut[i] || messages[i]?.role === 'system') continue;
+    if (messages[i]?.role !== 'tool') break;
+    cut[i] = true;
+    dropped++;
+    total -= chars[i];
+  }
+
+  if (total > charBudget) return { ok: false, estTokens: Math.ceil(total / 4) };
+  return { ok: true, messages: messages.filter((_, i) => !cut[i]), dropped };
 }
 
 /** Read-only, exception-proof. Returns nothing and mutates nothing, so no call
@@ -663,6 +750,9 @@ export class Orchestrator {
         // Final-cutover gate (staged; see RETIRE_LEGACY_WORKERS). The message is
         // what the operator's terminal shows right before the worker exits.
         if (this.RETIRE_LEGACY_WORKERS && workerType === 'native' && this.RETIRED_WORKER_MODELS.has(data.model)) {
+          // One line per rejection so the migration can be watched from the
+          // journal — the reject was silent, so a fleet exiting on it left no trace.
+          console.log(`[Orchestrator] Legacy worker rejected: model=${data.model} user=${privyUserId} ip=${workerIp}`);
           callback({ error: 'This worker version is retired — the network now runs qwen3.8-27b-uncensored. Update: npm i -g @compute-network/worker@latest, then restart the worker.' });
           return;
         }
@@ -760,6 +850,27 @@ export class Orchestrator {
           console.warn(`[Orchestrator] Blocked prompt from ${privyUserId} (safety policy)`);
           callback({ error: 'Content blocked by safety policy.' });
           return;
+        }
+
+        // Input (context) bound. Sits here so it covers BOTH submit paths — the
+        // chat socket and the internal API bridge, which land on this same
+        // handler — and runs before any lane is charged, so a rejected prompt
+        // costs the user nothing. `data.messages` is reassigned rather than
+        // shadowed: every downstream submitJob call then ships the bounded array
+        // by construction, including the anon lane below.
+        const inputBudget = inputTokenBudget(data.model);
+        const bounded = boundInputMessages(data.messages, inputBudget);
+        if (!bounded.ok) {
+          console.warn(`[Orchestrator] Input rejected from ${privyUserId}: ~${bounded.estTokens} tokens over the ${inputBudget}-token budget`);
+          callback({
+            error: `Your message is too long — on its own it doesn't fit the model's context window. `
+              + `Shorten it to about ${Math.floor((inputBudget * 4) / 1000)}k characters and send it again.`,
+          });
+          return;
+        }
+        if (bounded.dropped > 0) {
+          data.messages = bounded.messages;
+          console.log(`[Orchestrator] Trimmed ${bounded.dropped} oldest message(s) for ${privyUserId} to fit the ${inputBudget}-token input budget`);
         }
 
         // Rate limiting: max 20 jobs per user per 5 minutes (web UI). API jobs
@@ -1051,7 +1162,14 @@ export class Orchestrator {
                 console.log(`[Orchestrator] Free-image subsidy cap reached — worker ${worker.privyUserId} not paid for job ${job.id}`);
               }
             }
-            recordCompletedJob({ jobId: job.id, workerPrivyId: worker.privyUserId, userPrivyId: job.privyUserId, model: worker.model, tier: 'image', tokensGenerated: 0 });
+            // Render time, on the SAME basis as a text job's duration_ms: server-
+            // observed dispatch → completion (handleJobComplete measures from
+            // job.startedAt, which processQueue sets at dispatch), so queue wait
+            // counts against neither column and the two are comparable.
+            // duration_ms was NULL for every image job until now, so render cost
+            // has never been measurable.
+            const durationMs = job.dispatchedAt ? Date.now() - job.dispatchedAt : 0;
+            recordCompletedJob({ jobId: job.id, workerPrivyId: worker.privyUserId, userPrivyId: job.privyUserId, model: worker.model, tier: 'image', tokensGenerated: 0, durationMs: durationMs > 0 ? durationMs : undefined });
             recordEarning({
               privyId: worker.privyUserId,
               jobId: job.id,
@@ -1279,6 +1397,7 @@ export class Orchestrator {
           width: pi.width,
           height: pi.height,
           creditsCharged: pi.creditsCharged,
+          subsidized: pi.subsidized,
         })
           .then((image) => {
             const us = this.io.sockets.sockets.get(job.userSocketId);
@@ -1448,10 +1567,13 @@ export class Orchestrator {
     return true;
   }
 
-  /** Render an image on the worker pool from inside the orchestrator (chat tool). */
+  /** Render an image on the worker pool from inside the orchestrator (chat tool).
+   *  `subsidized` says the credits were NOT paid (staker allowance funded them),
+   *  exactly as /create passes it on image:submit — it is what keeps image:result
+   *  from booking unpaid credits as revenue and paying a referral out of them. */
   renderImageInternal(
     workflow: Record<string, unknown>,
-    meta: { privyUserId: string; seed?: number; width?: number; height?: number; creditsCharged: number },
+    meta: { privyUserId: string; seed?: number; width?: number; height?: number; creditsCharged: number; subsidized: boolean },
   ): Promise<string> {
     return new Promise((resolve, reject) => {
       const jobId = uuidv4();
@@ -1464,7 +1586,7 @@ export class Orchestrator {
         width: meta.width,
         height: meta.height,
         creditsCharged: meta.creditsCharged,
-        subsidized: false,
+        subsidized: meta.subsidized,
         status: 'pending',
         submittedAt: Date.now(),
       });
@@ -1500,6 +1622,7 @@ export class Orchestrator {
       idle.status = 'busy';
       job.status = 'processing';
       job.assignedWorkerSocketId = idle.socketId;
+      job.dispatchedAt = Date.now();
       job.timer = setTimeout(() => this.failImageJobTimeout(jobId), this.IMAGE_JOB_TIMEOUT_MS);
       ws.emit('image:job', { jobId, workflow: job.workflow });
       console.log(`[Orchestrator] Image job ${jobId} dispatched to worker ${idle.id}`);

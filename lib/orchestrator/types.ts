@@ -271,5 +271,28 @@ export function workerServesModel(
     && (worker.model.includes('c0mpute') || worker.model.includes('dolphin'));
 }
 
-export const MAX_INPUT_CHARS = 2000;
+// ── Input (context) budget ──
+// Estimated INPUT tokens a job may carry, by lane. The orchestrator trims the
+// oldest history to fit at submit (boundInputMessages in orchestrator.ts), so
+// this is the only server-side ceiling on how much prompt one request can push
+// through the network — a cost/abuse bound first, a context-fit hint second.
+//
+// NATIVE (max tier, and sharded-swarm models): native workers self-tune num_ctx
+// to their VRAM and report 8192-32768 at registration, and their output budget
+// is 4096 tokens (8192 with thinking, c0mpute-worker/src/config.ts). 12K input
+// + 8K output sits inside a 32K worker with room for the injected system prompt
+// and the tool schemas; smaller workers already truncate at their own end, which
+// the [ctx-exceeded] probe measures. A swarm ring's KV cap is 40960, so the same
+// number is comfortably inside it too.
+export const MAX_INPUT_TOKENS_NATIVE = 12_000;
+// BROWSER (pro tier): the browser worker's model lib is ctx4k — prompt AND
+// output share one 4096-token window — and it asks for 2048 output tokens on top
+// of a ~170-token system prompt (app/earn/engine/useWorkerEngine.ts), leaving
+// ~1900 tokens of prompt. 1800 keeps margin for chars/4 being an estimate.
+// Nothing bounded this before: the chat UI caps its window at the last 10 turns
+// and the browser worker strips <think> blocks out of history, but neither is a
+// LENGTH bound — an overlong conversation just overflowed the window at
+// inference time.
+export const MAX_INPUT_TOKENS_BROWSER = 1_800;
+
 export const MAX_OUTPUT_TOKENS = 4096;
