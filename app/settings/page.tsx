@@ -5,6 +5,7 @@ import SiteNav from '@/components/SiteNav';
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
+import { DEMO_MODE } from '@/app/chat/demo';
 import { useBrand } from '@/components/BrandProvider';
 
 type Tab = 'account' | 'plans' | 'worker' | 'developer' | 'usage' | 'referrals';
@@ -352,10 +353,45 @@ export default function SettingsPage() {
   // skipped the hook above and crashed the page with a hook-count mismatch
   // (React #300/#310) for anyone who opened /settings without a session.
   useEffect(() => {
-    if (!isLoading && !isAuthenticated) router.push('/');
+    if (!DEMO_MODE && !isLoading && !isAuthenticated) router.push('/');
   }, [isLoading, isAuthenticated, router]);
 
-  const signedOut = !isLoading && !isAuthenticated;
+  const signedOut = !DEMO_MODE && !isLoading && !isAuthenticated;
+  const demoView = DEMO_MODE && !isLoading && !isAuthenticated;
+
+  // PREVIEW ONLY (NEXT_PUBLIC_PREVIEW_MODE=1 — never set in production): the
+  // staging domain is not on the Privy allowlist, so this page cannot be
+  // reviewed logged-in there. A signed-out preview renders with sample data
+  // instead of bouncing to the homepage; every mutation still asks
+  // getAccessToken() for a real token first, so nothing can act on the
+  // sample account — the buttons fail closed with "Please log in first."
+  useEffect(() => {
+    if (!demoView) return;
+    const day = 86_400_000;
+    const nextUtcMidnight = new Date(new Date().setUTCHours(24, 0, 0, 0)).toISOString();
+    setCredits({
+      balance: 4210,
+      totalDeposited: 10000,
+      totalSpent: 5790,
+      recentTransactions: [
+        { created_at: new Date(Date.now() - 3_600_000).toISOString(), type: 'spend', amount: -2, description: 'Chat, 1,834 tokens' },
+        { created_at: new Date(Date.now() - 7_200_000).toISOString(), type: 'plan_grant', amount: 300, description: 'Pro daily credits' },
+        { created_at: new Date(Date.now() - day).toISOString(), type: 'spend', amount: -6000, description: 'Pro plan, 6000 credits' },
+        { created_at: new Date(Date.now() - 2 * day).toISOString(), type: 'deposit', amount: 5000, description: 'USDC deposit' },
+      ],
+      plan: { id: 'pro', name: 'Pro', expiresAt: new Date(Date.now() + 14 * day).toISOString(), daysLeft: 14, autoRenew: true, pendingPlan: null, lapsed: false },
+      dailyGrant: { source: 'plan', total: 300, used: 37, remaining: 263, resetsAt: nextUtcMidnight },
+      config: {
+        creditsPerUsd: 1000,
+        creditsPerDollarPurchased: 500,
+        freeDailyCredits: 20,
+        plans: [
+          { id: 'pro', name: 'Pro', dailyCredits: 300, periodCredits: 6000, monthlyUsd: 12 },
+          { id: 'max', name: 'Max', dailyCredits: 750, periodCredits: 15000, monthlyUsd: 30 },
+        ],
+      },
+    });
+  }, [demoView]);
 
   const generateToken = async () => {
     setTokenGenerating(true);
@@ -573,6 +609,11 @@ export default function SettingsPage() {
       {/* Main Content */}
       <main className="pt-32 pb-24 px-4 md:px-6">
         <div className="max-w-4xl mx-auto">
+          {demoView && (
+            <div className="mb-6 rounded-xl border border-fg/15 bg-fg/[0.03] px-4 py-2.5 pixel-sans text-fg-55 text-[13px]">
+              Preview mode: sample data, signed out. Actions are disabled.
+            </div>
+          )}
           <h1 className="pixel-serif text-fg text-3xl md:text-4xl">Settings</h1>
           <p className="pixel-sans text-fg-50 text-sm mt-2">Manage your account, keys, and usage.</p>
 
