@@ -129,6 +129,19 @@ if ! (cd "$PROD" && NODE_OPTIONS="--max-old-space-size=4096" ./node_modules/.bin
   die "build failed; nothing was deployed"
 fi
 
+# The credit denomination has to match the ledger BEFORE anything serves it.
+# --if-needed exits 0 and silent when the build still prices a credit at a cent,
+# or when this database has already been migrated, so this is safe to leave here
+# permanently. It only ever acts on the one deploy that carries the repricing.
+#
+# Before restart_services, not after: the orchestrator refuses to boot against an
+# unscaled ledger (lib/denomination-guard.ts), so running this second would turn
+# the deploy's own safety net into a failed health check.
+say "checking credit denomination"
+if ! (cd "$PROD" && ./node_modules/.bin/tsx scripts/migrate-credit-redenomination.ts --if-needed); then
+  die "credit redenomination failed; nothing was restarted"
+fi
+
 say "restarting services"
 restart_services
 

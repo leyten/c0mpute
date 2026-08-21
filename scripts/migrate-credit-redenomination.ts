@@ -41,6 +41,10 @@
  */
 import Database from 'better-sqlite3';
 import path from 'path';
+// The build's own opinion of what a credit is worth. --if-needed reads it to
+// decide whether this deploy wants a scaled ledger at all, which is what makes
+// the step safe to leave in deploy.sh permanently.
+import { CREDITS_PER_USD } from '../lib/token-price';
 
 const MARKER = 'credit-redenomination-x10';
 const FACTOR = 10;
@@ -51,10 +55,22 @@ const CREDIT_COLUMNS: { table: string; columns: string[] }[] = [
   { table: 'credit_transactions', columns: ['amount'] },
   { table: 'images', columns: ['credits_charged'] },
   { table: 'staker_allowance_usage', columns: ['used'] },
+  // Added by the subscriptions release. Both hold credits and so both scale.
+  // They will usually be ABSENT when this runs at the cutover (the new build
+  // creates them lazily, after the restart that follows the migration), and the
+  // absent-table path below skips them with a note. Listed anyway so a re-run
+  // on a live database does not leave two credit columns behind.
+  { table: 'daily_allowance_usage', columns: ['used'] },
+  { table: 'plan_events', columns: ['credits'] },
 ];
 
 const argv = process.argv.slice(2);
 const dryRun = argv.includes('--dry-run');
+// --if-needed: for deploy.sh, which cannot know whether this database has been
+// migrated. Exits 0 and silent when there is nothing to do, so it is safe to run
+// on every deploy forever. Anything it does not understand still falls through
+// to the full run, which has its own aborts.
+const ifNeeded = argv.includes('--if-needed');
 
 // Accepts `--db path` and `--db=path`. A bare trailing `--db` is an error rather
 // than a silent fall back to the default, because every wrong-path failure here
@@ -174,6 +190,22 @@ function report(before: ReturnType<typeof snapshot>, after: ReturnType<typeof sn
 }
 
 function main() {
+  // --if-needed runs before the deploy's restart, on every deploy, forever. It
+  // has exactly two reasons to do nothing, and it says nothing at all in either
+  // case so a normal deploy stays quiet:
+  //
+  //   1. the build being deployed still prices a credit at a cent, so the
+  //      ledger it is about to serve must NOT be scaled;
+  //   2. the migration has already run on this database.
+  //
+  // Anything else falls through to the full run below, which keeps every one of
+  // its own aborts. Deliberately dumb: it decides whether to run, never how.
+  if (ifNeeded) {
+    if (CREDITS_PER_USD !== 1000) process.exit(0);
+    if (alreadyApplied()) process.exit(0);
+    console.log('[redenomination] --if-needed: build expects $0.001 credits, ledger is unscaled. Migrating.');
+  }
+
   console.log(`\n[redenomination] ${dbPath}`);
   console.log(`[redenomination] x${FACTOR} — 1 credit: $0.01 -> $0.001 (CREDITS_PER_USD 100 -> 1000)`);
   if (dryRun) console.log('[redenomination] DRY RUN — nothing will be written.\n');
