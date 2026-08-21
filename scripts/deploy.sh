@@ -123,6 +123,19 @@ if ! git -C "$PROD" diff --quiet "$CURRENT" "$SHA" -- package-lock.json 2>/dev/n
   (cd "$PROD" && npm ci --no-audit --no-fund) || die "npm ci failed"
 fi
 
+# Before anything is torn down: the browser worker's engine is only safe with
+# the vendored web-llm patch, and the install above is conditional on the
+# lockfile moving. Fail here rather than shipping a hang into contributors' tabs.
+# Guarded on the script existing, so deploying a ref from before it was added
+# still works. It restores $CURRENT on the way out: without that the tree sits on
+# the new SHA with the old build and the old processes, which is precisely the
+# tree/process disagreement this script exists to prevent.
+if [ -f "$PROD/scripts/check-webllm-patch.sh" ] && ! (cd "$PROD" && bash scripts/check-webllm-patch.sh); then
+  say "web-llm patch missing — restoring $CURRENT, production untouched"
+  git -C "$PROD" checkout -q --detach "$CURRENT"
+  die "web-llm patch missing in $PROD; run 'npm ci' there and redeploy"
+fi
+
 say "building"
 rm -rf "$PROD/.next-prev"
 [ -d "$PROD/.next" ] && mv "$PROD/.next" "$PROD/.next-prev"
