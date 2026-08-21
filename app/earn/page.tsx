@@ -9,7 +9,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { useWorkerEngine } from './engine/useWorkerEngine';
 import {
-  Button, CommandBox, Dot, NATIVE_RATE, PHASE, Screen, Stat, SWARM_NOTE,
+  Button, CommandBox, Dot, PHASE, Screen, Stat, SWARM_NOTE, WORKER_RATE, WORKER_RATE_UNIT,
   browserNote, useEarnControls, useNativeCommand, usePlatform,
 } from './shared';
 
@@ -68,7 +68,7 @@ export default function Earn() {
             {tab === 'browser' ? (
               <>
                 <div className="flex flex-wrap items-baseline justify-between gap-2">
-                  <span className="pixel-serif text-[24px] text-fg">{engine.model.payout.split('/')[0]} <span className="text-[13px] text-fg-45">per job</span></span>
+                  <span className="pixel-serif text-[24px] text-fg">{WORKER_RATE} <span className="text-[13px] text-fg-45">{WORKER_RATE_UNIT}</span></span>
                   {running && <span className="text-[12.5px] text-fg-45"><Dot on={engine.status === 'ready' || engine.status === 'working'} /> {PHASE[engine.status]}</span>}
                 </div>
                 <p className="mt-3 text-[14.5px] leading-relaxed text-fg-55">{browserNote(engine)}</p>
@@ -103,7 +103,7 @@ export default function Earn() {
             ) : (
               <>
                 <div className="flex flex-wrap items-baseline justify-between gap-2">
-                  <span className="pixel-serif text-[24px] text-fg">{NATIVE_RATE} <span className="text-[13px] text-fg-45">per job</span></span>
+                  <span className="pixel-serif text-[24px] text-fg">{WORKER_RATE} <span className="text-[13px] text-fg-45">{WORKER_RATE_UNIT}</span></span>
                   {online && <span className="text-[12.5px] text-fg-45"><Dot on /> Connected</span>}
                 </div>
                 <p className="mt-3 text-[14.5px] leading-relaxed text-fg-55">

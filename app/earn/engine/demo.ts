@@ -28,20 +28,32 @@ export const DEMO_NETWORK_STATS: NetworkStats = {
   avgJobDurationMs: 6100,
 };
 
-// Costed from the browser rate below, so the account figures agree with each
-// other: 388 paid jobs at $0.07 is the $27.16 lifetime.
+// Costed per token, because that is how the network bills now. A worker keeps
+// $0.63 per million output tokens (the $0.90/M rate at the base 70% share), so
+// the lifetime figure is just totalTokens x that, and the account numbers agree
+// with each other by construction rather than by a flat per-job figure that no
+// longer exists.
+//
+// The WORK is scaled up, not the rate: this is a machine that has been serving
+// for months, which is what makes a preview dashboard worth looking at. Tokens
+// per job stay at the measured ~522. Nothing here flatters the rate.
 export const DEMO_LIFETIME: WorkerLifetimeStats = {
-  totalJobs: 412,
-  paidJobs: 388,
-  totalTokens: 214930,
-  totalEarningPoints: 27160,
+  totalJobs: 41_200,
+  paidJobs: 38_800,
+  totalTokens: 21_493_000,
+  totalEarningPoints: 13_540,
 };
 
-export const DEMO_EARNINGS = { lifetime: 27.16, today: 1.82 };
+// 21.493M tokens x $0.63/M = $13.54. Today is the same slice of it as before.
+export const DEMO_EARNINGS = { lifetime: 13.54, today: 0.91 };
 
 const WORKER_ID = 'w_4f8c21ba9d3e07';
 const BENCH_TOK_PER_SEC = 20.4;
-const JOB_PAYOUT_USD = 0.07;
+// What the worker keeps per output token: $0.90 per million at the base 70%
+// share. A demo job is a few hundred tokens, so a single one is worth a
+// fraction of a cent -- which is the honest number, and the reason the headline
+// on /earn is quoted per million tokens instead of per job.
+const WORKER_USD_PER_TOKEN = (0.9 * 0.7) / 1_000_000;
 const MODEL_MB = 4312;
 
 // Cadence, in ms. Load runs ~13s so progress is visibly climbing on arrival,
@@ -123,9 +135,10 @@ export function runWorkerDemo(sink: DemoSink): () => void {
         if (cancelled) return;
         sink.tokens(TOKENS_PER_STEP);
       }
+      const jobTokens = steps * TOKENS_PER_STEP;
       sink.jobFinished(
-        { id, at, tokens: steps * TOKENS_PER_STEP, ms: Date.now() - at, status: 'completed' },
-        JOB_PAYOUT_USD,
+        { id, at, tokens: jobTokens, ms: Date.now() - at, status: 'completed' },
+        jobTokens * WORKER_USD_PER_TOKEN,
       );
       await sleep(JOB_GAP_MS);
       if (cancelled) return;

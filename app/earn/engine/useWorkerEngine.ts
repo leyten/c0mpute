@@ -71,7 +71,7 @@ const BROWSER_MAX_OUTPUT_TOKENS = 2048;
 
 // Available models
 export const AVAILABLE_MODELS = [
-  { id: 'Qwen3-8B-c0mpute-q4f16_1-MLC', name: 'Qwen3 8B c0mpute', size: '~4.3GB', speed: 'Medium', quality: 7, tier: 'premium', note: 'No refusals', isCustom: true, payout: '$0.07/job' },
+  { id: 'Qwen3-8B-c0mpute-q4f16_1-MLC', name: 'Qwen3 8B c0mpute', size: '~4.3GB', speed: 'Medium', quality: 7, tier: 'premium', note: 'No refusals', isCustom: true },
 ];
 
 export type WorkerStatus = 'offline' | 'initializing' | 'downloading' | 'connecting' | 'ready' | 'working' | 'error';
