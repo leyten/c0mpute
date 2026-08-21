@@ -34,7 +34,7 @@ import {
   schedulePlanChange,
   getCreditBalance,
 } from './db';
-import { drawAllowance, refundAllowance } from './allowance';
+import { drawAllowance, refundAllowance, getAllowanceUsed } from './allowance';
 
 export interface PlanState {
   /** What the account is on after resolution. Free is the floor, not an error. */
@@ -156,6 +156,16 @@ export function dailyGrantFor(state: PlanState): { source: 'plan' | 'free'; cred
   return state.plan === 'free'
     ? { source: 'free', credits: PLAN_SPECS.free.dailyCredits }
     : { source: 'plan', credits: PLAN_SPECS[state.plan].dailyCredits };
+}
+
+/**
+ * Credits left in today's grant. An advisory read for callers that want to know
+ * whether the grant lane is live before they commit to it; drawAllowance stays
+ * the atomic authority, so a race here just falls through to the next lane.
+ */
+export function dailyGrantRemaining(privyId: string, state: PlanState): number {
+  const grant = dailyGrantFor(state);
+  return Math.max(0, grant.credits - getAllowanceUsed(privyId, grant.source));
 }
 
 export interface DailyGrantDraw {

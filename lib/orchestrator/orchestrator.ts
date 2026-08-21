@@ -30,7 +30,7 @@ import { verifyAnonToken } from '../anon-auth';
 import { CREDITS_PER_USD } from '../token-price';
 import { getWorkerRevenueShare } from '../staking';
 import { drawStakerAllowance, recordStakerRequest, refundStakerAllowance } from '../staker-allowance';
-import { resolvePlanState, drawDailyGrant, refundDailyGrant, type DailyGrantDraw } from '../plan-state';
+import { resolvePlanState, drawDailyGrant, refundDailyGrant, dailyGrantRemaining, type DailyGrantDraw } from '../plan-state';
 import { scanOutput, BLOCKED_MESSAGE } from '../safety';
 import { AVAILABLE_TOOLS, executeToolCalls } from './tools';
 import { attachSwarmLoop } from './swarm-loop';
@@ -713,16 +713,34 @@ export class Orchestrator {
   }
 
   /**
-   * Settle a job the liveness sweep just gave up on. Every kill path the flat
-   * timeout used to run, unchanged: tell the user, give the charge back, stop
-   * and free the worker, drop the job.
+   * Settle a job the liveness sweep just gave up on: tell the user, square the
+   * money, stop and free the worker, drop the job.
+   *
+   * DELIVERY-AWARE, like every other teardown path. The rule everywhere is that
+   * the user pays for what reached them and nothing more:
+   *
+   *   nothing streamed  -> full refund, the request bought nothing
+   *   tokens streamed   -> settle at the real cost of those tokens, and the
+   *                        worker is paid its share of them
+   *
+   * The stall sweep used to refund unconditionally, which was the one path that
+   * broke the rule. Because the sweep's own silence window is
+   * `serverTokenCount ? JOB_STALL_MS : FIRST_TOKEN_MS`, the branch that fires
+   * here after a stall is BY DEFINITION a job that streamed — so the
+   * unconditional refund handed back a delivered answer in full while the worker
+   * that generated it was paid for none of it.
+   *
+   * The user is still told the job failed, because it did: the answer stopped
+   * early. Being charged for the part that arrived is the same deal every other
+   * interrupted path already gives them.
    */
   private failStalledJob(jobId: string, job: Job, reason: string) {
     const userSocket = this.io.sockets.sockets.get(job.userSocketId);
     if (userSocket) {
       userSocket.emit('job:error', { jobId, error: 'Job timed out during processing' });
     }
-    this.refundJobCharges(job, 'Job timed out during processing');
+    if (job.serverTokenCount) this.settleJobCharge(job, job.serverTokenCount);
+    else this.refundJobCharges(job, 'Job timed out during processing');
     if (job.assignedWorker) {
       const worker = this.findWorkerById(job.assignedWorker);
       if (worker) {
@@ -1179,6 +1197,26 @@ export class Orchestrator {
           const freeGrantAllowed = !isInternal
             && getTodayFreeSubsidyUsd() + projectedSubsidyUsd <= FREE_SUBSIDY_DAILY_CAP_USD
             && getThisHourFreeSubsidyUsd() + projectedSubsidyUsd <= FREE_SUBSIDY_HOURLY_CAP_USD;
+          // Admission, exactly as the welcome prompts get it: a FREE-lane job no
+          // connected worker is eligible to serve would otherwise sit in the
+          // queue until the stall timer and fail three minutes later, having
+          // spent the grant. Refuse it now instead, with the reason.
+          //
+          // Free only. What makes a job unservable is the new-account worker
+          // gate, and that applies to treasury-subsidized lanes alone — a plan
+          // grant is prepaid, so any idle worker may serve it.
+          //
+          // The remaining-credits read is advisory (the draw below stays the
+          // atomic authority), so a race just falls through to the next lane
+          // rather than refusing someone who was going to pay anyway.
+          if (freeGrantAllowed
+            && planState.plan === 'free'
+            && dailyGrantRemaining(privyUserId, planState) >= creditCost
+            && this.freeJobIsUnservable(data.model)) {
+            console.log(`[Orchestrator] Free grant refused for ${privyUserId} (${requestedTierForCredits}): no eligible worker online`);
+            callback({ error: FREE_NO_CAPACITY_MESSAGE, code: 'FREE_NO_CAPACITY' });
+            return;
+          }
           grantDraw = drawDailyGrant(privyUserId, creditCost, freeGrantAllowed, planState);
           if (grantDraw) {
             creditCost = 0;
@@ -2528,18 +2566,13 @@ export class Orchestrator {
             // the period was bought. It does NOT mean given away, and
             // subsidy_kind is what tells the two apart in reporting.
             //
-            // OPEN: plan revenue does not reach the treasury buckets. A PAYG job
-            // realises its margin as it is served (recordEarning in lib/db.ts);
-            // a plan purchase is a credit spend with no recordEarning, and the
-            // grant jobs it funds carry revenue 0, so realizeMargin sees a
-            // negative and ignores it. Booking the purchase as margin up front
-            // would credit the buyback and staker buckets money still owed to
-            // workers, so this books nothing rather than something wrong. The
-            // two credit rates make it subtler than it looks: a Pro month is $12
-            // of cash but 6,000 credits of INTERNAL value ($6), while a
-            // fully-spent month of grants can pay workers up to $7.20 — healthy
-            // against the cash, underwater against the internal value. Needs a
-            // decision on plan revenue accounting before plans carry volume.
+            // Plan economics ARE booked, just not from here. The purchase
+            // credits the plan_revenue bucket with the cash it took
+            // (creditPlanRevenue, lib/treasury-ledger.ts) and this payout is
+            // attributed by subsidy_kind (getPlanFundedPayoutsUsd, lib/db.ts);
+            // revenue minus payouts is the margin floor, on /api/admin. Nothing
+            // is realised as margin here on purpose — a plan job carries no
+            // revenue of its own, and the money it spends arrived a month ago.
             payoutCredits = job.subsidyCredits!;
             subsidized = true;
           } else {
