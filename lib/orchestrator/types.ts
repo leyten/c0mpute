@@ -335,15 +335,33 @@ export const MAX_INPUT_TOKENS_BROWSER = 1_800;
 // the same number caps the settled charge, so worker pay stays exactly a share
 // of what the user was charged no matter how long a worker keeps streaming.
 //
+// A cap here is NOT just a reservation size. Settlement clamps the charge to
+// what was held, so a cap set below what the lane can actually generate is a
+// permanent discount on every request that exceeds it, never a deferred charge —
+// and the worker, paid a share of that charge, is underpaid by the same
+// fraction. Each lane's number is therefore the most that lane can really emit.
+//
 // NATIVE: the worker's own output budget (c0mpute-worker/src/config.ts
 // MAX_OUTPUT_TOKENS), which is also the cap the orchestrator has always applied
-// to the payout token count. Thinking runs to 8192 there, and is deliberately
-// NOT reserved for: thinking tokens are ordinary output tokens, and reserving
-// double for a job that usually answers in a few hundred would hold twice the
-// credits for nothing. Anything past 4096 rides free.
+// to the payout token count.
 export const MAX_OUTPUT_TOKENS = 4096;
+// NATIVE + thinking: the worker raises its budget to 8192 when thinking is on
+// (MAX_OUTPUT_TOKENS_THINKING, same file), because the reasoning and the answer
+// share it. Billing follows. Capped at 4096 instead, a full-length thinking
+// answer would bill for half the tokens it generated — deleting the retired
+// deep-think surcharge twice over — and would pay the worker half rate for the
+// most expensive work on the network.
+export const MAX_OUTPUT_TOKENS_THINKING = 8192;
 // BROWSER: what the browser worker actually asks its model for
 // (BROWSER_MAX_OUTPUT_TOKENS in app/earn/engine/useWorkerEngine.ts). A browser
 // answer cannot exceed it, so reserving the native cap here would hold twice
-// what the lane can ever spend.
+// what the lane can ever spend. No separate thinking budget — one window serves
+// both.
 export const MAX_OUTPUT_TOKENS_BROWSER = 2048;
+// SWARM: the `maxNew` the orchestrator puts on every swarm dispatch, so an
+// honest ring cannot exceed it. Billing to the native 4096 would hold 8x what
+// the lane can spend — and because a swarm job's token count is incremented per
+// relayed frame from a coordinator that is a permissionless stranger paid out of
+// that very count, it would also leave 8x of headroom for a ring to inflate its
+// own revenue. Exported so the dispatch and the meter read one number.
+export const MAX_OUTPUT_TOKENS_SWARM = 512;

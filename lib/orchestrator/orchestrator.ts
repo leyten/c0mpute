@@ -17,7 +17,9 @@ import {
   MAX_INPUT_TOKENS_NATIVE,
   MAX_INPUT_TOKENS_BROWSER,
   MAX_OUTPUT_TOKENS,
+  MAX_OUTPUT_TOKENS_THINKING,
   MAX_OUTPUT_TOKENS_BROWSER,
+  MAX_OUTPUT_TOKENS_SWARM,
 } from './types';
 import { verifyPrivyToken } from '../privy-server';
 import { incrementPromptsSent, verifyWorkerToken, recordCompletedJob, recordEarning, spendCredits, getCreditBalance, refundCredits, isWorkerBanned, recordWorkerStrike, recordCanaryResult, consumeFreePrompt, restoreFreePrompt, getFreePromptsUsed, recordSubsidizedPrompt, getTodayFreeSubsidyUsd, getThisHourFreeSubsidyUsd, anonGrantFreePrompt, getAnonRemaining, profileHasLogin, getAccountAgeMs } from '../db';
@@ -177,12 +179,20 @@ function inputTokenBudget(model: string | undefined): number {
   return MAX_INPUT_TOKENS_BROWSER;
 }
 
-/** Billable-output ceiling for that same lane — the size of the submit-time
- *  reservation, and the cap on what settlement can charge. Same lane test as
- *  inputTokenBudget, so the two can never disagree about which lane a job is on. */
-function outputTokenCap(model: string | undefined): number {
-  if (getModelTier(model) === 'max') return MAX_OUTPUT_TOKENS;
-  if (model && specForModel(model)) return MAX_OUTPUT_TOKENS;
+/** Billable-output ceiling for the lane this job will be served on — the size of
+ *  the submit-time reservation, and the cap on what settlement can charge.
+ *  Because settlement clamps to the hold, this is a real price ceiling, not just
+ *  a reservation size: it has to be the most the lane can actually generate, or
+ *  the excess is billed to nobody and the worker is paid for none of it.
+ *
+ *  The swarm test comes FIRST here, unlike in inputTokenBudget where both
+ *  branches return the same number and the order cannot matter. A sharded model
+ *  is pro-tier by catalog, so testing the tier first would hand the swarm lane
+ *  the browser cap — and its true ceiling is neither, it is the `maxNew` the
+ *  swarm dispatch puts on every request. */
+function outputTokenCap(model: string | undefined, think?: boolean): number {
+  if (model && specForModel(model)) return MAX_OUTPUT_TOKENS_SWARM;
+  if (getModelTier(model) === 'max') return think ? MAX_OUTPUT_TOKENS_THINKING : MAX_OUTPUT_TOKENS;
   return MAX_OUTPUT_TOKENS_BROWSER;
 }
 
@@ -629,7 +639,7 @@ export class Orchestrator {
     const held = paid ? job.creditsCharged! : (job.subsidyCredits ?? 0);
     if (held <= 0) return;
 
-    const billedOutput = Math.min(Math.max(0, outputTokens), outputTokenCap(job.requestedModel));
+    const billedOutput = Math.min(Math.max(0, outputTokens), outputTokenCap(job.requestedModel, job.think));
     const actual = Math.min(textCreditCost(job.inputTokens ?? 0, billedOutput), held);
     const release = held - actual;
 
@@ -665,7 +675,7 @@ export class Orchestrator {
    * SSE frames.
    */
   private jobUsage(job: Job): JobUsage {
-    const outputTokens = Math.min(job.serverTokenCount ?? 0, outputTokenCap(job.requestedModel));
+    const outputTokens = Math.min(job.serverTokenCount ?? 0, outputTokenCap(job.requestedModel, job.think));
     const credits = (job.creditsCharged ?? 0) > 0 ? job.creditsCharged! : (job.subsidyCredits ?? 0);
     return { inputTokens: job.inputTokens ?? 0, outputTokens, credits };
   }
@@ -984,7 +994,10 @@ export class Orchestrator {
         const deepThinking = data.think === true && requestedTierForCredits === 'max';
         // The bounded array, so what we price is what the worker is shipped.
         const inputTokens = estimatePromptTokens(data.messages);
-        let creditCost = textCreditReservation(inputTokens, outputTokenCap(data.model));
+        // `data.think`, not `deepThinking`: the worker raises its output budget
+        // whenever thinking is on, so that is what decides how much can be
+        // generated — and therefore how much has to be reserved.
+        let creditCost = textCreditReservation(inputTokens, outputTokenCap(data.model, data.think === true));
         // The reservation, kept after creditCost is zeroed by a free prompt —
         // it's the basis we still pay the worker (treasury-funded), and it is
         // settled down to the real cost alongside the paid lane.
@@ -1870,7 +1883,10 @@ export class Orchestrator {
     this.swarmLoop.serveRequest({
       model,
       messages: job.messages ?? [],
-      params: { maxNew: 512, reasoning: !!job.think, tools: job.toolPassthrough ? job.clientTools : undefined },
+      // maxNew and the billing cap are one constant: a ring that could generate
+      // more than the meter bills for would be serving tokens nobody pays for,
+      // and a meter above maxNew would be headroom for a coordinator to inflate.
+      params: { maxNew: MAX_OUTPUT_TOKENS_SWARM, reasoning: !!job.think, tools: job.toolPassthrough ? job.clientTools : undefined },
       revenue,
       // A job whose charge has already been given back (user vanished before a single token,
       // swarm error) is settled: stop streaming and don't deliver an answer nobody paid for.

@@ -15,7 +15,7 @@ import {
   textCreditCost,
   textCreditReservation,
 } from '@/lib/tokenomics';
-import { MAX_INPUT_TOKENS_NATIVE, MAX_OUTPUT_TOKENS } from '@/lib/orchestrator/types';
+import { MAX_INPUT_TOKENS_NATIVE, MAX_OUTPUT_TOKENS_THINKING } from '@/lib/orchestrator/types';
 import { IMAGE_CREDITS } from '@/lib/image-gen';
 
 // How many credit transactions to return. The usage panel draws its daily
@@ -56,7 +56,7 @@ export async function GET(req: NextRequest) {
   // full-length prompt on the native lane — because that is exactly what the
   // orchestrator reserves at submit. Projecting anything smaller would show
   // prompts as live that the orchestrator then refuses.
-  const worstFreeCredits = textCreditReservation(MAX_INPUT_TOKENS_NATIVE, MAX_OUTPUT_TOKENS);
+  const worstFreeCredits = textCreditReservation(MAX_INPUT_TOKENS_NATIVE, MAX_OUTPUT_TOKENS_THINKING);
   const projectedSubsidyUsd = (worstFreeCredits / CREDITS_PER_USD) * WORKER_STAKED_REVENUE_SHARE;
   const freePromptsPaused = getTodayFreeSubsidyUsd() + projectedSubsidyUsd > FREE_SUBSIDY_DAILY_CAP_USD;
 
