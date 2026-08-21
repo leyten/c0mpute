@@ -54,19 +54,31 @@ const filterDisclaimers = (text: string): string => {
 const CUSTOM_MODELS = {
   'Qwen3-8B-c0mpute-q4f16_1-MLC': {
     url: 'https://huggingface.co/Leyten/Qwen3-8B-c0mpute-q4f16_1-MLC/resolve/main',
-    wasm: 'https://raw.githubusercontent.com/mlc-ai/binary-mlc-llm-libs/main/web-llm-models/v0_2_80/Qwen3-8B-q4f16_1-ctx4k_cs1k-webgpu.wasm',
+    // The model lib has to move with the runtime: a 0.2.80 lib does not run on
+    // the 0.2.84 engine. NOT the sg32 (subgroup) variant — measured ~1.006x
+    // mean gain, and it can silently corrupt output on GPUs whose subgroup
+    // width is not 32.
+    wasm: 'https://raw.githubusercontent.com/mlc-ai/binary-mlc-llm-libs/main/web-llm-models/v0_2_84/base/Qwen3-8B-q4f16_1_cs1k-webgpu.wasm',
   },
 };
 
-// The model lib above is ctx4k (see the wasm filename): prompt AND output share
-// one 4096-token window. Asking for 4096 output tokens therefore leaves nothing
-// for the ~166-token system prompt or any history, so long conversations get
-// truncated or refused. Half the window is what the browser path asks for. It
-// also keeps a worst-case generation inside the orchestrator's 180s
-// JOB_TIMEOUT_MS: 4096 tokens at the ~20 tok/s a browser worker manages is
-// 205s, so a maximum-length answer could never be delivered before the job was
-// timed out and refunded.
+// The 0.2.84 libs are compiled at context_window_size 40960, ten times ours.
+// That compiled value is a ceiling, not an allocation: the KV cache is sized
+// from the runtime chat config, which resolves as
+// mlc-chat-config.json < ModelRecord.overrides < chatOpts and reaches
+// createKVCache as max_total_sequence_length. The wasm metadata's own
+// context_window_size is never read. Our HF config already says 4096, but the
+// override below pins it here so a config change on the Hub can't quietly hand
+// every 6-8GB worker a ten-times-larger KV cache and OOM it.
 const BROWSER_MODEL_CTX = 4096;
+
+// Prompt AND output share that one 4096-token window. Asking for 4096 output
+// tokens therefore leaves nothing for the ~166-token system prompt or any
+// history, so long conversations get truncated or refused. Half the window is
+// what the browser path asks for. It also keeps a worst-case generation inside
+// the orchestrator's 180s JOB_TIMEOUT_MS: 4096 tokens at the ~20 tok/s a
+// browser worker manages is 205s, so a maximum-length answer could never be
+// delivered before the job was timed out and refunded.
 const BROWSER_MAX_OUTPUT_TOKENS = 2048;
 
 // Available models
@@ -394,6 +406,12 @@ export function useWorkerEngine(): WorkerEngine {
           })),
       ];
 
+      // TRIPWIRE (apache/tvm#20059, fixed upstream after 0.2.84 shipped, so in
+      // no release): sync() can return before the queue drains on any path that
+      // writes to the GPU AFTER the logits readback. Plain decode reads logits
+      // back last, so this call is safe exactly as written. Adding `logprobs`,
+      // `response_format`/structured output or a logit processor here makes the
+      // defect live — revisit before merging that.
       const response = await engineRef.current.chat.completions.create({
         messages: messagesWithSystem,
         temperature: 0.6,
@@ -451,8 +469,10 @@ export function useWorkerEngine(): WorkerEngine {
       busyRef.current = false;
       // stopWorker sets statusRef to 'offline' the instant it is called, for
       // exactly this case: a job that finishes afterwards must not put a
-      // torn-down worker back on screen as ready.
-      if (statusRef.current !== 'offline') setStatus('ready');
+      // torn-down worker back on screen as ready. Device loss clears the engine
+      // instead of the status, so check that too — otherwise the job this call
+      // just failed on a lost GPU reports the worker ready to take another.
+      if (statusRef.current !== 'offline' && engineRef.current) setStatus('ready');
       setCurrentJobId(null);
     }
   }, [sendToken, completeJob, failJob, refreshEarnings]);
@@ -497,6 +517,80 @@ export function useWorkerEngine(): WorkerEngine {
     };
   }, [setOnJobCancel]);
 
+  // Hold a Web Lock for as long as the worker runs. Chrome 133+ freezes hidden,
+  // CPU-intensive tabs after five minutes under Energy Saver, and freezing
+  // suspends timers, event handlers and promise resolvers — a background
+  // browser worker is precisely that profile. Holding a Web Lock is a
+  // documented exemption. Shared mode, so a second worker tab on the same
+  // machine is exempt too instead of queueing behind the first forever.
+  // `wanted` rather than "do we hold it": the lock is granted asynchronously, so
+  // the resolver does not exist yet at the moment a second start would want to
+  // dedupe against it, and a stop that lands before the grant would otherwise
+  // leave the tab holding a lock for a worker that is no longer running.
+  const tabLockWanted = useRef(false);
+  const tabLock = useRef<(() => void) | null>(null);
+  const holdTabLock = useCallback(() => {
+    if (tabLockWanted.current) return;
+    tabLockWanted.current = true;
+    const locks = (navigator as any)?.locks;
+    if (!locks) return;
+    locks
+      .request('compute-worker-tab', { mode: 'shared' }, () => new Promise<void>(resolve => {
+        if (!tabLockWanted.current) { resolve(); return; }
+        tabLock.current = resolve;
+      }))
+      .catch((err: unknown) => console.warn('[Worker] Web Lock unavailable:', err));
+  }, []);
+  const releaseTabLock = useCallback(() => {
+    tabLockWanted.current = false;
+    tabLock.current?.();
+    tabLock.current = null;
+  }, []);
+
+  // Device-loss tripwire. WebLLM builds its own GPUDevice and keeps it private:
+  // on loss it logs and unloads, and nothing reaches this hook — so the worker
+  // stays registered and keeps accepting jobs it can no longer run. Chrome's
+  // GPU watchdog is process-wide (30s on Windows), so any tab's bad shader
+  // loses every device on the page at once; a device of our own therefore
+  // reports the case that matters, and holds no memory of its own. Test with
+  // about:gpucrash.
+  type LostDevice = { destroy: () => void; lost: Promise<{ reason?: string; message?: string }> };
+  const watchdogDevice = useRef<LostDevice | null>(null);
+  const armDeviceLostTripwire = useCallback(async () => {
+    if (watchdogDevice.current) return;
+    try {
+      // A FRESH adapter. The one read during the WebGPU check was requested at
+      // page load and may be stale by now; an adapter that has gone stale hands
+      // back a device that is already lost.
+      const adapter = await (navigator as any).gpu?.requestAdapter();
+      const device: LostDevice | undefined = await adapter?.requestDevice();
+      if (!device) return;
+      watchdogDevice.current = device;
+      device.lost.then((info) => {
+        // stopWorker destroys the device on purpose; that resolves `lost` too.
+        if (watchdogDevice.current !== device) return;
+        watchdogDevice.current = null;
+        console.error('[Worker] GPU device lost:', info?.reason, info?.message);
+        unregisterWorker();
+        setWorkerId(null);
+        // Unwind the job loop as well as the engine. A generation in flight on
+        // a dead device may never settle, so processJob's finally may never run
+        // — and busyRef left true makes every job after a restart fail with
+        // "Worker busy" while the worker still reports ready.
+        const dead = engineRef.current;
+        engineRef.current = null;
+        try { dead?.interruptGenerate(); } catch { /* the device is gone */ }
+        busyRef.current = false;
+        setCurrentJobId(null);
+        releaseTabLock();
+        setError('The GPU was lost, so the worker stopped. Start it again, or reload the tab if it will not start.');
+        setStatus('error');
+      });
+    } catch (err) {
+      console.warn('[Worker] Could not arm the device-loss tripwire:', err);
+    }
+  }, [unregisterWorker, releaseTabLock]);
+
   // Initialize engine and connect to orchestrator
   const initializeEngine = useCallback(async () => {
     if (!webGPUSupported) {
@@ -528,6 +622,9 @@ export function useWorkerEngine(): WorkerEngine {
     setError(null);
     setLoadProgress(0);
     setLoadingText('Initializing WebLLM...');
+
+    holdTabLock();
+    await armDeviceLostTripwire();
 
     try {
       const progressCallback = (progress: InitProgressReport) => {
@@ -561,6 +658,7 @@ export function useWorkerEngine(): WorkerEngine {
                 model: modelUrl,
                 model_id: selectedModel,
                 model_lib: wasmUrl,
+                overrides: { context_window_size: BROWSER_MODEL_CTX },
               },
             ],
           },
@@ -572,7 +670,23 @@ export function useWorkerEngine(): WorkerEngine {
         });
       }
 
+      // The weights take minutes to download, and the device can die inside
+      // that window. The tripwire has already unregistered, cleared the engine
+      // and said so on screen — carrying on from here would put a worker the
+      // GPU cannot serve back on the network, with the error still displayed.
+      if (!watchdogDevice.current) {
+        try { await engine.unload(); } catch { /* the device is gone anyway */ }
+        return;
+      }
+
       engineRef.current = engine;
+
+      // Dev-only measurement hook, off unless NEXT_PUBLIC_ENGINE_PROBE=1.
+      // Dynamic so the probe is never pulled into the production bundle.
+      if (process.env.NEXT_PUBLIC_ENGINE_PROBE === '1') {
+        const { attachEngineProbe } = await import('./probe');
+        attachEngineProbe(engine);
+      }
 
       // Benchmark: measure tok/s with a short generation
       setStatus('connecting');
@@ -621,6 +735,7 @@ export function useWorkerEngine(): WorkerEngine {
       try {
         const authToken = await getAccessToken();
         if (!authToken) {
+          releaseTabLock();
           setError('Failed to get authentication token. Please log in again.');
           setStatus('error');
           return;
@@ -632,15 +747,19 @@ export function useWorkerEngine(): WorkerEngine {
         setStats(prev => ({ ...prev, uptime: 0 }));
       } catch (regErr) {
         console.error('Failed to register with orchestrator:', regErr);
+        // Every exit that is not a running worker gives the lock back. Holding
+        // it keeps the tab exempt from Energy-Saver freezing for nothing.
+        releaseTabLock();
         setError(regErr instanceof Error ? regErr.message : 'Failed to register with orchestrator');
         setStatus('error');
       }
     } catch (err) {
       console.error('Failed to initialize engine:', err);
+      releaseTabLock();
       setError(err instanceof Error ? err.message : 'Failed to initialize model');
       setStatus('error');
     }
-  }, [selectedModel, webGPUSupported, isConnected, registerWorker, getAccessToken]);
+  }, [selectedModel, webGPUSupported, isConnected, registerWorker, getAccessToken, holdTabLock, releaseTabLock, armDeviceLostTripwire]);
 
   // Re-register after a socket reconnect. Registration is keyed to the socket,
   // and the orchestrator drops the worker record on disconnect — so a loaded
@@ -700,6 +819,17 @@ export function useWorkerEngine(): WorkerEngine {
       engineRef.current = null;
     }
 
+    // Null it BEFORE destroy(): destroying resolves the device's `lost`
+    // promise, and the tripwire must read that as a deliberate stop.
+    const watchdog = watchdogDevice.current;
+    watchdogDevice.current = null;
+    try {
+      watchdog?.destroy();
+    } catch (err) {
+      console.error('[Worker] Error destroying the device-loss tripwire:', err);
+    }
+    releaseTabLock();
+
     // Force garbage collection hint (browser may or may not honor this)
     if (typeof window !== 'undefined' && (window as any).gc) {
       (window as any).gc();
@@ -707,7 +837,7 @@ export function useWorkerEngine(): WorkerEngine {
 
     setStatus('offline');
     setStats({ jobsCompleted: 0, tokensGenerated: 0, uptime: 0 });
-  }, [workerId, unregisterWorker]);
+  }, [workerId, unregisterWorker, releaseTabLock]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -718,6 +848,13 @@ export function useWorkerEngine(): WorkerEngine {
         });
         engineRef.current = null;
       }
+      const watchdog = watchdogDevice.current;
+      watchdogDevice.current = null;
+      try {
+        watchdog?.destroy();
+      } catch { /* the tab is going away anyway */ }
+      tabLock.current?.();
+      tabLock.current = null;
     };
   }, []);
 

@@ -11,6 +11,8 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+bash scripts/check-webllm-patch.sh
+
 NEXT_BIN="./node_modules/.bin/next"
 HEAP="--max-old-space-size=4096"
 WEB_SERVICE="c0mpute-web"

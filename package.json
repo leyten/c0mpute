@@ -11,11 +11,12 @@
     "start": "next start",
     "start:server": "tsx server/index.ts",
     "start:keeper": "tsx scripts/keeper.ts",
-    "lint": "eslint"
+    "lint": "eslint",
+    "postinstall": "patch-package"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.32.1",
-    "@mlc-ai/web-llm": "0.2.80",
+    "@mlc-ai/web-llm": "0.2.84",
     "@privy-io/react-auth": "^3.11.0",
     "@privy-io/server-auth": "^1.32.5",
     "@pump-fun/pump-swap-sdk": "^1.17.0",
@@ -31,6 +32,7 @@
     "lucide-react": "^0.562.0",
     "markdown-to-jsx": "^9.7.6",
     "next": "16.1.1",
+    "patch-package": "^8.0.1",
     "pdfkit": "^0.19.1",
     "postprocessing": "^6.38.2",
     "react": "19.2.3",
