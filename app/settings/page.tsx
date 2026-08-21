@@ -200,7 +200,7 @@ export default function SettingsPage() {
   const [withdrawSuccess, setWithdrawSuccess] = useState<string | null>(null);
 
   // Usage tab state
-  const [credits, setCredits] = useState<{balance: number; totalDeposited?: number; totalSpent?: number; depositWallet?: string; recentTransactions?: {created_at: string; type: string; amount: number; description: string}[]; config?: {creditsPerUsd: number}} | null>(null);
+  const [credits, setCredits] = useState<{balance: number; totalDeposited?: number; totalSpent?: number; depositWallet?: string; recentTransactions?: {created_at: string; type: string; amount: number; description: string}[]; config?: {creditsPerUsd: number; creditsPerDollarPurchased?: number}} | null>(null);
   const [usage, setUsage] = useState<{totalRequests: number; totalTokens: number; byModel: {model: string; requests: number; tokens: number}[]} | null>(null);
   const [checkingDeposit, setCheckingDeposit] = useState(false);
   const [depositResult, setDepositResult] = useState<string | null>(null);
@@ -495,8 +495,10 @@ export default function SettingsPage() {
 
   // Zero-state fallbacks: preview builds and failing APIs leave these null.
   const e = earnings ?? { pendingBalance: 0, todayEarnings: 0, totalEarnings: 0, wallet: null };
-  const CREDITS_PER_USD = credits?.config?.creditsPerUsd ?? 100; // 1 credit = $0.01
-  const topUpCredits = Math.round(Math.max(0, parseFloat(topUpUsd) || 0) * CREDITS_PER_USD);
+  // The top-up box quotes what a dollar BUYS, which is the purchase rate — not
+  // what a credit is worth when spent (config.creditsPerUsd). They differ.
+  const CREDITS_PER_DOLLAR = credits?.config?.creditsPerDollarPurchased ?? 500;
+  const topUpCredits = Math.round(Math.max(0, parseFloat(topUpUsd) || 0) * CREDITS_PER_DOLLAR);
 
   // every hook above has run by now, so bailing here is safe
   if (signedOut) return null;
@@ -893,7 +895,7 @@ export default function SettingsPage() {
                   <Card
                     title="Credits"
                     description="Credits pay for prompts and API usage."
-                    footer={<p className="pixel-sans text-fg-40 text-[11px]">1 credit = $0.01 USD.</p>}
+                    footer={<p className="pixel-sans text-fg-40 text-[11px]">A typical message costs about 1 credit.</p>}
                   >
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                       <Stat label="Balance" value={(credits?.balance ?? 0).toFixed(0)} />
@@ -949,7 +951,7 @@ export default function SettingsPage() {
                           <span className="pixel-serif text-fg text-xl tabular-nums">
                             {topUpCredits.toLocaleString()} <span className="text-fg-50 text-sm">credits</span>
                           </span>
-                          <span className="pixel-sans text-fg-40 text-[11px] tabular-nums">$1 = {CREDITS_PER_USD} credits</span>
+                          <span className="pixel-sans text-fg-40 text-[11px] tabular-nums">$1 = {CREDITS_PER_DOLLAR.toLocaleString()} credits</span>
                         </div>
                       </div>
 

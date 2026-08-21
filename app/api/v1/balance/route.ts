@@ -6,7 +6,10 @@ import { CREDITS_PER_USD } from '@/lib/token-price';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const usd = (credits: number) => Number((credits / CREDITS_PER_USD).toFixed(2));
+// Four decimals, not two: a credit is a tenth of a cent, so rounding to cents
+// reported every balance under 10 credits as $0.00 — including a balance that
+// still buys several messages.
+const usd = (credits: number) => Number((credits / CREDITS_PER_USD).toFixed(4));
 
 // GET /api/v1/balance — spendable balance for the calling API key.
 // Lets integrators (and their users) check how much inference is left before/

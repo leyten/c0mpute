@@ -88,7 +88,11 @@ export const STAKER_ALLOWANCE_ENABLED = (process.env.STAKER_ALLOWANCE_ENABLED ||
 // Total free-inference credits handed to ALL stakers per UTC day — the hard cost
 // ceiling (worst-case worker subsidy = POOL × share ÷ CREDITS_PER_USD). Start
 // small per D3; raise via env as revenue grows.
-export const STAKER_ALLOWANCE_DAILY_POOL_CREDITS = Number(process.env.STAKER_ALLOWANCE_DAILY_POOL_CREDITS || 5000);
+// Credit-denominated: redenominated x10 with CREDITS_PER_USD (the pool is still
+// $50/day of list value). A deployment overriding it in .env.local is on the OLD
+// denomination and must be multiplied by 10 with this release, or the whole
+// staker lane silently shrinks tenfold.
+export const STAKER_ALLOWANCE_DAILY_POOL_CREDITS = Number(process.env.STAKER_ALLOWANCE_DAILY_POOL_CREDITS || 50_000);
 // No single account may draw more than this fraction of the daily pool.
 export const STAKER_ALLOWANCE_MAX_SHARE = pct('STAKER_ALLOWANCE_MAX_SHARE', 0.25);
 // A staker only counts toward / draws from the pool if they've made a request

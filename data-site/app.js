@@ -3,6 +3,12 @@
    lines are hard stairsteps, fills are Bayer-dither patterns. No curves,
    no gradients, no antialiasing. */
 
+// Mirrors lib/token-price.ts CREDITS_PER_USD. Every credit figure in the
+// database is denominated in these units, historic rows included — the
+// redenomination migration rescaled them — so one divisor covers the whole
+// series.
+const CREDITS_PER_USD = 1000;
+
 const SHADES = { max: 'rgba(255,255,255,0.95)', pro: 'rgba(255,255,255,0.55)', image: 'rgba(255,255,255,0.28)', other: 'rgba(255,255,255,0.15)' };
 const GRID = 'rgba(255,255,255,0.07)';
 const TXT = 'rgba(255,255,255,0.45)';
@@ -271,9 +277,9 @@ function render() {
 
   // ---- revenue ----
   const rv = d.revenue;
-  const depositTotal = rv.depositEvents.reduce((s, e) => s + e.amount, 0) / 100;
+  const depositTotal = rv.depositEvents.reduce((s, e) => s + e.amount, 0) / CREDITS_PER_USD;
   const payoutTotal = rv.payoutEvents.reduce((s, e) => s + e.usd, 0);
-  const spendTotal = rv.spendDaily.reduce((s, e) => s + e.credits, 0) / 100;
+  const spendTotal = rv.spendDaily.reduce((s, e) => s + e.credits, 0) / CREDITS_PER_USD;
   document.getElementById('revenue-cards').innerHTML = [
     card(usd(depositTotal), 'USDC deposited (lifetime)'),
     card(usd(spendTotal), 'credits spent (lifetime)'),
@@ -287,7 +293,7 @@ function render() {
   ]);
   const depDays = dayRange(rv.depositEvents[0]?.day || daysAgo(29), today());
   const dep = seriesByDay(rv.depositEvents, depDays, null, 'amount');
-  stepLine(charts.deposits, depDays, cumulative(depDays, dep(null)).map((v) => v / 100), { fmtV: usd });
+  stepLine(charts.deposits, depDays, cumulative(depDays, dep(null)).map((v) => v / CREDITS_PER_USD), { fmtV: usd });
   const payDays = dayRange(rv.payoutEvents[0]?.day || daysAgo(29), today());
   const pay = seriesByDay(rv.payoutEvents, payDays, null, 'usd');
   stepLine(charts.payouts, payDays, cumulative(payDays, pay(null)), { fmtV: usd });

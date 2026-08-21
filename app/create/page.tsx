@@ -14,7 +14,7 @@ interface ResultImage {
   seed?: number;
 }
 
-const IMAGE_CREDITS = 20; // keep in sync with lib/image-gen IMAGE_CREDITS
+const IMAGE_CREDITS = 10; // keep in sync with lib/image-gen IMAGE_CREDITS
 const NSFW_ACK_KEY = 'c0mpute_nsfw_ack';
 const ACCENT = 'var(--steel)';
 
@@ -425,7 +425,7 @@ export default function CreatePage() {
             <div className="pixel-sans mt-2 text-xs">
               {isAuthenticated && hasFree
                 ? <span className="text-[var(--live-text)]">{freeImages} free image{(freeImages ?? 0) > 1 ? 's' : ''} left, on us</span>
-                : <span className="text-fg-45">{IMAGE_CREDITS} credits ($0.20) per image</span>}
+                : <span className="text-fg-45">{IMAGE_CREDITS} credits ($0.01) per image</span>}
               <span className="hidden text-fg-30 md:inline"> · Enter to generate, Shift and Enter for a new line · saved in this browser only</span>
             </div>
           </section>

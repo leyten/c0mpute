@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { verifyPrivyToken } from '@/lib/privy-server';
 import { getCreditBalance, getOrCreateDepositWallet, getCreditTransactions, getFreePromptsUsed, getFreeImagesUsed, getTodayFreeSubsidyUsd } from '@/lib/db';
 import { getStakerAllowanceStatus } from '@/lib/staker-allowance';
-import { CREDITS_PER_USD } from '@/lib/token-price';
+import { CREDITS_PER_USD, CREDITS_PER_DOLLAR_PURCHASED } from '@/lib/token-price';
 import { FREE_PROMPT_LIMIT, FREE_IMAGE_LIMIT, FREE_SUBSIDY_DAILY_CAP_USD, WORKER_STAKED_REVENUE_SHARE, TIER_CREDIT_COST } from '@/lib/tokenomics';
 
 // How many credit transactions to return. The usage panel draws its daily
@@ -59,7 +59,11 @@ export async function GET(req: NextRequest) {
     freeImageLimit: FREE_IMAGE_LIMIT,
     stakerAllowance,
     config: {
+      // What a credit is worth when SPENT …
       creditsPerUsd: CREDITS_PER_USD,
+      // … and what a dollar BUYS on the top-up door. Different numbers; the
+      // top-up form must quote the second one.
+      creditsPerDollarPurchased: CREDITS_PER_DOLLAR_PURCHASED,
       tierCredits: TIER_CREDIT_COST,
     },
   });
