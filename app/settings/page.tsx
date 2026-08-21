@@ -820,6 +820,9 @@ export default function SettingsPage() {
                         </p>
                       }
                     >
+                      {offers.length === 0 && (
+                        <p className="pixel-sans text-fg-40 text-[13px]">Loading plans.</p>
+                      )}
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         {offers.map((offer) => {
                           const current = !onFree && plan!.id === offer.id;
