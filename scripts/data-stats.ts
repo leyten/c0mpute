@@ -64,6 +64,38 @@ async function main() {
     `SELECT at, total, native, browser, image, busy FROM worker_snapshots ORDER BY at`
   );
 
+  // 2026-06-21 03:00 -> 06-23 08:27 UTC: a Sybil flood inflated native
+  // registrations to a capped 1,499 "workers" for almost two days. Those were
+  // not machines and a supply chart that shows them is a lie. Presentation-only
+  // correction, raw rows stay in the DB untouched: inside the incident window
+  // the NATIVE count is clamped to the straight line between the last clean
+  // sample before the ramp and the first clean one after the collapse (both
+  // ~155-160, so the line is essentially flat); genuine dips below that line
+  // pass through unchanged. Browser/image/busy were real throughout and are
+  // left alone; total is recomputed from the parts so the identity holds.
+  const ATTACK_WINDOWS: Array<[string, string]> = [
+    ['2026-06-21T03:00:00Z', '2026-06-23T08:27:00Z'],
+  ];
+  for (const [startIso, endIso] of ATTACK_WINDOWS) {
+    const startMs = Date.parse(startIso);
+    const endMs = Date.parse(endIso);
+    const before = [...workerHistory].reverse().find((r: any) => Date.parse(r.at) < startMs);
+    const after = workerHistory.find((r: any) => Date.parse(r.at) > endMs);
+    if (!before || !after) continue; // window not bracketed by clean data — leave as-is
+    const span = Date.parse(after.at) - Date.parse(before.at);
+    for (const r of workerHistory as any[]) {
+      const t = Date.parse(r.at);
+      if (t < startMs || t > endMs) continue;
+      const frac = span > 0 ? (t - Date.parse(before.at)) / span : 0;
+      const ceiling = Math.round(before.native + (after.native - before.native) * frac);
+      if (r.native > ceiling) {
+        r.native = ceiling;
+        r.total = r.native + r.browser + r.image;
+        if (r.busy > r.total) r.busy = r.total;
+      }
+    }
+  }
+
   // --- jobs / tokens / speed per day, by tier ---
   const jobsDaily = all(`
     SELECT date(completed_at) AS day, tier, COUNT(*) AS jobs, SUM(tokens_generated) AS tokens
