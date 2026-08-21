@@ -266,8 +266,13 @@ export function buyPlan(privyId: string, plan: PlanId): BuyPlanResult {
     // downgrade — you cannot be on your way up and down at once.
     autoRenew: extending ? state.autoRenew : true,
     pendingPlan: null,
+    // Only act on the period this call actually read: a string when one is
+    // running (extend or upgrade), null when the account is on Free. Two clicks
+    // that race, or a click racing a renewal in the other process, leave one
+    // winner instead of two debits.
+    ifExpiresAt: state.expiresAt,
   });
-  if (!bought) return { ok: false, error: 'Could not take the payment. Try again.' };
+  if (!bought) return { ok: false, error: 'Your plan changed while this was going through. Reload and try again.' };
 
   return { ok: true, action: kind, state: resolvePlanState(privyId), creditsSpent: cost };
 }

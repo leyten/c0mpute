@@ -1456,18 +1456,21 @@ export function purchasePlanPeriod(args: {
   /** A scheduled downgrade that this period consumed. Cleared unless set. */
   pendingPlan?: string | null;
   /**
-   * Compare-and-set on the current expiry. When given, the write only happens
-   * if the stored expires_at still matches — so a caller that decided to renew
-   * from a row it read earlier cannot act on a decision another process has
-   * already made.
+   * Compare-and-set on the state the caller read. The write only happens if the
+   * stored row still looks the way it did when the decision was made, so a
+   * caller cannot act on a period another process has already moved.
    *
-   * Auto-renew needs this. Two processes serve this app (the orchestrator and
-   * the Next.js routes) and both resolve plan state on their own requests. A
-   * plan that expires between them is read as "expired, renew it" by each, and
-   * without this guard a user who happens to load the page while sending a
-   * message is charged for two months.
+   *   a string — the row must exist with exactly this expires_at
+   *   null     — there must be NO ACTIVE period (no row, or an expired one)
+   *   omitted  — no check, for callers with no prior read to protect
+   *
+   * Both plan writes need it. Two processes serve this app (the orchestrator
+   * and the Next.js routes) and both resolve plan state on their own requests.
+   * A plan that expires between them is read as "expired, renew it" by each, so
+   * without the guard a user who loads the page while sending a message is
+   * charged for two months — and two clicks on a first purchase buy two.
    */
-  ifExpiresAt?: string;
+  ifExpiresAt?: string | null;
 }): boolean {
   ensurePlanTables();
   ensureCreditTables();
@@ -1481,7 +1484,13 @@ export function purchasePlanPeriod(args: {
         | undefined;
       // Checked INSIDE the transaction, so the row cannot move between the
       // check and the write.
-      if (!current || current.expires_at !== args.ifExpiresAt) return false;
+      if (args.ifExpiresAt === null) {
+        // The caller believed there was no active period. A row that has since
+        // become active means someone else got there first.
+        if (current && Date.parse(current.expires_at) > Date.now()) return false;
+      } else if (!current || current.expires_at !== args.ifExpiresAt) {
+        return false;
+      }
     }
     if (args.credits > 0 && !spendCredits(args.privyId, args.credits, args.description)) return false;
 
