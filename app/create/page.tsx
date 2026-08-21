@@ -276,7 +276,7 @@ export default function CreatePage() {
       <SiteNav />
 
       {/* the nav is fixed, so the studio starts below it */}
-      <main className="flex min-h-0 flex-1 flex-col gap-3 px-4 pb-4 pt-[86px] md:flex-row md:gap-4 md:px-6 md:pb-6">
+      <main className="flex min-h-0 flex-1 flex-col gap-3 px-4 pb-4 pt-[70px] md:pt-[88px] md:flex-row md:gap-4 md:px-6 md:pb-6">
         {/* Everything you have made, beside the canvas rather than below it. */}
         {history.length > 0 && (
           <aside className="flex shrink-0 gap-2 overflow-x-auto pb-1 md:w-[88px] md:flex-col md:overflow-y-auto md:overflow-x-hidden md:pb-0">

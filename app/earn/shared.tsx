@@ -121,7 +121,7 @@ export function Screen({ children }: { children: React.ReactNode }) {
     <div style={{ background: BG }}>
       <SiteNav />
       {/* the nav is fixed, so the page starts below it */}
-      <main className="flex min-h-dvh flex-col overflow-y-auto pt-[86px] md:h-dvh md:overflow-hidden">
+      <main className="flex min-h-dvh flex-col overflow-y-auto pt-[70px] md:pt-[88px] md:h-dvh md:overflow-hidden">
         {children}
       </main>
     </div>
