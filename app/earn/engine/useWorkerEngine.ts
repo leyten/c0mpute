@@ -54,19 +54,31 @@ const filterDisclaimers = (text: string): string => {
 const CUSTOM_MODELS = {
   'Qwen3-8B-c0mpute-q4f16_1-MLC': {
     url: 'https://huggingface.co/Leyten/Qwen3-8B-c0mpute-q4f16_1-MLC/resolve/main',
-    wasm: 'https://raw.githubusercontent.com/mlc-ai/binary-mlc-llm-libs/main/web-llm-models/v0_2_80/Qwen3-8B-q4f16_1-ctx4k_cs1k-webgpu.wasm',
+    // The model lib has to move with the runtime: a 0.2.80 lib does not run on
+    // the 0.2.84 engine. NOT the sg32 (subgroup) variant — measured ~1.006x
+    // mean gain, and it can silently corrupt output on GPUs whose subgroup
+    // width is not 32.
+    wasm: 'https://raw.githubusercontent.com/mlc-ai/binary-mlc-llm-libs/main/web-llm-models/v0_2_84/base/Qwen3-8B-q4f16_1_cs1k-webgpu.wasm',
   },
 };
 
-// The model lib above is ctx4k (see the wasm filename): prompt AND output share
-// one 4096-token window. Asking for 4096 output tokens therefore leaves nothing
-// for the ~166-token system prompt or any history, so long conversations get
-// truncated or refused. Half the window is what the browser path asks for. It
-// also keeps a worst-case generation inside the orchestrator's 180s
-// JOB_TIMEOUT_MS: 4096 tokens at the ~20 tok/s a browser worker manages is
-// 205s, so a maximum-length answer could never be delivered before the job was
-// timed out and refunded.
+// The 0.2.84 libs are compiled at context_window_size 40960, ten times ours.
+// That compiled value is a ceiling, not an allocation: the KV cache is sized
+// from the runtime chat config, which resolves as
+// mlc-chat-config.json < ModelRecord.overrides < chatOpts and reaches
+// createKVCache as max_total_sequence_length. The wasm metadata's own
+// context_window_size is never read. Our HF config already says 4096, but the
+// override below pins it here so a config change on the Hub can't quietly hand
+// every 6-8GB worker a ten-times-larger KV cache and OOM it.
 const BROWSER_MODEL_CTX = 4096;
+
+// Prompt AND output share that one 4096-token window. Asking for 4096 output
+// tokens therefore leaves nothing for the ~166-token system prompt or any
+// history, so long conversations get truncated or refused. Half the window is
+// what the browser path asks for. It also keeps a worst-case generation inside
+// the orchestrator's 180s JOB_TIMEOUT_MS: 4096 tokens at the ~20 tok/s a
+// browser worker manages is 205s, so a maximum-length answer could never be
+// delivered before the job was timed out and refunded.
 const BROWSER_MAX_OUTPUT_TOKENS = 2048;
 
 // Available models
@@ -394,6 +406,12 @@ export function useWorkerEngine(): WorkerEngine {
           })),
       ];
 
+      // TRIPWIRE (apache/tvm#20059, fixed upstream after 0.2.84 shipped, so in
+      // no release): sync() can return before the queue drains on any path that
+      // writes to the GPU AFTER the logits readback. Plain decode reads logits
+      // back last, so this call is safe exactly as written. Adding `logprobs`,
+      // `response_format`/structured output or a logit processor here makes the
+      // defect live — revisit before merging that.
       const response = await engineRef.current.chat.completions.create({
         messages: messagesWithSystem,
         temperature: 0.6,
@@ -561,6 +579,7 @@ export function useWorkerEngine(): WorkerEngine {
                 model: modelUrl,
                 model_id: selectedModel,
                 model_lib: wasmUrl,
+                overrides: { context_window_size: BROWSER_MODEL_CTX },
               },
             ],
           },
