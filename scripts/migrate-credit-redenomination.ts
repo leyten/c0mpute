@@ -55,12 +55,44 @@ const CREDIT_COLUMNS: { table: string; columns: string[] }[] = [
 
 const argv = process.argv.slice(2);
 const dryRun = argv.includes('--dry-run');
-const dbArg = argv.indexOf('--db');
-const dbPath = dbArg >= 0 && argv[dbArg + 1]
-  ? path.resolve(argv[dbArg + 1])
-  : path.join(process.cwd(), 'data', 'c0mpute.db');
 
-const db = new Database(dbPath);
+// Accepts `--db path` and `--db=path`. A bare trailing `--db` is an error rather
+// than a silent fall back to the default, because every wrong-path failure here
+// has to be loud — see the fileMustExist note below.
+function parseDbArg(): string | null {
+  const eq = argv.find((a) => a.startsWith('--db='));
+  if (eq) {
+    const v = eq.slice('--db='.length);
+    if (!v) { console.error('[redenomination] --db= given with no path.'); process.exit(1); }
+    return v;
+  }
+  const i = argv.indexOf('--db');
+  if (i === -1) return null;
+  const v = argv[i + 1];
+  if (!v || v.startsWith('-')) { console.error('[redenomination] --db given with no path.'); process.exit(1); }
+  return v;
+}
+
+const explicitDb = parseDbArg();
+const dbPath = explicitDb ? path.resolve(explicitDb) : path.join(process.cwd(), 'data', 'c0mpute.db');
+
+// fileMustExist, and it is the most important line in this file. Without it
+// better-sqlite3 CREATES an empty database at whatever path it is handed; every
+// table then reads as "not present", and the run prints a wall of skips followed
+// by "Done. Marker written." That is the worst outcome available: the deploy
+// proceeds with CREDITS_PER_USD at 1000 against an unscaled ledger, every stored
+// balance quietly loses 90% of its value, and the marker turns the retry into a
+// no-op. The default path is gitignored and absent from a fresh worktree, so
+// this is the likely mistake rather than an exotic one.
+let db: Database.Database;
+try {
+  db = new Database(dbPath, { fileMustExist: true });
+} catch {
+  console.error(`\n[redenomination] ABORT — no database at ${dbPath}`);
+  console.error('  Nothing was created and nothing was written. Point --db at the live');
+  console.error('  database and re-run.\n');
+  process.exit(1);
+}
 db.pragma('journal_mode = WAL');
 
 function tableExists(name: string): boolean {
@@ -153,6 +185,25 @@ function main() {
     return;
   }
 
+  // A real database has a ledger in it. If NONE of the credit tables exist we
+  // are pointed at the wrong file — a fresh, a partially-initialised, or some
+  // other service's database. Skipping every table and then reporting success
+  // is how a deploy proceeds against an unscaled ledger, so refuse instead. An
+  // installation that genuinely has no credit tables has nothing to migrate and
+  // loses nothing by being told to check the path.
+  const present = CREDIT_COLUMNS.filter(({ table }) => tableExists(table)).map(({ table }) => table);
+  if (present.length === 0) {
+    console.error('[redenomination] ABORT — this database has none of the credit tables:');
+    for (const { table } of CREDIT_COLUMNS) console.error(`    ${table}`);
+    console.error('  Almost certainly the wrong --db path. Nothing was written.\n');
+    process.exitCode = 1;
+    return;
+  }
+  const missing = CREDIT_COLUMNS.filter(({ table }) => !tableExists(table)).map(({ table }) => table);
+  if (missing.length > 0) {
+    console.warn(`[redenomination] NOTE — absent (will be skipped): ${missing.join(', ')}`);
+  }
+
   const fractional = nonIntegralIntegerColumns();
   if (fractional.length > 0) {
     console.error('[redenomination] ABORT — integer credit columns hold fractional values:');
@@ -192,10 +243,17 @@ function main() {
       const info = db.prepare(`UPDATE ${table} SET ${sets}`).run();
       console.log(`[redenomination] ${table}: ${info.changes} row(s) x${FACTOR} (${columns.join(', ')})`);
     }
+    // The note records the factor and the denomination it puts the ledger in.
+    // There is no down-migration: rolling lib/token-price.ts back to 100 without
+    // dividing the ledger makes every balance worth 10x, and an operator finding
+    // only "already applied" has no way to tell which side of the change the
+    // data is on. This line is what tells them.
     db.prepare('INSERT INTO schema_migrations (name, applied_at, note) VALUES (?, ?, ?)').run(
       MARKER,
       new Date().toISOString(),
-      `multiplied every credit-denominated column by ${FACTOR}`
+      `multiplied every credit-denominated column by ${FACTOR}; ledger is now denominated `
+        + `at CREDITS_PER_USD=1000 (1 credit = $0.001). Rolling the code back to 100 REQUIRES `
+        + `dividing these same columns by ${FACTOR} and deleting this row.`
     );
   });
 
