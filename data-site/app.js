@@ -24,7 +24,7 @@ const CREDITS_PER_USD = 1000;
 // real deposits accumulate.
 const CREDITS_PER_DOLLAR_PURCHASED = 500;
 
-const SHADES = { max: 'rgba(255,255,255,0.95)', pro: 'rgba(255,255,255,0.55)', image: 'rgba(255,255,255,0.28)', other: 'rgba(255,255,255,0.15)' };
+const SHADES = { native: 'rgba(255,255,255,0.95)', browser: 'rgba(255,255,255,0.55)', max: 'rgba(255,255,255,0.95)', pro: 'rgba(255,255,255,0.55)', image: 'rgba(255,255,255,0.28)', other: 'rgba(255,255,255,0.15)' };
 const GRID = 'rgba(255,255,255,0.07)';
 const TXT = 'rgba(255,255,255,0.45)';
 const tooltip = document.getElementById('tooltip');
@@ -237,8 +237,8 @@ function render() {
   const mk = d.zero.market;
   document.getElementById('live-cards').innerHTML = [
     card(lv.workersOnline, 'workers online', true),
-    card(lv.byType.native, 'max (native gpu)', true),
-    card(lv.byType.browser, 'pro (browser)', true),
+    card(lv.byType.native, 'native (gpu)', true),
+    card(lv.byType.browser, 'browser', true),
     card(lv.byType.image, 'image', true),
     card(lv.busy + '<small>/' + lv.workersOnline + '</small>', 'busy now'),
     card(mk ? '$' + (mk.priceUsd != null ? mk.priceUsd.toFixed(7) : '–') : '–', '$ZERO price'),
@@ -250,8 +250,11 @@ function render() {
   const days30 = dayRange(daysAgo(29), today());
   const jb = seriesByDay(d.network.jobsDaily, days30, 'tier', 'jobs');
   pixelBars(charts.jobs, days30, [
-    { key: 'max', values: jb('max') },
-    { key: 'pro', values: jb('pro') },
+    // job rows keep their stored tier values ('max'/'pro'); the network
+    // retired those as user-facing names, so the display keys say what the
+    // workers actually are.
+    { key: 'native', values: jb('max') },
+    { key: 'browser', values: jb('pro') },
     { key: 'image', values: jb('image') },
   ]);
   const tk = seriesByDay(d.network.jobsDaily, days30, null, 'tokens');
@@ -311,8 +314,8 @@ function render() {
   ].join('');
   const spd = seriesByDay(rv.spendDaily, days30, 'tier', 'credits');
   pixelBars(charts.spend, days30, [
-    { key: 'max', values: spd('max') },
-    { key: 'pro', values: spd('pro') },
+    { key: 'native', values: spd('max') },
+    { key: 'browser', values: spd('pro') },
     { key: 'image', values: spd('image') },
   ]);
   const depDays = dayRange(rv.depositEvents[0]?.day || daysAgo(29), today());
