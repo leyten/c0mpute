@@ -19,8 +19,7 @@ import {
 } from './config.js';
 import {
   MODEL_LABEL,
-  MLX_BASE_MODEL,
-  MLX_MIN_MEMORY_GB,
+  MAC_MIN_MEMORY_GB,
   GGUF_BASE_URL,
   GGUF_VISION_FILE,
   GGUF_VISION_BYTES,
@@ -31,16 +30,15 @@ import { checkOllama, modelExists } from './inference.js';
 
 // Parameters baked into the custom model. Change any of these and updated
 // workers automatically rebuild their local model to match — no manual
-// `ollama rm` needed (see modelConfigCurrent). num_gpu is GGUF-only (#3732
-// derived-model workaround; meaningless to the MLX engine). The draft/MTP
-// parameter is variant-derived and lives in the Modelfile, not here: the
-// variant is part of the model NAME, so it can never drift silently.
+// `ollama rm` needed (see modelConfigCurrent). The draft/MTP parameter is
+// variant-derived and lives in the Modelfile, not here: the variant is part
+// of the model NAME, so it can never drift silently.
 const MODEL_PARAMETERS: Record<string, number> = {
   temperature: 0.6,
   top_k: 20,
   top_p: 0.95,
-  num_ctx: NUM_CTX,    // VRAM-adaptive (see pickGgufVariant / MLX_NUM_CTX)
-  ...(IS_APPLE_SILICON ? {} : { num_gpu: 999 }), // Force GPU offloading — ollama bug #3732
+  num_ctx: NUM_CTX,    // VRAM-adaptive (see pickGgufVariant)
+  num_gpu: 999,        // Force full GPU/Metal offloading — ollama bug #3732
 };
 
 /** Downloaded GGUF files live here and STAY here: a config-drift rebuild
@@ -290,11 +288,12 @@ async function checkOllamaVersion(): Promise<void> {
 function validateHardware(): void {
   if (IS_APPLE_SILICON) {
     const memGb = os.totalmem() / 2 ** 30;
-    // ~19GB resident on a GPU-wired ceiling — a 24GB Mac thrashes, a 16GB one
-    // won't load. Fail with the requirement, not a mid-download OOM.
-    if (memGb < MLX_MIN_MEMORY_GB - 1) {
+    // ~16.5GB of weights resident on a GPU-wired ceiling — a 24GB Mac
+    // thrashes, a 16GB one won't load. Fail with the requirement, not a
+    // mid-download OOM.
+    if (memGb < MAC_MIN_MEMORY_GB - 1) {
       throw new Error(
-        `${MODEL_LABEL} needs a ${MLX_MIN_MEMORY_GB}GB+ unified-memory Mac (this one has ${Math.round(memGb)}GB).`
+        `${MODEL_LABEL} needs a ${MAC_MIN_MEMORY_GB}GB+ unified-memory Mac (this one has ${Math.round(memGb)}GB).`
       );
     }
     return;
@@ -310,7 +309,7 @@ function validateHardware(): void {
 
 /**
  * Ensure ollama is installed, running, new enough, and the local model for
- * this box (GGUF variant or MLX build) is built and ready.
+ * this box is built and ready.
  */
 export async function ensureSetup(): Promise<void> {
   validateHardware();
@@ -319,12 +318,12 @@ export async function ensureSetup(): Promise<void> {
   console.log('Ollama: connected');
   await checkOllamaVersion();
 
-  if (IS_APPLE_SILICON) {
-    console.log(`Backend: MLX (Apple Silicon) · context window: ${NUM_CTX} tokens`);
-  } else if (!OLLAMA_BASE_MODEL) {
+  if (!OLLAMA_BASE_MODEL) {
     console.log(
-      `Backend: GGUF ${GGUF_VARIANT!.weightsFile} · context window: ${NUM_CTX} tokens ` +
-      `(detected VRAM: ${DETECTED_VRAM_MB || 'unknown'} MB)`
+      IS_APPLE_SILICON
+        ? `Backend: GGUF ${GGUF_VARIANT!.weightsFile} on Metal · context window: ${NUM_CTX} tokens`
+        : `Backend: GGUF ${GGUF_VARIANT!.weightsFile} · context window: ${NUM_CTX} tokens ` +
+          `(detected VRAM: ${DETECTED_VRAM_MB || 'unknown'} MB)`
     );
     if (GGUF_VARIANT!.key === 'split') {
       console.log('Multi-GPU layer split: noMTP build, speculative decoding off.');
@@ -350,7 +349,7 @@ export async function ensureSetup(): Promise<void> {
       return;
     }
     // A newer worker version changed the model config — rebuild. GGUF rebuilds
-    // reuse the files kept in MODELS_DIR; MLX rebuilds reuse the pulled base.
+    // reuse the files kept in MODELS_DIR.
     console.log(`Model: ${OLLAMA_MODEL} config out of date — rebuilding...`);
     await buildModel();
     console.log(`Model: ${OLLAMA_MODEL} (rebuilt)`);
@@ -373,19 +372,6 @@ async function buildModel(): Promise<void> {
     // Testing escape hatch (C0MPUTE_BASE_MODEL): the old registry-pull path.
     await pullBase(OLLAMA_BASE_MODEL);
     await createFromBase(OLLAMA_BASE_MODEL);
-    return;
-  }
-  if (IS_APPLE_SILICON) {
-    try {
-      await pullBase(MLX_BASE_MODEL);
-    } catch (e: any) {
-      throw new Error(
-        `${e?.message || e}\n` +
-        `  Could not fetch the MLX build (${MLX_BASE_MODEL}).\n` +
-        '  Make sure ollama is current (brew upgrade ollama) — the MLX engine ships with recent Apple Silicon builds — then re-run the worker.'
-      );
-    }
-    await createFromBase(MLX_BASE_MODEL);
     return;
   }
   await createFromModelfile(GGUF_VARIANT!);

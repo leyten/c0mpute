@@ -15,7 +15,9 @@ single-model swap:
 - Self-packaged GGUF from a pinned HF revision (weights + vision projector,
   RENDERER/PARSER Modelfile, MTP speculative decoding on CUDA single-GPU),
   VRAM quant ladder (24GB Q4_K_M / 16GB IQ4_XS / layer-split noMTP), and a
-  new MLX path on Apple Silicon (ollama MLX engine, 4-bit).
+  Apple Silicon on the GGUF noMTP build via Metal (2.9.1 — the 2.9.0 MLX
+  pull 400'd in the field; ollama's hf.co ingestion is GGUF-only, and the
+  faster mlx-vlm backend is a planned upgrade).
 - Ollama version floor **0.32.15** checked at startup with a plain
   "upgrade ollama" message (old versions 500 cryptically; 0.32.14's CUDA
   build ran RTX 30xx on CPU).

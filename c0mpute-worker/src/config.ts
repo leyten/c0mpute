@@ -13,9 +13,9 @@ export const OLLAMA_URL = `http://127.0.0.1:${OLLAMA_PORT}`;
 // A worker runs THE model — Qwen3.8 27B Uncensored, the network's single
 // public model. Which build it runs is platform-derived here, once, so every
 // module (setup, inference, registration) sees the same picture:
-// Apple Silicon → the MLX build via ollama's MLX engine; everything else →
-// a GGUF variant picked from VRAM (see models.ts).
-import { MODEL_NAME, MLX_NUM_CTX, pickGgufVariant, GgufVariant } from './models.js';
+// Apple Silicon → the GGUF noMTP build on Metal; everything else → a GGUF
+// variant picked from VRAM (see models.ts).
+import { MODEL_NAME, METAL, pickGgufVariant, GgufVariant } from './models.js';
 import { detectGpuVramMB } from './gpus.js';
 
 export const IS_APPLE_SILICON = process.platform === 'darwin' && process.arch === 'arm64';
@@ -35,16 +35,16 @@ export const GPU_VRAM_MB = IS_APPLE_SILICON ? [] : detectGpuVramMB(GPU_PIN);
 /** Largest single card — what an unsplit model actually lands on. */
 export const DETECTED_VRAM_MB = GPU_VRAM_MB.length ? Math.max(...GPU_VRAM_MB) : 0;
 
-/** GGUF variant for this box (null on Apple Silicon — and null when the
+/** GGUF variant for this box (the Metal build on Apple Silicon; null when the
  *  detected VRAM is under the floor, which ensureSetup turns into a plain
  *  hardware-requirements error before anything downloads). */
 export const GGUF_VARIANT: GgufVariant | null =
-  IS_APPLE_SILICON ? null : pickGgufVariant(GPU_VRAM_MB);
+  IS_APPLE_SILICON ? METAL : pickGgufVariant(GPU_VRAM_MB);
 
 /** The context window this worker actually runs with — baked into the model
  *  (and rebuilt if it ever drifts, see setup.ts), so it's the effective
  *  window, not an intent. Reported at registration. */
-export const NUM_CTX = IS_APPLE_SILICON ? MLX_NUM_CTX : (GGUF_VARIANT?.numCtx ?? 8192);
+export const NUM_CTX = GGUF_VARIANT?.numCtx ?? 8192;
 
 /** Local ollama model name (the custom model setup.ts builds). Variant- AND
  *  ctx-suffixed: per-GPU workers share ~/.ollama, and two cards that agree on
@@ -52,11 +52,9 @@ export const NUM_CTX = IS_APPLE_SILICON ? MLX_NUM_CTX : (GGUF_VARIANT?.numCtx ??
  *  otherwise rebuild one name back and forth forever — each round a full
  *  multi-minute GGUF re-import. */
 export const OLLAMA_MODEL = process.env.C0MPUTE_OLLAMA_MODEL
-  || (IS_APPLE_SILICON
-    ? `compute-qwen38-mlx-${MLX_NUM_CTX / 1024}k`
-    : `compute-qwen38-${GGUF_VARIANT?.key ?? 'q4km'}-${(GGUF_VARIANT?.numCtx ?? 8192) / 1024}k`);
+  || `compute-qwen38-${GGUF_VARIANT?.key ?? 'q4km'}-${(GGUF_VARIANT?.numCtx ?? 8192) / 1024}k`;
 
-/** Escape hatch for testing: when set, setup skips the packaged GGUF/MLX build
+/** Escape hatch for testing: when set, setup skips the packaged GGUF build
  *  and takes the old pull-a-registry-base + create path with this base. */
 export const OLLAMA_BASE_MODEL = process.env.C0MPUTE_BASE_MODEL || '';
 
