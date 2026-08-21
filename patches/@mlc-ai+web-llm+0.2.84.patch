@@ -1,0 +1,13 @@
+diff --git a/node_modules/@mlc-ai/web-llm/lib/index.js b/node_modules/@mlc-ai/web-llm/lib/index.js
+index 17d1d18..42969af 100644
+--- a/node_modules/@mlc-ai/web-llm/lib/index.js
++++ b/node_modules/@mlc-ai/web-llm/lib/index.js
+@@ -5047,7 +5047,7 @@ fn fragment_clear(@location(0) uv : vec2<f32>) -> @location(0) vec4<f32> {
+ 		     *     that reference the old buffer stale.
+ 		     */
+ 		    class CacheState {
+-		        constructor(shapeCacheSize = 256) {
++		        constructor(shapeCacheSize = Infinity) {
+ 		            this.shapeCache = new LRUCache(shapeCacheSize, (_key, value) => value.dispose());
+ 		        }
+ 		        /**
