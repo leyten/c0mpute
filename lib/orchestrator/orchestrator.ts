@@ -2110,6 +2110,10 @@ export class Orchestrator {
   // a failure the network owes the user for.
   private blockJobForSafety(job: Job) {
     const jobId = job.id;
+    // Not refunded, but still settled: no completion path runs after this, so
+    // without it the user would keep paying the worst-case reservation for a job
+    // that stopped the moment the scan tripped. They pay for what was generated.
+    this.settleJobCharge(job, job.serverTokenCount ?? 0);
     const userSocket = this.io.sockets.sockets.get(job.userSocketId);
     if (userSocket) userSocket.emit('job:error', { jobId, error: BLOCKED_MESSAGE });
     const worker = job.assignedWorker ? this.findWorkerById(job.assignedWorker) : undefined;
@@ -2337,8 +2341,11 @@ export class Orchestrator {
           tokensGenerated: cappedTokens,
           durationMs: duration > 0 ? duration : undefined,
         });
-        // Worker pay basis. Paid jobs pay out of their own revenue. Free-prompt
-        // jobs (revenue 0) still pay the worker the tier list price, funded by
+        // Worker pay basis. Both figures are the SETTLED per-token cost — the
+        // reservation was resolved at the top of this method — so the worker's
+        // cut is a share of what the user actually paid, and the treasury's
+        // subsidy is what the job actually cost. Paid jobs pay out of their own
+        // revenue. Free-prompt jobs (revenue 0) still pay the worker, funded by
         // the treasury — but only when it's not a self-deal (worker serving
         // their own prompt) and the private daily subsidy cap has room, so a
         // sybil farm can't drain the treasury overnight.
