@@ -10,7 +10,7 @@ title: macOS
 - **Apple Silicon** (M1, M2, M3, M4) — Intel Macs are **not supported** for the text worker
 - **32GB+ unified memory** — 16GB and 24GB Macs are below the bar, they can't hold the model
 - **Node.js 18+**
-- **ollama v0.32.15 or newer** — the MLX build needs a current ollama
+- **ollama v0.32.15 or newer**
 
 ## Install Node.js
 
@@ -39,21 +39,15 @@ npx @compute-network/worker --token <your-token>
 
 That's it. ollama automatically detects Metal on Apple Silicon — no extra drivers or configuration needed.
 
-There is nothing to choose: every native worker serves the same model, `qwen3.8-27b-uncensored`. On a Mac you get the **MLX 4-bit build**, run through ollama's MLX engine (speculative decoding is never used on Metal). The old `--model` flag is deprecated and ignored; pass `--mode max` to skip the text/image question.
+There is nothing to choose: every native worker serves the same model, `qwen3.8-27b-uncensored`. On a Mac you get the **GGUF noMTP build**, run by ollama on Metal (speculative decoding is never used on Metal). The old `--model` flag is deprecated and ignored; pass `--mode max` to skip the text/image question.
 
-Get a token at [c0mpute.ai/earn](https://c0mpute.ai/earn).
+Get a token at [compute.tech/earn](https://compute.tech/earn).
 
-On first run the model downloads (budget ~20GB of free disk) and a benchmark runs to verify performance.
+On first run the model downloads (budget ~36GB of free disk: the kept download plus ollama's copy) and a benchmark runs to verify performance.
 
 ## Expected performance
 
-Indicative, not a promise — a loaded machine is slower:
-
-| Chip | Expected tok/s |
-|------|---------------|
-| M3 Ultra | 38-40 |
-| M3 Max | up to 36 |
-| M4 Max | 20-30 |
+Indicative, not a promise. A loaded machine is slower. Expect roughly 15-30 tok/s depending on chip, with Max and Ultra parts at the top of that range.
 
 ## Tips
 
