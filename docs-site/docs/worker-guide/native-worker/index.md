@@ -49,7 +49,7 @@ The worker picks the build from the hardware it finds. There is nothing to confi
 | NVIDIA, 16GB | GGUF IQ4_XS | Yes |
 | Several small NVIDIA cards, none big enough alone | one layer-split worker (noMTP build) | No |
 | AMD, 24GB+ | GGUF Q4_K_M | No |
-| Apple Silicon, 32GB+ | MLX 4-bit, via ollama's MLX engine | No (never on Metal) |
+| Apple Silicon, 32GB+ | GGUF noMTP Q4_K_M, on Metal | No (never on Metal) |
 
 Speculative decoding uses the model's own MTP head — it's lossless (same output, just fewer forward passes) and up to ~2.4x faster on code-heavy jobs.
 

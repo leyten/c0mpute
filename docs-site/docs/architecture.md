@@ -46,7 +46,7 @@ Run as a Node.js process that drives a local ollama instance for inference with 
 - **Metal** — Apple Silicon
 - **Vulkan** — AMD and Intel GPUs
 
-Native workers serve the network's text model, **Qwen3.8 27B Uncensored** (`qwen3.8-27b-uncensored`) — every worker runs the same build, auto-selected for its hardware (GGUF on NVIDIA/AMD, MLX on Apple Silicon). They authenticate with a worker token and connect to the orchestrator via Socket.io.
+Native workers serve the network's text model, **Qwen3.8 27B Uncensored** (`qwen3.8-27b-uncensored`) — every worker runs the same build, auto-selected for its hardware (GGUF everywhere: CUDA on NVIDIA, ROCm on AMD, Metal on Apple Silicon). They authenticate with a worker token and connect to the orchestrator via Socket.io.
 
 ### Image workers (ComfyUI)
 
