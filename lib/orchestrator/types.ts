@@ -148,6 +148,23 @@ export interface ChatMessage {
   tool_name?: string;
 }
 
+/**
+ * What a finished job was actually BILLED on — not an estimate made anywhere
+ * else. `inputTokens` is the count measured at submit, after history trimming,
+ * so it is the prompt the worker really received; `outputTokens` is the
+ * orchestrator's own count of streamed tokens, capped at the lane's output
+ * ceiling; `credits` is the settled charge those two produced.
+ *
+ * Exists so the public API can report a `usage` block that agrees with the
+ * ledger. Optional on the wire: a job that ends on a rejection path is torn down
+ * without one, and no client may assume it is there.
+ */
+export interface JobUsage {
+  inputTokens: number;
+  outputTokens: number;
+  credits: number;
+}
+
 // Socket event types
 export interface ServerToClientEvents {
   'job:searching': (data: { jobId: string }) => void;
@@ -161,8 +178,8 @@ export interface ServerToClientEvents {
   'job:file': (data: { jobId: string; name: string; mime: string; data: string }) => void;
   'job:assigned': (data: { jobId: string; workerId: string }) => void;
   'job:token': (data: { jobId: string; token: string }) => void;
-  'job:complete': (data: { jobId: string; response: string }) => void;
-  'job:tool_calls': (data: { jobId: string; toolCalls: ToolCall[] }) => void;
+  'job:complete': (data: { jobId: string; response: string; usage?: JobUsage }) => void;
+  'job:tool_calls': (data: { jobId: string; toolCalls: ToolCall[]; usage?: JobUsage }) => void;
   'job:error': (data: { jobId: string; error: string }) => void;
   'queue:position': (data: { position: number }) => void;
   'job:new': (data: { jobId: string; messages?: ChatMessage[]; tools?: ToolDefinition[]; think?: boolean }) => void;

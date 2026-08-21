@@ -7,6 +7,7 @@ import {
   ChatMessage,
   ToolCall,
   ToolDefinition,
+  JobUsage,
   ServerToClientEvents,
   ClientToServerEvents,
   NetworkStats,
@@ -654,6 +655,19 @@ export class Orchestrator {
     // never charged.
     const swarmRevenue = this.swarmRevenue.get(job.id);
     if (swarmRevenue) swarmRevenue.credits = actual;
+  }
+
+  /**
+   * What this job was billed on, for the public API's `usage` block. Read AFTER
+   * settlement, so it reports the charge that was actually taken rather than an
+   * estimate made somewhere else — the API's own chars/4 count is taken before
+   * the orchestrator trims history, and its "completion tokens" is a count of
+   * SSE frames.
+   */
+  private jobUsage(job: Job): JobUsage {
+    const outputTokens = Math.min(job.serverTokenCount ?? 0, outputTokenCap(job.requestedModel));
+    const credits = (job.creditsCharged ?? 0) > 0 ? job.creditsCharged! : (job.subsidyCredits ?? 0);
+    return { inputTokens: job.inputTokens ?? 0, outputTokens, credits };
   }
 
   /**
@@ -1362,13 +1376,14 @@ export class Orchestrator {
   private handlePassthroughToolCalls(workerSocket: Socket, job: Job, toolCalls: ToolCall[]) {
     const jobId = job.id;
 
-    const userSocket = this.io.sockets.sockets.get(job.userSocketId);
-    if (userSocket) userSocket.emit('job:tool_calls', { jobId, toolCalls });
-
     // A tool-call round is a completed billable turn — the worker generated the
     // call and is paid for it below — so its reservation settles here, on the
-    // tokens it actually produced.
+    // tokens it actually produced. Ahead of the emit, so the usage the caller is
+    // handed is the charge that was actually taken.
     this.settleJobCharge(job, job.serverTokenCount || 0);
+
+    const userSocket = this.io.sockets.sockets.get(job.userSocketId);
+    if (userSocket) userSocket.emit('job:tool_calls', { jobId, toolCalls, usage: this.jobUsage(job) });
 
     const worker = job.assignedWorker ? this.findWorkerById(job.assignedWorker) : undefined;
     if (worker) {
@@ -1868,7 +1883,7 @@ export class Orchestrator {
         // happen before fin() drops the frozen revenue the stages settle from.
         this.settleJobCharge(job, job.serverTokenCount ?? 0);
         probeGarbagePrefix(response, job.id, () => ({ workerId: `swarm:${model}`, model }));
-        userSocket()?.emit('job:complete', { jobId: job.id, response }); fin();
+        userSocket()?.emit('job:complete', { jobId: job.id, response, usage: this.jobUsage(job) }); fin();
       },
       onError: (message) => {
         // a swarm that never served owes nothing — refund the charge (classic jobs already refund
@@ -2369,7 +2384,7 @@ export class Orchestrator {
 
     const userSocket = this.io.sockets.sockets.get(job.userSocketId);
     if (userSocket) {
-      userSocket.emit('job:complete', { jobId, response });
+      userSocket.emit('job:complete', { jobId, response, usage: this.jobUsage(job) });
     }
 
     // Tell the worker a real job landed so it can log/count it. Canaries return
