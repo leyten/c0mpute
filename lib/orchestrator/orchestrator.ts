@@ -186,32 +186,47 @@ type BoundedInput =
  */
 function boundInputMessages(messages: ChatMessage[] | undefined, budget: number): BoundedInput {
   if (!messages || messages.length === 0) return { ok: true, messages, dropped: 0 };
-  if (estimatePromptTokens(messages) <= budget) return { ok: true, messages, dropped: 0 };
 
-  const kept = [...messages];
+  // Every size is measured ONCE and the rest is index arithmetic over that array.
+  // Re-measuring the conversation after each drop reads better but is quadratic
+  // in the MESSAGE COUNT, and this runs on the single-process orchestrator's
+  // event loop: one payload of a few hundred thousand tiny messages (well inside
+  // socket.io's 16MB frame cap) would otherwise freeze every stream, worker and
+  // image job on the network for tens of seconds. Counted in chars so the
+  // comparison stays exactly estimatePromptTokens': ceil(chars/4) <= budget is
+  // the same test as chars <= budget*4.
+  const charBudget = budget * 4;
+  const chars = messages.map((m) => (typeof m?.content === 'string' ? m.content.length : 0));
+  let total = 0;
+  for (const c of chars) total += c;
+  if (total <= charBudget) return { ok: true, messages, dropped: 0 };
+
+  const cut: boolean[] = new Array(messages.length).fill(false);
+  const newest = messages.length - 1;
   let dropped = 0;
-  while (kept.length > 1 && estimatePromptTokens(kept) > budget) {
-    // Oldest message that isn't a system message. Stop if the only candidate left
-    // is the newest one — that is the hard-reject case below, not something to
-    // trim away.
-    const oldest = kept.findIndex((m) => m?.role !== 'system');
-    if (oldest === -1 || oldest === kept.length - 1) break;
-    kept.splice(oldest, 1);
+  // Oldest first, whole messages only. A system message carries instructions the
+  // answer depends on and the newest message is what the user actually asked, so
+  // neither is ever a candidate — which is also why the loop can run out of
+  // candidates and leave `total` over budget (the hard reject below).
+  for (let i = 0; i < newest && total > charBudget; i++) {
+    if (messages[i]?.role === 'system') continue;
+    cut[i] = true;
     dropped++;
+    total -= chars[i];
   }
   // A tool result whose assistant tool-call round was just dropped is an orphan,
   // which is malformed history for any worker — it goes with the round it belongs
   // to. (Same for a leading tool message a client sent with no round at all.)
-  // (splice shifts the next message into the same index, so `head` doesn't move)
-  const head = kept.findIndex((m) => m?.role !== 'system');
-  while (head > -1 && head < kept.length - 1 && kept[head]?.role === 'tool') {
-    kept.splice(head, 1);
+  for (let i = 0; i < newest; i++) {
+    if (cut[i] || messages[i]?.role === 'system') continue;
+    if (messages[i]?.role !== 'tool') break;
+    cut[i] = true;
     dropped++;
+    total -= chars[i];
   }
 
-  const estTokens = estimatePromptTokens(kept);
-  if (estTokens > budget) return { ok: false, estTokens };
-  return { ok: true, messages: kept, dropped };
+  if (total > charBudget) return { ok: false, estTokens: Math.ceil(total / 4) };
+  return { ok: true, messages: messages.filter((_, i) => !cut[i]), dropped };
 }
 
 /** Read-only, exception-proof. Returns nothing and mutates nothing, so no call

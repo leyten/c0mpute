@@ -288,8 +288,11 @@ export const MAX_INPUT_TOKENS_NATIVE = 12_000;
 // BROWSER (pro tier): the browser worker's model lib is ctx4k — prompt AND
 // output share one 4096-token window — and it asks for 2048 output tokens on top
 // of a ~170-token system prompt (app/earn/engine/useWorkerEngine.ts), leaving
-// ~1900 tokens of prompt. 1800 keeps margin for chars/4 being an estimate. That
-// path also trims client-side; this bound is defense in depth.
+// ~1900 tokens of prompt. 1800 keeps margin for chars/4 being an estimate.
+// Nothing bounded this before: the chat UI caps its window at the last 10 turns
+// and the browser worker strips <think> blocks out of history, but neither is a
+// LENGTH bound — an overlong conversation just overflowed the window at
+// inference time.
 export const MAX_INPUT_TOKENS_BROWSER = 1_800;
 
 export const MAX_OUTPUT_TOKENS = 4096;
