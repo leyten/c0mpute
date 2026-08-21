@@ -64,12 +64,26 @@ function PlanCard({ plan }: { plan: PricingPlan }) {
         <p className="pixel-sans text-fg-45 text-[13px] mt-1.5">{plan.allowance}</p>
       </div>
 
-      <ul className="mt-6 flex flex-col gap-2.5">
-        {plan.features.map((feature) => (
-          <li key={feature} className="pixel-sans text-fg-55 text-[13.5px] flex gap-2.5">
-            <span aria-hidden="true" className="text-fg-25 select-none">
-              &mdash;
-            </span>
+      <ul className="mt-6 flex flex-col">
+        {plan.features.map((feature, i) => (
+          <li
+            key={feature}
+            className={`pixel-sans text-fg-55 text-[13.5px] flex items-start gap-2.5 py-2 ${
+              i > 0 ? 'border-t border-fg/[0.06]' : ''
+            }`}
+          >
+            <svg
+              aria-hidden="true"
+              viewBox="0 0 16 16"
+              className="mt-[3px] h-3.5 w-3.5 shrink-0 text-fg-35"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.75"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M3 8.5l3.2 3.2L13 5" />
+            </svg>
             <span>{feature}</span>
           </li>
         ))}
@@ -126,11 +140,11 @@ export default function Pricing() {
         <div className="max-w-2xl">
           <div className="pixel-sans text-fg-40 text-xs tracking-widest mb-4">PRICING</div>
           <h1 className="pixel-serif text-fg text-3xl md:text-5xl leading-tight tracking-tight">
-            Pay for compute,<br />not for permission.
+            Pay for AI that&rsquo;s private,<br />uncensored and decentralized.
           </h1>
           <p className="pixel-sans text-fg-90 text-sm md:text-lg leading-relaxed mt-6">
-            Every plan runs the same model &mdash; {MODEL}, with tools, vision and thinking &mdash;
-            served by a network of independent GPUs. What you choose is how much of it you use in a day.
+            Every plan runs the same model: {MODEL}, with tools, vision and thinking.
+            The only difference is how much you use per day.
           </p>
           <p className="pixel-sans text-fg-55 text-sm leading-relaxed mt-4">
             Less than the private-AI subscriptions it replaces, and the network pays its suppliers:
@@ -150,9 +164,8 @@ export default function Pricing() {
 
         {/* The one sentence that keeps the three numbers above honest. */}
         <p className="pixel-sans text-fg-40 text-[13px] leading-relaxed mt-8 max-w-2xl">
-          These are daily grants, sized generously &mdash; not &ldquo;unlimited&rdquo;. Heavy use
-          spends a day&rsquo;s credits faster, and nothing beyond it is throttled in the dark. We
-          would rather show you the number than hide a limit behind a word.
+          Plans give you generous daily credits, not a vague &ldquo;unlimited&rdquo;. Heavy use
+          just spends the day&rsquo;s credits faster.
         </p>
       </section>
 
@@ -167,8 +180,8 @@ export default function Pricing() {
             </Rule>
             <Rule title="A dollar buys a thousand">
               <span className="dollar">$</span>1 is {group(CREDITS_PER_DOLLAR)} credits.
-              That is the entire conversion &mdash; credits are priced in dollars, not in something
-              you have to go and acquire first.
+              That&rsquo;s the whole conversion. Credits are priced in dollars, not in a token you
+              need to buy first.
             </Rule>
             <Rule title="Daily credits reset">
               Your plan&rsquo;s grant lands at 00:00 UTC and does not roll over. Yesterday&rsquo;s
@@ -208,8 +221,8 @@ export default function Pricing() {
           <h2 className="pixel-serif text-fg text-2xl md:text-4xl">Questions</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-10 mt-10">
             <Question q="What happens when I run out?">
-              Nothing breaks. Top up &mdash; bought credits never expire &mdash; or wait for
-              tomorrow&rsquo;s grant, which arrives on its own at 00:00 UTC.
+              Nothing breaks. Top up, or wait for tomorrow&rsquo;s grant at 00:00 UTC. Bought
+              credits never expire.
             </Question>
             <Question q="Do credits roll over?">
               Daily grants do not; that is what makes them daily. Credits you buy do, and they stay
@@ -226,7 +239,7 @@ export default function Pricing() {
             </Question>
             <Question q="Can I earn my subscription back?">
               Run a worker. Your GPU serves the same network you are buying from and is paid in USDC
-              for every job it finishes &mdash; enough, if it stays online, to cover a plan.{' '}
+              for every job it finishes. Keep it online and it covers a plan.{' '}
               <a href="/earn" className={link}>Put a GPU to work &rarr;</a>
             </Question>
           </div>
