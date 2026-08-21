@@ -323,7 +323,14 @@ export function selectionWeight(tokPerSec: number): number {
  * Whether a worker can serve a job requesting `requestedModelId`. Max models may
  * pin a specific worker model (so a qwen3.8 job only goes to a worker actually
  * running it, never to the legacy fleet); pro/browser models match any browser
- * worker running c0mpute/dolphin.
+ * worker running one of ours.
+ *
+ * The substring set is load-bearing and additive. A browser worker whose model
+ * matches none of these connects, reports ready, and is then silently never
+ * selected — no error anywhere. `compute` admits the Qwen3.5 rungs
+ * (Qwen3.5-9B-compute-…, Qwen3.5-4B-compute-…); note that it does NOT cover
+ * `c0mpute`, which is a different string, so the old entry stays for tabs that
+ * have not reloaded onto the new build yet. `dolphin` predates both.
  */
 export function workerServesModel(
   worker: { type: 'browser' | 'native' | 'image'; model: string },
@@ -334,7 +341,7 @@ export function workerServesModel(
     return worker.type === 'native' && (!required || worker.model === required);
   }
   return worker.type === 'browser'
-    && (worker.model.includes('c0mpute') || worker.model.includes('dolphin'));
+    && (worker.model.includes('compute') || worker.model.includes('c0mpute') || worker.model.includes('dolphin'));
 }
 
 // ── Input (context) budget ──
@@ -351,10 +358,12 @@ export function workerServesModel(
 // the [ctx-exceeded] probe measures. A swarm ring's KV cap is 40960, so the same
 // number is comfortably inside it too.
 export const MAX_INPUT_TOKENS_NATIVE = 12_000;
-// BROWSER (pro tier): the browser worker's model lib is ctx4k — prompt AND
-// output share one 4096-token window — and it asks for 2048 output tokens on top
-// of a ~170-token system prompt (app/earn/engine/useWorkerEngine.ts), leaving
-// ~1900 tokens of prompt. 1800 keeps margin for chars/4 being an estimate.
+// BROWSER (pro tier): the browser worker runs at a 4096-token window — prompt
+// AND output share it — and it asks for 2048 output tokens on top of a
+// ~170-token system prompt (app/earn/engine/useWorkerEngine.ts), leaving ~1900
+// tokens of prompt. 1800 keeps margin for chars/4 being an estimate. The window
+// is BROWSER_MODEL_CTX now, not a property of the wasm: from web-llm 0.2.83 the
+// libs no longer bake it in, so raising it is a change here and there together.
 // Nothing bounded this before: the chat UI caps its window at the last 10 turns
 // and the browser worker strips <think> blocks out of history, but neither is a
 // LENGTH bound — an overlong conversation just overflowed the window at
