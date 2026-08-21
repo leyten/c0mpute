@@ -469,8 +469,10 @@ export function useWorkerEngine(): WorkerEngine {
       busyRef.current = false;
       // stopWorker sets statusRef to 'offline' the instant it is called, for
       // exactly this case: a job that finishes afterwards must not put a
-      // torn-down worker back on screen as ready.
-      if (statusRef.current !== 'offline') setStatus('ready');
+      // torn-down worker back on screen as ready. Device loss clears the engine
+      // instead of the status, so check that too — otherwise the job this call
+      // just failed on a lost GPU reports the worker ready to take another.
+      if (statusRef.current !== 'offline' && engineRef.current) setStatus('ready');
       setCurrentJobId(null);
     }
   }, [sendToken, completeJob, failJob, refreshEarnings]);
@@ -515,6 +517,80 @@ export function useWorkerEngine(): WorkerEngine {
     };
   }, [setOnJobCancel]);
 
+  // Hold a Web Lock for as long as the worker runs. Chrome 133+ freezes hidden,
+  // CPU-intensive tabs after five minutes under Energy Saver, and freezing
+  // suspends timers, event handlers and promise resolvers — a background
+  // browser worker is precisely that profile. Holding a Web Lock is a
+  // documented exemption. Shared mode, so a second worker tab on the same
+  // machine is exempt too instead of queueing behind the first forever.
+  // `wanted` rather than "do we hold it": the lock is granted asynchronously, so
+  // the resolver does not exist yet at the moment a second start would want to
+  // dedupe against it, and a stop that lands before the grant would otherwise
+  // leave the tab holding a lock for a worker that is no longer running.
+  const tabLockWanted = useRef(false);
+  const tabLock = useRef<(() => void) | null>(null);
+  const holdTabLock = useCallback(() => {
+    if (tabLockWanted.current) return;
+    tabLockWanted.current = true;
+    const locks = (navigator as any)?.locks;
+    if (!locks) return;
+    locks
+      .request('compute-worker-tab', { mode: 'shared' }, () => new Promise<void>(resolve => {
+        if (!tabLockWanted.current) { resolve(); return; }
+        tabLock.current = resolve;
+      }))
+      .catch((err: unknown) => console.warn('[Worker] Web Lock unavailable:', err));
+  }, []);
+  const releaseTabLock = useCallback(() => {
+    tabLockWanted.current = false;
+    tabLock.current?.();
+    tabLock.current = null;
+  }, []);
+
+  // Device-loss tripwire. WebLLM builds its own GPUDevice and keeps it private:
+  // on loss it logs and unloads, and nothing reaches this hook — so the worker
+  // stays registered and keeps accepting jobs it can no longer run. Chrome's
+  // GPU watchdog is process-wide (30s on Windows), so any tab's bad shader
+  // loses every device on the page at once; a device of our own therefore
+  // reports the case that matters, and holds no memory of its own. Test with
+  // about:gpucrash.
+  type LostDevice = { destroy: () => void; lost: Promise<{ reason?: string; message?: string }> };
+  const watchdogDevice = useRef<LostDevice | null>(null);
+  const armDeviceLostTripwire = useCallback(async () => {
+    if (watchdogDevice.current) return;
+    try {
+      // A FRESH adapter. The one read during the WebGPU check was requested at
+      // page load and may be stale by now; an adapter that has gone stale hands
+      // back a device that is already lost.
+      const adapter = await (navigator as any).gpu?.requestAdapter();
+      const device: LostDevice | undefined = await adapter?.requestDevice();
+      if (!device) return;
+      watchdogDevice.current = device;
+      device.lost.then((info) => {
+        // stopWorker destroys the device on purpose; that resolves `lost` too.
+        if (watchdogDevice.current !== device) return;
+        watchdogDevice.current = null;
+        console.error('[Worker] GPU device lost:', info?.reason, info?.message);
+        unregisterWorker();
+        setWorkerId(null);
+        // Unwind the job loop as well as the engine. A generation in flight on
+        // a dead device may never settle, so processJob's finally may never run
+        // — and busyRef left true makes every job after a restart fail with
+        // "Worker busy" while the worker still reports ready.
+        const dead = engineRef.current;
+        engineRef.current = null;
+        try { dead?.interruptGenerate(); } catch { /* the device is gone */ }
+        busyRef.current = false;
+        setCurrentJobId(null);
+        releaseTabLock();
+        setError('The GPU was lost, so the worker stopped. Start it again, or reload the tab if it will not start.');
+        setStatus('error');
+      });
+    } catch (err) {
+      console.warn('[Worker] Could not arm the device-loss tripwire:', err);
+    }
+  }, [unregisterWorker, releaseTabLock]);
+
   // Initialize engine and connect to orchestrator
   const initializeEngine = useCallback(async () => {
     if (!webGPUSupported) {
@@ -546,6 +622,9 @@ export function useWorkerEngine(): WorkerEngine {
     setError(null);
     setLoadProgress(0);
     setLoadingText('Initializing WebLLM...');
+
+    holdTabLock();
+    await armDeviceLostTripwire();
 
     try {
       const progressCallback = (progress: InitProgressReport) => {
@@ -589,6 +668,15 @@ export function useWorkerEngine(): WorkerEngine {
         engine = await CreateMLCEngine(selectedModel, {
           initProgressCallback: progressCallback,
         });
+      }
+
+      // The weights take minutes to download, and the device can die inside
+      // that window. The tripwire has already unregistered, cleared the engine
+      // and said so on screen — carrying on from here would put a worker the
+      // GPU cannot serve back on the network, with the error still displayed.
+      if (!watchdogDevice.current) {
+        try { await engine.unload(); } catch { /* the device is gone anyway */ }
+        return;
       }
 
       engineRef.current = engine;
@@ -647,6 +735,7 @@ export function useWorkerEngine(): WorkerEngine {
       try {
         const authToken = await getAccessToken();
         if (!authToken) {
+          releaseTabLock();
           setError('Failed to get authentication token. Please log in again.');
           setStatus('error');
           return;
@@ -658,15 +747,19 @@ export function useWorkerEngine(): WorkerEngine {
         setStats(prev => ({ ...prev, uptime: 0 }));
       } catch (regErr) {
         console.error('Failed to register with orchestrator:', regErr);
+        // Every exit that is not a running worker gives the lock back. Holding
+        // it keeps the tab exempt from Energy-Saver freezing for nothing.
+        releaseTabLock();
         setError(regErr instanceof Error ? regErr.message : 'Failed to register with orchestrator');
         setStatus('error');
       }
     } catch (err) {
       console.error('Failed to initialize engine:', err);
+      releaseTabLock();
       setError(err instanceof Error ? err.message : 'Failed to initialize model');
       setStatus('error');
     }
-  }, [selectedModel, webGPUSupported, isConnected, registerWorker, getAccessToken]);
+  }, [selectedModel, webGPUSupported, isConnected, registerWorker, getAccessToken, holdTabLock, releaseTabLock, armDeviceLostTripwire]);
 
   // Re-register after a socket reconnect. Registration is keyed to the socket,
   // and the orchestrator drops the worker record on disconnect — so a loaded
@@ -726,6 +819,17 @@ export function useWorkerEngine(): WorkerEngine {
       engineRef.current = null;
     }
 
+    // Null it BEFORE destroy(): destroying resolves the device's `lost`
+    // promise, and the tripwire must read that as a deliberate stop.
+    const watchdog = watchdogDevice.current;
+    watchdogDevice.current = null;
+    try {
+      watchdog?.destroy();
+    } catch (err) {
+      console.error('[Worker] Error destroying the device-loss tripwire:', err);
+    }
+    releaseTabLock();
+
     // Force garbage collection hint (browser may or may not honor this)
     if (typeof window !== 'undefined' && (window as any).gc) {
       (window as any).gc();
@@ -733,7 +837,7 @@ export function useWorkerEngine(): WorkerEngine {
 
     setStatus('offline');
     setStats({ jobsCompleted: 0, tokensGenerated: 0, uptime: 0 });
-  }, [workerId, unregisterWorker]);
+  }, [workerId, unregisterWorker, releaseTabLock]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -744,6 +848,13 @@ export function useWorkerEngine(): WorkerEngine {
         });
         engineRef.current = null;
       }
+      const watchdog = watchdogDevice.current;
+      watchdogDevice.current = null;
+      try {
+        watchdog?.destroy();
+      } catch { /* the tab is going away anyway */ }
+      tabLock.current?.();
+      tabLock.current = null;
     };
   }, []);
 
