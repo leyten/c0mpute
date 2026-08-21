@@ -203,6 +203,16 @@
      drops go heavier because a shadow on a near-black ground barely exists. */
   --shadow-stack: inset 1px 6px 6px 0 rgba(255, 255, 255, 0.05),
     0 4px 12px 0 rgba(0, 0, 0, 0.35), 0 2px 12px 0 rgba(0, 0, 0, 0.3);
+
+  /* The technical-drawing layer's three strokes. Alpha over the ground, not
+     fixed colors — dark grounds swallow low-alpha strokes, so each steps up. */
+  --rule: rgba(255, 255, 255, 0.16);
+  --dot: rgba(255, 255, 255, 0.12);
+  --mark: rgba(255, 255, 255, 0.34);
+  /* Ink cards on the dark ground: ink must stay the darkest surface, so the
+     card drops to true black and takes a rim. */
+  --ink-card-bg: #000000;
+  --ink-card-rim: rgba(255, 255, 255, 0.09);
 }
 
 /* ── light ─────────────────────────────────────────────────────────────────
@@ -380,6 +390,14 @@
      work; it is kept for any raised surface that is not pure white. */
   --shadow-stack: inset 1px 6px 6px 0 rgba(255, 255, 255, 0.2),
     0 4px 12px 0 rgba(0, 0, 0, 0.02), 0 2px 12px 0 rgba(0, 0, 0, 0.03);
+
+  /* Technical-drawing strokes on paper. */
+  --rule: rgba(20, 18, 16, 0.12);
+  --dot: rgba(20, 18, 16, 0.08);
+  --mark: rgba(20, 18, 16, 0.28);
+  /* On paper the ink card is the brand's warm near-black, no rim needed. */
+  --ink-card-bg: #0c0a09;
+  --ink-card-rim: rgba(255, 255, 255, 0.1);
 }
 
 @layer base {
@@ -1174,10 +1192,7 @@ input[type='number'] {
   left: 50%;
   transform: translateX(-50%);
   width: min(1480px, 100%);
-  background-image: radial-gradient(
-    color-mix(in oklab, var(--fg) 8%, transparent) 0.75px,
-    transparent 0.75px
-  );
+  background-image: radial-gradient(var(--dot) 0.75px, transparent 0.75px);
   background-size: 12px 12px;
 }
 .blueprint-col {
@@ -1196,11 +1211,7 @@ input[type='number'] {
   top: 0;
   bottom: 0;
   width: 1px;
-  background-image: linear-gradient(
-    to bottom,
-    color-mix(in oklab, var(--fg) 10%, transparent) 50%,
-    transparent 50%
-  );
+  background-image: linear-gradient(to bottom, var(--rule) 50%, transparent 50%);
   background-size: 1px 32px;
 }
 .blueprint-col::before { left: 0; }
@@ -1212,26 +1223,21 @@ input[type='number'] {
   width: 100%;
   background-image: repeating-linear-gradient(
     90deg,
-    color-mix(in oklab, var(--fg) 10%, transparent) 0 16px,
+    var(--rule) 0 16px,
     transparent 16px 32px
   );
 }
 
-/* Registration square straddling a panel corner. */
+/* Registration square straddling a panel corner. Marks attach ONLY to
+   square-cornered hairline panels (surfaces with no fill of their own) at
+   the 1200 width — never to rounded cards or ink cards. */
 .corner-mark {
   position: absolute;
   width: 14px;
   height: 14px;
   background: var(--background);
-  border: 1px solid color-mix(in oklab, var(--fg) 10%, transparent);
+  border: 1px solid var(--mark);
   z-index: 1;
-}
-.corner-mark.on-ink {
-  width: 8px;
-  height: 8px;
-  background: rgba(255, 255, 255, 0.14);
-  border-color: rgba(255, 255, 255, 0.5);
-  border-radius: 1.5px;
 }
 
 /* The ink card: the hero and the CTA band. Deliberately NOT themed — like a
@@ -1240,13 +1246,28 @@ input[type='number'] {
    product composer renders correctly inside it under the light theme. */
 .ink-card {
   position: relative;
-  background: #0c0a09;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--ink-card-bg);
+  border: 1px solid var(--ink-card-rim);
   overflow: hidden;
   --chat-surface: rgba(255, 255, 255, 0.045);
   --chat-row-on: rgba(255, 255, 255, 0.06);
   --chat-text: rgba(255, 255, 255, 0.92);
   --chat-faint: rgba(255, 255, 255, 0.38);
+}
+
+/* A wash of the card's own ground behind the copy column, so the dot-wave
+   never runs through letterforms — the same text-protection move the old
+   scroll stage used, cut from the card's color instead of the page's. */
+.ink-copy-shield {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(
+    ellipse 52% 58% at 50% 42%,
+    var(--ink-card-bg) 35%,
+    transparent 78%
+  );
+  opacity: 0.85;
 }
 
 /* Warm dome glow rising from the card's bottom edge (the video's static

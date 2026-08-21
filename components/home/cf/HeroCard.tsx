@@ -7,7 +7,6 @@
 import Composer from './Composer';
 import DotWave from './DotWave';
 import Reveal from './Reveal';
-import CornerMarks from './CornerMarks';
 
 const WORDS: { w: string; br?: boolean }[] = [
   { w: 'An' }, { w: 'open' }, { w: 'protocol' }, { w: 'for' },
@@ -17,7 +16,7 @@ const WORDS: { w: string; br?: boolean }[] = [
 export default function HeroCard({ onSubmit }: { onSubmit: (prompt: string) => void }) {
   return (
     <section id="home-hero" className="px-2 pt-[54px] md:pt-[72px]">
-      <Reveal className="ink-card rounded-2xl max-w-[1480px] mx-auto">
+      <Reveal className="ink-card rounded-[24px] max-w-[1480px] mx-auto">
         <div
           className="absolute inset-0"
           style={{
@@ -27,8 +26,8 @@ export default function HeroCard({ onSubmit }: { onSubmit: (prompt: string) => v
         >
           <DotWave />
         </div>
+        <div className="ink-copy-shield" aria-hidden />
         <div className="ink-glow" aria-hidden />
-        <CornerMarks onInk />
         <div className="relative z-10 max-w-4xl mx-auto px-5 md:px-6 pt-20 md:pt-32 pb-20 md:pb-28 text-center flex flex-col items-center gap-6 md:gap-10">
           <h1 className="pixel-serif text-white text-4xl md:text-[56px] leading-tight md:leading-[0.99] tracking-tight">
             {WORDS.map((x, k) => (

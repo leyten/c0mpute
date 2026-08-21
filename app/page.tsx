@@ -117,16 +117,16 @@ export default function Home() {
         <div className="blueprint-col" />
       </div>
 
-      {/* The page in the reference grammar: ink hero card, globe section,
-          lifecycle grid, bento doors, closing ink band. 48/64/80 section gap. */}
-      <main className="relative flex flex-col gap-12 md:gap-16 xl:gap-20 pb-4">
+      {/* The page as a sequence of moments, not equal blocks. Three gap
+          values only: 56px binds a title to its content (inside sections),
+          96px is a soft transition, 128px a chapter break. */}
+      <main className="relative pb-4">
         <HeroCard onSubmit={handleSubmit} />
-        <div className="dash-rule" aria-hidden />
-        <EarthSection />
-        <LifecycleGrid />
-        <BentoDoors />
-        <div className="dash-rule opacity-50" aria-hidden />
-        <CtaBand onSubmit={handleSubmit} />
+        <div className="dash-rule mt-24" aria-hidden />
+        <div className="mt-24"><EarthSection /></div>
+        <div className="mt-32"><LifecycleGrid /></div>
+        <div className="mt-32"><BentoDoors /></div>
+        <div className="mt-24"><CtaBand /></div>
       </main>
 
 
