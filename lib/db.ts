@@ -1326,11 +1326,218 @@ export function refundCredits(privyId: string, amount: number, description?: str
  * over this table filters on `type` ('deposit' / 'spend'), so a 0-amount row of
  * a new type cannot shift any total.
  */
-export function recordSubsidizedPrompt(privyId: string, type: 'free_prompt' | 'staker_allowance', description: string): void {
+export function recordSubsidizedPrompt(
+  privyId: string,
+  type: 'free_prompt' | 'staker_allowance' | 'plan_grant' | 'free_grant',
+  description: string,
+): void {
   ensureCreditTables();
   const db = getDb();
   db.prepare('INSERT INTO credit_transactions (id, privy_id, type, amount, description, tx_hash, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
     .run(crypto.randomUUID(), privyId, type, 0, description, null, new Date().toISOString());
+}
+
+// ── Plan periods ──
+//
+// A plan is a prepaid period, not a card subscription: buying one debits the
+// credit balance and moves an expiry date. Storage lives here, beside the
+// ledger, because the debit and the period have to be ONE transaction — a
+// balance that moved without the period moving is a user who paid for nothing,
+// and the reverse is a month nobody paid for.
+//
+// One row per user, kept after it expires: it holds the auto-renew preference
+// and it is the record of what they were on. "Active" is expires_at in the
+// future, never a status column that could disagree with the date.
+
+function ensurePlanTables() {
+  const db = getDb();
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS user_plans (
+      privy_id TEXT PRIMARY KEY,
+      plan TEXT NOT NULL,
+      started_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      auto_renew INTEGER NOT NULL DEFAULT 1,
+      pending_plan TEXT,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS plan_events (
+      id TEXT PRIMARY KEY,
+      privy_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      plan TEXT NOT NULL,
+      credits INTEGER NOT NULL DEFAULT 0,
+      expires_at TEXT,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_plan_events_privy ON plan_events(privy_id);
+  `);
+}
+
+export interface PlanRow {
+  privy_id: string;
+  plan: string;
+  started_at: string;
+  expires_at: string;
+  auto_renew: number;
+  pending_plan: string | null;
+  updated_at: string;
+}
+
+/**
+ * What a plan did and when. The credit ledger records the money; this records
+ * the state changes, including the ones that move no money — a plan that lapsed
+ * because the balance did not cover it leaves no ledger row at all, and "why am
+ * I back on Free" has to be answerable.
+ */
+export type PlanEventKind = 'purchase' | 'renew' | 'upgrade' | 'downgrade_scheduled' | 'lapse';
+
+export function getPlanRow(privyId: string): PlanRow | null {
+  ensurePlanTables();
+  return (getDb().prepare('SELECT * FROM user_plans WHERE privy_id = ?').get(privyId) as PlanRow | undefined) ?? null;
+}
+
+export function getPlanEvents(privyId: string, limit = 20): PlanEventRow[] {
+  ensurePlanTables();
+  return getDb()
+    .prepare('SELECT * FROM plan_events WHERE privy_id = ? ORDER BY created_at DESC LIMIT ?')
+    .all(privyId, limit) as PlanEventRow[];
+}
+
+export interface PlanEventRow {
+  id: string;
+  privy_id: string;
+  kind: string;
+  plan: string;
+  credits: number;
+  expires_at: string | null;
+  created_at: string;
+}
+
+/**
+ * Buy a period: debit the balance and move the expiry, atomically.
+ *
+ * The ONE function that turns credits into plan time. A card checkout, an
+ * "earn your subscription" reward, an admin grant — all of them land here, and
+ * none of them get to invent their own way of writing a period. `credits: 0` is
+ * allowed for exactly that reason (a comped period still needs the same row and
+ * the same event); it simply skips the debit.
+ *
+ * Returns false if the balance did not cover it, having changed nothing:
+ * spendCredits refuses before it writes, so the surrounding transaction commits
+ * empty rather than half.
+ */
+export function purchasePlanPeriod(args: {
+  privyId: string;
+  plan: string;
+  credits: number;
+  /** When the new period ends. Callers own the calendar; this owns the write. */
+  expiresAt: string;
+  kind: PlanEventKind;
+  /** Ledger description for the debit. User-visible in the credit history. */
+  description: string;
+  autoRenew?: boolean;
+  /** A scheduled downgrade that this period consumed. Cleared unless set. */
+  pendingPlan?: string | null;
+}): boolean {
+  ensurePlanTables();
+  ensureCreditTables();
+  const db = getDb();
+  const now = new Date().toISOString();
+
+  const txn = db.transaction(() => {
+    if (args.credits > 0 && !spendCredits(args.privyId, args.credits, args.description)) return false;
+
+    const existing = db.prepare('SELECT started_at FROM user_plans WHERE privy_id = ?').get(args.privyId) as
+      | { started_at: string }
+      | undefined;
+    // started_at is when this run of paid membership began, not when this
+    // period did — a renewal continues the run, a fresh purchase starts one.
+    const startedAt = args.kind === 'purchase' || !existing ? now : existing.started_at;
+    const autoRenew = args.autoRenew === undefined ? 1 : args.autoRenew ? 1 : 0;
+
+    db.prepare(
+      `INSERT INTO user_plans (privy_id, plan, started_at, expires_at, auto_renew, pending_plan, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(privy_id) DO UPDATE SET
+         plan = excluded.plan,
+         started_at = excluded.started_at,
+         expires_at = excluded.expires_at,
+         auto_renew = excluded.auto_renew,
+         pending_plan = excluded.pending_plan,
+         updated_at = excluded.updated_at`
+    ).run(args.privyId, args.plan, startedAt, args.expiresAt, autoRenew, args.pendingPlan ?? null, now);
+
+    db.prepare(
+      'INSERT INTO plan_events (id, privy_id, kind, plan, credits, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    ).run(crypto.randomUUID(), args.privyId, args.kind, args.plan, args.credits, args.expiresAt, now);
+
+    return true;
+  });
+
+  return txn() as boolean;
+}
+
+/**
+ * Mark an expired plan as done for good.
+ *
+ * Auto-renew is turned OFF here on purpose. A plan lapses because the balance
+ * could not cover it; if the flag stayed on, the user's next top-up would be
+ * silently eaten by a renewal they had stopped expecting. Coming back is a
+ * decision they make, not one their deposit makes for them.
+ */
+export function lapsePlan(privyId: string): void {
+  ensurePlanTables();
+  const db = getDb();
+  const now = new Date().toISOString();
+  const txn = db.transaction(() => {
+    const row = db.prepare('SELECT plan, auto_renew FROM user_plans WHERE privy_id = ?').get(privyId) as
+      | { plan: string; auto_renew: number }
+      | undefined;
+    if (!row) return;
+    db.prepare('UPDATE user_plans SET auto_renew = 0, pending_plan = NULL, updated_at = ? WHERE privy_id = ?').run(now, privyId);
+    // Only the first crossing books an event; a lapsed plan is resolved on
+    // every request, and one lapse should not write a row each time.
+    if (row.auto_renew === 0) return;
+    db.prepare(
+      'INSERT INTO plan_events (id, privy_id, kind, plan, credits, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    ).run(crypto.randomUUID(), privyId, 'lapse', row.plan, 0, null, now);
+  });
+  txn();
+}
+
+/** Turn auto-renew on or off. No money moves. */
+export function setPlanAutoRenew(privyId: string, enabled: boolean): boolean {
+  ensurePlanTables();
+  const res = getDb()
+    .prepare('UPDATE user_plans SET auto_renew = ?, updated_at = ? WHERE privy_id = ?')
+    .run(enabled ? 1 : 0, new Date().toISOString(), privyId);
+  return res.changes > 0;
+}
+
+/**
+ * Schedule a move to a cheaper plan at the end of the current period. No money
+ * moves now — the user keeps what they paid for until it runs out. Passing null
+ * cancels a scheduled change.
+ */
+export function schedulePlanChange(privyId: string, pendingPlan: string | null): boolean {
+  ensurePlanTables();
+  const db = getDb();
+  const now = new Date().toISOString();
+  const txn = db.transaction(() => {
+    const res = db
+      .prepare('UPDATE user_plans SET pending_plan = ?, updated_at = ? WHERE privy_id = ?')
+      .run(pendingPlan, now, privyId);
+    if (res.changes === 0) return false;
+    if (pendingPlan) {
+      db.prepare(
+        'INSERT INTO plan_events (id, privy_id, kind, plan, credits, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      ).run(crypto.randomUUID(), privyId, 'downgrade_scheduled', pendingPlan, 0, null, now);
+    }
+    return true;
+  });
+  return txn() as boolean;
 }
 
 // ── Free onboarding prompts ──
