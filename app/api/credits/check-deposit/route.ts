@@ -15,6 +15,7 @@ import {
 } from '@/lib/token-price';
 import { isTreasuryConfigured, sweepDepositToken } from '@/lib/payout';
 import { refundStraySol } from '@/lib/sol-refund';
+import { applyDepositToPlan, type PlanPayment } from '@/lib/plan-state';
 
 // Rate limit: 1 check per 10 seconds per user
 const lastCheck: Map<string, number> = new Map();
@@ -74,6 +75,7 @@ export async function POST(req: NextRequest) {
     const tokens = getConfiguredDepositTokens();
 
     let totalCredited = 0;
+    let planPayment: PlanPayment | null = null;
     const notes: string[] = [];
 
     for (const token of tokens) {
@@ -102,15 +104,30 @@ export async function POST(req: NextRequest) {
           notes.push(`${token.kind} price unavailable, try again shortly`);
         } else {
           const usdValue = newTokens * priceUsd;
-          // The PURCHASE rate, not the value rate: this is the only place a
-          // dollar turns into credits, so it is the only place the two may
-          // differ (see lib/token-price.ts).
-          const credits = Math.floor(usdValue * CREDITS_PER_DOLLAR_PURCHASED);
-          if (credits > 0) {
-            addCredits(privyId, credits, undefined, `${token.kind} deposit`);
-            setDepositProgress(privyId, token.mint, onChainBalance);
-            totalCredited += credits;
+          // A plan the user asked to buy is paid FIRST, out of the same money.
+          // applyDepositToPlan settles the period, the deposit marker and any
+          // change in one transaction, and returns null whenever this deposit
+          // is not a plan payment — which is every deposit unless an unexpired
+          // intent is open and the amount covers it. 'settled' means another
+          // check already applied this exact money: credit nothing.
+          const applied = applyDepositToPlan(privyId, usdValue, token.mint, onChainBalance);
+          if (applied === 'settled') {
+            notes.push('This payment is already going through, give it a moment');
+          } else if (applied) {
+            planPayment = applied;
+            totalCredited += applied.excessCredits;
             fullyCredited = true;
+          } else {
+            // The PURCHASE rate, not the value rate: this is the only place a
+            // dollar turns into credits, so it is the only place the two may
+            // differ (see lib/token-price.ts).
+            const credits = Math.floor(usdValue * CREDITS_PER_DOLLAR_PURCHASED);
+            if (credits > 0) {
+              addCredits(privyId, credits, undefined, `${token.kind} deposit`);
+              setDepositProgress(privyId, token.mint, onChainBalance);
+              totalCredited += credits;
+              fullyCredited = true;
+            }
           }
         }
       }
@@ -148,6 +165,17 @@ export async function POST(req: NextRequest) {
 
     const updated = getCreditBalance(privyId);
 
+    // A plan payment is its own answer: the money bought a period, and the
+    // credited figure is only the change. Reported separately so the page can
+    // say what was activated instead of quoting a credit count for it.
+    if (planPayment) {
+      return NextResponse.json({
+        credited: totalCredited,
+        newBalance: updated.balance,
+        plan: planPayment,
+        ...(solNote ? { message: solNote } : {}),
+      });
+    }
     if (totalCredited > 0) {
       return NextResponse.json({ credited: totalCredited, newBalance: updated.balance, ...(solNote ? { message: solNote } : {}) });
     }

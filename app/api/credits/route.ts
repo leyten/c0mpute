@@ -2,9 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { verifyPrivyToken } from '@/lib/privy-server';
 import { getCreditBalance, getOrCreateDepositWallet, getCreditTransactions, getFreePromptsUsed, getFreeImagesUsed, getTodayFreeSubsidyUsd } from '@/lib/db';
 import { getStakerAllowanceStatus } from '@/lib/staker-allowance';
-import { resolvePlanState, dailyGrantFor } from '@/lib/plan-state';
+import { resolvePlanState, dailyGrantFor, getPlanIntent } from '@/lib/plan-state';
 import { getAllowanceUsed } from '@/lib/allowance';
-import { PLAN_SPECS, PAID_PLAN_IDS, planMonthlyUsd } from '@/lib/plans';
+import { PLAN_SPECS, PAID_PLAN_IDS, PLAN_MONTH_CHOICES, planMonthlyUsd } from '@/lib/plans';
 import { CREDITS_PER_USD, CREDITS_PER_DOLLAR_PURCHASED } from '@/lib/token-price';
 import {
   FREE_PROMPT_LIMIT,
@@ -88,12 +88,15 @@ export async function GET(req: NextRequest) {
       name: PLAN_SPECS[planState.plan].name,
       expiresAt: planState.expiresAt,
       daysLeft: planState.daysLeft,
-      autoRenew: planState.autoRenew,
-      pendingPlan: planState.pendingPlan,
-      // True when a period just ran out without renewing. The UI says so once;
-      // it is not an error state, just the reason they are back on Free.
+      // True when a period just ran out. The UI says so once; it is not an
+      // error state, just the reason they are back on Free.
       lapsed: planState.lapsed,
     },
+    // An open purchase waiting to be paid, if there is one. Sent here rather
+    // than only from /api/plans so the settings page renders the whole Plans
+    // section — plan, grant, price list and the payment in flight — from the
+    // one request it already makes.
+    planIntent: getPlanIntent(privyId),
     dailyGrant: {
       // Which bucket today's grant comes from. 'plan' is prepaid, 'free' is
       // the standing signed-in grant.
@@ -119,15 +122,17 @@ export async function GET(req: NextRequest) {
       typicalMessageCredits: textCreditCost(TYPICAL_INPUT_TOKENS, TYPICAL_OUTPUT_TOKENS),
       textRate: { usdPerMInput: TEXT_USD_PER_M_INPUT, usdPerMOutput: TEXT_USD_PER_M_OUTPUT },
       imageCredits: IMAGE_CREDITS,
-      // The price list, so the settings page renders buy buttons from the same
-      // numbers the checkout debits rather than a copy of them.
+      // The price list, so the settings page quotes buy buttons from the same
+      // numbers the deposit checker charges rather than a copy of them.
       plans: PAID_PLAN_IDS.map((id) => ({
         id,
         name: PLAN_SPECS[id].name,
         dailyCredits: PLAN_SPECS[id].dailyCredits,
-        periodCredits: PLAN_SPECS[id].periodCredits,
         monthlyUsd: planMonthlyUsd(id),
       })),
+      // How many months one purchase may buy. The server refuses anything else,
+      // so the picker has to be built from this and not from a second list.
+      planMonths: PLAN_MONTH_CHOICES,
       freeDailyCredits: PLAN_SPECS.free.dailyCredits,
     },
   });

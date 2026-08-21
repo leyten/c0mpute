@@ -3,20 +3,18 @@
 // PURE ON PURPOSE. No sqlite, no env, nothing server-only — the pricing page
 // and the settings page both import this, so anything stateful here would drag
 // better-sqlite3 into a client bundle. Plan STATE (who is on what, until when)
-// lives in lib/db.ts next to the credit ledger it has to be atomic with; this
-// file is only the numbers and the sums you can do on them.
+// lives in lib/db.ts next to the ledger it has to be atomic with; this file is
+// only the numbers and the sums you can do on them.
 //
-// A plan is a PREPAID PERIOD bought out of the credit balance, not a card
-// subscription: buying one debits `periodCredits` and moves an expiry date.
-// That is the whole payment rail — a user deposits USDC, gets credits, and
-// spends some of them on a month. It needs no processor, and it is what makes
-// "earn your subscription" possible later without a second code path.
+// A plan is a PREPAID PERIOD bought with USDC, not a card subscription and not
+// a credit spend: the user sends the exact dollar amount to the deposit address
+// they already have, and the period starts when the money lands. That is the
+// whole payment rail — the same one a top-up uses, with the deposit attributed
+// to a plan instead of converted to credits.
 //
-// The dollar prices are DERIVED, never stored: a plan costs credits, and a
-// credit costs what the top-up door charges for it. Writing $12 down next to
-// 6,000 credits is how the two drift apart.
-
-import { CREDITS_PER_DOLLAR_PURCHASED } from './token-price';
+// The prices are DOLLARS, stored as dollars. They used to be credit amounts
+// with the dollar figure derived from the top-up rate; nothing charges credits
+// any more, so a second representation would only be something to drift.
 
 export type PlanId = 'free' | 'pro' | 'max';
 /** The plans you can actually buy. Free is the floor, not a purchase. */
@@ -25,26 +23,29 @@ export type PaidPlanId = 'pro' | 'max';
 /**
  * A month, fixed at 30 days rather than a calendar month.
  *
- * Proration divides by this, so a variable period would make the same unused
- * week worth a different number of credits in February than in March. Nobody
- * buying a month wants that explained to them.
+ * The upgrade carry-over divides by this, so a variable period would make the
+ * same unused week worth a different number of days in February than in March.
+ * Nobody buying a month wants that explained to them.
  */
 export const PLAN_PERIOD_DAYS = 30;
 export const PLAN_PERIOD_MS = PLAN_PERIOD_DAYS * 86_400_000;
+
+/** How many months one purchase may buy. N months is N x the price, one payment. */
+export const PLAN_MONTH_CHOICES = [1, 3, 12] as const;
 
 export interface PlanSpec {
   id: PlanId;
   name: string;
   /** Credits granted at 00:00 UTC. Use-or-lose; they do not accumulate. */
   dailyCredits: number;
-  /** What one period costs, debited from the credit balance. 0 for Free. */
-  periodCredits: number;
+  /** USDC for one 30-day period. 0 for Free. */
+  monthlyUsd: number;
 }
 
 export const PLAN_SPECS: Record<PlanId, PlanSpec> = {
-  free: { id: 'free', name: 'Free', dailyCredits: 20, periodCredits: 0 },
-  pro: { id: 'pro', name: 'Pro', dailyCredits: 300, periodCredits: 6_000 },
-  max: { id: 'max', name: 'Max', dailyCredits: 750, periodCredits: 15_000 },
+  free: { id: 'free', name: 'Free', dailyCredits: 20, monthlyUsd: 0 },
+  pro: { id: 'pro', name: 'Pro', dailyCredits: 300, monthlyUsd: 12 },
+  max: { id: 'max', name: 'Max', dailyCredits: 750, monthlyUsd: 30 },
 };
 
 export const PAID_PLAN_IDS: PaidPlanId[] = ['pro', 'max'];
@@ -57,14 +58,22 @@ export function isPaidPlanId(v: unknown): v is PaidPlanId {
   return v === 'pro' || v === 'max';
 }
 
-/**
- * A plan's shelf price in dollars, at the rate the top-up door sells credits.
- * Display only — nothing charges dollars. Pro is 6,000 credits, and 6,000
- * credits is what $12 buys, so the page can say $12 without a second constant
- * that has to be kept in step.
- */
+export function isPlanMonths(v: unknown): v is number {
+  return typeof v === 'number' && (PLAN_MONTH_CHOICES as readonly number[]).includes(v);
+}
+
+/** A plan's shelf price for one month. */
 export function planMonthlyUsd(id: PlanId): number {
-  return PLAN_SPECS[id].periodCredits / CREDITS_PER_DOLLAR_PURCHASED;
+  return PLAN_SPECS[id].monthlyUsd;
+}
+
+/**
+ * What a purchase asks for, in USDC. Rounded to the cent because it is quoted
+ * to a human and then compared against what arrived on chain — a price with a
+ * float tail would be a price nobody can send exactly.
+ */
+export function planPriceUsd(plan: PaidPlanId, months: number): number {
+  return Math.round(PLAN_SPECS[plan].monthlyUsd * months * 100) / 100;
 }
 
 /** Ranking, so an upgrade and a downgrade can be told apart. Free sorts last. */
@@ -73,27 +82,18 @@ export function planRank(id: PlanId): number {
 }
 
 /**
- * What the unspent remainder of a period is worth, in credits.
+ * How much time an unfinished period is worth on a different plan.
  *
- * Straight-line by time: half a Pro month left is half of Pro's price. Clamped
- * to one period so a period that was extended past 30 days (buying the same
- * plan twice) can never be valued above what it cost, and floored so the
- * conversion always rounds the house's way by at most one credit.
- */
-export function unusedPeriodValue(plan: PaidPlanId, expiresAtMs: number, nowMs: number): number {
-  const remainingMs = Math.min(Math.max(0, expiresAtMs - nowMs), PLAN_PERIOD_MS);
-  return Math.floor(PLAN_SPECS[plan].periodCredits * (remainingMs / PLAN_PERIOD_MS));
-}
-
-/**
- * What it costs to move up a tier mid-period: a fresh full period of the new
- * plan, less whatever the old one still had in it.
+ * An upgrade pays the new plan's full price and keeps the old plan's remainder
+ * as EXTRA DAYS, converted by the price ratio: 15 days of Pro left, at 12/30 of
+ * Max's price, is 6 more days of Max. The money the user already spent buys
+ * exactly as much as it did before — no refund, no credit, no stub period.
  *
- * Deliberately the simple version. The alternative — keeping the old expiry and
- * charging a stub of the difference — needs a second period length, a second
- * proration on renewal, and an explanation. This one is a single debit, a
- * single new 30-day period, and one sentence of copy.
+ * Not clamped to one period on purpose: someone who bought a year of Pro and
+ * upgrades carries all of it across, because all of it was paid for. Floored,
+ * so the conversion rounds the house's way by at most a millisecond.
  */
-export function upgradeCostCredits(from: PaidPlanId, to: PaidPlanId, expiresAtMs: number, nowMs: number): number {
-  return Math.max(0, PLAN_SPECS[to].periodCredits - unusedPeriodValue(from, expiresAtMs, nowMs));
+export function carriedOverMs(from: PaidPlanId, to: PaidPlanId, expiresAtMs: number, nowMs: number): number {
+  const remainingMs = Math.max(0, expiresAtMs - nowMs);
+  return Math.floor(remainingMs * (PLAN_SPECS[from].monthlyUsd / PLAN_SPECS[to].monthlyUsd));
 }

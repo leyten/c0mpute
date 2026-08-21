@@ -1,16 +1,14 @@
-// Plan state: what a user is on right now, and the four things that change it.
+// Plan state: what a user is on right now, and the payment that changes it.
 //
 // Everything here is derived from one row and the clock. There is no status
 // column to fall out of step with the expiry date, and no scheduler: a period
 // that has run out is resolved the next time anybody asks about it, which is
-// how a plan renews or lapses.
+// how a plan lapses.
 //
-// LAZY RESOLUTION IS A DECISION, NOT A SHORTCUT. A cron that swept expired
-// plans at midnight would charge people who have not come back, for a month
-// they are not going to use. Resolving on the next request means the renewal
-// happens when the user turns up, and someone who never returns is never billed
-// again. It also means no new moving part to keep running: the chat path, the
-// credits endpoint and the settings page all resolve the same way.
+// A PERIOD THAT ENDS, ENDS. There is no renewal from the credit balance and no
+// scheduled change of plan — both belonged to the rail where a plan was bought
+// with credits, and both meant money could move without the user doing
+// anything. Buying again is a purchase they make.
 //
 // PLAN GRANTS ARE NOT SUBSIDY. A plan's daily credits were paid for when the
 // period was bought, so the worker who serves a plan job is paid out of that
@@ -21,19 +19,22 @@ import {
   PLAN_SPECS,
   PLAN_PERIOD_MS,
   planRank,
-  upgradeCostCredits,
+  planPriceUsd,
+  carriedOverMs,
   isPaidPlanId,
+  isPlanMonths,
   type PlanId,
   type PaidPlanId,
 } from './plans';
 import {
   getPlanRow,
-  purchasePlanPeriod,
   lapsePlan,
-  setPlanAutoRenew,
-  schedulePlanChange,
-  getCreditBalance,
+  getOpenPlanIntent,
+  createPlanIntent,
+  cancelPlanIntent,
+  consumePlanIntent,
 } from './db';
+import { CREDITS_PER_DOLLAR_PURCHASED } from './token-price';
 import { drawAllowance, refundAllowance, getAllowanceUsed } from './allowance';
 
 export interface PlanState {
@@ -43,27 +44,16 @@ export interface PlanState {
   expiresAt: string | null;
   /** Whole days left, rounded up. 0 on Free. */
   daysLeft: number;
-  autoRenew: boolean;
-  /** A cheaper plan taking effect at the end of this period. */
-  pendingPlan: PlanId | null;
   /** Today's grant, in credits. Free's standing grant when there is no plan. */
   dailyCredits: number;
-  /** True when a paid period ran out and was not renewed. Drives the notice. */
+  /** True when a paid period ran out. Drives the notice. */
   lapsed: boolean;
-  /**
-   * This call is what renewed the period. Only a mutating caller cares: buyPlan
-   * has to know that the click it is serving already bought a month, or it
-   * charges for a second one and reports the price of one.
-   */
-  justRenewed?: boolean;
 }
 
 const FREE_STATE: PlanState = {
   plan: 'free',
   expiresAt: null,
   daysLeft: 0,
-  autoRenew: false,
-  pendingPlan: null,
   dailyCredits: PLAN_SPECS.free.dailyCredits,
   lapsed: false,
 };
@@ -72,82 +62,31 @@ function daysLeft(expiresAtMs: number, nowMs: number): number {
   return Math.max(0, Math.ceil((expiresAtMs - nowMs) / 86_400_000));
 }
 
-function activeState(plan: PaidPlanId, expiresAt: string, autoRenew: boolean, pendingPlan: PlanId | null, nowMs: number): PlanState {
+function activeState(plan: PaidPlanId, expiresAt: string, nowMs: number): PlanState {
   return {
     plan,
     expiresAt,
     daysLeft: daysLeft(Date.parse(expiresAt), nowMs),
-    autoRenew,
-    pendingPlan,
     dailyCredits: PLAN_SPECS[plan].dailyCredits,
     lapsed: false,
   };
 }
 
 /**
- * The current plan, renewing or lapsing an expired one on the way past.
+ * The current plan, lapsing an expired one on the way past.
  *
  * Safe to call on every request: an active plan is one indexed read, and an
- * expired one settles itself once and then stops writing (the lapse turns
- * auto-renew off, so the branch that writes is not entered again).
+ * expired one settles itself once and then stops writing (lapsePlan is a no-op
+ * after the marker is set).
  */
 export function resolvePlanState(privyId: string): PlanState {
   const row = getPlanRow(privyId);
   if (!row || !isPaidPlanId(row.plan)) return FREE_STATE;
 
   const now = Date.now();
-  const expiresMs = Date.parse(row.expires_at);
-  const pending = isPaidPlanId(row.pending_plan) ? row.pending_plan : null;
+  if (Date.parse(row.expires_at) > now) return activeState(row.plan, row.expires_at, now);
 
-  if (expiresMs > now) {
-    return activeState(row.plan, row.expires_at, row.auto_renew === 1, pending, now);
-  }
-
-  // The period is over. Renew it if the user asked us to and the balance
-  // covers it; otherwise this is where the plan ends. lapsePlan runs on EVERY
-  // route out of here — the commonest cancellation of all is auto-renew off
-  // plus a period running out, and gating the lapse on auto_renew meant that
-  // one booked no event at all.
-  {
-    const next: PaidPlanId = pending ?? row.plan;
-    const cost = PLAN_SPECS[next].periodCredits;
-    if (row.auto_renew === 1 && getCreditBalance(privyId).balance >= cost) {
-      // From now, not from the old expiry date. Someone away for three months
-      // owes one month on their return, not three for time they did not use.
-      const expiresAt = new Date(now + PLAN_PERIOD_MS).toISOString();
-      const bought = purchasePlanPeriod({
-        privyId,
-        plan: next,
-        credits: cost,
-        expiresAt,
-        kind: 'renew',
-        description: `${PLAN_SPECS[next].name} plan renewal, ${PLAN_SPECS[next].periodCredits} credits`,
-        autoRenew: true,
-        pendingPlan: null,
-        // Only renew the period we actually read. Two processes resolve plan
-        // state independently, and without this both would renew the same
-        // expired period and charge for two months.
-        ifExpiresAt: row.expires_at,
-      });
-      if (bought) return { ...activeState(next, expiresAt, true, null, now), justRenewed: true };
-
-      // The write was refused. Either the balance moved under us or another
-      // process renewed first — and if it did, this plan is alive and must not
-      // be lapsed. Re-read before deciding.
-      const fresh = getPlanRow(privyId);
-      if (fresh && isPaidPlanId(fresh.plan) && Date.parse(fresh.expires_at) > Date.now()) {
-        return activeState(
-          fresh.plan,
-          fresh.expires_at,
-          fresh.auto_renew === 1,
-          isPaidPlanId(fresh.pending_plan) ? fresh.pending_plan : null,
-          now,
-        );
-      }
-    }
-    lapsePlan(privyId);
-  }
-
+  lapsePlan(privyId);
   return { ...FREE_STATE, lapsed: true };
 }
 
@@ -192,7 +131,7 @@ export function drawDailyGrant(
   privyId: string,
   credits: number,
   allowFree: boolean,
-  /** Pass an already-resolved state to avoid renewing/lapsing twice in one request. */
+  /** Pass an already-resolved state to avoid lapsing twice in one request. */
   resolved?: PlanState,
 ): DailyGrantDraw | null {
   if (credits <= 0) return null;
@@ -208,89 +147,191 @@ export function refundDailyGrant(privyId: string, source: 'plan' | 'free', credi
   refundAllowance(privyId, source, credits, day);
 }
 
-export type BuyPlanResult =
-  | { ok: true; action: 'purchase' | 'renew' | 'upgrade' | 'downgrade_scheduled'; state: PlanState; creditsSpent: number }
-  | { ok: false; error: string; creditsNeeded?: number };
+// ── Buying a period ──
+//
+// The user opens an INTENT — this plan, this many months, this exact amount —
+// and then sends that amount of USDC to the deposit address they already have.
+// The intent is what tells the deposit checker that the next payment is for a
+// plan rather than a top-up. It is not a hold, a promise or a debt: nothing
+// happens until the money lands, and nothing is owed if it never does.
+//
+// An intent expires so a stale one cannot silently swallow a top-up months
+// later. Two hours is long enough to open a wallet and short enough that the
+// user still remembers pressing the button.
+
+export const PLAN_INTENT_TTL_MS = 2 * 3_600_000;
 
 /**
- * Buy, extend, upgrade or schedule a downgrade — whichever the current state
- * makes this request mean.
+ * One micro-USDC, the smallest unit that exists on chain.
  *
- * ONE entry point on purpose. A card checkout added later prices the same way
- * and calls the same function; the only thing it changes is where the credits
- * came from. Splitting "buy" and "upgrade" into separate endpoints is how the
- * two end up with different proration.
+ * The comparison is against a float built by dividing an integer token amount
+ * by 10^6 and subtracting the last figure we credited, so an exact payment can
+ * land a few attoseconds of a cent light. This tolerance covers that and
+ * nothing else — it is not a discount.
  */
-export function buyPlan(privyId: string, plan: PlanId): BuyPlanResult {
-  if (!isPaidPlanId(plan)) return { ok: false, error: 'Free is not a plan you buy. Cancel auto-renew instead.' };
+const USDC_DUST = 1e-6;
 
-  const state = resolvePlanState(privyId);
-  const now = Date.now();
-  const balance = getCreditBalance(privyId).balance;
-  const spec = PLAN_SPECS[plan];
-
-  // Resolving may have auto-renewed an expired period a moment ago. If that
-  // bought the very plan being asked for, this click is already paid: charging
-  // again would take two periods for one press and report the price of one.
-  if (state.justRenewed && state.plan === plan) {
-    return { ok: true, action: 'renew', state, creditsSpent: spec.periodCredits };
-  }
-
-  // Moving DOWN mid-period: no money moves and nothing is taken away. The
-  // period they paid for runs to the end, then the cheaper plan starts.
-  if (isPaidPlanId(state.plan) && planRank(plan) < planRank(state.plan)) {
-    if (!schedulePlanChange(privyId, plan)) return { ok: false, error: 'No active plan to change.' };
-    return { ok: true, action: 'downgrade_scheduled', state: resolvePlanState(privyId), creditsSpent: 0 };
-  }
-
-  const upgrading = isPaidPlanId(state.plan) && planRank(plan) > planRank(state.plan);
-  const extending = state.plan === plan && state.expiresAt !== null;
-
-  const cost = upgrading
-    ? upgradeCostCredits(state.plan as PaidPlanId, plan, Date.parse(state.expiresAt!), now)
-    : spec.periodCredits;
-
-  if (balance < cost) {
-    return { ok: false, error: 'Your credit balance does not cover this plan.', creditsNeeded: Math.ceil(cost - balance) };
-  }
-
-  // Extending adds a period to the end of the one still running; everything
-  // else starts a fresh period now. An upgrade deliberately restarts the
-  // clock — the unused value of the old plan was converted into the price.
-  const expiresAt = new Date((extending ? Date.parse(state.expiresAt!) : now) + PLAN_PERIOD_MS).toISOString();
-  const kind = upgrading ? 'upgrade' : extending ? 'renew' : 'purchase';
-  const description = upgrading
-    ? `Upgrade to ${spec.name}, ${cost} credits`
-    : extending
-      ? `${spec.name} plan renewal, ${cost} credits`
-      : `${spec.name} plan, ${cost} credits`;
-
-  const bought = purchasePlanPeriod({
-    privyId,
-    plan,
-    credits: cost,
-    expiresAt,
-    kind,
-    description,
-    // On by default at purchase, and an upgrade clears any scheduled
-    // downgrade — you cannot be on your way up and down at once.
-    autoRenew: extending ? state.autoRenew : true,
-    pendingPlan: null,
-    // Only act on the period this call actually read: a string when one is
-    // running (extend or upgrade), null when the account is on Free. Two clicks
-    // that race, or a click racing a renewal in the other process, leave one
-    // winner instead of two debits.
-    ifExpiresAt: state.expiresAt,
-  });
-  if (!bought) return { ok: false, error: 'Your plan changed while this was going through. Reload and try again.' };
-
-  return { ok: true, action: kind, state: resolvePlanState(privyId), creditsSpent: cost };
+export interface PlanIntent {
+  id: string;
+  plan: PaidPlanId;
+  planName: string;
+  months: number;
+  /** Exactly what to send, in USDC. */
+  amountUsd: number;
+  createdAt: string;
+  expiresAt: string;
+  /** Past its window: a payment now becomes credits instead. */
+  expired: boolean;
 }
 
-/** Turn auto-renew on or off for the current plan. */
-export function setAutoRenew(privyId: string, enabled: boolean): PlanState | null {
+function toIntent(row: {
+  id: string; privy_id: string; plan: string; months: number;
+  expected_usd: number; created_at: string; expires_at: string;
+}): PlanIntent | null {
+  if (!isPaidPlanId(row.plan)) return null;
+  return {
+    id: row.id,
+    plan: row.plan,
+    planName: PLAN_SPECS[row.plan].name,
+    months: row.months,
+    amountUsd: row.expected_usd,
+    createdAt: row.created_at,
+    expiresAt: row.expires_at,
+    expired: Date.parse(row.expires_at) <= Date.now(),
+  };
+}
+
+/** The user's open intent, expired or not, so the page can say which it is. */
+export function getPlanIntent(privyId: string): PlanIntent | null {
+  const row = getOpenPlanIntent(privyId);
+  return row ? toIntent(row) : null;
+}
+
+export type OpenIntentResult = { ok: true; intent: PlanIntent } | { ok: false; error: string };
+
+/**
+ * Quote a purchase and open the intent for it. Replaces whatever was open
+ * before — a user who changes their mind before paying has one live amount, not
+ * two the checker would have to choose between.
+ */
+export function openPlanIntent(privyId: string, plan: PlanId, months: number): OpenIntentResult {
+  if (!isPaidPlanId(plan)) return { ok: false, error: 'Free is not a plan you buy.' };
+  if (!isPlanMonths(months)) return { ok: false, error: 'Choose 1, 3 or 12 months.' };
+
+  // A cheaper plan cannot be bought over a dearer one that is still running.
+  // There is no proration downwards and nothing to refund, so the honest answer
+  // is to wait: the period they paid for runs out, and then they buy the other
+  // one. Refusing it HERE is what makes it unpayable — the checker only ever
+  // settles a payment against an intent that exists.
   const state = resolvePlanState(privyId);
-  if (state.plan === 'free') return null;
-  if (!setPlanAutoRenew(privyId, enabled)) return null;
-  return resolvePlanState(privyId);
+  if (isPaidPlanId(state.plan) && planRank(plan) < planRank(state.plan)) {
+    return {
+      ok: false,
+      error: `You are on ${PLAN_SPECS[state.plan].name} for another ${state.daysLeft} day${state.daysLeft === 1 ? '' : 's'}. You can buy ${PLAN_SPECS[plan].name} once it ends.`,
+    };
+  }
+
+  const row = createPlanIntent({
+    privyId,
+    plan,
+    months,
+    expectedUsd: planPriceUsd(plan, months),
+    expiresAt: new Date(Date.now() + PLAN_INTENT_TTL_MS).toISOString(),
+  });
+  const intent = toIntent(row);
+  return intent ? { ok: true, intent } : { ok: false, error: 'Could not open a purchase. Try again.' };
+}
+
+/** Drop the open intent. The next deposit buys credits again, as usual. */
+export function closePlanIntent(privyId: string): boolean {
+  return cancelPlanIntent(privyId);
+}
+
+export interface PlanPayment {
+  plan: PaidPlanId;
+  planName: string;
+  months: number;
+  /** USDC that went to the plan. The rest became credits. */
+  usdApplied: number;
+  excessCredits: number;
+  expiresAt: string;
+  action: 'purchase' | 'renew' | 'upgrade';
+  /** Days the old plan's remainder was worth on this one. Upgrades only. */
+  carriedOverDays: number;
+}
+
+/**
+ * Whether an arriving deposit pays for a plan, and what it bought.
+ *
+ * `null` means it did not, and the caller converts the whole deposit to credits
+ * exactly as it always has — no intent, an expired one, or not enough sent.
+ * `'settled'` means another check already applied this same money to the plan;
+ * that caller must credit NOTHING, or the transfer pays twice.
+ *
+ * The deposit marker moves inside the settling transaction, which is what makes
+ * the second outcome safe to report rather than guess at.
+ */
+export function applyDepositToPlan(
+  privyId: string,
+  usdReceived: number,
+  mint: string,
+  /** The on-chain figure this payment accounts for, for the deposit marker. */
+  creditedAmount: number,
+): PlanPayment | 'settled' | null {
+  const row = getOpenPlanIntent(privyId);
+  if (!row || !isPaidPlanId(row.plan)) return null;
+  const now = Date.now();
+  if (Date.parse(row.expires_at) <= now) return null;
+  // Short of the quote. It becomes credits, the intent stays open, and the user
+  // is told both — money that arrives is never held, and never lost.
+  if (usdReceived + USDC_DUST < row.expected_usd) return null;
+
+  const plan = row.plan;
+  const state = resolvePlanState(privyId);
+  const periodMs = row.months * PLAN_PERIOD_MS;
+
+  // Same plan: the months go on the end of what is running. A dearer plan: it
+  // starts now, and the remainder of the old one comes across as extra days at
+  // the price ratio. Nothing running: it starts now.
+  let action: 'purchase' | 'renew' | 'upgrade' = 'purchase';
+  let base = now;
+  let carriedMs = 0;
+  if (isPaidPlanId(state.plan) && state.expiresAt) {
+    if (state.plan === plan) {
+      action = 'renew';
+      base = Date.parse(state.expiresAt);
+    } else {
+      action = 'upgrade';
+      carriedMs = carriedOverMs(state.plan, plan, Date.parse(state.expiresAt), now);
+    }
+  }
+  const expiresAt = new Date(base + periodMs + carriedMs).toISOString();
+  const excessCredits = Math.max(0, Math.floor((usdReceived - row.expected_usd) * CREDITS_PER_DOLLAR_PURCHASED));
+
+  const result = consumePlanIntent({
+    intentId: row.id,
+    privyId,
+    plan,
+    expiresAt,
+    kind: action,
+    usdPaid: row.expected_usd,
+    excessCredits,
+    excessDescription: `USDC deposit, change from ${PLAN_SPECS[plan].name} plan`,
+    mint,
+    creditedAmount,
+    ifExpiresAt: state.expiresAt,
+  });
+  if (result === 'intent_gone') return 'settled';
+  if (result !== 'ok') return null;
+
+  return {
+    plan,
+    planName: PLAN_SPECS[plan].name,
+    months: row.months,
+    usdApplied: row.expected_usd,
+    excessCredits,
+    expiresAt,
+    action,
+    carriedOverDays: Math.floor(carriedMs / 86_400_000),
+  };
 }
