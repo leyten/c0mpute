@@ -97,15 +97,21 @@ async function main() {
     };
   } catch {}
 
-  // --- revenue (credits; 1 credit = $0.01) ---
+  // --- revenue (credits; 1 credit = $0.001) ---
   const depositEvents = all(`
     SELECT date(created_at) AS day, created_at AS at, amount
     FROM credit_transactions
     WHERE type='deposit' AND privy_id NOT IN ${excl}
     ORDER BY created_at`, ...EXCLUDED_IDS);
+  // Plan purchases are matched FIRST and get their own bucket. They ride the
+  // credit ledger as ordinary spends, and SQLite's LIKE is case-insensitive, so
+  // 'pro%' was matching "Pro plan, 6000 credits" and booking a month's
+  // subscription as a single enormous pro-tier inference charge.
   const spendDaily = all(`
     SELECT date(created_at) AS day,
            CASE
+             WHEN description LIKE 'Pro plan%' OR description LIKE 'Max plan%'
+               OR description LIKE 'Upgrade to %' THEN 'plan'
              WHEN description LIKE 'max%' THEN 'max'
              WHEN description LIKE 'pro%' THEN 'pro'
              WHEN description LIKE 'Image%' THEN 'image'
@@ -115,6 +121,23 @@ async function main() {
     FROM credit_transactions
     WHERE type='spend' AND privy_id NOT IN ${excl}
     GROUP BY day, tier ORDER BY day`, ...EXCLUDED_IDS);
+  // Refunds, separately and unattributed.
+  //
+  // Every text prompt reserves the worst case it could cost and is settled down
+  // to the real number when the answer stops, so a normal day writes a spend of
+  // the reservation and a refund of the remainder. Gross spend is therefore a
+  // large multiple of real revenue and cannot be quoted on its own.
+  //
+  // Not folded into the per-tier rows above because a refund row carries no
+  // tier: it says "Unused reservation released", not which lane released it.
+  // Attributing them by guesswork would make the split look precise while
+  // being wrong, so the breakdown stays gross and the TOTAL is netted by the
+  // consumer (data-site/app.js).
+  const refundDaily = all(`
+    SELECT date(created_at) AS day, SUM(amount) AS credits
+    FROM credit_transactions
+    WHERE type='refund' AND privy_id NOT IN ${excl}
+    GROUP BY day ORDER BY day`, ...EXCLUDED_IDS);
   const payoutEvents = all(`
     SELECT date(created_at) AS day, created_at AS at, ROUND(amount_usd, 2) AS usd
     FROM worker_payouts WHERE status='completed' ORDER BY created_at`);
@@ -209,7 +232,7 @@ async function main() {
       apiKeys,
       referrals,
     },
-    revenue: { depositEvents, spendDaily, payoutEvents, earningsDaily },
+    revenue: { depositEvents, spendDaily, refundDaily, payoutEvents, earningsDaily },
     zero: {
       market,
       mint: mint || null,

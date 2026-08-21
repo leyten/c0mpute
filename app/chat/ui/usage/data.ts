@@ -29,7 +29,7 @@ export interface UsageDay { day: string; prompts: number; credits: number }
  *  so it counts as a prompt in the squares without moving any credit figure. */
 interface UsageEntry {
   at: number;
-  kind: 'spend' | 'deposit' | 'refund';
+  kind: 'spend' | 'deposit' | 'refund' | 'plan';
   credits: number;
 }
 
@@ -104,17 +104,53 @@ export function currentStreak(days: UsageDay[]): number {
   return run;
 }
 
+/* A day's real inference spend.
+ *
+ * REFUNDS ARE NETTED, and they have to be. Text is reserved at submit for the
+ * worst case the request could reach and settled down to the real cost when the
+ * answer stops, so an ordinary prompt writes a spend of the whole reservation
+ * and then a refund of the part it did not use. Counting only the spends showed
+ * a day's usage as several times what it actually cost.
+ *
+ * Plan purchases are left out entirely. They are a spend of credits, but they
+ * are not inference: a 6,000-credit month landing in a chart of per-prompt
+ * activity dwarfs every real day around it and answers a question nobody asked
+ * of this panel. The Plans section in settings is where a plan is accounted for.
+ *
+ * `prompts` stays a count of spends, not of net rows: a refund is a correction
+ * to what a prompt cost, not evidence that it never happened. Credits floor at
+ * zero, because a refund can land on the far side of midnight from the spend it
+ * belongs to and a negative day is not a thing a reader can interpret. */
 function toDays(entries: UsageEntry[]): UsageDay[] {
   const acc = new Map<string, UsageDay>();
   for (const e of entries) {
-    if (e.kind !== 'spend') continue;
+    if (e.kind !== 'spend' && e.kind !== 'refund') continue;
     const key = dayKey(new Date(e.at));
     const row = acc.get(key) ?? { day: key, prompts: 0, credits: 0 };
-    row.prompts += 1;
-    row.credits += e.credits;
+    if (e.kind === 'spend') {
+      row.prompts += 1;
+      row.credits += e.credits;
+    } else {
+      row.credits -= e.credits;
+    }
     acc.set(key, row);
   }
+  for (const row of acc.values()) row.credits = Math.max(0, row.credits);
   return [...acc.values()].sort((a, b) => a.day.localeCompare(b.day));
+}
+
+/* Plan purchases ride the credit ledger as ordinary spends, so the only thing
+ * separating them from a prompt is the description the checkout wrote. Matched
+ * on the shapes lib/plan-state.ts actually produces: "Pro plan, ...", "Max plan
+ * renewal, ...", "Upgrade to Max, ...". A miss costs one oversized bar, not a
+ * wrong balance, so a prefix match is the right amount of machinery. */
+const PLAN_TX = /^(?:pro|max) plan\b|^upgrade to (?:pro|max)\b/i;
+
+function classifyTx(type: string, description?: string | null): UsageEntry['kind'] {
+  if (type === 'deposit') return 'deposit';
+  if (type === 'refund') return 'refund';
+  if (type === 'spend' && description && PLAN_TX.test(description.trim())) return 'plan';
+  return 'spend';
 }
 
 // ---------- the hook ----------
@@ -189,7 +225,7 @@ export function useUsage(engine: ChatEngine): UsageData {
     const entries: UsageEntry[] = rows
       .map(t => ({
         at: Date.parse(t.created_at),
-        kind: (t.type === 'deposit' || t.type === 'refund' ? t.type : 'spend') as UsageEntry['kind'],
+        kind: classifyTx(t.type, t.description),
         credits: Math.abs(Number(t.amount) || 0),
       }))
       .filter(t => Number.isFinite(t.at));
