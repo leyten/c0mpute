@@ -47,7 +47,22 @@ export default function HeroCard({ onSubmit }: { onSubmit: (prompt: string) => v
             A permissionless network of user-owned GPUs that funds inference and training of open models.
           </p>
           <div className="rv w-full max-w-xl" style={{ '--d': '0.5s' } as React.CSSProperties}>
-            <Composer onSubmit={onSubmit} />
+            <Composer
+              onSubmit={onSubmit}
+              chips={[
+                'Explain how a torrent works to a ten-year-old',
+                'Write a haiku about idle GPUs',
+                'Plan a weekend in Prague on a budget',
+              ]}
+            />
+          </div>
+          <div className="rv flex flex-col items-center gap-2" style={{ '--d': '0.6s' } as React.CSSProperties}>
+            <p className="pixel-sans text-white/50 text-xs">
+              Free to try. No account needed. Answered by Qwen3.8 27B, running on machines people own.
+            </p>
+            <a href="/create" className="cursor-pointer pixel-sans text-white/60 hover:text-white text-xs transition-colors">
+              Generate images →
+            </a>
           </div>
         </div>
       </Reveal>

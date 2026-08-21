@@ -19,6 +19,12 @@ export default function LifecycleGrid() {
         >
           The life of a GPU on the network.
         </p>
+        <p
+          className="rv pixel-sans text-fg-40 text-xs md:text-sm"
+          style={{ '--d': '0.14s' } as React.CSSProperties}
+        >
+          This is how the betanet works. Nodes join it at launch.
+        </p>
       </Reveal>
       <Reveal className="max-w-[1480px] mx-auto mt-14">
         <div className="rv">

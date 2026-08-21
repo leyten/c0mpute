@@ -5,7 +5,15 @@
 // control. Colors come from the chat vars, which the ink card restates dark.
 import { useState } from 'react';
 
-export default function Composer({ onSubmit }: { onSubmit: (prompt: string) => void }) {
+export default function Composer({
+  onSubmit,
+  chips,
+}: {
+  onSubmit: (prompt: string) => void;
+  /** Optional example prompts rendered under the field; clicking one fills
+      the field — a filled field converts where a blank one stalls. */
+  chips?: string[];
+}) {
   const [prompt, setPrompt] = useState('');
   return (
     <form onSubmit={(e) => { e.preventDefault(); onSubmit(prompt); }} className="w-full">
@@ -34,6 +42,25 @@ export default function Composer({ onSubmit }: { onSubmit: (prompt: string) => v
           </svg>
         </button>
       </div>
+      {chips && (
+        <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+          {chips.map((c) => (
+            <button
+              key={c}
+              type="button"
+              onClick={() => setPrompt(c)}
+              className="cursor-pointer pixel-sans text-xs rounded-full border px-3 py-1.5 transition-colors"
+              style={{
+                color: 'var(--chat-dim, rgba(255,255,255,0.58))',
+                borderColor: 'var(--chat-line, rgba(255,255,255,0.08))',
+                background: 'transparent',
+              }}
+            >
+              {c}
+            </button>
+          ))}
+        </div>
+      )}
     </form>
   );
 }

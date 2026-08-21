@@ -1253,6 +1253,8 @@ input[type='number'] {
   --chat-row-on: rgba(255, 255, 255, 0.06);
   --chat-text: rgba(255, 255, 255, 0.92);
   --chat-faint: rgba(255, 255, 255, 0.38);
+  --chat-dim: rgba(255, 255, 255, 0.58);
+  --chat-line: rgba(255, 255, 255, 0.12);
 }
 
 /* A wash of the card's own ground behind the copy column, so the dot-wave
@@ -1263,9 +1265,9 @@ input[type='number'] {
   inset: 0;
   pointer-events: none;
   background: radial-gradient(
-    ellipse 52% 58% at 50% 42%,
-    var(--ink-card-bg) 35%,
-    transparent 78%
+    ellipse 54% 70% at 50% 48%,
+    var(--ink-card-bg) 40%,
+    transparent 80%
   );
   opacity: 0.85;
 }

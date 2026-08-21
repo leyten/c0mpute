@@ -7,7 +7,7 @@ import SiteNav from '@/components/SiteNav';
 import HeroCard from '@/components/home/cf/HeroCard';
 import EarthSection from '@/components/home/cf/EarthSection';
 import LifecycleGrid from '@/components/home/cf/LifecycleGrid';
-import BentoDoors from '@/components/home/cf/BentoDoors';
+import TwoDoors from '@/components/home/cf/TwoDoors';
 import CtaBand from '@/components/home/cf/CtaBand';
 import { LogoMark } from '@/components/Logo';
 import { useBrand } from '@/components/BrandProvider';
@@ -123,9 +123,13 @@ export default function Home() {
       <main className="relative pb-4">
         <HeroCard onSubmit={handleSubmit} />
         <div className="dash-rule mt-24" aria-hidden />
+        {/* proof → routing → mechanism → ownership: answer "is it real"
+            while the prompt loads, route the two audiences who can act
+            today, keep the full mechanism for the skeptic, close on who
+            owns it. */}
         <div className="mt-24"><EarthSection /></div>
+        <div className="mt-32"><TwoDoors /></div>
         <div className="mt-32"><LifecycleGrid /></div>
-        <div className="mt-32"><BentoDoors /></div>
         <div className="mt-24"><CtaBand /></div>
       </main>
 
