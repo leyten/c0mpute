@@ -1699,23 +1699,50 @@ export class Orchestrator {
           subsidyKind: pi.subsidyKind,
         })
           .then((image) => {
-            const us = this.io.sockets.sockets.get(job.userSocketId);
-            if (us) { us.emit('job:image', { jobId, images: [image] }); return; }
-            // The render succeeded but the reader is gone (tab closed, or
-            // reconnected onto a new socket id) so nobody will ever see it. The
-            // credits were spent up front; only the failure path used to give
-            // them back, so this one was charged and silently discarded.
+            // Resolve the reader's CURRENT sockets at delivery time. A render
+            // can take two minutes, Cloudflare culls idle websockets around
+            // 100s, and the client reconnects onto a new socket id — keying
+            // delivery to the submit-time id silently discarded every image
+            // whose render outlived the socket (observed live 2026-08-21).
+            const targets = this.userSockets(job.privyUserId, job.userSocketId);
+            if (targets.length) {
+              for (const us of targets) us.emit('job:image', { jobId, images: [image] });
+              return;
+            }
+            // The reader is genuinely gone (every tab closed). The credits were
+            // spent up front; give them back rather than charge for a picture
+            // nobody will ever see.
             try { pi.refund(); } catch (e) { console.error('[Orchestrator] image refund failed:', e); }
             console.warn(`[Orchestrator] Deferred image for job ${jobId} had no listener; refunded.`);
           })
           .catch((err) => {
             try { pi.refund(); } catch (e) { console.error('[Orchestrator] image refund failed:', e); }
-            const us = this.io.sockets.sockets.get(job.userSocketId);
-            if (us) us.emit('job:image_error', { jobId, error: err instanceof Error ? err.message : 'Image generation failed.' });
+            const targets = this.userSockets(job.privyUserId, job.userSocketId);
+            for (const us of targets) us.emit('job:image_error', { jobId, error: err instanceof Error ? err.message : 'Image generation failed.' });
             console.warn(`[Orchestrator] Deferred image render failed for job ${jobId}: ${err instanceof Error ? err.message : err}`);
           });
       }
     }
+  }
+
+  /** Every live socket belonging to a user (authed privy id or 'anon:<aid>').
+   *  Deferred results outlive the socket a job was submitted on: proxies cull
+   *  idle websockets in ~100s and the client reconnects onto a NEW socket id,
+   *  so anything delivered minutes later must be keyed to the USER, keeping
+   *  the submit-time socket only as a fallback. Emitting to every matching
+   *  socket is safe — clients key handling on jobId and ignore unknown ones. */
+  private userSockets(privyUserId: string | undefined, fallbackSocketId: string): Socket[] {
+    const out: Socket[] = [];
+    if (privyUserId) {
+      for (const s of this.io.sockets.sockets.values()) {
+        if ((s as any).privyUserId === privyUserId) out.push(s);
+      }
+    }
+    if (out.length === 0) {
+      const fb = this.io.sockets.sockets.get(fallbackSocketId);
+      if (fb) out.push(fb);
+    }
+    return out;
   }
 
   private cleanupUserJobs(userSocketId: string) {

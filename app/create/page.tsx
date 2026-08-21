@@ -149,6 +149,8 @@ export default function CreatePage() {
   const [history, setHistory] = useState<SavedImage[]>([]);
   const [balance, setBalance] = useState<number | null>(null);
   const [freeImages, setFreeImages] = useState<number | null>(null);
+  const [grantLeft, setGrantLeft] = useState(0);
+  const [planName, setPlanName] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -163,6 +165,10 @@ export default function CreatePage() {
         const avail = Number(d.balance || 0) + Number(d.stakerAllowance?.remaining || 0);
         setBalance(avail);
         setFreeImages(Number(d.freeImagesRemaining ?? 0));
+        // Today's grant, for the images-left caption: what a subscriber wants
+        // to know is how many images the day still holds, not the credit price.
+        setGrantLeft(Number(d.dailyGrant?.remaining ?? 0));
+        setPlanName(typeof d.plan?.name === 'string' ? d.plan.name : null);
       }
     } catch {}
   }, [isAuthenticated, getAccessToken]);
@@ -422,10 +428,17 @@ export default function CreatePage() {
               </button>
             </div>
 
+            {/* Caption priority: welcome images, then the plan's day ("how many
+                do I have left"), then the raw credit price for PAYG. The old
+                "$0.01" parenthetical is gone: it quoted the internal value rate
+                while a topped-up dollar buys 500 credits, so the honest dollar
+                figure depends on which door the credits came through. */}
             <div className="pixel-sans mt-2 text-xs">
               {isAuthenticated && hasFree
                 ? <span className="text-[var(--live-text)]">{freeImages} free image{(freeImages ?? 0) > 1 ? 's' : ''} left, on us</span>
-                : <span className="text-fg-45">{IMAGE_CREDITS} credits ($0.01) per image</span>}
+                : isAuthenticated && Math.floor(grantLeft / IMAGE_CREDITS) > 0
+                ? <span className="text-fg-45">{Math.floor(grantLeft / IMAGE_CREDITS)} image{Math.floor(grantLeft / IMAGE_CREDITS) > 1 ? 's' : ''} left today{planName ? ` on ${planName}` : ''} · {IMAGE_CREDITS} credits each</span>
+                : <span className="text-fg-45">{IMAGE_CREDITS} credits per image</span>}
               <span className="hidden text-fg-30 md:inline"> · Enter to generate, Shift and Enter for a new line · saved in this browser only</span>
             </div>
           </section>
