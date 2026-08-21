@@ -96,7 +96,15 @@ export interface ChatEngine {
   stats: NetworkStats | null;
   queuePosition: number | null;
   // credits
-  credits: { balance: number | null; freePrompts: number | null; freeLimit: number | null; stakerAllowance: number };
+  credits: {
+    balance: number | null;
+    freePrompts: number | null;
+    freeLimit: number | null;
+    stakerAllowance: number;
+    // Today's plan or Free grant. null until the first fetch lands, so the
+    // meter can stay hidden rather than flash a zero the account does not have.
+    dailyGrant: { source: 'plan' | 'free'; total: number; remaining: number } | null;
+  };
   refreshCredits: () => void;
   // models
   models: Plan[];
@@ -212,7 +220,7 @@ export function useChatEngine(): ChatEngine {
   } = useSocket(isAuthenticated ? socketAuthToken : anonToken, freshSocketToken);
 
   // ---- credits ----
-  const [credits, setCredits] = useState<ChatEngine['credits']>({ balance: null, freePrompts: null, freeLimit: null, stakerAllowance: 0 });
+  const [credits, setCredits] = useState<ChatEngine['credits']>({ balance: null, freePrompts: null, freeLimit: null, stakerAllowance: 0, dailyGrant: null });
   const refreshCredits = useCallback(() => {
     if (!isAuthenticated || !socketAuthToken) return;
     fetch('/api/credits', { headers: { Authorization: `Bearer ${socketAuthToken}` } })
@@ -224,6 +232,9 @@ export function useChatEngine(): ChatEngine {
             freePrompts: typeof data.freePromptsRemaining === 'number' ? data.freePromptsRemaining : null,
             freeLimit: typeof data.freePromptLimit === 'number' ? data.freePromptLimit : null,
             stakerAllowance: data.stakerAllowance?.enabled ? (data.stakerAllowance.remaining ?? 0) : 0,
+            dailyGrant: data.dailyGrant
+              ? { source: data.dailyGrant.source, total: data.dailyGrant.total, remaining: data.dailyGrant.remaining }
+              : null,
           });
         }
       })

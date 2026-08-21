@@ -7,11 +7,26 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 import { useBrand } from '@/components/BrandProvider';
 
-type Tab = 'account' | 'worker' | 'developer' | 'usage' | 'referrals';
+type Tab = 'account' | 'plans' | 'worker' | 'developer' | 'usage' | 'referrals';
+
+/* What /api/credits reports about the plan. The server resolves it — a period
+   that has run out renews or lapses there, not here — so this is a readout, not
+   a state machine. */
+type PlanPayload = {
+  id: 'free' | 'pro' | 'max';
+  name: string;
+  expiresAt: string | null;
+  daysLeft: number;
+  autoRenew: boolean;
+  pendingPlan: 'free' | 'pro' | 'max' | null;
+  lapsed: boolean;
+};
+type GrantPayload = { source: 'plan' | 'free'; total: number; used: number; remaining: number; resetsAt: string };
+type PlanOffer = { id: 'pro' | 'max'; name: string; dailyCredits: number; periodCredits: number; monthlyUsd: number };
 
 /* The ledger's own words for a transaction type. The subsidized kinds cost 0
    credits and are there so a free prompt still shows up in the history. */
-const TX_LABELS: Record<string, string> = { free_prompt: 'welcome', staker_allowance: 'staking' };
+const TX_LABELS: Record<string, string> = { free_prompt: 'welcome', staker_allowance: 'staking', plan_grant: 'plan', free_grant: 'daily' };
 const txLabel = (type: string): string => TX_LABELS[type] ?? type;
 
 /* ---------- shared button styles ---------- */
@@ -168,7 +183,7 @@ export default function SettingsPage() {
     if (typeof window !== 'undefined') {
       const raw = window.location.hash.replace('#', '');
       const hash = (raw === 'api' ? 'developer' : raw) as Tab;
-      if (['account', 'worker', 'developer', 'usage', 'referrals'].includes(hash)) {
+      if (['account', 'plans', 'worker', 'developer', 'usage', 'referrals'].includes(hash)) {
         setActiveTab(hash);
       }
     }
@@ -200,11 +215,57 @@ export default function SettingsPage() {
   const [withdrawSuccess, setWithdrawSuccess] = useState<string | null>(null);
 
   // Usage tab state
-  const [credits, setCredits] = useState<{balance: number; totalDeposited?: number; totalSpent?: number; depositWallet?: string; recentTransactions?: {created_at: string; type: string; amount: number; description: string}[]; config?: {creditsPerUsd: number; creditsPerDollarPurchased?: number}} | null>(null);
+  const [credits, setCredits] = useState<{balance: number; totalDeposited?: number; totalSpent?: number; depositWallet?: string; recentTransactions?: {created_at: string; type: string; amount: number; description: string}[]; plan?: PlanPayload; dailyGrant?: GrantPayload; config?: {creditsPerUsd: number; creditsPerDollarPurchased?: number; plans?: PlanOffer[]; freeDailyCredits?: number}} | null>(null);
+  // Plans tab state. One busy flag: every action on this tab moves the same
+  // money, so two of them must never be in flight at once.
+  const [planBusy, setPlanBusy] = useState(false);
+  const [planError, setPlanError] = useState<string | null>(null);
+  const [planSuccess, setPlanSuccess] = useState<string | null>(null);
   const [usage, setUsage] = useState<{totalRequests: number; totalTokens: number; byModel: {model: string; requests: number; tokens: number}[]} | null>(null);
   const [checkingDeposit, setCheckingDeposit] = useState(false);
   const [depositResult, setDepositResult] = useState<string | null>(null);
   const [topUpUsd, setTopUpUsd] = useState('');
+
+  /* Buy, renew, upgrade or schedule a downgrade. The SERVER decides which of
+     those this is from the account's current state — the button only names a
+     plan. Keeping that decision in one place is what stops the page and the
+     checkout disagreeing about what "choose Pro" means for someone already on
+     Max. */
+  const planAction = async (body: Record<string, unknown>) => {
+    setPlanError(null);
+    setPlanSuccess(null);
+    setPlanBusy(true);
+    try {
+      const t = await getAccessToken();
+      if (!t) { setPlanError('Please log in first.'); return; }
+      const res = await fetch('/api/plans', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setPlanError(data.creditsNeeded
+          ? `${data.error} You need ${Number(data.creditsNeeded).toLocaleString()} more credits.`
+          : data.error || 'Something went wrong.');
+        return;
+      }
+      const PLAN_DONE: Record<string, string> = {
+        purchase: 'Plan active. Your daily credits start now.',
+        renew: 'Renewed. The new period is added to the end of the current one.',
+        upgrade: 'Upgraded. The unused part of your old plan went towards it.',
+        downgrade_scheduled: 'Scheduled. You keep what you have until the period ends.',
+      };
+      setPlanSuccess(typeof body.action === 'string' && body.action === 'auto_renew'
+        ? (body.enabled ? 'Auto-renew is on.' : 'Auto-renew is off. The plan ends when the period does.')
+        : PLAN_DONE[data.action] ?? 'Done.');
+      await fetchCredits();
+    } catch {
+      setPlanError('Something went wrong.');
+    } finally {
+      setPlanBusy(false);
+    }
+  };
 
   // Fetch worker tokens
   const fetchTokens = async () => {
@@ -479,6 +540,7 @@ export default function SettingsPage() {
 
   const tabs: { id: Tab; label: string }[] = [
     { id: 'account', label: 'Account' },
+    { id: 'plans', label: 'Plans' },
     { id: 'worker', label: 'Worker' },
     { id: 'developer', label: 'API' },
     { id: 'usage', label: 'Usage' },
@@ -669,6 +731,133 @@ export default function SettingsPage() {
                   </section>
                 </>
               )}
+
+              {/* ── Plans ── */}
+              {activeTab === 'plans' && (() => {
+                const plan = credits?.plan;
+                const grant = credits?.dailyGrant;
+                const offers = credits?.config?.plans ?? [];
+                const freeDaily = credits?.config?.freeDailyCredits ?? 0;
+                const balance = credits?.balance ?? 0;
+                const onFree = !plan || plan.id === 'free';
+                const rank = (id: string) => (id === 'max' ? 2 : id === 'pro' ? 1 : 0);
+                /* What pressing this plan's button will do. The server decides
+                   for real; this only has to name the button honestly. */
+                const labelFor = (offer: PlanOffer) => {
+                  if (onFree) return `Get ${offer.name}`;
+                  if (plan!.id === offer.id) return 'Add a month';
+                  return rank(offer.id) > rank(plan!.id) ? `Upgrade to ${offer.name}` : `Switch to ${offer.name}`;
+                };
+                return (
+                  <>
+                    <Card
+                      title="Your plan"
+                      description="Plans are prepaid months bought with credits. Buying one takes the credits from your balance now, and grants you a fresh batch every day at 00:00 UTC."
+                      footer={
+                        <p className="pixel-sans text-fg-40 text-[11px]">
+                          Daily credits do not carry over. Anything left when the day ends is gone.
+                        </p>
+                      }
+                    >
+                      {plan?.lapsed && (
+                        <div className="mb-4">
+                          <Notice tone="info">
+                            Your plan ended and you are back on Free. Buy another month below when you want it back.
+                          </Notice>
+                        </div>
+                      )}
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <Stat label="Plan" value={plan?.name ?? 'Free'} />
+                        <Stat
+                          label="Days left"
+                          value={onFree ? '—' : String(plan!.daysLeft)}
+                          tone="dim"
+                        />
+                        <Stat
+                          label="Credits left today"
+                          value={grant ? grant.remaining.toLocaleString() : '—'}
+                          tone={grant && grant.remaining > 0 ? 'positive' : 'dim'}
+                        />
+                      </div>
+                      {grant && (
+                        <p className="pixel-sans text-fg-50 text-[13px] leading-relaxed mt-4">
+                          {grant.remaining.toLocaleString()} of {grant.total.toLocaleString()} credits left today. Resets at 00:00 UTC.
+                        </p>
+                      )}
+                      {!onFree && plan!.pendingPlan && (
+                        <p className="pixel-sans text-fg-50 text-[13px] leading-relaxed mt-2">
+                          Switching to {plan!.pendingPlan} when this period ends.
+                        </p>
+                      )}
+                      {!onFree && (
+                        <div className="flex items-center justify-between gap-4 mt-5 pt-4 border-t border-fg/[0.06]">
+                          <div className="min-w-0">
+                            <p className="pixel-sans text-fg text-sm">Auto-renew</p>
+                            <p className="pixel-sans text-fg-50 text-[12px] leading-relaxed mt-0.5">
+                              {plan!.autoRenew
+                                ? 'We take the next month from your balance when this one ends.'
+                                : 'This plan ends when the period does.'}
+                            </p>
+                          </div>
+                          <button
+                            onClick={() => planAction({ action: 'auto_renew', enabled: !plan!.autoRenew })}
+                            disabled={planBusy}
+                            aria-label="Toggle auto-renew"
+                            className={`relative w-11 h-6 rounded-full transition-colors disabled:opacity-40 flex-shrink-0 ${plan!.autoRenew ? 'bg-emerald-400/70' : 'bg-fg/15'}`}
+                          >
+                            <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-fg transition-all ${plan!.autoRenew ? 'left-[22px]' : 'left-0.5'}`} />
+                          </button>
+                        </div>
+                      )}
+                    </Card>
+
+                    <Card
+                      title={onFree ? 'Choose a plan' : 'Change plan'}
+                      description={`You have ${balance.toLocaleString()} credits. Free gives you ${freeDaily} credits a day and costs nothing.`}
+                      footer={
+                        <p className="pixel-sans text-fg-40 text-[11px]">
+                          Moving up takes effect now and the unused part of your plan goes towards it. Moving down takes effect when the period ends.
+                        </p>
+                      }
+                    >
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {offers.map((offer) => {
+                          const current = !onFree && plan!.id === offer.id;
+                          return (
+                            <div
+                              key={offer.id}
+                              className={`rounded-2xl border p-5 ${current ? 'border-fg/25 bg-fg/[0.05]' : 'border-fg/10 bg-fg/[0.02]'}`}
+                            >
+                              <div className="flex items-baseline justify-between gap-3">
+                                <h3 className="pixel-serif text-fg text-lg">{offer.name}</h3>
+                                {current && (
+                                  <span className="pixel-sans text-fg-40 text-[10px] uppercase tracking-[0.14em]">Current</span>
+                                )}
+                              </div>
+                              <p className="pixel-serif text-fg text-2xl mt-2 tabular-nums">
+                                <span className="dollar">$</span>{offer.monthlyUsd}
+                                <span className="pixel-sans text-fg-40 text-[12px] ml-1.5">a month</span>
+                              </p>
+                              <p className="pixel-sans text-fg-50 text-[13px] leading-relaxed mt-2">
+                                {offer.dailyCredits.toLocaleString()} credits a day, for {offer.periodCredits.toLocaleString()} credits.
+                              </p>
+                              <button
+                                onClick={() => planAction({ action: 'buy', plan: offer.id })}
+                                disabled={planBusy}
+                                className={`${current ? btnSecondary : btnPrimary} w-full mt-4 py-2.5`}
+                              >
+                                {planBusy ? 'Working' : labelFor(offer)}
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      {planError && <div className="mt-4"><Notice tone="error">{planError}</Notice></div>}
+                      {planSuccess && <div className="mt-4"><Notice tone="success">{planSuccess}</Notice></div>}
+                    </Card>
+                  </>
+                );
+              })()}
 
               {/* ── Worker ── */}
               {activeTab === 'worker' && (
