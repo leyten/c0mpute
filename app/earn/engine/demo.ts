@@ -54,7 +54,8 @@ const BENCH_TOK_PER_SEC = 20.4;
 // fraction of a cent -- which is the honest number, and the reason the headline
 // on /earn is quoted per million tokens instead of per job.
 const WORKER_USD_PER_TOKEN = (0.9 * 0.7) / 1_000_000;
-const MODEL_MB = 4312;
+// The 9B rung's download, which is what the preview says it is serving.
+const MODEL_MB = 5100;
 
 // Cadence, in ms. Load runs ~13s so progress is visibly climbing on arrival,
 // then a job lands every few seconds for the rest of the session.

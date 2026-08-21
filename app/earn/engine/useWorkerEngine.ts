@@ -51,25 +51,39 @@ const filterDisclaimers = (text: string): string => {
 };
 
 // Custom model URLs (hosted on HuggingFace)
+//
+// TWO RUNGS, AND THE MACHINE PICKS. Both are Qwen3.5 abliterated, converted to
+// MLC q4f16_1 by us and run on MLC's prebuilt v0_2_84 libraries. The worker
+// decides which one it can hold when it starts (pickWorkerModel below); there
+// is no model choice anywhere in the product. NOT the sg32 (subgroup) variants
+// of either lib — measured ~1.006x, and they can silently corrupt output on
+// GPUs whose subgroup width is not 32.
 const CUSTOM_MODELS = {
-  'Qwen3-8B-c0mpute-q4f16_1-MLC': {
-    url: 'https://huggingface.co/Leyten/Qwen3-8B-c0mpute-q4f16_1-MLC/resolve/main',
-    // The model lib has to move with the runtime: a 0.2.80 lib does not run on
-    // the 0.2.84 engine. NOT the sg32 (subgroup) variant — measured ~1.006x
-    // mean gain, and it can silently corrupt output on GPUs whose subgroup
-    // width is not 32.
-    wasm: 'https://raw.githubusercontent.com/mlc-ai/binary-mlc-llm-libs/main/web-llm-models/v0_2_84/base/Qwen3-8B-q4f16_1_cs1k-webgpu.wasm',
+  'Qwen3.5-9B-compute-q4f16_1-MLC': {
+    url: 'https://huggingface.co/Leyten/Qwen3.5-9B-compute-q4f16_1-MLC/resolve/main',
+    wasm: 'https://raw.githubusercontent.com/mlc-ai/binary-mlc-llm-libs/main/web-llm-models/v0_2_84/base/Qwen3.5-9B-q4f16_1_cs1k-webgpu.wasm',
+  },
+  'Qwen3.5-4B-compute-q4f16_1-MLC': {
+    url: 'https://huggingface.co/Leyten/Qwen3.5-4B-compute-q4f16_1-MLC/resolve/main',
+    wasm: 'https://raw.githubusercontent.com/mlc-ai/binary-mlc-llm-libs/main/web-llm-models/v0_2_84/base/Qwen3.5-4B-q4f16_1_cs1k-webgpu.wasm',
   },
 };
 
-// The 0.2.84 libs are compiled at context_window_size 40960, ten times ours.
+// Both libs are compiled at the model's full window, ten times ours and more.
 // That compiled value is a ceiling, not an allocation: the KV cache is sized
 // from the runtime chat config, which resolves as
 // mlc-chat-config.json < ModelRecord.overrides < chatOpts and reaches
 // createKVCache as max_total_sequence_length. The wasm metadata's own
-// context_window_size is never read. Our HF config already says 4096, but the
+// context_window_size is never read. Our HF configs already say 4096, but the
 // override below pins it here so a config change on the Hub can't quietly hand
-// every 6-8GB worker a ten-times-larger KV cache and OOM it.
+// every 6-8GB worker a much larger KV cache and OOM it.
+//
+// 4096 is deliberately unchanged from the model we ran before, so this deploy
+// is a model swap and nothing else. It is now cheap to raise: Qwen3.5-9B is
+// hybrid attention with only 8 full-attention layers, 32 KiB/token against
+// Qwen3-8B's 144 KiB, so 32k costs it about 1GB. That belongs in its own
+// change — it moves MAX_INPUT_TOKENS_BROWSER and the 180s job-timeout
+// arithmetic with it.
 const BROWSER_MODEL_CTX = 4096;
 
 // Prompt AND output share that one 4096-token window. Asking for 4096 output
@@ -79,12 +93,98 @@ const BROWSER_MODEL_CTX = 4096;
 // the orchestrator's 180s JOB_TIMEOUT_MS: 4096 tokens at the ~20 tok/s a
 // browser worker manages is 205s, so a maximum-length answer could never be
 // delivered before the job was timed out and refunded.
+//
+// UNMEASURED on Qwen3.5 (plan T14): the family is roughly 4x more verbose than
+// its peers in THINKING mode. Thinking is off by default on these builds and
+// the browser lane passes enable_thinking:false on every job, so the exposure
+// should be nil — but nobody has compared completion lengths yet, and if it is
+// not nil this cap truncates answers that used to finish and the same
+// generations walk into the job timeout. Measure before the announcement.
 const BROWSER_MAX_OUTPUT_TOKENS = 2048;
 
-// Available models
+// The two rungs, best first. `vramMB` is WebLLM's own declared vram_required_MB
+// at a 4096-token window; nothing in WebLLM enforces it, which is why
+// pickWorkerModel has to do the sizing itself.
 export const AVAILABLE_MODELS = [
-  { id: 'Qwen3-8B-c0mpute-q4f16_1-MLC', name: 'Qwen3 8B c0mpute', size: '~4.3GB', speed: 'Medium', quality: 7, tier: 'premium', note: 'No refusals', isCustom: true },
+  { id: 'Qwen3.5-9B-compute-q4f16_1-MLC', name: 'Qwen3.5 9B Uncensored', size: '~5.1GB', vramMB: 6433, speed: 'Medium', tier: 'premium', note: 'No refusals', isCustom: true },
+  { id: 'Qwen3.5-4B-compute-q4f16_1-MLC', name: 'Qwen3.5 4B Uncensored', size: '~2.4GB', vramMB: 3868, speed: 'Fast', tier: 'premium', note: 'No refusals', isCustom: true },
 ];
+
+const BEST_MODEL = AVAILABLE_MODELS[0];
+const SMALL_MODEL = AVAILABLE_MODELS[1];
+
+/**
+ * Which rung this machine serves. Called once at start; the answer is never a
+ * user choice.
+ *
+ * There is no VRAM API. WebGPU exposes no memory query at all (gpuweb#5505 is
+ * open with no implementers, and Dawn's `memoryHeaps` sits behind a
+ * chrome://flags developer switch), and the adapter limits are TIERS rather
+ * than capacity — Dawn hardcodes `maxBufferSize` to 2GiB on every Windows
+ * D3D12 device, which is exactly why the old `maxBufferSize * 4` estimate
+ * printed "8 GB" for every discrete card and was deleted in 63cff4c. So limits
+ * can only rule a device OUT, and the real sizing test is to allocate and see.
+ *
+ * 1. Tier gate on the ADAPTER. WebLLM asks `requestDevice()` for 1GiB of
+ *    `maxBufferSize` and 1GiB of `maxStorageBufferBindingSize`, granted on ~97%
+ *    of devices. An adapter that cannot offer both is in Chrome's
+ *    compatibility/mobile tier and is not going to hold a 9B.
+ * 2. Reservation on the DEVICE. Allocate the 9B's declared footprint in storage
+ *    buffers, then free it immediately.
+ *
+ * Two things this has to get right or it silently answers "yes" for everyone.
+ * The chunk size comes from `device.limits`, never from `adapter.limits`: a
+ * device is granted the WebGPU DEFAULT 256MB `maxBufferSize` unless it asked for
+ * more, so sizing a chunk off the adapter's 2GiB tier makes every allocation
+ * illegal. And an over-size `createBuffer` is a VALIDATION error, not an
+ * out-of-memory one — it does not throw, and an `out-of-memory` scope does not
+ * capture it — so both scopes are pushed and either one failing means no.
+ *
+ * KNOWN LIMIT, and the reason the load path still falls back on failure: Dawn
+ * caps itself to 95% of the OS video-memory budget and pages over PCIe rather
+ * than failing cleanly once past it, so this reservation can succeed on a card
+ * that cannot really hold the model.
+ */
+const MIN_BUFFER_TIER = 1 << 30; // 1 GiB — what WebLLM itself asks for
+const PROBE_CHUNK_MAX = 512 * 1024 * 1024;
+const STORAGE_USAGE = 0x80; // GPUBufferUsage.STORAGE
+
+async function pickWorkerModel(adapter: any, device: any): Promise<WorkerModel> {
+  if (!adapter || !device) return SMALL_MODEL;
+
+  if ((adapter.limits?.maxBufferSize ?? 0) < MIN_BUFFER_TIER) return SMALL_MODEL;
+  if ((adapter.limits?.maxStorageBufferBindingSize ?? 0) < MIN_BUFFER_TIER) return SMALL_MODEL;
+
+  const chunk = Math.min(PROBE_CHUNK_MAX, device.limits?.maxBufferSize ?? 0);
+  if (chunk <= 0) return SMALL_MODEL;
+
+  const target = BEST_MODEL.vramMB * 1024 * 1024;
+  const reserved: { destroy: () => void }[] = [];
+  try {
+    device.pushErrorScope('validation');
+    device.pushErrorScope('out-of-memory');
+    let threw = false;
+    try {
+      for (let done = 0; done < target; done += chunk) {
+        reserved.push(device.createBuffer({ size: Math.min(chunk, target - done), usage: STORAGE_USAGE }));
+      }
+    } catch {
+      threw = true;
+    }
+    // Pop both, even after a synchronous throw, or every later scope on this
+    // device is misaligned. Innermost first.
+    const oom = await device.popErrorScope();
+    const invalid = await device.popErrorScope();
+    return threw || oom || invalid ? SMALL_MODEL : BEST_MODEL;
+  } catch (err) {
+    console.warn('[Worker] VRAM probe failed, serving the smaller model:', err);
+    return SMALL_MODEL;
+  } finally {
+    for (const buffer of reserved) {
+      try { buffer.destroy(); } catch { /* already gone */ }
+    }
+  }
+}
 
 export type WorkerStatus = 'offline' | 'initializing' | 'downloading' | 'connecting' | 'ready' | 'working' | 'error';
 
@@ -146,12 +246,10 @@ export interface WorkerEngine {
   nativeStatus: NativeWorkerStatus | null;
   // device
   device: WorkerDevice;
-  // models
-  models: WorkerModel[];
-  model: WorkerModel;                 // the selected model, resolved
-  selectedModel: string;
-  recommendedModel: string | null;
-  selectModel: (id: string) => void;
+  // model
+  /** What this machine ended up serving. INFORMATION, not a choice: the worker
+   *  picks the rung it can hold when it starts, so this is null until then. */
+  model: WorkerModel | null;
   // worker lifecycle
   status: WorkerStatus;
   error: string | null;
@@ -244,7 +342,10 @@ export function useWorkerEngine(): WorkerEngine {
 
   // Worker state
   const [status, setStatus] = useState<WorkerStatus>('offline');
-  const [selectedModel, setSelectedModel] = useState(AVAILABLE_MODELS[0].id);
+  // Null until the worker starts and pickWorkerModel has sized the GPU. Nothing
+  // persists it: a stored choice would pin a machine to a model it may no
+  // longer be the right rung for, and there is no choice to store anyway.
+  const [activeModel, setActiveModel] = useState<WorkerModel | null>(null);
   const [loadProgress, setLoadProgress] = useState(0);
   const [loadingText, setLoadingText] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -265,17 +366,12 @@ export function useWorkerEngine(): WorkerEngine {
   const statusRef = useRef(status);
   const busyRef = useRef(false);
   const processJobRef = useRef<((jobId: string, messages?: ChatMessage[], think?: boolean) => Promise<void>) | null>(null);
-  const selectedModelRef = useRef(selectedModel);
+  const activeModelRef = useRef<WorkerModel | null>(null);
 
   // Keep status ref in sync
   useEffect(() => {
     statusRef.current = status;
   }, [status]);
-
-  // Keep selected model ref in sync
-  useEffect(() => {
-    selectedModelRef.current = selectedModel;
-  }, [selectedModel]);
 
   // Check WebGPU support and read what the adapter will tell us
   const [webGPUSupported, setWebGPUSupported] = useState<boolean | null>(null);
@@ -283,7 +379,6 @@ export function useWorkerEngine(): WorkerEngine {
 
   const [gpuVendor, setGpuVendor] = useState<string | null>(null);
   const [gpuArchitecture, setGpuArchitecture] = useState<string | null>(null);
-  const [recommendedModel, setRecommendedModel] = useState<string | null>(null);
 
   useEffect(() => {
     const checkWebGPU = async () => {
@@ -305,16 +400,15 @@ export function useWorkerEngine(): WorkerEngine {
               if (info.architecture) setGpuArchitecture(info.architecture);
             }
 
-            // No VRAM reading. WebGPU deliberately exposes none, and the old
+            // No VRAM reading here, and no model decision either. WebGPU
+            // deliberately exposes no memory figure, and the old
             // maxBufferSize * 4 estimate was not an approximation of one:
             // maxBufferSize is a hardcoded tier (Dawn pins it on D3D12, Chrome
             // buckets it against fingerprinting), so essentially every Windows
             // discrete GPU reports 2GiB and the formula printed exactly "8 GB"
-            // for all of them. A 4GB card passed the 6GB check on that number,
-            // downloaded 4.3GB of weights and only then ran out of memory. The
-            // honest signals are the tok/s benchmark and a load that fails.
-            const best = [...AVAILABLE_MODELS].sort((a, b) => b.quality - a.quality)[0];
-            if (best) setRecommendedModel(best.id);
+            // for all of them. Sizing happens in pickWorkerModel at start,
+            // where it can allocate for real — not on page load, which every
+            // visitor pays for.
           } else {
             setWebGPUSupported(false);
           }
@@ -386,8 +480,10 @@ export function useWorkerEngine(): WorkerEngine {
       // Reset chat context between jobs to prevent context leakage
       await engineRef.current.resetChat();
 
-      const modelConfig = AVAILABLE_MODELS.find(m => m.id === selectedModelRef.current);
-      const systemPrompt = modelConfig?.tier === 'premium' ? SYSTEM_PROMPT_UNCENSORED : SYSTEM_PROMPT_STANDARD;
+      // Only a model explicitly marked standard gets the censored prompt. Every
+      // rung on this lane is premium, so keying it the other way round meant an
+      // unset ref would serve the censored prompt on a lane sold as uncensored.
+      const systemPrompt = activeModelRef.current?.tier === 'standard' ? SYSTEM_PROMPT_STANDARD : SYSTEM_PROMPT_UNCENSORED;
 
       const messagesWithSystem: { role: 'system' | 'user' | 'assistant'; content: string }[] = [
         { role: 'system', content: systemPrompt },
@@ -547,24 +643,28 @@ export function useWorkerEngine(): WorkerEngine {
     tabLock.current = null;
   }, []);
 
-  // Device-loss tripwire. WebLLM builds its own GPUDevice and keeps it private:
-  // on loss it logs and unloads, and nothing reaches this hook — so the worker
-  // stays registered and keeps accepting jobs it can no longer run. Chrome's
-  // GPU watchdog is process-wide (30s on Windows), so any tab's bad shader
-  // loses every device on the page at once; a device of our own therefore
-  // reports the case that matters, and holds no memory of its own. Test with
-  // about:gpucrash.
+  // Device-loss tripwire, and the adapter the model choice is sized against.
+  // WebLLM builds its own GPUDevice and keeps it private: on loss it logs and
+  // unloads, and nothing reaches this hook — so the worker stays registered and
+  // keeps accepting jobs it can no longer run. Chrome's GPU watchdog is
+  // process-wide (30s on Windows), so any tab's bad shader loses every device
+  // on the page at once; a device of our own therefore reports the case that
+  // matters, and holds no memory of its own. Test with about:gpucrash.
   type LostDevice = { destroy: () => void; lost: Promise<{ reason?: string; message?: string }> };
   const watchdogDevice = useRef<LostDevice | null>(null);
-  const armDeviceLostTripwire = useCallback(async () => {
-    if (watchdogDevice.current) return;
+  const armDeviceLostTripwire = useCallback(async (): Promise<{ adapter: any; device: LostDevice } | null> => {
+    // Replace any device left over from an earlier start. Nulling first is what
+    // tells the old `lost` handler that this teardown was deliberate.
+    const stale = watchdogDevice.current;
+    watchdogDevice.current = null;
+    try { stale?.destroy(); } catch { /* already gone */ }
     try {
       // A FRESH adapter. The one read during the WebGPU check was requested at
       // page load and may be stale by now; an adapter that has gone stale hands
       // back a device that is already lost.
-      const adapter = await (navigator as any).gpu?.requestAdapter();
+      const adapter = await (navigator as any).gpu?.requestAdapter({ powerPreference: 'high-performance' });
       const device: LostDevice | undefined = await adapter?.requestDevice();
-      if (!device) return;
+      if (!device) return null;
       watchdogDevice.current = device;
       device.lost.then((info) => {
         // stopWorker destroys the device on purpose; that resolves `lost` too.
@@ -586,8 +686,10 @@ export function useWorkerEngine(): WorkerEngine {
         setError('The GPU was lost, so the worker stopped. Start it again, or reload the tab if it will not start.');
         setStatus('error');
       });
+      return { adapter, device };
     } catch (err) {
       console.warn('[Worker] Could not arm the device-loss tripwire:', err);
+      return null;
     }
   }, [unregisterWorker, releaseTabLock]);
 
@@ -608,7 +710,7 @@ export function useWorkerEngine(): WorkerEngine {
     // Never build a second engine on top of a live one. A failed registration
     // leaves status 'error' with the weights still resident, and the page offers
     // "Start earning" again from there — so every retry used to strand another
-    // ~4.3GB on the GPU until the tab was closed.
+    // several gigabytes of weights on the GPU until the tab was closed.
     if (engineRef.current) {
       try {
         await engineRef.current.unload();
@@ -624,7 +726,7 @@ export function useWorkerEngine(): WorkerEngine {
     setLoadingText('Initializing WebLLM...');
 
     holdTabLock();
-    await armDeviceLostTripwire();
+    const probe = await armDeviceLostTripwire();
 
     try {
       const progressCallback = (progress: InitProgressReport) => {
@@ -635,39 +737,43 @@ export function useWorkerEngine(): WorkerEngine {
         }
       };
 
-      // Find the selected model config
-      const modelConfig = AVAILABLE_MODELS.find(m => m.id === selectedModel);
-
-      let engine: MLCEngine;
-      if (modelConfig?.isCustom) {
-        // Load custom model from HuggingFace
-        const customModelConfig = CUSTOM_MODELS[selectedModel as keyof typeof CUSTOM_MODELS];
-        if (!customModelConfig) {
-          throw new Error(`Unknown custom model: ${selectedModel}`);
-        }
-
-        const modelUrl = customModelConfig.url;
-        const wasmUrl = customModelConfig.wasm.startsWith('http') ? customModelConfig.wasm : `${modelUrl}/${customModelConfig.wasm}`;
-
-
-        engine = await CreateMLCEngine(selectedModel, {
+      const load = (model: WorkerModel) => {
+        const custom = CUSTOM_MODELS[model.id as keyof typeof CUSTOM_MODELS];
+        if (!custom) throw new Error(`Unknown custom model: ${model.id}`);
+        return CreateMLCEngine(model.id, {
           initProgressCallback: progressCallback,
           appConfig: {
             model_list: [
               {
-                model: modelUrl,
-                model_id: selectedModel,
-                model_lib: wasmUrl,
+                model: custom.url,
+                model_id: model.id,
+                model_lib: custom.wasm,
                 overrides: { context_window_size: BROWSER_MODEL_CTX },
               },
             ],
           },
         });
-      } else {
-        // Load from MLC's default model library
-        engine = await CreateMLCEngine(selectedModel, {
-          initProgressCallback: progressCallback,
-        });
+      };
+
+      let model = await pickWorkerModel(probe?.adapter, probe?.device);
+      setActiveModel(model);
+      activeModelRef.current = model;
+
+      let engine: MLCEngine;
+      try {
+        engine = await load(model);
+      } catch (loadErr) {
+        // The probe can say yes on a card that cannot really hold the model:
+        // Dawn pages over PCIe instead of failing once past the OS video-memory
+        // budget. Rather than send the contributor away, drop a rung and try
+        // once more. Costs the bigger download, which is why it is the fallback
+        // and not the strategy.
+        if (model === SMALL_MODEL) throw loadErr;
+        console.warn(`[Worker] ${model.id} failed to load, falling back to ${SMALL_MODEL.id}:`, loadErr);
+        model = SMALL_MODEL;
+        setActiveModel(model);
+        activeModelRef.current = model;
+        engine = await load(model);
       }
 
       // The weights take minutes to download, and the device can die inside
@@ -740,7 +846,7 @@ export function useWorkerEngine(): WorkerEngine {
           setStatus('error');
           return;
         }
-        const id = await registerWorker(selectedModel, authToken, tokPerSec, BROWSER_MODEL_CTX);
+        const id = await registerWorker(model.id, authToken, tokPerSec, BROWSER_MODEL_CTX);
         setWorkerId(id);
         setStatus('ready');
         setLoadingText('');
@@ -759,7 +865,7 @@ export function useWorkerEngine(): WorkerEngine {
       setError(err instanceof Error ? err.message : 'Failed to initialize model');
       setStatus('error');
     }
-  }, [selectedModel, webGPUSupported, isConnected, registerWorker, getAccessToken, holdTabLock, releaseTabLock, armDeviceLostTripwire]);
+  }, [webGPUSupported, isConnected, registerWorker, getAccessToken, holdTabLock, releaseTabLock, armDeviceLostTripwire]);
 
   // Re-register after a socket reconnect. Registration is keyed to the socket,
   // and the orchestrator drops the worker record on disconnect — so a loaded
@@ -774,13 +880,14 @@ export function useWorkerEngine(): WorkerEngine {
     // Only re-register from the states that HAD a registration to lose. In
     // particular 'connecting' is initializeEngine about to register itself —
     // doing it here too would spend a second worker slot on a duplicate.
-    if (!reconnected || !engineRef.current) return;
+    const serving = activeModelRef.current;
+    if (!reconnected || !engineRef.current || !serving) return;
     if (statusRef.current !== 'ready' && statusRef.current !== 'working') return;
     void (async () => {
       try {
         const authToken = await getAccessToken();
         if (!authToken) throw new Error('Failed to get authentication token. Please log in again.');
-        const id = await registerWorker(selectedModelRef.current, authToken, benchmarkTokPerSec, BROWSER_MODEL_CTX);
+        const id = await registerWorker(serving.id, authToken, benchmarkTokPerSec, BROWSER_MODEL_CTX);
         setWorkerId(id);
         setStatus('ready');
       } catch (err) {
@@ -915,8 +1022,6 @@ export function useWorkerEngine(): WorkerEngine {
     ? DEMO_DEVICE
     : { webGPUSupported, gpuInfo, gpuVendor, gpuArchitecture };
 
-  const model = AVAILABLE_MODELS.find(m => m.id === selectedModel) ?? AVAILABLE_MODELS[0];
-
   return {
     authLoading,
     isAuthenticated: isAuthenticated || demo,
@@ -928,11 +1033,8 @@ export function useWorkerEngine(): WorkerEngine {
     networkStats: networkStats ?? (demo ? DEMO_NETWORK_STATS : null),
     nativeStatus: nativeStatus ?? null,
     device,
-    models: AVAILABLE_MODELS,
-    model,
-    selectedModel,
-    recommendedModel,
-    selectModel: setSelectedModel,
+    // The demo has no GPU to size, so it shows the rung a capable machine gets.
+    model: activeModel ?? (demo ? BEST_MODEL : null),
     status,
     error,
     loadProgress,
