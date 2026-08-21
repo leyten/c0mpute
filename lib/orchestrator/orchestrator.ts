@@ -56,6 +56,9 @@ interface ImageJob {
   assignedWorkerSocketId?: string;
   timer?: ReturnType<typeof setTimeout>;
   submittedAt: number;
+  // Epoch ms this job was handed to an image worker. The basis for the
+  // duration_ms recorded on completion — see the note at image:result.
+  dispatchedAt?: number;
 }
 
 // ── [garbage-prefix] probe (diagnostics only) ──────────────────────────────
@@ -1141,7 +1144,14 @@ export class Orchestrator {
                 console.log(`[Orchestrator] Free-image subsidy cap reached — worker ${worker.privyUserId} not paid for job ${job.id}`);
               }
             }
-            recordCompletedJob({ jobId: job.id, workerPrivyId: worker.privyUserId, userPrivyId: job.privyUserId, model: worker.model, tier: 'image', tokensGenerated: 0 });
+            // Render time, on the SAME basis as a text job's duration_ms: server-
+            // observed dispatch → completion (handleJobComplete measures from
+            // job.startedAt, which processQueue sets at dispatch), so queue wait
+            // counts against neither column and the two are comparable.
+            // duration_ms was NULL for every image job until now, so render cost
+            // has never been measurable.
+            const durationMs = job.dispatchedAt ? Date.now() - job.dispatchedAt : 0;
+            recordCompletedJob({ jobId: job.id, workerPrivyId: worker.privyUserId, userPrivyId: job.privyUserId, model: worker.model, tier: 'image', tokensGenerated: 0, durationMs: durationMs > 0 ? durationMs : undefined });
             recordEarning({
               privyId: worker.privyUserId,
               jobId: job.id,
@@ -1594,6 +1604,7 @@ export class Orchestrator {
       idle.status = 'busy';
       job.status = 'processing';
       job.assignedWorkerSocketId = idle.socketId;
+      job.dispatchedAt = Date.now();
       job.timer = setTimeout(() => this.failImageJobTimeout(jobId), this.IMAGE_JOB_TIMEOUT_MS);
       ws.emit('image:job', { jobId, workflow: job.workflow });
       console.log(`[Orchestrator] Image job ${jobId} dispatched to worker ${idle.id}`);
