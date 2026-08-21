@@ -1521,16 +1521,39 @@ export class Orchestrator {
             tier: worker.type === 'native' ? 'max' : 'pro',
             tokensGenerated: cappedTokens,
           });
+          // Same payout rules as a finished answer (handleJobComplete). This
+          // read only creditsCharged, which is 0 on every lane the user paid no
+          // credits for — so recordEarning saw a payout of 0, returned without
+          // inserting, and the worker was paid NOTHING for a tool-call round it
+          // really generated. That was survivable while the lanes were free
+          // prompts and staker allowances; a plan grant is prepaid revenue and
+          // subscriber API traffic is exactly this path.
           const revenueCredits = job.creditsCharged || 0;
+          const workerShare = getWorkerRevenueShare(worker.privyUserId);
+          let payoutCredits = revenueCredits;
+          let subsidized = false;
+          if (revenueCredits === 0 && (job.subsidyCredits || 0) > 0 && worker.privyUserId !== job.privyUserId) {
+            if (!isFreeSubsidyKind(job.subsidyKind)) {
+              payoutCredits = job.subsidyCredits!;
+              subsidized = true;
+            } else {
+              const subsidyUsd = (job.subsidyCredits! / CREDITS_PER_USD) * workerShare;
+              if (getTodayFreeSubsidyUsd() + subsidyUsd <= FREE_SUBSIDY_DAILY_CAP_USD) {
+                payoutCredits = job.subsidyCredits!;
+                subsidized = true;
+              }
+            }
+          }
           recordEarning({
             privyId: worker.privyUserId,
             jobId,
             tier: worker.type === 'native' ? 'max' : 'pro',
             creditsCharged: revenueCredits,
-            payoutCredits: revenueCredits,
-            subsidized: false,
+            payoutCredits,
+            subsidized,
+            subsidyKind: job.subsidyKind,
             tokensGenerated: cappedTokens,
-            revenueShare: getWorkerRevenueShare(worker.privyUserId),
+            revenueShare: workerShare,
             payerPrivyId: job.privyUserId,
           });
         } catch (err) {
