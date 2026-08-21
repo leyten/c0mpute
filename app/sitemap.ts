@@ -13,6 +13,7 @@ const ROUTES: { path: string; priority: number }[] = [
   { path: '/chat', priority: 0.9 },
   { path: '/earn', priority: 0.9 },
   { path: '/create', priority: 0.8 },
+  { path: '/pricing', priority: 0.8 },
   { path: '/staking', priority: 0.7 },
   { path: '/treasury', priority: 0.6 },
   { path: '/acceptable-use', priority: 0.3 },
