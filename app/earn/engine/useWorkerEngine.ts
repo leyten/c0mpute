@@ -593,6 +593,13 @@ export function useWorkerEngine(): WorkerEngine {
 
       engineRef.current = engine;
 
+      // Dev-only measurement hook, off unless NEXT_PUBLIC_ENGINE_PROBE=1.
+      // Dynamic so the probe is never pulled into the production bundle.
+      if (process.env.NEXT_PUBLIC_ENGINE_PROBE === '1') {
+        const { attachEngineProbe } = await import('./probe');
+        attachEngineProbe(engine);
+      }
+
       // Benchmark: measure tok/s with a short generation
       setStatus('connecting');
       setLoadingText('Benchmarking speed...');
