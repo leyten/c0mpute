@@ -30,8 +30,11 @@ type PlanIntentPayload = {
   planName: string;
   months: number;
   amountUsd: number;
+  paidUsd: number;
+  remainingUsd: number;
   expiresAt: string;
   expired: boolean;
+  released: boolean;
 };
 /* What the deposit checker reports back when a payment bought a period. */
 type PlanPaymentPayload = {
@@ -39,6 +42,13 @@ type PlanPaymentPayload = {
   months: number;
   excessCredits: number;
   carriedOverDays: number;
+};
+/* And when it only part-paid one. */
+type PlanHoldPayload = {
+  planName: string;
+  paidUsd: number;
+  expectedUsd: number;
+  remainingUsd: number;
 };
 
 /* The ledger's own words for a transaction type. The subsidized kinds cost 0
@@ -271,8 +281,12 @@ export default function SettingsPage() {
       if (!res.ok) { setPlanError(data.error || 'Something went wrong.'); return; }
       // Say what to do next. The payment card appears above the plans, and a
       // new card further up the page is easy to press a button and miss.
+      const released = Number(data.releasedCredits ?? 0);
+      const gaveBack = released > 0 ? ` The ${released.toLocaleString()} credits are USDC you had already sent towards the purchase this replaced.` : '';
       if (data.intent) {
-        setPlanNotice(`Quote ready. Send ${data.intent.amountUsd} USDC to the address shown to start ${data.intent.planName}.`);
+        setPlanNotice(`Quote ready. Send ${data.intent.amountUsd} USDC to the address shown to start ${data.intent.planName}.${gaveBack}`);
+      } else if (released > 0) {
+        setPlanNotice(`Cancelled. The USDC you had sent was added to your balance as ${released.toLocaleString()} credits.`);
       }
       await fetchCredits();
     } catch {
@@ -295,7 +309,7 @@ export default function SettingsPage() {
       if (!ok) { setPlanError(data.error || 'Check failed.'); return; }
       // Money that arrived but did not buy the plan — late, or short of the
       // price — still arrived. Saying "nothing yet" would have them send again.
-      if (data.plan || (data.credited ?? 0) > 0) setPlanSuccess(describeDepositCheck(data));
+      if (data.plan || data.hold || (data.credited ?? 0) > 0) setPlanSuccess(describeDepositCheck(data));
       else setPlanNotice(data.message === 'No new deposits found'
         ? 'Nothing has arrived yet. Payments usually land within a minute.'
         : (data.message ?? 'Nothing has arrived yet.'));
@@ -552,7 +566,7 @@ export default function SettingsPage() {
   /* One request behind both check buttons. A deposit pays for an open plan
      purchase first and becomes credits otherwise, so the same call answers
      "did my top-up land" and "did my plan payment land". */
-  const postDepositCheck = async (): Promise<{ ok: boolean; data: { credited?: number; newBalance?: number; plan?: PlanPaymentPayload; message?: string; error?: string } }> => {
+  const postDepositCheck = async (): Promise<{ ok: boolean; data: { credited?: number; newBalance?: number; plan?: PlanPaymentPayload; hold?: PlanHoldPayload; message?: string; error?: string } }> => {
     const t = await getAccessToken();
     const res = await fetch('/api/credits/check-deposit', {
       method: 'POST',
@@ -562,7 +576,7 @@ export default function SettingsPage() {
     return { ok: res.ok, data: await res.json() };
   };
 
-  const describeDepositCheck = (data: { credited?: number; plan?: PlanPaymentPayload; message?: string }): string => {
+  const describeDepositCheck = (data: { credited?: number; plan?: PlanPaymentPayload; hold?: PlanHoldPayload; message?: string }): string => {
     if (data.plan) {
       const months = data.plan.months > 1 ? ` for ${data.plan.months} months` : '';
       const carried = data.plan.carriedOverDays > 0
@@ -572,6 +586,9 @@ export default function SettingsPage() {
         ? ` The extra ${data.plan.excessCredits.toLocaleString()} credits went to your balance.`
         : '';
       return `${data.plan.planName} is active${months}.${carried}${change}`;
+    }
+    if (data.hold) {
+      return `${data.hold.paidUsd} of ${data.hold.expectedUsd} USDC received. Send ${data.hold.remainingUsd} more to start ${data.hold.planName}.`;
     }
     if ((data.credited ?? 0) > 0) return `+${data.credited} credits added` + (data.message ? `. ${data.message}` : '');
     return data.message || 'No new deposits found';
@@ -583,10 +600,10 @@ export default function SettingsPage() {
     try {
       const { ok, data } = await postDepositCheck();
       if (ok) {
-        if (data.plan || (data.credited ?? 0) > 0) {
+        if (data.plan || data.hold || (data.credited ?? 0) > 0) {
           setCredits(prev => prev ? { ...prev, balance: data.newBalance ?? prev.balance } : prev);
           setDepositResult(describeDepositCheck(data));
-          if (data.plan) fetchCredits();
+          if (data.plan || data.hold) fetchCredits();
         } else {
           setDepositResult(data.message || 'No new deposits found');
         }
@@ -919,19 +936,26 @@ export default function SettingsPage() {
                     {intent && !intent.expired && (
                       <Card
                         title="Send your payment"
-                        description={`${intent.planName} for ${intent.months} month${intent.months === 1 ? '' : 's'}. Send this exact amount and the plan starts as soon as it arrives.`}
+                        description={`${intent.planName} for ${intent.months} month${intent.months === 1 ? '' : 's'}. The plan starts as soon as the full amount has arrived.`}
                         footer={
                           <p className="pixel-sans text-fg-40 text-[11px] leading-relaxed">
-                            This quote is held until {new Date(intent.expiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}. USDC that arrives late, or for less than the price, is added to your balance as credits at {perDollar.toLocaleString()} per dollar instead. Nothing is ever lost. Anything you send over the price becomes credits too.
+                            This quote is held until {new Date(intent.expiresAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}. If it runs out first, everything you have sent is added to your balance as credits at {perDollar.toLocaleString()} per dollar. So is anything you send over the price. Nothing is ever lost.
                           </p>
                         }
                       >
                         <div className="space-y-4">
                           <div className="border border-fg/[0.06] bg-fg/[0.02] rounded-xl px-4 py-3.5">
-                            <div className="pixel-sans text-fg-40 text-[10px] uppercase tracking-[0.14em]">Amount to send</div>
-                            <div className="pixel-serif text-fg text-3xl mt-1.5 tabular-nums">
-                              {money(intent.amountUsd)} <span className="pixel-sans text-fg-50 text-sm">USDC</span>
+                            <div className="pixel-sans text-fg-40 text-[10px] uppercase tracking-[0.14em]">
+                              {intent.paidUsd > 0 ? 'Still to send' : 'Amount to send'}
                             </div>
+                            <div className="pixel-serif text-fg text-3xl mt-1.5 tabular-nums">
+                              {money(intent.remainingUsd)} <span className="pixel-sans text-fg-50 text-sm">USDC</span>
+                            </div>
+                            {intent.paidUsd > 0 && (
+                              <p className="pixel-sans text-fg-50 text-[13px] leading-relaxed mt-2">
+                                {money(intent.paidUsd)} of {money(intent.amountUsd)} USDC received and held for this plan.
+                              </p>
+                            )}
                           </div>
 
                           <div>
@@ -943,10 +967,15 @@ export default function SettingsPage() {
                               wrap
                             />
                             <p className="pixel-sans text-fg-40 text-[11px] mt-1.5">
-                              Send only USDC (SPL token) on Solana. Other tokens will be lost. Send the whole
-                              amount in one transfer. Part payments are added to your balance as credits, they
-                              do not add up towards the plan.
+                              Send only USDC (SPL token) on Solana. Other tokens will be lost. You can send it in
+                              more than one transfer, and each one counts towards the plan.
                             </p>
+                            {intent.paidUsd > 0 && (
+                              <p className="pixel-sans text-fg-40 text-[11px] mt-1.5">
+                                Cancelling, or picking a different plan, turns the {money(intent.paidUsd)} USDC you
+                                have sent into credits.
+                              </p>
+                            )}
                           </div>
 
                           <div className="flex flex-wrap gap-3">
@@ -970,11 +999,13 @@ export default function SettingsPage() {
                     {intent && intent.expired && (
                       <Card
                         title="Purchase expired"
-                        description={`Your ${intent.planName} payment window closed before the USDC arrived.`}
+                        description={`Your ${intent.planName} payment window closed before the full amount arrived.`}
                       >
                         <div className="space-y-4">
                           <Notice tone="info">
-                            USDC you send now is added to your balance as credits at {perDollar.toLocaleString()} per dollar. Nothing is lost. Pick a plan below to get a fresh amount to send.
+                            {intent.paidUsd > 0
+                              ? `The ${money(intent.paidUsd)} USDC you had sent was added to your balance as credits at ${perDollar.toLocaleString()} per dollar. Nothing is lost. Pick a plan below to start again.`
+                              : `USDC you send now is added to your balance as credits at ${perDollar.toLocaleString()} per dollar. Nothing is lost. Pick a plan below to get a fresh amount to send.`}
                           </Notice>
                           <button onClick={() => planAction({ action: 'cancel' })} disabled={planBusy} className={btnSecondary}>
                             Dismiss

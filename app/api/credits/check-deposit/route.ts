@@ -16,7 +16,7 @@ import {
 } from '@/lib/token-price';
 import { isTreasuryConfigured, sweepDepositToken } from '@/lib/payout';
 import { refundStraySol } from '@/lib/sol-refund';
-import { applyDepositToPlan, type PlanPayment } from '@/lib/plan-state';
+import { applyDepositToPlan, type PlanPayment, type PlanHold } from '@/lib/plan-state';
 
 // Rate limit: 1 check per 10 seconds per user
 const lastCheck: Map<string, number> = new Map();
@@ -77,6 +77,7 @@ export async function POST(req: NextRequest) {
 
     let totalCredited = 0;
     let planPayment: PlanPayment | null = null;
+    let planHold: PlanHold | null = null;
     const notes: string[] = [];
 
     for (const token of tokens) {
@@ -119,6 +120,11 @@ export async function POST(req: NextRequest) {
           });
           if (applied === 'retry') {
             notes.push('This payment is still going through, give it a moment');
+          } else if (applied?.kind === 'held') {
+            // Part of a plan price. Accounted for on the marker and waiting on
+            // the intent for the rest — not credits, and not lost.
+            planHold = applied;
+            fullyCredited = true;
           } else if (applied) {
             planPayment = applied;
             totalCredited += applied.excessCredits;
@@ -189,6 +195,16 @@ export async function POST(req: NextRequest) {
         credited: totalCredited,
         newBalance: updated.balance,
         plan: planPayment,
+        ...(solNote ? { message: solNote } : {}),
+      });
+    }
+    // Money arrived and is being held towards a plan. Reported on its own so
+    // the page can show the progress rather than say nothing turned up.
+    if (planHold) {
+      return NextResponse.json({
+        credited: 0,
+        balance: updated.balance,
+        hold: planHold,
         ...(solNote ? { message: solNote } : {}),
       });
     }

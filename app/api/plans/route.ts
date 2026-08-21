@@ -53,12 +53,18 @@ export async function POST(req: NextRequest) {
     if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
     // The address comes back with the quote so the page can show both at once,
     // rather than the amount arriving before the place to send it.
-    return NextResponse.json({ intent: result.intent, depositWallet: getOrCreateDepositWallet(privyId) });
+    // releasedCredits is money the replaced purchase was holding, handed back —
+    // the page has to say so, or credits appear from nowhere.
+    return NextResponse.json({
+      intent: result.intent,
+      releasedCredits: result.releasedCredits,
+      depositWallet: getOrCreateDepositWallet(privyId),
+    });
   }
 
   if (body.action === 'cancel') {
-    closePlanIntent(privyId);
-    return NextResponse.json({ intent: null });
+    const { releasedCredits } = closePlanIntent(privyId);
+    return NextResponse.json({ intent: null, releasedCredits });
   }
 
   return NextResponse.json({ error: 'Unknown action' }, { status: 400 });

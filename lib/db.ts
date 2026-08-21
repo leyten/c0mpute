@@ -1,7 +1,8 @@
 import Database from 'better-sqlite3';
 import path from 'path';
-import { CREDITS_PER_USD } from './token-price';
+import { CREDITS_PER_USD, CREDITS_PER_DOLLAR_PURCHASED } from './token-price';
 import type { SubsidyKind } from './orchestrator/types';
+import { PLAN_SPECS, isPlanId } from './plans';
 import { WORKER_REVENUE_SHARE, MIN_WITHDRAWAL_USD } from './tokenomics';
 import { realizeMargin, creditPlanRevenue } from './treasury-ledger';
 import { recordReferralEarning, getReferralEarningsTotal } from './referrals';
@@ -1423,10 +1424,19 @@ function ensurePlanTables() {
       plan TEXT NOT NULL,
       months INTEGER NOT NULL,
       expected_usd REAL NOT NULL,
+      -- USDC received against this purchase and HELD: accounted for on the
+      -- deposit marker, but not yet turned into anything. A plan may be paid
+      -- for in several transfers, and holding is what stops the first one
+      -- being spent as credits before the second arrives.
+      paid_usd REAL NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL,
       expires_at TEXT NOT NULL,
       consumed_at TEXT,
-      cancelled_at TEXT
+      cancelled_at TEXT,
+      -- When a hold was turned into credits, because the purchase ended
+      -- without completing. Once-only: releasing twice pays for the same
+      -- money twice.
+      released_at TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_plan_intents_privy ON plan_purchase_intents(privy_id);
     -- One live intent per user, enforced by the database and not just by the
@@ -1501,10 +1511,47 @@ export interface PlanIntentRow {
   plan: string;
   months: number;
   expected_usd: number;
+  paid_usd: number;
   created_at: string;
   expires_at: string;
   consumed_at: string | null;
   cancelled_at: string | null;
+  released_at: string | null;
+}
+
+/**
+ * Turn an intent's held USDC into credits, once.
+ *
+ * Called wherever a purchase ends without completing: the user cancels, picks a
+ * different plan, or the quote runs out. The held money was never converted to
+ * anything, so this is the moment it becomes what an ordinary deposit would
+ * have been. released_at is the once-only marker; without it, a second look at
+ * the same dead intent would pay for the same USDC again.
+ *
+ * Must run inside a transaction with whatever is closing the intent.
+ */
+function releaseHold(db: Database.Database, row: PlanIntentRow, now: string): number {
+  if (row.released_at || row.paid_usd <= 0) return 0;
+  const claimed = db
+    .prepare('UPDATE plan_purchase_intents SET released_at = ? WHERE id = ? AND released_at IS NULL')
+    .run(now, row.id);
+  if (claimed.changes === 0) return 0;
+  const credits = Math.floor(row.paid_usd * CREDITS_PER_DOLLAR_PURCHASED);
+  const name = isPlanId(row.plan) ? PLAN_SPECS[row.plan].name : row.plan;
+  if (credits > 0) addCredits(row.privy_id, credits, undefined, `USDC deposit, released from ${name} plan purchase`);
+  return credits;
+}
+
+/** Why an intent write was refused, for a caller that has money in hand. */
+function whyIntentRefused(db: Database.Database, intentId: string): 'already_settled' | 'cancelled' {
+  const row = db
+    .prepare('SELECT consumed_at, cancelled_at, released_at FROM plan_purchase_intents WHERE id = ?')
+    .get(intentId) as { consumed_at: string | null; cancelled_at: string | null; released_at: string | null } | undefined;
+  if (!row) return 'cancelled';
+  if (row.consumed_at) return 'already_settled';
+  if (row.cancelled_at || row.released_at) return 'cancelled';
+  // Still open, but its hold moved: another settlement is in flight against it.
+  return 'already_settled';
 }
 
 /**
@@ -1533,32 +1580,115 @@ export function createPlanIntent(args: {
   months: number;
   expectedUsd: number;
   expiresAt: string;
-}): PlanIntentRow {
+}): { row: PlanIntentRow; releasedCredits: number } {
   ensurePlanTables();
+  ensureCreditTables();
   const db = getDb();
   const now = new Date().toISOString();
   const id = crypto.randomUUID();
 
-  db.transaction(() => {
+  const txn = db.transaction(() => {
+    // Superseding is a cancellation, so anything already sent towards the old
+    // purchase comes back as credits here. Leaving it attached to a dead intent
+    // is how a change of mind would swallow a payment.
+    const released = closeOpenIntent(db, args.privyId, now);
     db.prepare(
-      'UPDATE plan_purchase_intents SET cancelled_at = ? WHERE privy_id = ? AND consumed_at IS NULL AND cancelled_at IS NULL'
-    ).run(now, args.privyId);
-    db.prepare(
-      `INSERT INTO plan_purchase_intents (id, privy_id, plan, months, expected_usd, created_at, expires_at, consumed_at, cancelled_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL)`
+      `INSERT INTO plan_purchase_intents (id, privy_id, plan, months, expected_usd, paid_usd, created_at, expires_at, consumed_at, cancelled_at, released_at)
+       VALUES (?, ?, ?, ?, ?, 0, ?, ?, NULL, NULL, NULL)`
     ).run(id, args.privyId, args.plan, args.months, args.expectedUsd, now, args.expiresAt);
-  }).immediate();
+    return released;
+  });
 
-  return db.prepare('SELECT * FROM plan_purchase_intents WHERE id = ?').get(id) as PlanIntentRow;
+  const releasedCredits = txn.immediate() as number;
+  return { row: db.prepare('SELECT * FROM plan_purchase_intents WHERE id = ?').get(id) as PlanIntentRow, releasedCredits };
 }
 
-/** Close the open intent without paying it. A deposit then buys credits again. */
-export function cancelPlanIntent(privyId: string): boolean {
+/** Cancel the open intent and release its hold. Must run inside a transaction. */
+function closeOpenIntent(db: Database.Database, privyId: string, now: string): number {
+  const row = db
+    .prepare('SELECT * FROM plan_purchase_intents WHERE privy_id = ? AND consumed_at IS NULL AND cancelled_at IS NULL')
+    .get(privyId) as PlanIntentRow | undefined;
+  if (!row) return 0;
+  const released = releaseHold(db, row, now);
+  db.prepare('UPDATE plan_purchase_intents SET cancelled_at = ? WHERE id = ? AND cancelled_at IS NULL').run(now, row.id);
+  return released;
+}
+
+/**
+ * Close the open intent without completing it. Anything held against it becomes
+ * credits in the same transaction, so cancelling can never lose a payment.
+ */
+export function cancelPlanIntent(privyId: string): { cancelled: boolean; releasedCredits: number } {
   ensurePlanTables();
-  const res = getDb()
-    .prepare('UPDATE plan_purchase_intents SET cancelled_at = ? WHERE privy_id = ? AND consumed_at IS NULL AND cancelled_at IS NULL')
-    .run(new Date().toISOString(), privyId);
-  return res.changes > 0;
+  ensureCreditTables();
+  const db = getDb();
+  const now = new Date().toISOString();
+  const txn = db.transaction(() => {
+    const row = db
+      .prepare('SELECT id FROM plan_purchase_intents WHERE privy_id = ? AND consumed_at IS NULL AND cancelled_at IS NULL')
+      .get(privyId) as { id: string } | undefined;
+    if (!row) return { cancelled: false, releasedCredits: 0 };
+    return { cancelled: true, releasedCredits: closeOpenIntent(db, privyId, now) };
+  });
+  return txn.immediate() as { cancelled: boolean; releasedCredits: number };
+}
+
+/**
+ * Settle a quote that ran out with money held against it.
+ *
+ * There is no scheduler, so "the moment it expires" is the first time anybody
+ * looks — a page load, or the next deposit check. The intent stays visible
+ * afterwards rather than being cancelled outright, so the page can tell the
+ * user where their USDC went instead of leaving an unexplained credit.
+ */
+export function releaseExpiredIntentHold(privyId: string): number {
+  ensurePlanTables();
+  ensureCreditTables();
+  const db = getDb();
+  const now = new Date().toISOString();
+  const txn = db.transaction(() => {
+    const row = db
+      .prepare('SELECT * FROM plan_purchase_intents WHERE privy_id = ? AND consumed_at IS NULL AND cancelled_at IS NULL AND released_at IS NULL')
+      .get(privyId) as PlanIntentRow | undefined;
+    if (!row || row.paid_usd <= 0 || Date.parse(row.expires_at) > Date.now()) return 0;
+    return releaseHold(db, row, now);
+  });
+  return txn.immediate() as number;
+}
+
+/**
+ * Take a payment that does not yet cover the price and HOLD it on the intent.
+ *
+ * The deposit marker moves with it — the money is accounted for, it is simply
+ * not credits and not a plan yet. Same compare-and-set discipline as the full
+ * settle: the marker must be where the caller read it, and the hold must be
+ * where the caller read it, or another check is working on this money.
+ */
+export function holdIntentPayment(args: {
+  intentId: string;
+  privyId: string;
+  usd: number;
+  ifPaidUsd: number;
+  mint: string;
+  creditedBefore: number;
+  creditedAfter: number;
+}): ConsumeIntentResult {
+  ensurePlanTables();
+  ensureCreditTables();
+  const db = getDb();
+  const txn = db.transaction((): ConsumeIntentResult => {
+    if (getDepositProgress(args.privyId, args.mint) !== args.creditedBefore) return 'deposit_moved';
+    const claimed = db
+      .prepare(
+        `UPDATE plan_purchase_intents SET paid_usd = paid_usd + ?
+         WHERE id = ? AND paid_usd = ? AND consumed_at IS NULL AND cancelled_at IS NULL AND released_at IS NULL`
+      )
+      .run(args.usd, args.intentId, args.ifPaidUsd);
+    if (claimed.changes === 0) return whyIntentRefused(db, args.intentId);
+    setDepositProgress(args.privyId, args.mint, args.creditedAfter);
+    return 'ok';
+  });
+  return txn.immediate() as ConsumeIntentResult;
 }
 
 /** The period row and its event. Callers own the calendar; this owns the write. */
@@ -1639,6 +1769,8 @@ export function consumePlanIntent(args: {
   kind: PlanEventKind;
   /** USDC attributed to the plan. The excess is credits, not plan revenue. */
   usdPaid: number;
+  /** The hold this settle read. Refused if another payment landed since. */
+  ifPaidUsd: number;
   /** Change over the plan price, already converted at the purchase rate. */
   excessCredits: number;
   excessDescription: string;
@@ -1661,14 +1793,12 @@ export function consumePlanIntent(args: {
     if (getDepositProgress(args.privyId, args.mint) !== args.creditedBefore) return 'deposit_moved';
 
     const claimed = db
-      .prepare('UPDATE plan_purchase_intents SET consumed_at = ? WHERE id = ? AND consumed_at IS NULL AND cancelled_at IS NULL')
-      .run(now, args.intentId);
-    if (claimed.changes === 0) {
-      const settled = db.prepare('SELECT consumed_at FROM plan_purchase_intents WHERE id = ?').get(args.intentId) as
-        | { consumed_at: string | null }
-        | undefined;
-      return settled?.consumed_at ? 'already_settled' : 'cancelled';
-    }
+      .prepare(
+        `UPDATE plan_purchase_intents SET consumed_at = ?
+         WHERE id = ? AND paid_usd = ? AND consumed_at IS NULL AND cancelled_at IS NULL AND released_at IS NULL`
+      )
+      .run(now, args.intentId, args.ifPaidUsd);
+    if (claimed.changes === 0) return whyIntentRefused(db, args.intentId);
 
     writePlanPeriod(db, args, now);
     setDepositProgress(args.privyId, args.mint, args.creditedAfter);

@@ -33,6 +33,9 @@ import {
   createPlanIntent,
   cancelPlanIntent,
   consumePlanIntent,
+  holdIntentPayment,
+  releaseExpiredIntentHold,
+  type PlanIntentRow,
 } from './db';
 import { CREDITS_PER_DOLLAR_PURCHASED } from './token-price';
 import { drawAllowance, refundAllowance, getAllowanceUsed } from './allowance';
@@ -151,15 +154,24 @@ export function refundDailyGrant(privyId: string, source: 'plan' | 'free', credi
 //
 // The user opens an INTENT — this plan, this many months, this exact amount —
 // and then sends that amount of USDC to the deposit address they already have.
-// The intent is what tells the deposit checker that the next payment is for a
-// plan rather than a top-up. It is not a hold, a promise or a debt: nothing
-// happens until the money lands, and nothing is owed if it never does.
+// The intent is what tells the deposit checker that the money arriving is for a
+// plan rather than a top-up. It is not a promise or a debt: nothing is owed if
+// the money never comes.
 //
-// An intent expires so a stale one cannot silently swallow a top-up months
-// later. Two hours is long enough to open a wallet and short enough that the
-// user still remembers pressing the button.
+// PAYING IN PARTS IS ALLOWED. A deposit that does not yet cover the price is
+// HELD against the intent rather than converted: the marker moves, the money is
+// accounted for, and it waits for the rest. Converting the first transfer to
+// credits and making the buyer start over is a trap, not a rule — somebody
+// paying out of an exchange gets two transfers whether they meant to or not.
+// When the total reaches the price the period starts and the change becomes
+// credits; if the purchase ends first, the whole hold becomes credits. Either
+// way the money does exactly one thing, once.
+//
+// An intent expires so a forgotten click cannot swallow an unrelated top-up
+// weeks later. A day, because the price does not move: a short fuse protects
+// nothing and only catches people who paid on time and came back later.
 
-export const PLAN_INTENT_TTL_MS = 2 * 3_600_000;
+export const PLAN_INTENT_TTL_MS = 24 * 3_600_000;
 
 /**
  * One micro-USDC, the smallest unit that exists on chain.
@@ -176,18 +188,21 @@ export interface PlanIntent {
   plan: PaidPlanId;
   planName: string;
   months: number;
-  /** Exactly what to send, in USDC. */
+  /** The whole price, in USDC. */
   amountUsd: number;
+  /** Received so far and held against this purchase. */
+  paidUsd: number;
+  /** Still to send. */
+  remainingUsd: number;
   createdAt: string;
   expiresAt: string;
   /** Past its window: a payment now becomes credits instead. */
   expired: boolean;
+  /** The hold was turned into credits, because the purchase ran out of time. */
+  released: boolean;
 }
 
-function toIntent(row: {
-  id: string; privy_id: string; plan: string; months: number;
-  expected_usd: number; created_at: string; expires_at: string;
-}): PlanIntent | null {
+function toIntent(row: PlanIntentRow): PlanIntent | null {
   if (!isPaidPlanId(row.plan)) return null;
   return {
     id: row.id,
@@ -195,24 +210,38 @@ function toIntent(row: {
     planName: PLAN_SPECS[row.plan].name,
     months: row.months,
     amountUsd: row.expected_usd,
+    paidUsd: row.paid_usd,
+    remainingUsd: Math.max(0, Math.round((row.expected_usd - row.paid_usd) * 100) / 100),
     createdAt: row.created_at,
     expiresAt: row.expires_at,
     expired: Date.parse(row.expires_at) <= Date.now(),
+    released: row.released_at !== null,
   };
 }
 
-/** The user's open intent, expired or not, so the page can say which it is. */
+/**
+ * The user's open intent, expired or not, so the page can say which it is.
+ *
+ * Settles an expired hold on the way past. There is no scheduler, so this read
+ * — which every page load makes — is one of the two moments a quote that ran
+ * out with money on it turns that money into credits.
+ */
 export function getPlanIntent(privyId: string): PlanIntent | null {
+  releaseExpiredIntentHold(privyId);
   const row = getOpenPlanIntent(privyId);
   return row ? toIntent(row) : null;
 }
 
-export type OpenIntentResult = { ok: true; intent: PlanIntent } | { ok: false; error: string };
+export type OpenIntentResult =
+  /** `releasedCredits` is a hold on the purchase this replaced, given back. */
+  | { ok: true; intent: PlanIntent; releasedCredits: number }
+  | { ok: false; error: string };
 
 /**
  * Quote a purchase and open the intent for it. Replaces whatever was open
  * before — a user who changes their mind before paying has one live amount, not
- * two the checker would have to choose between.
+ * two the checker would have to choose between. Anything already sent towards
+ * the replaced purchase comes back as credits in the same transaction.
  */
 export function openPlanIntent(privyId: string, plan: PlanId, months: number): OpenIntentResult {
   if (!isPaidPlanId(plan)) return { ok: false, error: 'Free is not a plan you buy.' };
@@ -231,7 +260,7 @@ export function openPlanIntent(privyId: string, plan: PlanId, months: number): O
     };
   }
 
-  const row = createPlanIntent({
+  const { row, releasedCredits } = createPlanIntent({
     privyId,
     plan,
     months,
@@ -239,15 +268,20 @@ export function openPlanIntent(privyId: string, plan: PlanId, months: number): O
     expiresAt: new Date(Date.now() + PLAN_INTENT_TTL_MS).toISOString(),
   });
   const intent = toIntent(row);
-  return intent ? { ok: true, intent } : { ok: false, error: 'Could not open a purchase. Try again.' };
+  return intent ? { ok: true, intent, releasedCredits } : { ok: false, error: 'Could not open a purchase. Try again.' };
 }
 
-/** Drop the open intent. The next deposit buys credits again, as usual. */
-export function closePlanIntent(privyId: string): boolean {
+/**
+ * Drop the open intent. Anything held against it becomes credits, so cancelling
+ * gives the money back rather than stranding it. The next deposit buys credits
+ * again, as usual.
+ */
+export function closePlanIntent(privyId: string): { cancelled: boolean; releasedCredits: number } {
   return cancelPlanIntent(privyId);
 }
 
 export interface PlanPayment {
+  kind: 'paid';
   plan: PaidPlanId;
   planName: string;
   months: number;
@@ -258,6 +292,17 @@ export interface PlanPayment {
   action: 'purchase' | 'renew' | 'upgrade';
   /** Days the old plan's remainder was worth on this one. Upgrades only. */
   carriedOverDays: number;
+}
+
+/** A payment that does not cover the price yet, waiting for the rest. */
+export interface PlanHold {
+  kind: 'held';
+  plan: PaidPlanId;
+  planName: string;
+  /** Received against this purchase in total, including this deposit. */
+  paidUsd: number;
+  expectedUsd: number;
+  remainingUsd: number;
 }
 
 /** An unaccounted deposit, as the check-deposit route read it. */
@@ -271,29 +316,58 @@ export interface IncomingDeposit {
 }
 
 /**
- * Whether an arriving deposit pays for a plan, and what it bought.
+ * What an arriving deposit does about a plan.
  *
- * `null` means it did not, and the caller converts the whole deposit to credits
- * exactly as it always has — no intent, an expired one, a cancelled one, or not
- * enough sent. `'retry'` means the money is NOT the caller's to credit: either
- * another check already applied it, or the state it was settling against moved
- * under it. Crediting on a `'retry'` is how one transfer buys a period and gets
- * paid out as credits as well.
+ * `null` means nothing, and the caller converts the whole deposit to credits
+ * exactly as it always has — no intent, or one that has expired or been
+ * cancelled. A `'held'` result means the money is on the intent waiting for the
+ * rest of the price and must NOT be credited. `'retry'` means it is not the
+ * caller's to credit either: another check already applied it, or the state
+ * being settled against moved under it. Crediting on a `'retry'` is how one
+ * transfer buys a period and gets paid out as credits as well.
  *
- * The deposit marker is both checked and moved inside the settling transaction,
- * which is what makes those outcomes safe to report rather than guess at.
+ * The deposit marker is checked and moved inside every one of those write
+ * transactions, which is what makes the outcomes safe to report rather than
+ * guess at.
  */
-export function applyDepositToPlan(privyId: string, deposit: IncomingDeposit): PlanPayment | 'retry' | null {
+export function applyDepositToPlan(privyId: string, deposit: IncomingDeposit): PlanPayment | PlanHold | 'retry' | null {
   const usdReceived = deposit.usd;
+  // A quote that ran out with money on it settles before anything else looks at
+  // it, so the hold is credits by the time this deposit is considered.
+  releaseExpiredIntentHold(privyId);
+
   const row = getOpenPlanIntent(privyId);
   if (!row || !isPaidPlanId(row.plan)) return null;
   const now = Date.now();
   if (Date.parse(row.expires_at) <= now) return null;
-  // Short of the quote. It becomes credits, the intent stays open, and the user
-  // is told both — money that arrives is never held, and never lost.
-  if (usdReceived + USDC_DUST < row.expected_usd) return null;
 
   const plan = row.plan;
+  const totalPaid = row.paid_usd + usdReceived;
+
+  // Not there yet: hold it against the purchase. The marker moves with it, so
+  // the money is accounted for exactly once and no later check re-reads it.
+  if (totalPaid + USDC_DUST < row.expected_usd) {
+    const held = holdIntentPayment({
+      intentId: row.id,
+      privyId,
+      usd: usdReceived,
+      ifPaidUsd: row.paid_usd,
+      mint: deposit.mint,
+      creditedBefore: deposit.creditedBefore,
+      creditedAfter: deposit.creditedAfter,
+    });
+    if (held === 'cancelled') return null;
+    if (held !== 'ok') return 'retry';
+    return {
+      kind: 'held',
+      plan,
+      planName: PLAN_SPECS[plan].name,
+      paidUsd: totalPaid,
+      expectedUsd: row.expected_usd,
+      remainingUsd: Math.max(0, Math.round((row.expected_usd - totalPaid) * 100) / 100),
+    };
+  }
+
   const state = resolvePlanState(privyId);
   const periodMs = row.months * PLAN_PERIOD_MS;
 
@@ -313,7 +387,10 @@ export function applyDepositToPlan(privyId: string, deposit: IncomingDeposit): P
     }
   }
   const expiresAt = new Date(base + periodMs + carriedMs).toISOString();
-  const excessCredits = Math.max(0, Math.floor((usdReceived - row.expected_usd) * CREDITS_PER_DOLLAR_PURCHASED));
+  // Everything over the price, counting whatever was already held. The hold was
+  // never converted to anything, so this is the first and only time any of it
+  // turns into credits.
+  const excessCredits = Math.max(0, Math.floor((totalPaid - row.expected_usd) * CREDITS_PER_DOLLAR_PURCHASED));
 
   const result = consumePlanIntent({
     intentId: row.id,
@@ -322,6 +399,7 @@ export function applyDepositToPlan(privyId: string, deposit: IncomingDeposit): P
     expiresAt,
     kind: action,
     usdPaid: row.expected_usd,
+    ifPaidUsd: row.paid_usd,
     excessCredits,
     excessDescription: `USDC deposit, change from ${PLAN_SPECS[plan].name} plan`,
     mint: deposit.mint,
@@ -336,6 +414,7 @@ export function applyDepositToPlan(privyId: string, deposit: IncomingDeposit): P
   if (result !== 'ok') return null;
 
   return {
+    kind: 'paid',
     plan,
     planName: PLAN_SPECS[plan].name,
     months: row.months,

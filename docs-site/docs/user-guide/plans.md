@@ -45,13 +45,20 @@ a year is 144. The amount on the page is always the whole price of what you
 picked.
 
 It is the same address you top up credits with, and the same check. While a
-purchase is waiting, USDC arriving there buys the plan instead of credits.
+purchase is waiting, USDC arriving there counts towards the plan instead of
+buying credits.
 
-If you send after the quote expires, or send less than the price, the money is
-added to your balance as credits at 500 per dollar. Anything over the price
-becomes credits too. Money that arrives is never lost and never held.
+You can send it in more than one transfer. Each one is held against the
+purchase, and the page shows how much has arrived and how much is left. The plan
+starts on the transfer that completes the price. Anything over the price becomes
+credits at 500 per dollar.
 
-A purchase you have not paid yet can be cancelled on the Plans page. Picking a
+A quote is good for 24 hours. If it runs out before the full amount arrives,
+everything you have sent is added to your balance as credits at 500 per dollar,
+there and then. The same happens if you cancel the purchase, or pick a different
+plan instead. Money that arrives is never lost.
+
+A purchase you have not completed can be cancelled on the Plans page. Picking a
 different plan replaces it, so there is only ever one amount to send.
 
 ## When the month ends
