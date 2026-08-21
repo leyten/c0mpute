@@ -7,6 +7,7 @@ import {
   addCredits,
   getDepositProgress,
   setDepositProgress,
+  creditDeposit,
 } from '@/lib/db';
 import {
   CREDITS_PER_DOLLAR_PURCHASED,
@@ -108,11 +109,16 @@ export async function POST(req: NextRequest) {
           // applyDepositToPlan settles the period, the deposit marker and any
           // change in one transaction, and returns null whenever this deposit
           // is not a plan payment — which is every deposit unless an unexpired
-          // intent is open and the amount covers it. 'settled' means another
-          // check already applied this exact money: credit nothing.
-          const applied = applyDepositToPlan(privyId, usdValue, token.mint, onChainBalance);
-          if (applied === 'settled') {
-            notes.push('This payment is already going through, give it a moment');
+          // intent is open and the amount covers it. 'retry' means this money
+          // is spoken for: credit nothing and let the next check see it.
+          const applied = applyDepositToPlan(privyId, {
+            usd: usdValue,
+            mint: token.mint,
+            creditedBefore: alreadyCredited,
+            creditedAfter: onChainBalance,
+          });
+          if (applied === 'retry') {
+            notes.push('This payment is still going through, give it a moment');
           } else if (applied) {
             planPayment = applied;
             totalCredited += applied.excessCredits;
@@ -122,9 +128,19 @@ export async function POST(req: NextRequest) {
             // dollar turns into credits, so it is the only place the two may
             // differ (see lib/token-price.ts).
             const credits = Math.floor(usdValue * CREDITS_PER_DOLLAR_PURCHASED);
-            if (credits > 0) {
-              addCredits(privyId, credits, undefined, `${token.kind} deposit`);
-              setDepositProgress(privyId, token.mint, onChainBalance);
+            // The credit and the marker move together, and only if the marker
+            // is still where it was read a moment ago at the top of this loop.
+            // Two checks that overlap on a slow RPC both see the same
+            // unaccounted balance, and without the compare-and-set both pay
+            // for it.
+            if (credits > 0 && creditDeposit({
+              privyId,
+              mint: token.mint,
+              credits,
+              description: `${token.kind} deposit`,
+              creditedBefore: alreadyCredited,
+              creditedAfter: onChainBalance,
+            })) {
               totalCredited += credits;
               fullyCredited = true;
             }

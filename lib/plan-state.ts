@@ -260,24 +260,31 @@ export interface PlanPayment {
   carriedOverDays: number;
 }
 
+/** An unaccounted deposit, as the check-deposit route read it. */
+export interface IncomingDeposit {
+  /** USD value of the tokens the deposit marker has not accounted for yet. */
+  usd: number;
+  mint: string;
+  /** The marker as the route read it, and what it becomes once this applies. */
+  creditedBefore: number;
+  creditedAfter: number;
+}
+
 /**
  * Whether an arriving deposit pays for a plan, and what it bought.
  *
  * `null` means it did not, and the caller converts the whole deposit to credits
- * exactly as it always has — no intent, an expired one, or not enough sent.
- * `'settled'` means another check already applied this same money to the plan;
- * that caller must credit NOTHING, or the transfer pays twice.
+ * exactly as it always has — no intent, an expired one, a cancelled one, or not
+ * enough sent. `'retry'` means the money is NOT the caller's to credit: either
+ * another check already applied it, or the state it was settling against moved
+ * under it. Crediting on a `'retry'` is how one transfer buys a period and gets
+ * paid out as credits as well.
  *
- * The deposit marker moves inside the settling transaction, which is what makes
- * the second outcome safe to report rather than guess at.
+ * The deposit marker is both checked and moved inside the settling transaction,
+ * which is what makes those outcomes safe to report rather than guess at.
  */
-export function applyDepositToPlan(
-  privyId: string,
-  usdReceived: number,
-  mint: string,
-  /** The on-chain figure this payment accounts for, for the deposit marker. */
-  creditedAmount: number,
-): PlanPayment | 'settled' | null {
+export function applyDepositToPlan(privyId: string, deposit: IncomingDeposit): PlanPayment | 'retry' | null {
+  const usdReceived = deposit.usd;
   const row = getOpenPlanIntent(privyId);
   if (!row || !isPaidPlanId(row.plan)) return null;
   const now = Date.now();
@@ -317,11 +324,15 @@ export function applyDepositToPlan(
     usdPaid: row.expected_usd,
     excessCredits,
     excessDescription: `USDC deposit, change from ${PLAN_SPECS[plan].name} plan`,
-    mint,
-    creditedAmount,
+    mint: deposit.mint,
+    creditedBefore: deposit.creditedBefore,
+    creditedAfter: deposit.creditedAfter,
     ifExpiresAt: state.expiresAt,
   });
-  if (result === 'intent_gone') return 'settled';
+  // Only a CANCELLED intent means nobody has a claim on this money, so only
+  // that one falls through to the credit path. The rest are somebody else's
+  // settlement or a stale read, and both want another check, not a payout.
+  if (result === 'already_settled' || result === 'deposit_moved' || result === 'period_moved') return 'retry';
   if (result !== 'ok') return null;
 
   return {

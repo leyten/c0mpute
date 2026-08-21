@@ -36,14 +36,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
   }
 
-  const now = Date.now();
-  const previous = lastAction.get(privyId) ?? 0;
-  if (now - previous < MIN_INTERVAL_MS) {
-    return NextResponse.json({ error: 'Slow down a moment and try again.' }, { status: 429 });
-  }
-  lastAction.set(privyId, now);
-
   if (body.action === 'buy') {
+    // Only buying is throttled. Cancelling has to stay available the instant
+    // after a misclick, and it can only ever close something.
+    const now = Date.now();
+    const previous = lastAction.get(privyId) ?? 0;
+    if (now - previous < MIN_INTERVAL_MS) {
+      return NextResponse.json({ error: 'Slow down a moment and try again.' }, { status: 429 });
+    }
+    lastAction.set(privyId, now);
+
     if (!isPlanId(body.plan)) {
       return NextResponse.json({ error: 'Unknown plan' }, { status: 400 });
     }

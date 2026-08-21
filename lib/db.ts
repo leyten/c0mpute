@@ -1193,6 +1193,39 @@ export function setDepositProgress(privyId: string, mint: string, creditedAmount
   `).run(privyId, mint, creditedAmount, now, creditedAmount, now);
 }
 
+/**
+ * Convert an unaccounted deposit to credits and claim it, in one transaction.
+ *
+ * THE MARKER IS THE CLAIM ON THE MONEY, so moving it has to commit with the
+ * credits it paid for, and only if it is still where the caller read it. The
+ * check-deposit route reads the marker, then goes to the RPC, then comes back
+ * and writes: a second check that overlapped the first would otherwise read the
+ * same unaccounted balance and pay for it twice.
+ *
+ * Returns false having written nothing when the marker moved. Nothing is
+ * stranded by that: the money is still unaccounted for or already accounted
+ * for, and the next check reads whichever it is and does the right thing.
+ */
+export function creditDeposit(args: {
+  privyId: string;
+  mint: string;
+  credits: number;
+  description: string;
+  /** The marker as the caller read it, and what it becomes once this applies. */
+  creditedBefore: number;
+  creditedAfter: number;
+}): boolean {
+  ensureCreditTables();
+  const db = getDb();
+  const txn = db.transaction(() => {
+    if (getDepositProgress(args.privyId, args.mint) !== args.creditedBefore) return false;
+    addCredits(args.privyId, args.credits, undefined, args.description);
+    setDepositProgress(args.privyId, args.mint, args.creditedAfter);
+    return true;
+  });
+  return txn.immediate() as boolean;
+}
+
 export function getOrCreateDepositWallet(privyId: string): string {
   ensureCreditTables();
   const db = getDb();
@@ -1514,7 +1547,7 @@ export function createPlanIntent(args: {
       `INSERT INTO plan_purchase_intents (id, privy_id, plan, months, expected_usd, created_at, expires_at, consumed_at, cancelled_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL)`
     ).run(id, args.privyId, args.plan, args.months, args.expectedUsd, now, args.expiresAt);
-  })();
+  }).immediate();
 
   return db.prepare('SELECT * FROM plan_purchase_intents WHERE id = ?').get(id) as PlanIntentRow;
 }
@@ -1577,7 +1610,7 @@ function periodUnmoved(db: Database.Database, privyId: string, ifExpiresAt: stri
   return !!current && current.expires_at === ifExpiresAt;
 }
 
-export type ConsumeIntentResult = 'ok' | 'intent_gone' | 'period_moved';
+export type ConsumeIntentResult = 'ok' | 'already_settled' | 'deposit_moved' | 'cancelled' | 'period_moved';
 
 /**
  * Settle a USDC payment against an open intent: consume the intent, write the
@@ -1591,8 +1624,12 @@ export type ConsumeIntentResult = 'ok' | 'intent_gone' | 'period_moved';
  *
  * Every check happens before the first write, so a refusal commits an empty
  * transaction rather than half a payment. The intent's compare-and-set is that
- * first write, and losing it means another check already settled this deposit —
- * a caller told `intent_gone` must not fall back to crediting the same money.
+ * first write, and why it was lost decides what the caller may do with the
+ * money: `already_settled` means another check has this deposit and crediting
+ * it here would pay twice, while `cancelled` means nobody took it and it should
+ * become credits like any other deposit. Collapsing the two would leave a user
+ * who pressed Cancel a moment before the check told their payment was "going
+ * through", with the money sitting uncredited until the next poll.
  */
 export function consumePlanIntent(args: {
   intentId: string;
@@ -1605,9 +1642,10 @@ export function consumePlanIntent(args: {
   /** Change over the plan price, already converted at the purchase rate. */
   excessCredits: number;
   excessDescription: string;
-  /** The deposit this settles: its mint, and the on-chain figure now accounted for. */
+  /** The deposit this settles: its mint, the marker the caller read, and what it becomes. */
   mint: string;
-  creditedAmount: number;
+  creditedBefore: number;
+  creditedAfter: number;
   ifExpiresAt: string | null;
 }): ConsumeIntentResult {
   ensurePlanTables();
@@ -1617,28 +1655,44 @@ export function consumePlanIntent(args: {
 
   const txn = db.transaction((): ConsumeIntentResult => {
     if (!periodUnmoved(db, args.privyId, args.ifExpiresAt)) return 'period_moved';
+    // The marker is the claim on the money. If it moved while the caller was
+    // at the RPC, this deposit is already spoken for and buying a period with
+    // it would be buying one for nothing.
+    if (getDepositProgress(args.privyId, args.mint) !== args.creditedBefore) return 'deposit_moved';
 
     const claimed = db
       .prepare('UPDATE plan_purchase_intents SET consumed_at = ? WHERE id = ? AND consumed_at IS NULL AND cancelled_at IS NULL')
       .run(now, args.intentId);
-    if (claimed.changes === 0) return 'intent_gone';
+    if (claimed.changes === 0) {
+      const settled = db.prepare('SELECT consumed_at FROM plan_purchase_intents WHERE id = ?').get(args.intentId) as
+        | { consumed_at: string | null }
+        | undefined;
+      return settled?.consumed_at ? 'already_settled' : 'cancelled';
+    }
 
     writePlanPeriod(db, args, now);
-    setDepositProgress(args.privyId, args.mint, args.creditedAmount);
+    setDepositProgress(args.privyId, args.mint, args.creditedAfter);
     if (args.excessCredits > 0) addCredits(args.privyId, args.excessCredits, undefined, args.excessDescription);
     return 'ok';
   });
 
-  const result = txn() as ConsumeIntentResult;
+  // IMMEDIATE: the transaction reads before it writes, and a deferred one that
+  // loses its snapshot to another connection fails with SQLITE_BUSY_SNAPSHOT,
+  // which no busy timeout retries. Taking the write lock up front turns a 500
+  // on the settlement path into a wait.
+  const result = txn.immediate() as ConsumeIntentResult;
 
   // Book the cash outside the transaction, because treasury-ledger.ts holds its
-  // own connection and cannot join this one. Same shape recordEarning already
-  // uses for realizeMargin, and the same failure mode: if this throws after the
-  // period commits, the treasury under-reports its own revenue. That is an
-  // attribution gap, never a lost or double-taken payment — the money moved in
-  // the transaction above.
+  // own connection and cannot join this one. Swallowed on failure ON PURPOSE:
+  // the money moved in the transaction above, so all that is at risk here is
+  // attribution, and letting it throw would fail a settled purchase back to the
+  // caller as an error and leave the page telling the user nothing arrived.
   if (result === 'ok') {
-    creditPlanRevenue(args.usdPaid, `${args.kind}:${args.plan}:${args.privyId}`);
+    try {
+      creditPlanRevenue(args.usdPaid, `${args.kind}:${args.plan}:${args.privyId}`);
+    } catch (err) {
+      console.error('[Plans] plan_revenue booking failed for a settled purchase:', err);
+    }
   }
   return result;
 }

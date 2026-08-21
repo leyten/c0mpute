@@ -293,14 +293,19 @@ export default function SettingsPage() {
     try {
       const { ok, data } = await postDepositCheck();
       if (!ok) { setPlanError(data.error || 'Check failed.'); return; }
-      if (data.plan) setPlanSuccess(describeDepositCheck(data));
+      // Money that arrived but did not buy the plan — late, or short of the
+      // price — still arrived. Saying "nothing yet" would have them send again.
+      if (data.plan || (data.credited ?? 0) > 0) setPlanSuccess(describeDepositCheck(data));
       else setPlanNotice(data.message === 'No new deposits found'
         ? 'Nothing has arrived yet. Payments usually land within a minute.'
         : (data.message ?? 'Nothing has arrived yet.'));
-      await fetchCredits();
     } catch {
       setPlanError('Check failed.');
     } finally {
+      // Always, including after an error: the settle may have committed and the
+      // failure be something after it, and the page must not go on showing a
+      // plan the account does not have, or miss one it does.
+      await fetchCredits();
       setPlanBusy(false);
     }
   };
@@ -938,7 +943,9 @@ export default function SettingsPage() {
                               wrap
                             />
                             <p className="pixel-sans text-fg-40 text-[11px] mt-1.5">
-                              Send only USDC (SPL token) on Solana. Other tokens will be lost.
+                              Send only USDC (SPL token) on Solana. Other tokens will be lost. Send the whole
+                              amount in one transfer. Part payments are added to your balance as credits, they
+                              do not add up towards the plan.
                             </p>
                           </div>
 
