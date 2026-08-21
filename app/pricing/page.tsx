@@ -178,10 +178,9 @@ export default function Pricing() {
               A typical prompt spends {CREDIT_COST.message}. A long one, or one you ask the model to
               think through, spends a few. An image is {CREDIT_COST.image}.
             </Rule>
-            <Rule title="A dollar buys a thousand">
-              <span className="dollar">$</span>1 is {group(CREDITS_PER_DOLLAR)} credits.
-              That&rsquo;s the whole conversion. Credits are priced in dollars, not in a token you
-              need to buy first.
+            <Rule title="Top-ups are simple">
+              <span className="dollar">$</span>1 buys {group(CREDITS_PER_DOLLAR)} credits, no
+              subscription needed. Plans get more credits per dollar. That is the point of a plan.
             </Rule>
             <Rule title="Daily credits reset">
               Your plan&rsquo;s grant lands at 00:00 UTC and does not roll over. Yesterday&rsquo;s
@@ -202,14 +201,13 @@ export default function Pricing() {
             </Rule>
           </div>
 
-          {/* Payment. Card checkout arrives with the subscription release; USDC
-              deposits already work today on /settings. */}
+          {/* Payment. USDC is the live rail; card checkout is a later release
+              (owner call 2026-08-21: USDC first, Stripe another day). */}
           <div className="mt-12 md:mt-14 rounded-2xl border border-fg/10 bg-fg/[0.02] px-6 py-5 md:px-8 md:py-6">
-            <div className="pixel-sans text-fg text-sm">Card or USDC</div>
+            <div className="pixel-sans text-fg text-sm">Pay in USDC</div>
             <p className="pixel-sans text-fg-55 text-[13.5px] leading-relaxed mt-1.5 max-w-2xl">
-              Same plans and the same prices either way. Cards are handled by Stripe; USDC settles
-              on-chain straight into your balance. No wallet is required to pay by card, and no card
-              is required to pay in USDC.
+              Plans and top-ups are paid in USDC and settle on-chain straight into your balance.
+              Card payments are coming, at the same prices.
             </p>
           </div>
         </div>

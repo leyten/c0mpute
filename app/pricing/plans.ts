@@ -38,8 +38,13 @@ export interface PricingPlan {
   featured?: boolean;
 }
 
-/** What a credit is worth when you buy them outright. */
-export const CREDITS_PER_DOLLAR = 1000;
+/** What a dollar buys when you top up outright (no subscription). FINAL,
+ *  owner-approved 2026-08-21: retail sits above the plans' effective rate on
+ *  purpose, Venice-style, so subscribing is always the better deal. The
+ *  internal value of a credit stays a tenth of a cent; the gap between the
+ *  two is the subscription incentive, and this page only ever quotes THIS
+ *  number. */
+export const CREDITS_PER_DOLLAR = 500;
 
 /** What the common actions spend. A message is the unit; the rest are multiples. */
 export const CREDIT_COST = {
