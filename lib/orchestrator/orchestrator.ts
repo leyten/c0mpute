@@ -735,6 +735,9 @@ export class Orchestrator {
         // Final-cutover gate (staged; see RETIRE_LEGACY_WORKERS). The message is
         // what the operator's terminal shows right before the worker exits.
         if (this.RETIRE_LEGACY_WORKERS && workerType === 'native' && this.RETIRED_WORKER_MODELS.has(data.model)) {
+          // One line per rejection so the migration can be watched from the
+          // journal — the reject was silent, so a fleet exiting on it left no trace.
+          console.log(`[Orchestrator] Legacy worker rejected: model=${data.model} user=${privyUserId} ip=${workerIp}`);
           callback({ error: 'This worker version is retired — the network now runs qwen3.8-27b-uncensored. Update: npm i -g @compute-network/worker@latest, then restart the worker.' });
           return;
         }
