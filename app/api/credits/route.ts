@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { verifyPrivyToken } from '@/lib/privy-server';
 import { getCreditBalance, getOrCreateDepositWallet, getCreditTransactions, getFreePromptsUsed, getFreeImagesUsed, getTodayFreeSubsidyUsd } from '@/lib/db';
 import { getStakerAllowanceStatus } from '@/lib/staker-allowance';
+import { resolvePlanState, dailyGrantFor } from '@/lib/plan-state';
+import { getAllowanceUsed } from '@/lib/allowance';
+import { PLAN_SPECS, PAID_PLAN_IDS, planMonthlyUsd } from '@/lib/plans';
 import { CREDITS_PER_USD, CREDITS_PER_DOLLAR_PURCHASED } from '@/lib/token-price';
 import {
   FREE_PROMPT_LIMIT,
@@ -48,6 +51,14 @@ export async function GET(req: NextRequest) {
   const freeImagesRemaining = Math.max(0, FREE_IMAGE_LIMIT - getFreeImagesUsed(privyId));
   const stakerAllowance = getStakerAllowanceStatus(privyId);
 
+  // Plan state, resolved here as everywhere else — this is one of the points a
+  // finished period renews or lapses. The daily meter in the chat composer and
+  // the Plans section in settings both read this, so both get the grant, the
+  // plan and the price list from a single request.
+  const planState = resolvePlanState(privyId);
+  const grant = dailyGrantFor(planState);
+  const grantUsed = getAllowanceUsed(privyId, grant.source);
+
   // The onboarding grant is only issued while the treasury's daily free-subsidy
   // budget can still pay a worker for the job (see the orchestrator's submit
   // path). Surfaced as a plain boolean so the UI can say why a remaining count
@@ -72,6 +83,28 @@ export async function GET(req: NextRequest) {
     freeImagesRemaining,
     freeImageLimit: FREE_IMAGE_LIMIT,
     stakerAllowance,
+    plan: {
+      id: planState.plan,
+      name: PLAN_SPECS[planState.plan].name,
+      expiresAt: planState.expiresAt,
+      daysLeft: planState.daysLeft,
+      autoRenew: planState.autoRenew,
+      pendingPlan: planState.pendingPlan,
+      // True when a period just ran out without renewing. The UI says so once;
+      // it is not an error state, just the reason they are back on Free.
+      lapsed: planState.lapsed,
+    },
+    dailyGrant: {
+      // Which bucket today's grant comes from. 'plan' is prepaid, 'free' is
+      // the standing signed-in grant.
+      source: grant.source,
+      total: grant.credits,
+      used: grantUsed,
+      remaining: Math.max(0, grant.credits - grantUsed),
+      // Every grant resets at 00:00 UTC and does not carry over. Sent so the
+      // meter can say when, without the client inventing a timezone rule.
+      resetsAt: `${new Date().toISOString().slice(0, 10)}T24:00:00Z`,
+    },
     config: {
       // What a credit is worth when SPENT …
       creditsPerUsd: CREDITS_PER_USD,
@@ -86,6 +119,16 @@ export async function GET(req: NextRequest) {
       typicalMessageCredits: textCreditCost(TYPICAL_INPUT_TOKENS, TYPICAL_OUTPUT_TOKENS),
       textRate: { usdPerMInput: TEXT_USD_PER_M_INPUT, usdPerMOutput: TEXT_USD_PER_M_OUTPUT },
       imageCredits: IMAGE_CREDITS,
+      // The price list, so the settings page renders buy buttons from the same
+      // numbers the checkout debits rather than a copy of them.
+      plans: PAID_PLAN_IDS.map((id) => ({
+        id,
+        name: PLAN_SPECS[id].name,
+        dailyCredits: PLAN_SPECS[id].dailyCredits,
+        periodCredits: PLAN_SPECS[id].periodCredits,
+        monthlyUsd: planMonthlyUsd(id),
+      })),
+      freeDailyCredits: PLAN_SPECS.free.dailyCredits,
     },
   });
 }
