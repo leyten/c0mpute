@@ -719,6 +719,11 @@ export class Orchestrator {
       if (!job) return false;
       const userSocket = this.io.sockets.sockets.get(job.userSocketId);
       if (!userSocket) {
+        // Queued, so nothing was ever delivered — the charge has to go back.
+        // The disconnect sweep normally gets here first; this is the backstop
+        // for a socket that vanished without one, and it used to drop the job
+        // while silently keeping what it held.
+        this.refundJobCharges(job, 'User gone before dispatch');
         this.jobs.delete(jobId);
         return false;
       }
@@ -1956,11 +1961,15 @@ export class Orchestrator {
   private processQueue() {
     if (this.jobQueue.length === 0) return;
 
-    // Clean stale
+    // Clean stale. Same rule as the sweep's queued branch: a job that never
+    // reached a worker owes the user its charge back before it is dropped.
+    // refundJobCharges is latched, so whichever path gets here first wins and
+    // the other is a no-op.
     this.jobQueue = this.jobQueue.filter(jobId => {
       const job = this.jobs.get(jobId);
       if (!job) return false;
       if (!this.io.sockets.sockets.get(job.userSocketId)) {
+        this.refundJobCharges(job, 'User gone before dispatch');
         this.jobs.delete(jobId);
         return false;
       }
