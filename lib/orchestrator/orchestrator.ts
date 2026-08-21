@@ -448,9 +448,13 @@ export class Orchestrator {
     let busy = 0;
     let online = 0;
     for (const w of this.workers.values()) {
-      // Exclude un-aged (freshly-minted) accounts from the public count so the
-      // "X workers online" number reflects real operators, not throwaway floods.
-      if (!w.accountAgeOk) continue;
+      // Count everyone actually serving. The 48h account-age gate used to hide
+      // young accounts here too, which made this page disagree with the chat's
+      // live counts (browser workers are disproportionately new accounts) and
+      // would hide every newly-recruited worker for two days — poison during a
+      // growth push. The gate stays where it protects money (free-job subsidy
+      // and payouts); count-inflation floods are bounded by the per-IP/account
+      // caps and the history chart's incident handling.
       online++;
       byType[w.type]++;
       if (w.status === 'busy') busy++;
