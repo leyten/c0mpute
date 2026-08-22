@@ -216,11 +216,35 @@ function outputTokenCap(model: string | undefined, think?: boolean): number {
  *  'length' | ...) and is authoritative WHEN PRESENT — but no worker in the
  *  field sends it yet (npm latest is 2.9.1; the field lands in 2.9.2), so the
  *  token-count branch below is the live path today and the doneReason branch is
- *  the one that takes over as the fleet updates. Falling back on this ROUND's
- *  token count reaching the cap the reservation was sized against. */
+ *  the one that takes over as the fleet updates. `tokens` must be THIS round's
+ *  count (capDecisionTokens picks it), measured against the cap the reservation
+ *  was sized against. */
 export function hitOutputCap(job: Job, doneReason: string | undefined, tokens: number): boolean {
   if (doneReason) return doneReason === 'length';
-  return tokens - (job.roundTokenBase ?? 0) >= outputTokenCap(job.requestedModel, job.think);
+  return tokens >= outputTokenCap(job.requestedModel, job.think);
+}
+
+/** The token count hitOutputCap's fallback branch compares against the cap,
+ *  best source first. The server's own `serverTokenCount` counts job:token
+ *  EVENTS, and an event is not a token: an ollama chunk carries more than one
+ *  token under speculative decoding and the <think> markers the worker injects
+ *  count too, so a 4096-token cut arrived as ~3700 events and the exact `>= cap`
+ *  test missed it (prod, 2026-08-22). So:
+ *   1. `evalCount` (worker 2.9.2+): the engine's own count for the final call.
+ *   2. a single-round job (no tool call, so roundTokenBase was never set): the
+ *      worker's cumulative count IS that one call's eval_count. Bounded to twice
+ *      the cap so a worker cannot flag a cut by inventing a number — the only
+ *      prize would be a Continue chip, and payouts never read this value.
+ *   3. otherwise the server's round-local event count, which may under-count
+ *      and so errs toward "finished": the behaviour before this helper existed. */
+export function capDecisionTokens(job: Job, workerTokens: number | undefined, evalCount: number | undefined): number {
+  if (typeof evalCount === 'number' && Number.isFinite(evalCount) && evalCount >= 0) return evalCount;
+  const singleRound = job.roundTokenBase === undefined;
+  const cap = outputTokenCap(job.requestedModel, job.think);
+  if (singleRound && typeof workerTokens === 'number' && Number.isFinite(workerTokens) && workerTokens > 0 && workerTokens <= cap * 2) {
+    return workerTokens;
+  }
+  return (job.serverTokenCount ?? 0) - (job.roundTokenBase ?? 0);
 }
 
 type BoundedInput =
@@ -1381,7 +1405,13 @@ export class Orchestrator {
         if (!job) return;
         const worker = this.workers.get(socket.id);
         if (!worker || worker.id !== job.assignedWorker) return;
-        this.handleJobComplete(data.jobId, data.response, data.tokensGenerated, typeof data.doneReason === 'string' ? data.doneReason : undefined);
+        this.handleJobComplete(
+          data.jobId,
+          data.response,
+          data.tokensGenerated,
+          typeof data.doneReason === 'string' ? data.doneReason : undefined,
+          typeof data.evalCount === 'number' ? data.evalCount : undefined,
+        );
       });
 
       socket.on('job:error', (data) => {
@@ -2171,7 +2201,7 @@ export class Orchestrator {
           jobId: job.id,
           response,
           usage: this.jobUsage(job),
-          truncated: hitOutputCap(job, undefined, job.serverTokenCount ?? 0),
+          truncated: hitOutputCap(job, undefined, (job.serverTokenCount ?? 0) - (job.roundTokenBase ?? 0)),
         }); fin();
       },
       onError: (message) => {
@@ -2421,7 +2451,7 @@ export class Orchestrator {
     this.broadcastStats();
   }
 
-  private handleJobComplete(jobId: string, response: string, _workerReportedTokens: number, doneReason?: string) {
+  private handleJobComplete(jobId: string, response: string, workerReportedTokens: number, doneReason?: string, evalCount?: number) {
     const job = this.jobs.get(jobId);
     if (!job) return;
 
@@ -2454,6 +2484,9 @@ export class Orchestrator {
     }
 
     const tokensGenerated = job.serverTokenCount || 0;
+    // Billing and payouts stay on the server's count; only the "did it hit the
+    // cap" decision takes the engine's count, which is the one that is exact.
+    const capTokens = capDecisionTokens(job, workerReportedTokens, evalCount);
 
     // Price the job before any branch below decides what to do with it. Every
     // exit from here on either keeps the settled charge or refunds it, and both
@@ -2494,7 +2527,7 @@ export class Orchestrator {
       // copy depends on it, so an unknown finish reason falling back to the
       // token count is good enough — and in practice it says "not cut off",
       // which is what the token counts on these jobs actually show.
-      const cutOff = hitOutputCap(job, doneReason, tokensGenerated);
+      const cutOff = hitOutputCap(job, doneReason, capTokens);
       // Server wall time from dispatch: the only honest number anyone has for
       // how long this turn ran. The chat client drops the burned turn whole and
       // renders nothing for it, so today this is carried for the log and for
@@ -2530,7 +2563,7 @@ export class Orchestrator {
       console.warn(
         `[Orchestrator] [think-burnout] job=${jobId} worker=${w?.id ?? job.assignedWorker ?? 'unknown'} ` +
           `model=${w?.model ?? job.requestedModel ?? 'unknown'} think=${!!job.think} ` +
-          `tokens=${tokensGenerated} respChars=${response.length} doneReason=${doneReason ?? 'unknown'} ` +
+          `tokens=${tokensGenerated} capTokens=${capTokens} respChars=${response.length} doneReason=${doneReason ?? 'unknown'} ` +
           `cutOff=${cutOff} thinkSeconds=${thinkSeconds} rule=${rule} refunded=${refunded}`
       );
       if (w) w.status = 'idle';
@@ -2751,7 +2784,7 @@ export class Orchestrator {
         jobId,
         response,
         usage: this.jobUsage(job),
-        truncated: hitOutputCap(job, doneReason, tokensGenerated),
+        truncated: hitOutputCap(job, doneReason, capTokens),
       });
     }
 

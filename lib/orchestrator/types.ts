@@ -257,9 +257,11 @@ export interface ClientToServerEvents {
   // `doneReason` is the engine's finish reason ('stop' | 'length' | ...). NO
   // released worker sends it yet: npm latest is 2.9.1 and the field lands in
   // 2.9.2, so today every reader runs on the fallback and this is the path that
-  // takes over as the fleet updates. Optional forever: the fleet is
-  // permissionless and never fully current.
-  'job:complete': (data: { jobId: string; response: string; tokensGenerated: number; doneReason?: string }) => void;
+  // takes over as the fleet updates. `evalCount` (also 2.9.2) is the engine's
+  // token count for the FINAL inference call, exact where `tokensGenerated` is
+  // the sum over tool rounds. Optional forever: the fleet is permissionless and
+  // never fully current.
+  'job:complete': (data: { jobId: string; response: string; tokensGenerated: number; doneReason?: string; evalCount?: number }) => void;
   'job:error': (data: { jobId: string; error: string }) => void;
   'job:tool_call': (data: { jobId: string; toolCalls: ToolCall[] }) => void;
   /** User pressed Stop. Named `job:abort` rather than `job:cancel` because that
