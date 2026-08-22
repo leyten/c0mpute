@@ -40,20 +40,19 @@ function mapModel(model: string | undefined): { model: string; think: boolean } 
       return { model: 'qwen3.8-27b-uncensored', think: false };
     case 'qwen3.8-27b-uncensored-think':
       return { model: 'qwen3.8-27b-uncensored', think: true };
-    // MIGRATION ALIASES — every retired public id keeps answering, routed to
-    // the legacy 2.8.x fleet (the supply that's actually online) until real
-    // qwen3.8 supply lands. At final cutover these all repoint to
-    // 'qwen3.8-27b-uncensored', and after a grace period they drop entirely.
+    // MIGRATION ALIASES — every retired public id keeps answering, now on the
+    // single model: the legacy 2.8.x fleet is retired and its catalog entry is
+    // gone. After a grace period these drop entirely.
     case 'c0mpute-max':
-      return { model: 'native-max', think: false };
+      return { model: 'qwen3.8-27b-uncensored', think: false };
     case 'c0mpute-max-think':
-      return { model: 'native-max', think: true };
+      return { model: 'qwen3.8-27b-uncensored', think: true };
     case 'supergemma4-26b':
     case 'c0mpute-max-supergemma':
     case 'code':
     case 'devstral-24b':
     case 'c0mpute-code':
-      return { model: 'native-max', think: false };
+      return { model: 'qwen3.8-27b-uncensored', think: false };
     // the decentralized SWARM model — served by the permissionless GPU network, not a whole-model
     // worker. The orchestrator id must be a MODEL_SPECS key so tryDispatchSwarm routes it to a ring
     // (specForModel); think rides reasoning through serveRequest.
@@ -75,8 +74,8 @@ function mapModel(model: string | undefined): { model: string; think: boolean } 
 // MODEL_CATALOG. An alias left pointing at a removed catalog key would not
 // error — getModelTier falls through to 'pro', so the request gets billed 10cr
 // and answered by a small browser worker. Fail loudly at module load instead:
-// if you remove 'native-max' from the catalog, repoint the aliases above first.
-for (const id of ['qwen3.8-27b-uncensored', 'native-max']) {
+// if you remove a catalog key, repoint the aliases above first.
+for (const id of ['qwen3.8-27b-uncensored']) {
   if (!MODEL_CATALOG[id]) {
     throw new Error(`mapModel routes to '${id}' but MODEL_CATALOG no longer has it — update the aliases in this file.`);
   }
