@@ -86,6 +86,7 @@ export default function Earn() {
                   <div className="mt-6 flex flex-wrap gap-x-8 gap-y-3">
                     <Stat label="Jobs this session" value={String(engine.session.jobsCompleted)} />
                     <Stat label="Tokens" value={engine.session.tokensGenerated.toLocaleString()} />
+                    <Stat label="Speed" value={engine.benchmarkTokPerSec > 0 ? `${engine.benchmarkTokPerSec.toFixed(1)} tok/s` : '—'} />
                     <Stat label="Earned today" value={engine.todayEarnings === null ? '—' : `$${engine.todayEarnings.toFixed(2)}`} />
                   </div>
                 )}

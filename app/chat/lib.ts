@@ -28,9 +28,15 @@ export type ChatState = 'idle' | 'queued' | 'streaming' | 'error';
 // charge; both models bill from the same rate card and a typical message lands
 // at about one credit on either. The label says "about" for that reason, and
 // the number exists only so a credit balance can be spoken in messages.
+// The browser entry's `modelId` is what job:submit carries, and the
+// orchestrator routes it by substring (workerServesModel), not by exact match:
+// any browser worker serving a "compute" model takes it. A worker may be on the
+// 9B or on the 4B depending on its GPU, which is why the row is named for the
+// family rather than a size — the name is shown against every answer it
+// produces, and only the family is true of all of them.
 export const PLANS = [
   { id: 'qwen38' as const, name: 'Qwen3.8 27B Uncensored', cost: 1, costLabel: '≈ 1 cr / message', modelId: 'qwen3.8-27b-uncensored', tier: 'max' as const, workerModel: 'qwen3.8-27b-uncensored', vision: true, thinking: true, description: 'Tools, vision, thinking — no refusals', features: ['Qwen3.8 27B model', 'Native inference', 'No refusals', 'Web search (tool calling)', 'Vision (image input)', 'Thinking mode'] },
-  { id: 'pro' as const, name: 'Qwen3 8B', cost: 1, costLabel: '≈ 1 cr / message', modelId: 'Qwen3-8B-c0mpute-q4f16_1-MLC', tier: 'pro' as const, workerModel: null, vision: false, thinking: false, description: 'Smaller, browser-powered', features: ['Qwen3 8B model', 'Browser-powered', 'No refusals'] },
+  { id: 'pro' as const, name: 'Qwen3.5', cost: 1, costLabel: '≈ 1 cr / message', modelId: 'Qwen3.5-9B-compute-q4f16_1-MLC', tier: 'pro' as const, workerModel: null, vision: false, thinking: false, description: 'Smaller, browser-powered', features: ['Qwen3.5 9B or 4B, whichever the worker can hold', 'Browser-powered', 'No refusals'] },
 ] as const;
 export type PlanId = typeof PLANS[number]['id'];
 export type Plan = typeof PLANS[number];

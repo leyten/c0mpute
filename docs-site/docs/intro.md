@@ -22,7 +22,7 @@ Chat runs on **Qwen3.8 27B Uncensored** (`qwen3.8-27b-uncensored`) — one model
 |-------|------|---------------|-------|
 | **Qwen3.8 27B Uncensored** | about 1 credit a message | Native workers | uncensored; web search + tools, image input, thinking mode |
 
-The [API](/api-reference) exposes two more ids: `c0mpute-pro`, an uncensored 8B served by the browser worker pool, and `c0mpute-swarm`, MiniMax-M2.5 split across a swarm of GPUs. Both bill at the same per-token rate. [Image generation](/image-generation) runs on its own pool of image workers.
+The [API](/api-reference) exposes two more ids: `c0mpute-pro`, uncensored Qwen3.5 served by the browser worker pool, and `c0mpute-swarm`, MiniMax-M2.5 split across a swarm of GPUs. Both bill at the same per-token rate. [Image generation](/image-generation) runs on its own pool of image workers.
 
 ## Credits and the <span class="dollar">$</span>ZERO token
 

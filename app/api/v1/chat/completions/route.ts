@@ -74,7 +74,7 @@ function mapModel(model: string | undefined): { model: string; think: boolean } 
 // Cutover tripwire: every max-tier id mapModel can return MUST exist in
 // MODEL_CATALOG. An alias left pointing at a removed catalog key would not
 // error — getModelTier falls through to 'pro', so the request gets billed 10cr
-// and answered by an 8B browser worker. Fail loudly at module load instead:
+// and answered by a small browser worker. Fail loudly at module load instead:
 // if you remove 'native-max' from the catalog, repoint the aliases above first.
 for (const id of ['qwen3.8-27b-uncensored', 'native-max']) {
   if (!MODEL_CATALOG[id]) {

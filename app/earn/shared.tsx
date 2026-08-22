@@ -76,6 +76,9 @@ export function Button({ onClick, disabled, kind = 'solid', children }: {
 export function browserNote(engine: Engine): string {
   const { device, model } = engine;
   if (device.webGPUSupported === false) return 'This browser cannot run a worker. It needs WebGPU.';
+  // No model until the worker starts and sizes the GPU. Which one it lands on
+  // is not a choice, so before that the note describes the lane, not a pick.
+  if (!model) return 'Uncensored Qwen3.5, sized to your GPU and downloaded once. The tab stays open while it serves.';
   return `${model.name}, ${model.size} downloaded once. The tab stays open while it serves.`;
 }
 
