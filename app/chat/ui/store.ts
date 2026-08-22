@@ -27,8 +27,12 @@ export interface Version {
    *  survive persistence (see save). */
   files?: FileRef[];
   model?: VersionModel;
-  /** Cut short by the stop button, so the turn can offer to continue it. */
+  /** Cut short, so the turn can offer to continue it: the stop button, or the
+   *  lane's output limit. */
   truncated?: boolean;
+  /** Cut by the output limit rather than by the reader. Only the wording under
+   *  the answer depends on the difference. */
+  cutAtLimit?: boolean;
   /** An image was announced for this answer and has not arrived yet. The
    *  placeholder stays on the committed turn so it never blinks out and back. */
   pendingImage?: boolean;
@@ -73,10 +77,14 @@ export function titleFrom(text: string): string {
 
 // ---- versions ----
 
+/** What ended an answer early: the reader pressed stop, or the lane's output
+ *  limit ran out. Either one can be continued; only the note differs. */
+export type Cut = 'stop' | 'limit';
+
 /** The id is chosen by the caller: a job knows which version it is writing
  *  before it has any text, and late images need that id to find it again. */
-export function makeVersion(id: string, content: string, model?: VersionModel, truncated?: boolean, pendingImage?: boolean): Version {
-  return { id, content, model, truncated: truncated || undefined, pendingImage: pendingImage || undefined, createdAt: Date.now() };
+export function makeVersion(id: string, content: string, model?: VersionModel, cut?: Cut, pendingImage?: boolean): Version {
+  return { id, content, model, truncated: cut ? true : undefined, cutAtLimit: cut === 'limit' || undefined, pendingImage: pendingImage || undefined, createdAt: Date.now() };
 }
 
 export function assistantMsg(id: string, version: Version): Msg {
@@ -118,6 +126,34 @@ function mirror(msg: Msg, versions: Version[], active: number): Msg {
 export function addVersion(msg: Msg, v: Version): Msg {
   const versions = [...versionsOf(msg), v];
   return mirror(msg, versions, versions.length - 1);
+}
+
+/** Grow one version in place. A continuation finishes the answer it resumed,
+ *  so it belongs IN that version rather than beside it as a second answer to
+ *  the same prompt — and the cut flags go with it: still cut if the
+ *  continuation ran out too, clear if it reached the end. */
+export function extendVersion(
+  msg: Msg,
+  versionId: string,
+  content: string,
+  cut?: Cut,
+  add?: { images?: string[]; files?: FileRef[]; pendingImage?: boolean },
+): Msg {
+  const versions = versionsOf(msg);
+  const at = versions.findIndex(v => v.id === versionId);
+  if (at === -1) return msg;
+  const next = versions.map((v, i) => {
+    if (i !== at) return v;
+    const grown: Version = { ...v, content, truncated: cut ? true : undefined, cutAtLimit: cut === 'limit' || undefined };
+    // Whatever the continuation produced belongs to this version as well: its
+    // images and documents join the ones the first half already had, and a
+    // render still in flight keeps its placeholder on the turn.
+    if (add?.images?.length) { grown.images = [...(v.images ?? []), ...add.images]; grown.pendingImage = undefined; }
+    else if (add?.pendingImage) grown.pendingImage = true;
+    if (add?.files?.length) grown.files = [...(v.files ?? []), ...add.files];
+    return grown;
+  });
+  return mirror(msg, next, activeIndex(msg));
 }
 
 export function selectVersion(msg: Msg, index: number): Msg {

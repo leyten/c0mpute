@@ -18,8 +18,8 @@ import { PENDING_PROMPT_KEY, PLANS, parseThinking, parseSourcesFromContent, type
 import {
   KEY as STORE_KEY,
   load, save, uid, titleFrom, toWire, truncateAt,
-  activeVersion, addImagesTo, addVersion, assistantMsg, makeVersion, selectVersion,
-  type Convo, type Msg, type Role, type VersionModel,
+  activeVersion, addImagesTo, addVersion, assistantMsg, extendVersion, makeVersion, selectVersion,
+  type Convo, type Cut, type Msg, type Role, type VersionModel,
 } from './store';
 import { isMac } from './search';
 import Sidebar from './Sidebar';
@@ -71,6 +71,21 @@ interface Job {
   payload: EngineMessage[];
   plan: Plan;
   think: boolean;
+  /** Continuation: the answer text this job picks up from, and the id of the
+   *  version it grows. The stream is appended to `prefix` and written back over
+   *  that version, so an answer that was cut in half ends up as one answer and
+   *  not as two. */
+  prefix?: string;
+  extend?: string;
+  /** Sources the resumed answer already carried, so continuing it does not drop
+   *  its citation strip. */
+  sources?: SourceRef[];
+  /** How the resumed answer was cut. A continuation that fails leaves the answer
+   *  exactly as cut as it found it, chip and all. */
+  resumeCut?: Cut;
+  /** This job IS the automatic retry of a think-burnout. One per turn: if the
+   *  retry burns out too, the reader gets the error. */
+  retryOfBurnout?: boolean;
 }
 
 /** Where the answer in flight will land. */
@@ -80,6 +95,9 @@ interface Landing {
   versionId: string;
   target: string | null;
   model: VersionModel;
+  /** Write over `versionId` instead of adding a version beside it: this job is
+   *  finishing an answer, not writing another one. */
+  extend?: boolean;
 }
 
 export default function Chat() {
@@ -108,6 +126,9 @@ export default function Chat() {
    *  than letting the whole strip appear at once on completion. */
   const [liveSources, setLiveSources] = useState<SourceRef[]>([]);
   const [error, setError] = useState<string | null>(null);
+  /** A quiet line in place of the error banner, for a failure the page is
+   *  handling itself: today only the think-burnout retry. */
+  const [notice, setNotice] = useState<string | null>(null);
   /** Answer being rewritten, so the stream shows in its place. */
   const [regenFor, setRegenFor] = useState<string | null>(null);
   /** The job "Try again" would repeat. State, because the error block reads it. */
@@ -283,8 +304,8 @@ export default function Chat() {
   }, [streamText, scrollToEnd]);
 
   // ---- the answer a job produces ----
-  const commit = useCallback((to: Landing, content: string, truncated?: boolean) => {
-    const version = makeVersion(to.versionId, content, to.model, truncated, awaitingImage.current);
+  const commit = useCallback((to: Landing, content: string, cut?: Cut) => {
+    const version = makeVersion(to.versionId, content, to.model, cut, awaitingImage.current);
     if (earlyImages.current.length) {
       version.images = earlyImages.current;
       earlyImages.current = [];
@@ -297,9 +318,19 @@ export default function Chat() {
     setConvos(prev => {
       const next = prev.map(c => {
         if (c.id !== to.convoId) return c;
-        const messages = to.target
-          ? c.messages.map(m => (m.id === to.target ? addVersion(m, version) : m))
-          : [...c.messages, assistantMsg(to.answerId, version)];
+        // A continuation grows the version it resumed — same answer, more of
+        // it — so it writes over that version instead of landing beside it.
+        const messages = to.extend
+          ? c.messages.map(m => (m.id === to.answerId
+            ? extendVersion(m, to.versionId, content, cut, {
+              images: version.images,
+              files: version.files,
+              pendingImage: version.pendingImage,
+            })
+            : m))
+          : to.target
+            ? c.messages.map(m => (m.id === to.target ? addVersion(m, version) : m))
+            : [...c.messages, assistantMsg(to.answerId, version)];
         return { ...c, updatedAt: Date.now(), messages };
       });
       save(next);
@@ -311,6 +342,9 @@ export default function Chat() {
     buffer.current = '';
     landing.current = null;
     setStreamText('');
+    // The retry note belongs to the job that raised it: without this it outlived
+    // the answer and followed the reader into other conversations.
+    setNotice(null);
     setState('idle');
     setQueue(null);
     setSearching(false);
@@ -337,15 +371,20 @@ export default function Chat() {
   }, [convos, persist, activeId, engine, clearLive]);
 
   // ---- run one job ----
+  /** run() submitting another job from inside itself (the burnout retry). A ref
+   *  rather than a direct call, which would make the callback depend on itself. */
+  const runRef = useRef<((job: Job) => Promise<void>) | null>(null);
+
   const run = useCallback(async (job: Job) => {
     if (capped) { engine.login(); return; }
 
     const to: Landing = {
       convoId: job.convoId,
       answerId: job.target ?? uid(),
-      versionId: uid(),
+      versionId: job.extend ?? uid(),
       target: job.target,
       model: { id: job.plan.id, name: job.plan.name, costLabel: job.plan.costLabel },
+      extend: !!job.extend,
     };
     landing.current = to;
     setLiveConvo(job.convoId);
@@ -355,9 +394,13 @@ export default function Chat() {
     liveFiles.current = [];
     setRetryJob(job);
     setError(null);
+    // The burnout retry sets the note on its way in; every other job clears it.
+    if (!job.retryOfBurnout) setNotice(null);
 
-    buffer.current = '';
-    setStreamText('');
+    // A continuation starts from the text it is finishing, so the answer keeps
+    // growing on screen instead of appearing to start over.
+    buffer.current = job.prefix ?? '';
+    setStreamText(buffer.current);
     setQueue(null);
     setSearching(false);
     // sources belong to the job that found them: the next answer starts with
@@ -373,7 +416,7 @@ export default function Chat() {
       setStreamText(buffer.current);
     };
 
-    let gathered: SourceRef[] = [];
+    let gathered: SourceRef[] = job.sources ?? [];
 
     await engine.send(
       { messages: job.payload, model: job.plan.modelId, think: job.think },
@@ -411,31 +454,75 @@ export default function Chat() {
         onFile: file => { liveFiles.current.push(file); },
         onComplete: (finalText, meta) => {
           if (flushTimer.current) { clearTimeout(flushTimer.current); flushTimer.current = null; }
-          let content = finalText || '[No response received]';
-          if (meta.thinkSeconds !== null && content.includes('</think>')) {
+          // The engine trims the text it hands back, which on a continuation
+          // welds the join shut ("the quick" + "brown"). The raw buffer still
+          // has whatever the model actually wrote there, space or paragraph
+          // break, so put that back between the two halves.
+          const join = job.prefix !== undefined
+            ? (buffer.current.slice(job.prefix.length).match(/^\s+/)?.[0] ?? '')
+            : '';
+          let content = job.prefix !== undefined
+            ? job.prefix + join + finalText
+            : (finalText || '[No response received]');
+          // Only a fresh answer carries a think block worth timing; a
+          // continuation runs with thinking off and would stamp its number on
+          // the block the first half already wrote.
+          if (job.prefix === undefined && meta.thinkSeconds !== null && content.includes('</think>')) {
             content = content.replace('</think>', `</think><!--think_time:${meta.thinkSeconds}-->`);
           }
           const srcs = meta.sources.length ? meta.sources : gathered;
           if (srcs.length) content += `\n---SOURCES---${JSON.stringify(srcs)}`;
-          commit(to, content);
+          commit(to, content, meta.truncated ? 'limit' : undefined);
           clearLive();
         },
-        onError: message => {
+        onError: (message, meta) => {
           if (flushTimer.current) { clearTimeout(flushTimer.current); flushTimer.current = null; }
-          // keep whatever text did arrive — losing it is worse than an odd stub
           const partial = buffer.current.trim();
-          if (partial) {
-            commit(to, partial);
+          // A burnout's buffer is reasoning and nothing else, and the job was
+          // refunded — committing it would put the model's whole response on
+          // screen inside a dropdown, for free, which is exactly the shape a
+          // prompt can ask for on purpose. It is dropped, not kept: clearLive
+          // empties the buffer below and no version is written.
+          const burnout = meta?.code === 'THINK_BURNOUT';
+          // keep whatever text did arrive — losing it is worse than an odd stub
+          if (partial && !burnout) {
+            // `resumeCut` is undefined on a fresh answer and the answer's own cut
+            // on a continuation, so a failed continuation is saved still cut
+            // rather than as a complete answer that stops mid-sentence.
+            commit(to, partial, job.resumeCut);
             // the partial is an answer now, so trying again versions it instead
-            // of writing over the only copy the reader has
-            setRetryJob({ ...job, target: to.answerId });
+            // of writing over the only copy the reader has. A continuation keeps
+            // what it recovered: both the text on screen and the answer the
+            // model is asked to resume move up to the saved partial, or Try
+            // again would write the recovered words a second time.
+            const resumed = job.prefix === undefined ? null : (parseThinking(partial).response.trim() || partial);
+            setRetryJob({
+              ...job,
+              target: to.answerId,
+              prefix: resumed === null ? undefined : partial,
+              payload: resumed === null
+                ? job.payload
+                : job.payload.map((m, i) => (i === job.payload.length - 1 ? { ...m, content: resumed } : m)),
+            });
           }
           clearLive();
+          // A think-burnout is the one failure this page can answer by itself:
+          // the model reasoned the whole turn away, so ask the same thing again
+          // with thinking off. Once per turn — a retry that burns out too is
+          // reported like any other failure. Nothing was committed, so the
+          // answer lands as this turn's only answer.
+          if (burnout && job.think && !job.retryOfBurnout) {
+            setNotice('Thinking produced no answer. Retrying without thinking.');
+            void runRef.current?.({ ...job, think: false, retryOfBurnout: true });
+            return;
+          }
           setError(message);
         },
       },
     );
   }, [capped, engine, commit, clearLive]);
+
+  useEffect(() => { runRef.current = run; }, [run]);
 
   // ---- ask ----
   // Everything the user says arrives here: the composer, a follow-up chip, and
@@ -560,6 +647,42 @@ export default function Chat() {
     });
   }, [busy, convos, activeId, engine.models, plan, think, run]);
 
+  // ---- continue a cut-off answer ----
+  // Not a new question. The job's last message is the half-written answer with
+  // no user turn after it, so the model resumes that sentence instead of
+  // starting the answer again, and what it writes is appended to the version it
+  // picked up. Thinking is off: the answer is already under way.
+  const continueFrom = useCallback(async (msgId: string) => {
+    if (busy) return;
+    const convo = convos.find(c => c.id === activeId);
+    if (!convo) return;
+    const at = convo.messages.findIndex(m => m.id === msgId);
+    if (at < 0) return;
+    const version = activeVersion(convo.messages[at]);
+    const { cleanContent, sources } = parseSourcesFromContent(version.content);
+    if (!cleanContent.trim()) return;
+    // The model that wrote the first half finishes it, and it has to be a native
+    // one. A browser worker runs WebLLM, which refuses a payload whose last
+    // message is the assistant's (MessageOrderError) and whose input budget is
+    // smaller than its own output cap, so resending a full-length answer comes
+    // back as "message too long". The chip is hidden on that lane; this is the
+    // guard behind it, and it also covers an answer whose model has left the
+    // catalog, where the lane is unknowable.
+    const chosen = engine.models.find(p => p.id === version.model?.id);
+    if (chosen?.tier !== 'max') return;
+    await run({
+      convoId: convo.id,
+      target: msgId,
+      payload: buildPayload(convo.messages.slice(0, at + 1).slice(-10), chosen, convo.instructions ?? ''),
+      plan: chosen,
+      think: false,
+      prefix: cleanContent,
+      extend: version.id,
+      sources,
+      resumeCut: version.cutAtLimit ? 'limit' : version.truncated ? 'stop' : undefined,
+    });
+  }, [busy, convos, activeId, engine.models, run]);
+
   const pickVersion = useCallback((msgId: string, index: number) => {
     persist(convos.map(c => (c.id === activeId
       ? { ...c, messages: c.messages.map(m => (m.id === msgId ? selectVersion(m, index) : m)) }
@@ -575,7 +698,7 @@ export default function Chat() {
     // it still set baked a permanent placeholder into the saved turn.
     awaitingImage.current = false;
     // flagged, so the turn can offer to pick the answer back up
-    if (partial && to) commit(to, partial, true);
+    if (partial && to) commit(to, partial, 'stop');
     clearLive();
     engine.cancel();
   }, [engine, commit, clearLive]);
@@ -631,6 +754,10 @@ export default function Chat() {
 
   const empty = messages.length === 0 && state === 'idle';
   const lastAnswer = lastOf(messages, 'assistant');
+  /** Continue is native-only (see continueFrom): on the browser lane the chip is
+   *  not offered at all, and the cut note under the answer stands on its own. */
+  const canContinue = !!lastAnswer
+    && engine.models.find(p => p.id === activeVersion(lastAnswer).model?.id)?.tier === 'max';
   const lastAsk = lastOf(messages, 'user');
 
   const composer = (
@@ -747,6 +874,9 @@ export default function Chat() {
                   sources={liveSources}
                 />
               )}
+              {notice && liveConvo === activeId && (
+                <p className="cu-fade text-[13px]" style={{ color: 'var(--cu-faint)' }}>{notice}</p>
+              )}
               {error && liveConvo === activeId && (
                 <div className="cu-fade rounded-2xl px-4 py-3 text-[14px]" style={{ background: 'color-mix(in oklab, var(--danger) 8%, transparent)', color: 'var(--danger-soft)' }}>
                   <p>{error}</p>
@@ -788,7 +918,12 @@ export default function Chat() {
           {!busy && lastAnswer && (
             <div className="relative z-10 mx-auto w-full max-w-[46rem] px-4 [&_.cu-chip]:pointer-events-auto">
               <div className="cu-followups flex flex-wrap items-center justify-end gap-1.5 pb-2">
-                <FollowUps content={lastAnswer.content} truncated={lastAnswer.truncated} onPick={followUp} />
+                <FollowUps
+                  content={lastAnswer.content}
+                  truncated={lastAnswer.truncated}
+                  onPick={followUp}
+                  onContinue={canContinue ? () => void continueFrom(lastAnswer.id) : undefined}
+                />
               </div>
             </div>
           )}

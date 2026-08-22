@@ -5,9 +5,13 @@ import { useState } from 'react';
 // Collapsible reasoning block for thinking models. Shows an animated
 // "Thinking" label while the model is still inside <think>, and a
 // "Thought for Xs" summary once the answer starts.
+//
+// The duration is only ever shown when one was MEASURED. It used to fall back
+// to the word count over five, which reads as a real number and is not one: a
+// job that thought for 61s was labelled "Thought for 692s" on the failure path,
+// where nothing measures the time.
 export default function ThinkingDropdown({ thinking, isStreaming, elapsedSeconds, defaultOpen }: { thinking: string; isStreaming?: boolean; elapsedSeconds?: number; defaultOpen?: boolean }) {
   const [isOpen, setIsOpen] = useState(defaultOpen ?? false);
-  const seconds = elapsedSeconds ?? Math.max(1, Math.round(thinking.split(/\s+/).length / 5));
 
   return (
     <div className="mt-2">
@@ -36,7 +40,7 @@ export default function ThinkingDropdown({ thinking, isStreaming, elapsedSeconds
             </span>
           </span>
         ) : (
-          <span>Thought for {seconds}s</span>
+          <span>{elapsedSeconds === undefined ? 'Thought' : `Thought for ${elapsedSeconds}s`}</span>
         )}
       </button>
       {isOpen && (

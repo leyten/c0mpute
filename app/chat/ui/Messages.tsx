@@ -115,6 +115,9 @@ function VersionBody({ v }: { v: Version }) {
   return (
     <>
       <Answer content={v.content} />
+      {v.cutAtLimit && (
+        <p className="mt-2 text-[13px]" style={{ color: 'var(--cu-faint)' }}>Answer was cut at the length limit.</p>
+      )}
       {v.pendingImage && (
         <div className="mt-3 h-64 w-full max-w-sm animate-pulse rounded-2xl" style={{ background: 'var(--cu-surface)' }} />
       )}
@@ -267,14 +270,14 @@ export function followUpsFor(content: string): FollowUp[] {
   return out.slice(0, 3);
 }
 
-const CONTINUE = 'Continue from where you stopped.';
-
-export function FollowUps({ content, truncated, onPick }: { content: string; truncated?: boolean; onPick: (text: string) => void }) {
+// Continue is not a follow-up question: it resumes the answer itself, so it
+// gets its own action rather than a line of text put in the reader's mouth.
+export function FollowUps({ content, truncated, onPick, onContinue }: { content: string; truncated?: boolean; onPick: (text: string) => void; onContinue?: () => void }) {
   const chip = 'cu-chip px-2.5 py-1 text-[12px]';
   return (
     <>
-      {truncated && (
-        <button onClick={() => onPick(CONTINUE)} className={chip} style={{ color: 'var(--cu-faint)' }}>
+      {truncated && onContinue && (
+        <button onClick={onContinue} className={chip} style={{ color: 'var(--cu-faint)' }}>
           Continue
         </button>
       )}

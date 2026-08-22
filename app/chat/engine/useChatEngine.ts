@@ -53,9 +53,14 @@ export interface SendCallbacks {
   /** A generated document, ready to download. Arrives while the answer is
    *  still being written: the tool renders it before the model's turn ends. */
   onFile?: (file: FileRef) => void;
-  /** Final SAFE text (disclaimers filtered, scan applied) + everything gathered. */
-  onComplete?: (finalText: string, meta: { thinkSeconds: number | null; sources: SourceRef[]; images: string[] }) => void;
-  onError?: (message: string) => void;
+  /** Final SAFE text (disclaimers filtered, scan applied) + everything gathered.
+   *  `truncated`: the answer stopped at the lane's output limit rather than at
+   *  its own end, so it can be continued. */
+  onComplete?: (finalText: string, meta: { thinkSeconds: number | null; sources: SourceRef[]; images: string[]; truncated: boolean }) => void;
+  /** `meta.code` names a failure worth handling rather than printing
+   *  ('THINK_BURNOUT'), and `meta.thinkSeconds` is the server's measured wall
+   *  time for it. Both absent on every failure raised in this hook. */
+  onError?: (message: string, meta?: { code?: string; thinkSeconds?: number }) => void;
 }
 
 /** Everything one job accumulates while it runs. Named because a finished job
@@ -71,6 +76,9 @@ interface JobRecord {
   completed: boolean;
   /** Has anything been streamed yet? Picks which stall window applies. */
   streamed: boolean;
+  /** Reported by job:complete: the answer hit the output limit. Optional so a
+   *  record built before the event still types. */
+  truncated?: boolean;
   /** Which socket connection this job was submitted on (see connGenRef). A job
    *  cannot outlive its connection, so this is what tells a drop whose job it
    *  just killed — and stops it from touching a job started after the reconnect. */
@@ -294,7 +302,7 @@ export function useChatEngine(): ChatEngine {
     let finalText = filterDisclaimers(a.buffer.trim());
     if (finalText && !scanOutput(finalText).safe) finalText = BLOCKED_MESSAGE;
     setBusy(false);
-    a.cb.onComplete?.(finalText, { thinkSeconds: a.thinkSeconds, sources: a.sources, images: a.images });
+    a.cb.onComplete?.(finalText, { thinkSeconds: a.thinkSeconds, sources: a.sources, images: a.images, truncated: !!a.truncated });
     // keep the record briefly for late image events, then drop it — in the
     // parked map as well as the active slot, since the next send() takes the
     // slot back and only the map still answers for this job id
@@ -338,9 +346,10 @@ export function useChatEngine(): ChatEngine {
       const a = activeRef.current;
       if (a && jobId === a.jobId) { armStall(); a.cb.onQueue?.(null); }
     });
-    setOnJobComplete((jobId, response) => {
+    setOnJobComplete((jobId, response, truncated) => {
       const a = activeRef.current;
       if (a && jobId === a.jobId) {
+        a.truncated = !!truncated;
         // The swarm lane emits the finished answer on job:complete without
         // having streamed job:token for it, so the buffer can be empty while
         // the authoritative text is right here. Falling through with an empty
@@ -349,14 +358,19 @@ export function useChatEngine(): ChatEngine {
         finishActive();
       }
     });
-    setOnJobError((jobId, error) => {
+    setOnJobError((jobId, error, meta) => {
       const a = activeRef.current;
       if (a && !a.completed && jobId === a.jobId) {
         a.completed = true;
         clearStall();
         setBusy(false);
-        a.cb.onError?.(error || 'The job failed.');
+        // Cleared BEFORE the callback, not after: a caller is allowed to send
+        // the next job straight out of onError (the chat page retries a
+        // think-burnout with thinking off), and on the anon lane send() has no
+        // await before it takes the slot — so clearing afterwards threw the
+        // replacement job's record away and its answer arrived to nobody.
         activeRef.current = null;
+        a.cb.onError?.(error || 'The job failed.', meta);
         // Same as the stall path: make the refund visible without a reload.
         refreshCredits();
         refreshAnonRemaining();
@@ -493,7 +507,7 @@ export function useChatEngine(): ChatEngine {
     let finalText = filterDisclaimers(a.buffer.trim());
     if (finalText && !scanOutput(finalText).safe) finalText = BLOCKED_MESSAGE;
     setBusy(false);
-    cb.onComplete?.(finalText, { thinkSeconds: a.thinkSeconds, sources: a.sources, images: [] });
+    cb.onComplete?.(finalText, { thinkSeconds: a.thinkSeconds, sources: a.sources, images: [], truncated: false });
     if (script.image) {
       await demoSleep(900);
       cb.onImage?.([makeDemoImage()]);

@@ -85,6 +85,11 @@ function oaiError(message: string, type: string, status: number, code?: string) 
   return NextResponse.json({ error: { message, type, param: null, code: code ?? null } }, { status });
 }
 
+/** A think-burnout in the caller's terms. Not a server fault: the request came
+ *  back unanswerable exactly as it was asked, so both lanes report it with a
+ *  code to branch on rather than a 5xx an SDK will quietly retry. */
+const THINK_BURNOUT_MESSAGE = 'The model finished thinking without writing an answer. Retry without thinking (drop the -think model id).';
+
 function estimateTokens(text: string): number {
   return Math.max(1, Math.ceil((text || '').length / 4));
 }
@@ -351,10 +356,10 @@ export async function POST(req: NextRequest) {
     // finish_reason:'stop' instead would hand a safety block, a timeout or a dead
     // worker to the caller as a successful empty completion. It must NOT be
     // followed by [DONE]: the SDKs stop reading there and would swallow it.
-    const finish = (err?: { message: string; type: string }) => {
+    const finish = (err?: { message: string; type: string; code?: string }) => {
       if (settled) return;
       settled = true;
-      if (err) raw(`data: ${JSON.stringify({ error: { message: err.message, type: err.type, param: null, code: null } })}\n\n`);
+      if (err) raw(`data: ${JSON.stringify({ error: { message: err.message, type: err.type, param: null, code: err.code ?? null } })}\n\n`);
       else raw('data: [DONE]\n\n');
       if (controller) { try { controller.close(); } catch {} }
       release();
@@ -376,10 +381,13 @@ export async function POST(req: NextRequest) {
       if (!roleSent) { roleSent = true; sendChunk({ role: 'assistant', content: '' }); }
       sendChunk({ content: d.token });
     });
-    socket.on('job:complete', (d: { jobId: string; response: string; usage?: BilledUsage }) => {
+    socket.on('job:complete', (d: { jobId: string; response: string; usage?: BilledUsage; truncated?: boolean }) => {
       if (jobId && d.jobId !== jobId) return;
       if (!roleSent) { roleSent = true; sendChunk({ role: 'assistant', content: d.response ?? '' }); }
-      sendChunk({}, 'stop');
+      // An answer that stopped at the output cap finishes 'length', which is
+      // what an OpenAI client reads to know the reply was truncated. Reporting
+      // 'stop' told every caller a cut-off answer was complete.
+      sendChunk({}, d.truncated ? 'length' : 'stop');
       sendUsage(d.usage);
       finish();
     });
@@ -390,8 +398,16 @@ export async function POST(req: NextRequest) {
       sendUsage(d.usage);
       finish();
     });
-    socket.on('job:error', (d: { jobId: string; error: string }) => {
+    socket.on('job:error', (d: { jobId: string; error: string; code?: string }) => {
       if (jobId && d.jobId !== jobId) return;
+      // Same shape as the non-streaming lane's 422: a burnout is the caller's
+      // request coming back unanswerable, and it is named so they can branch on
+      // it. There is no status code left to send here, so the code rides the
+      // error frame the SDKs already raise on.
+      if (d.code === 'THINK_BURNOUT') {
+        finish({ message: THINK_BURNOUT_MESSAGE, type: 'invalid_request_error', code: 'think_burnout' });
+        return;
+      }
       finish({ message: d.error || 'Inference failed.', type: 'api_error' });
     });
 
@@ -401,7 +417,9 @@ export async function POST(req: NextRequest) {
       const t = setTimeout(() => resolve({ httpErr: { status: 504, type: 'timeout', message: 'Inference timed out.' } }), 15_000);
       socket.on('connect_error', () => { clearTimeout(t); resolve({ httpErr: { status: 503, type: 'api_error', message: 'Could not reach inference network.' } }); });
       socket.on('connect', () => {
-        socket.emit('job:submit', { messages: workerMessages, model: mapped.model, think: mapped.think, privyUserId: privyId, tools, freeOnly }, (ack: { jobId?: string; error?: string; code?: string }) => {
+        // `stream: true` — this lane relays every token to the caller as it
+        // arrives, which is what makes a burnout here a delivered answer.
+        socket.emit('job:submit', { messages: workerMessages, model: mapped.model, think: mapped.think, privyUserId: privyId, tools, freeOnly, stream: true }, (ack: { jobId?: string; error?: string; code?: string }) => {
           clearTimeout(t);
           if (ack?.error) { resolve({ ack: { error: ack.error, code: ack.code } }); return; }
           jobId = ack?.jobId ?? null;
@@ -453,7 +471,7 @@ export async function POST(req: NextRequest) {
   // ── Bridge: internal Socket.io client → orchestrator ──
   let socket: Socket | null = null;
   try {
-    const result = await new Promise<{ response?: string; toolCalls?: any[]; completionTokens: number; usage?: BilledUsage }>((resolve, reject) => {
+    const result = await new Promise<{ response?: string; toolCalls?: any[]; completionTokens: number; usage?: BilledUsage; truncated?: boolean }>((resolve, reject) => {
       socket = io(ORCH_URL, {
         auth: { token: internalSecret },
         transports: ['websocket'],
@@ -486,11 +504,11 @@ export async function POST(req: NextRequest) {
       };
       armIdle();
 
-      const fail = (status: number, type: string, message: string) => {
+      const fail = (status: number, type: string, message: string, code?: string) => {
         if (settled) return;
         settled = true;
         clearTimers();
-        reject({ status, type, message });
+        reject({ status, type, message, code });
       };
 
       socket.on('connect_error', () => fail(503, 'api_error', 'Could not reach inference network.'));
@@ -498,7 +516,9 @@ export async function POST(req: NextRequest) {
       socket.on('connect', () => {
         socket!.emit(
           'job:submit',
-          { messages: workerMessages, model: mapped.model, think: mapped.think, privyUserId: privyId, tools, freeOnly },
+          // `stream: false` — tokens are counted here and thrown away; the
+          // caller sees only the final JSON, or the error instead of it.
+          { messages: workerMessages, model: mapped.model, think: mapped.think, privyUserId: privyId, tools, freeOnly, stream: false },
           (ack: { jobId?: string; error?: string; code?: string }) => {
             if (ack?.error) {
               const mappedErr = ackToHttp(ack.error, ack.code);
@@ -516,12 +536,12 @@ export async function POST(req: NextRequest) {
         armIdle();
         completionTokens++;
       });
-      socket.on('job:complete', (d: { jobId: string; response: string; usage?: BilledUsage }) => {
+      socket.on('job:complete', (d: { jobId: string; response: string; usage?: BilledUsage; truncated?: boolean }) => {
         if (jobId && d.jobId !== jobId) return;
         if (settled) return;
         settled = true;
         clearTimers();
-        resolve({ response: d.response ?? '', completionTokens, usage: d.usage });
+        resolve({ response: d.response ?? '', completionTokens, usage: d.usage, truncated: d.truncated });
       });
       // Tools passthrough: the model wants the agent to run a tool.
       socket.on('job:tool_calls', (d: { jobId: string; toolCalls: any[]; usage?: BilledUsage }) => {
@@ -531,8 +551,17 @@ export async function POST(req: NextRequest) {
         clearTimers();
         resolve({ toolCalls: d.toolCalls || [], completionTokens, usage: d.usage });
       });
-      socket.on('job:error', (d: { jobId: string; error: string }) => {
+      socket.on('job:error', (d: { jobId: string; error: string; code?: string }) => {
         if (jobId && d.jobId !== jobId) return;
+        // A think-burnout is the caller's request coming back unanswerable as
+        // asked, not a network fault. 5xx makes it worse than it is: the OpenAI
+        // SDKs retry a >=500 twice on their own, and each retry is another job
+        // that reasons the budget away and eats one of the account's refunds.
+        // 4xx is read as final, so the caller decides what to do next.
+        if (d.code === 'THINK_BURNOUT') {
+          fail(422, 'invalid_request_error', THINK_BURNOUT_MESSAGE, 'think_burnout');
+          return;
+        }
         fail(503, 'api_error', d.error || 'Inference failed.');
       });
     });
@@ -555,7 +584,7 @@ export async function POST(req: NextRequest) {
         {
           index: 0,
           message,
-          finish_reason: isToolCalls ? 'tool_calls' : 'stop',
+          finish_reason: isToolCalls ? 'tool_calls' : result.truncated ? 'length' : 'stop',
         },
       ],
       usage: usageBlock(result.usage, promptTokens, completionTokens),
@@ -564,7 +593,7 @@ export async function POST(req: NextRequest) {
     const status = err?.status ?? 500;
     const type = err?.type ?? 'api_error';
     const message = err?.message ?? 'Internal error.';
-    return oaiError(message, type, status);
+    return oaiError(message, type, status, err?.code);
   } finally {
     if (socket) {
       try { (socket as Socket).disconnect(); } catch {}

@@ -26,8 +26,12 @@ interface UseSocketReturn {
   
   setOnNewJob: (handler: ((jobId: string, messages?: ChatMessage[], think?: boolean) => void) | null) => void;
   setOnJobToken: (handler: ((jobId: string, token: string) => void) | null) => void;
-  setOnJobComplete: (handler: ((jobId: string, response: string) => void) | null) => void;
-  setOnJobError: (handler: ((jobId: string, error: string) => void) | null) => void;
+  /** `truncated`: the answer stopped at the lane's output limit, not at its own
+   *  end. Absent from an older orchestrator, so treat it as false. */
+  setOnJobComplete: (handler: ((jobId: string, response: string, truncated?: boolean) => void) | null) => void;
+  /** `meta` carries a failure the caller can act on rather than just print:
+   *  a code, and the server's measured thinking time. */
+  setOnJobError: (handler: ((jobId: string, error: string, meta?: { code?: string; thinkSeconds?: number }) => void) | null) => void;
   setOnJobAssigned: (handler: ((jobId: string, workerId: string) => void) | null) => void;
   setOnJobCancel: (handler: ((jobId: string) => void) | null) => void;
   setOnJobSearching: (handler: ((jobId: string) => void) | null) => void;
@@ -56,8 +60,8 @@ export function useSocket(authToken?: string | null, getFreshToken?: () => Promi
   
   const onNewJobRef = useRef<((jobId: string, messages?: ChatMessage[], think?: boolean) => void) | null>(null);
   const onJobTokenRef = useRef<((jobId: string, token: string) => void) | null>(null);
-  const onJobCompleteRef = useRef<((jobId: string, response: string) => void) | null>(null);
-  const onJobErrorRef = useRef<((jobId: string, error: string) => void) | null>(null);
+  const onJobCompleteRef = useRef<((jobId: string, response: string, truncated?: boolean) => void) | null>(null);
+  const onJobErrorRef = useRef<((jobId: string, error: string, meta?: { code?: string; thinkSeconds?: number }) => void) | null>(null);
   const onJobAssignedRef = useRef<((jobId: string, workerId: string) => void) | null>(null);
   const onJobCancelRef = useRef<((jobId: string) => void) | null>(null);
   const onJobSearchingRef = useRef<((jobId: string) => void) | null>(null);
@@ -120,14 +124,14 @@ export function useSocket(authToken?: string | null, getFreshToken?: () => Promi
     socket.on('job:complete', (data) => {
       setQueuePosition(null);
       if (onJobCompleteRef.current) {
-        onJobCompleteRef.current(data.jobId, data.response);
+        onJobCompleteRef.current(data.jobId, data.response, data.truncated);
       }
     });
 
     socket.on('job:error', (data) => {
       setQueuePosition(null);
       if (onJobErrorRef.current) {
-        onJobErrorRef.current(data.jobId, data.error);
+        onJobErrorRef.current(data.jobId, data.error, { code: data.code, thinkSeconds: data.thinkSeconds });
       }
     });
 
@@ -282,8 +286,8 @@ export function useSocket(authToken?: string | null, getFreshToken?: () => Promi
     abortJob,
     setOnNewJob: useCallback((handler: ((jobId: string, messages?: ChatMessage[], think?: boolean) => void) | null) => { onNewJobRef.current = handler; }, []),
     setOnJobToken: useCallback((handler: ((jobId: string, token: string) => void) | null) => { onJobTokenRef.current = handler; }, []),
-    setOnJobComplete: useCallback((handler: ((jobId: string, response: string) => void) | null) => { onJobCompleteRef.current = handler; }, []),
-    setOnJobError: useCallback((handler: ((jobId: string, error: string) => void) | null) => { onJobErrorRef.current = handler; }, []),
+    setOnJobComplete: useCallback((handler: ((jobId: string, response: string, truncated?: boolean) => void) | null) => { onJobCompleteRef.current = handler; }, []),
+    setOnJobError: useCallback((handler: ((jobId: string, error: string, meta?: { code?: string; thinkSeconds?: number }) => void) | null) => { onJobErrorRef.current = handler; }, []),
     setOnJobAssigned: useCallback((handler: ((jobId: string, workerId: string) => void) | null) => { onJobAssignedRef.current = handler; }, []),
     setOnJobCancel: useCallback((handler: ((jobId: string) => void) | null) => { onJobCancelRef.current = handler; }, []),
     setOnJobSearching: useCallback((handler: ((jobId: string) => void) | null) => { onJobSearchingRef.current = handler; }, []),
