@@ -159,6 +159,9 @@ export async function startWorker(options: WorkerOptions): Promise<void> {
     const messages = [...initialMessages];
     let totalTokens = 0;
     let fullResponse = '';
+    // Engine stop info from the LAST round — the one that produced the final answer.
+    let doneReason: string | undefined;
+    let evalCount: number | undefined;
 
     try {
       // Tool call loop — model can request tools multiple times
@@ -175,6 +178,8 @@ export async function startWorker(options: WorkerOptions): Promise<void> {
 
         totalTokens += result.tokensGenerated;
         fullResponse += result.response;
+        doneReason = result.doneReason;
+        evalCount = result.evalCount;
 
         // If no tool calls, we're done
         if (!result.toolCalls?.length) {
@@ -207,6 +212,11 @@ export async function startWorker(options: WorkerOptions): Promise<void> {
         jobId,
         response: fullResponse,
         tokensGenerated: totalTokens,
+        // Optional fields: lets the orchestrator tell a length-capped answer from
+        // a finished one. Undefined when unknown, and older orchestrators that
+        // don't read them simply ignore them.
+        doneReason,
+        evalCount,
       });
       // No local logging here: the orchestrator emits `job:counted` only for real
       // (paid) jobs, so canaries never surface on the worker terminal.

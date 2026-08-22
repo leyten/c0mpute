@@ -23,6 +23,9 @@ single-model swap:
   build ran RTX 30xx on CPU).
 - Multi-GPU fan-out now skips cards under the 16GB floor; a rig where no card
   fits runs one layer-split worker instead.
+- `job:complete` reports ollama's `done_reason` and `eval_count` (2.9.2), so the
+  orchestrator can tell a length-capped answer from a finished one. Additive and
+  undefined when the engine reports nothing; the 2.9.1 payload is unchanged.
 
 ## Rollout mechanics — read before publishing
 
