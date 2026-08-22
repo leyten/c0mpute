@@ -150,6 +150,11 @@ export interface Job {
   // A server-side tool round is executing: the worker is blocked on
   // job:tool_result and CANNOT emit tokens, so token silence is expected here.
   toolRunning?: boolean;
+  // serverTokenCount as it stood when the CURRENT generation round began. A
+  // tool loop runs several rounds into one job and each gets its own output
+  // budget, so the running total says nothing about whether this round ran out
+  // of room — only the tokens since this base do (hitOutputCap).
+  roundTokenBase?: number;
   completedAt?: Date;
   response?: string;
   error?: string;
@@ -170,6 +175,11 @@ export interface Job {
   // API-bridge job (v1 completions): the generate_image server tool is withheld
   // because an API client has no socket channel to receive the rendered image.
   internal?: boolean;
+  // API-bridge job the caller asked to STREAM. Tokens relayed to the bridge only
+  // reach a human on this lane: the non-streaming bridge counts them and throws
+  // them away, so a burnout there delivered nothing and is refunded like a chat
+  // one. Meaningless off the bridge (`internal` false).
+  apiStream?: boolean;
 }
 
 export interface ChatMessage {
@@ -210,9 +220,17 @@ export interface ServerToClientEvents {
   'job:file': (data: { jobId: string; name: string; mime: string; data: string }) => void;
   'job:assigned': (data: { jobId: string; workerId: string }) => void;
   'job:token': (data: { jobId: string; token: string }) => void;
-  'job:complete': (data: { jobId: string; response: string; usage?: JobUsage }) => void;
+  // `truncated` says the answer stopped at the output cap rather than at its
+  // own end, so the client can offer to continue it. Optional: an older client
+  // ignores it. Today it is decided by token count for every job on the network
+  // — no released worker reports a finish reason yet — and by the worker's own
+  // doneReason once the fleet runs 2.9.2 or newer (hitOutputCap).
+  'job:complete': (data: { jobId: string; response: string; usage?: JobUsage; truncated?: boolean }) => void;
   'job:tool_calls': (data: { jobId: string; toolCalls: ToolCall[]; usage?: JobUsage }) => void;
-  'job:error': (data: { jobId: string; error: string }) => void;
+  // `code` names a failure the client can act on rather than just print
+  // ('THINK_BURNOUT'), and `thinkSeconds` is the server's measured wall time for
+  // it — the client has no honest number of its own once the stream is gone.
+  'job:error': (data: { jobId: string; error: string; code?: string; thinkSeconds?: number }) => void;
   'queue:position': (data: { position: number }) => void;
   'job:new': (data: { jobId: string; messages?: ChatMessage[]; tools?: ToolDefinition[]; think?: boolean }) => void;
   'job:cancel': (data: { jobId: string }) => void;
@@ -229,11 +247,19 @@ export interface ServerToClientEvents {
 }
 
 export interface ClientToServerEvents {
-  'job:submit': (data: { messages?: ChatMessage[]; model?: string; authToken?: string; think?: boolean; privyUserId?: string; tools?: ToolDefinition[]; freeOnly?: boolean }, callback: (response: { jobId: string; freeRemaining?: number } | { error: string; code?: string }) => void) => void;
+  // `stream` is the API bridge saying the caller is reading tokens as they
+  // arrive. Ignored from any other submitter: only the bridge can speak for a
+  // reader it holds the HTTP response open for.
+  'job:submit': (data: { messages?: ChatMessage[]; model?: string; authToken?: string; think?: boolean; privyUserId?: string; tools?: ToolDefinition[]; freeOnly?: boolean; stream?: boolean }, callback: (response: { jobId: string; freeRemaining?: number } | { error: string; code?: string }) => void) => void;
   'worker:register': (data: { model: string; authToken?: string; tokPerSec?: number; type?: 'browser' | 'native' | 'image'; capabilities?: WorkerCapabilities; numCtx?: number }, callback: (response: { workerId: string } | { error: string }) => void) => void;
   'worker:unregister': () => void;
   'job:token': (data: { jobId: string; token: string }) => void;
-  'job:complete': (data: { jobId: string; response: string; tokensGenerated: number }) => void;
+  // `doneReason` is the engine's finish reason ('stop' | 'length' | ...). NO
+  // released worker sends it yet: npm latest is 2.9.1 and the field lands in
+  // 2.9.2, so today every reader runs on the fallback and this is the path that
+  // takes over as the fleet updates. Optional forever: the fleet is
+  // permissionless and never fully current.
+  'job:complete': (data: { jobId: string; response: string; tokensGenerated: number; doneReason?: string }) => void;
   'job:error': (data: { jobId: string; error: string }) => void;
   'job:tool_call': (data: { jobId: string; toolCalls: ToolCall[] }) => void;
   /** User pressed Stop. Named `job:abort` rather than `job:cancel` because that

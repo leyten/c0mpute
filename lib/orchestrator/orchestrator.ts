@@ -126,7 +126,7 @@ function probeGarbagePrefix(
 // bundle. Stricter than probeGarbagePrefix's lastIndexOf('</think>') on purpose:
 // a tool-calling turn interleaves several think blocks with real text between
 // them, and only the global strip keeps that text visible.
-function splitReasoning(response: string): { hasThink: boolean; visible: string } {
+export function splitReasoning(response: string): { hasThink: boolean; visible: string } {
   let hasThink = false;
   let visible = response.replace(/<think>[\s\S]*?<\/think>/g, () => { hasThink = true; return ''; }).trim();
   // An opener with no closer is reasoning that ran out of budget mid-thought —
@@ -211,6 +211,18 @@ function outputTokenCap(model: string | undefined, think?: boolean): number {
   return MAX_OUTPUT_TOKENS_BROWSER;
 }
 
+/** Did generation stop because it ran out of room, or because the model decided
+ *  it was done? `doneReason` is the worker's own finish reason ('stop' |
+ *  'length' | ...) and is authoritative WHEN PRESENT — but no worker in the
+ *  field sends it yet (npm latest is 2.9.1; the field lands in 2.9.2), so the
+ *  token-count branch below is the live path today and the doneReason branch is
+ *  the one that takes over as the fleet updates. Falling back on this ROUND's
+ *  token count reaching the cap the reservation was sized against. */
+export function hitOutputCap(job: Job, doneReason: string | undefined, tokens: number): boolean {
+  if (doneReason) return doneReason === 'length';
+  return tokens - (job.roundTokenBase ?? 0) >= outputTokenCap(job.requestedModel, job.think);
+}
+
 type BoundedInput =
   | { ok: true; messages: ChatMessage[] | undefined; dropped: number }
   | { ok: false; estTokens: number };
@@ -221,7 +233,7 @@ type BoundedInput =
  * only when what is left — the system messages plus the newest message — still
  * doesn't fit, i.e. the new message alone is too long.
  */
-function boundInputMessages(messages: ChatMessage[] | undefined, budget: number): BoundedInput {
+export function boundInputMessages(messages: ChatMessage[] | undefined, budget: number): BoundedInput {
   if (!messages || messages.length === 0) return { ok: true, messages, dropped: 0 };
 
   // Every size is measured ONCE and the rest is index arithmetic over that array.
@@ -240,13 +252,23 @@ function boundInputMessages(messages: ChatMessage[] | undefined, budget: number)
 
   const cut: boolean[] = new Array(messages.length).fill(false);
   const newest = messages.length - 1;
+  // The newest USER message is pinned as well as the newest message of any role.
+  // They used to be the same thing; a continuation makes the newest message the
+  // half-written ANSWER, and the question it answers sits behind it. Dropping
+  // that question leaves a payload with no user turn at all, which the qwen
+  // renderer rejects outright ("no user query found in messages") — the job dies
+  // on an engine error instead of merely losing context.
+  let newestUser = -1;
+  for (let i = newest; i >= 0; i--) {
+    if (messages[i]?.role === 'user') { newestUser = i; break; }
+  }
   let dropped = 0;
   // Oldest first, whole messages only. A system message carries instructions the
-  // answer depends on and the newest message is what the user actually asked, so
-  // neither is ever a candidate — which is also why the loop can run out of
-  // candidates and leave `total` over budget (the hard reject below).
+  // answer depends on, and the two pinned messages are the exchange in progress,
+  // so none of them is ever a candidate — which is also why the loop can run out
+  // of candidates and leave `total` over budget (the hard reject below).
   for (let i = 0; i < newest && total > charBudget; i++) {
-    if (messages[i]?.role === 'system') continue;
+    if (messages[i]?.role === 'system' || i === newestUser) continue;
     cut[i] = true;
     dropped++;
     total -= chars[i];
@@ -256,7 +278,9 @@ function boundInputMessages(messages: ChatMessage[] | undefined, budget: number)
   // to. (Same for a leading tool message a client sent with no round at all.)
   for (let i = 0; i < newest; i++) {
     if (cut[i] || messages[i]?.role === 'system') continue;
-    if (messages[i]?.role !== 'tool') break;
+    // A pinned user message is not a tool message, so this stops here anyway;
+    // said out loud because the pin is what the stop depends on.
+    if (i === newestUser || messages[i]?.role !== 'tool') break;
     cut[i] = true;
     dropped++;
     total -= chars[i];
@@ -641,6 +665,31 @@ export class Orchestrator {
       refundDailyGrant(job.privyUserId, job.subsidyKind === 'plan' ? 'plan' : 'free', job.subsidyCredits, job.allowanceDay);
       console.log(`[Orchestrator] Daily grant restored to ${job.privyUserId} (${job.subsidyCredits}cr, ${reason})`);
     }
+  }
+
+  /** Burnout refunds already handed out today, per payer. A think-burnout is a
+   *  shape a prompt can ask for on purpose, so the refund is rationed: past the
+   *  daily cap the job still fails cleanly and the worker is still unpaid, the
+   *  charge just stays. Held IN MEMORY — the database has no per-account daily
+   *  counter to reuse (account_ip_daily and anon_ip_daily are keyed by IP hash,
+   *  api_key_usage by key) and one abuse ceiling does not earn a new table. A
+   *  restart hands everyone a fresh allowance, which is the harmless direction
+   *  for this to be wrong in. */
+  private burnoutRefunds = new Map<string, { day: string; n: number }>();
+  private readonly BURNOUT_REFUNDS_PER_DAY = 3;
+
+  /** Take one of today's burnout refunds for this payer, or refuse. Keyed by the
+   *  same identity the refund itself pays back (privy id, or 'anon:<aid>'). */
+  private claimBurnoutRefund(privyUserId: string): boolean {
+    const day = new Date().toISOString().slice(0, 10); // UTC
+    const seen = this.burnoutRefunds.get(privyUserId);
+    if (!seen || seen.day !== day) {
+      this.burnoutRefunds.set(privyUserId, { day, n: 1 });
+      return true;
+    }
+    if (seen.n >= this.BURNOUT_REFUNDS_PER_DAY) return false;
+    seen.n += 1;
+    return true;
   }
 
   /**
@@ -1295,7 +1344,7 @@ export class Orchestrator {
         // was drawn from. Only one of these can be set: each lane runs only
         // while creditCost is still positive and zeroes it on success.
         const drawDay = allowanceDay ?? grantDraw?.day;
-        const job = this.submitJob(socket.id, data.messages, data.model, privyUserId, deepThinking, creditCost, subsidyCredits, inputTokens, drawDay, toolPassthrough ? data.tools : undefined, toolPassthrough, subsidyKind, isInternal);
+        const job = this.submitJob(socket.id, data.messages, data.model, privyUserId, deepThinking, creditCost, subsidyCredits, inputTokens, drawDay, toolPassthrough ? data.tools : undefined, toolPassthrough, subsidyKind, isInternal, isInternal && data.stream === true);
         if (job) {
           callback({ jobId: job.id });
           console.log(`[Orchestrator] Job submitted: ${job.id} (model: ${data.model || 'any'}${deepThinking ? ', deep-thinking' : ''}) user=${privyUserId}`);
@@ -1332,7 +1381,7 @@ export class Orchestrator {
         if (!job) return;
         const worker = this.workers.get(socket.id);
         if (!worker || worker.id !== job.assignedWorker) return;
-        this.handleJobComplete(data.jobId, data.response, data.tokensGenerated);
+        this.handleJobComplete(data.jobId, data.response, data.tokensGenerated, typeof data.doneReason === 'string' ? data.doneReason : undefined);
       });
 
       socket.on('job:error', (data) => {
@@ -1686,6 +1735,8 @@ export class Orchestrator {
     // Send tool results back to the worker immediately so its tool-result wait
     // never blocks on the GPU render. The model writes its turn now; the image
     // lands a few seconds later via the async render below.
+    // A fresh generation round starts here, with a fresh output budget.
+    job.roundTokenBase = job.serverTokenCount ?? 0;
     workerSocket.emit(`job:tool_result:${jobId}` as any, { results: messages });
 
     // Fire deferred image renders async. Each delivers to the user (keyed to this
@@ -2018,6 +2069,7 @@ export class Orchestrator {
     toolPassthrough: boolean = false,
     subsidyKind?: SubsidyKind,
     internal: boolean = false,
+    apiStream: boolean = false,
   ): Job | null {
     try {
       const jobId = uuidv4();
@@ -2037,6 +2089,7 @@ export class Orchestrator {
         clientTools,
         toolPassthrough,
         internal,
+        apiStream,
         status: 'pending',
         createdAt: new Date(),
       };
@@ -2111,7 +2164,15 @@ export class Orchestrator {
         // happen before fin() drops the frozen revenue the stages settle from.
         this.settleJobCharge(job, job.serverTokenCount ?? 0);
         probeGarbagePrefix(response, job.id, () => ({ workerId: `swarm:${model}`, model }));
-        userSocket()?.emit('job:complete', { jobId: job.id, response, usage: this.jobUsage(job) }); fin();
+        // Same truncation rule as the classic lane. A ring has no finish reason
+        // to report, so this is always the token-count branch, measured against
+        // the swarm cap that IS the ring's maxNew.
+        userSocket()?.emit('job:complete', {
+          jobId: job.id,
+          response,
+          usage: this.jobUsage(job),
+          truncated: hitOutputCap(job, undefined, job.serverTokenCount ?? 0),
+        }); fin();
       },
       onError: (message) => {
         // a swarm that never served owes nothing — refund the charge (classic jobs already refund
@@ -2360,7 +2421,7 @@ export class Orchestrator {
     this.broadcastStats();
   }
 
-  private handleJobComplete(jobId: string, response: string, _workerReportedTokens: number) {
+  private handleJobComplete(jobId: string, response: string, _workerReportedTokens: number, doneReason?: string) {
     const job = this.jobs.get(jobId);
     if (!job) return;
 
@@ -2413,30 +2474,75 @@ export class Orchestrator {
     // worker misbehaviour. Pay is unaffected either way — this returns before the
     // payout block, exactly like the coherence path it takes these jobs from.
     //
-    // NOT REFUNDED, deliberately. "No visible answer" is not "nothing delivered":
-    // every reasoning token was already streamed to the user, and the client keeps
-    // them in an expandable dropdown (app/chat/lib.ts parseThinking →
-    // ThinkingDropdown). A prompt can force this shape at will ("put your whole
-    // response inside <think></think>"), so refunding here would hand anyone
-    // unlimited free inference while they read the answer out of the dropdown.
-    // The honest case still gets the clear error below instead of a silent empty
-    // answer. To refund it safely we need proof the model was CUT OFF rather than
-    // choosing this shape — i.e. a finish_reason='length' on job:complete, which
-    // the worker knows and does not yet send. One line to add back once it does.
+    // REFUNDED. The user asked a question and got no answer, so the request
+    // bought nothing and must cost nothing — the same rule every other
+    // delivered-nothing path here already follows. The refund used to be
+    // withheld until the worker could prove the model had been CUT OFF rather
+    // than chosen this shape, but that proof only decides which SENTENCE the
+    // user is shown; it was never what decides whether they owe anything. The
+    // shape is still one a prompt can force ("put your whole response inside
+    // <think></think>"), and what bounds that is the same thing that bounds it
+    // for the treasury: the worker is not paid for this job either (the return
+    // below sits above the payout block), the client retries a burnout at most
+    // once per turn, and the refund itself is rationed per account per day
+    // (claimBurnoutRefund). Past that ration the failure is still reported and
+    // the worker still unpaid; only the money stays.
     const { hasThink, visible } = splitReasoning(response);
     if (hasThink && visible.length === 0) {
       const w = this.findWorkerById(job.assignedWorker ?? '');
+      // Cut off, or done thinking and simply never started the answer? Only the
+      // copy depends on it, so an unknown finish reason falling back to the
+      // token count is good enough — and in practice it says "not cut off",
+      // which is what the token counts on these jobs actually show.
+      const cutOff = hitOutputCap(job, doneReason, tokensGenerated);
+      // Server wall time from dispatch: the only honest number anyone has for
+      // how long this turn ran. The chat client drops the burned turn whole and
+      // renders nothing for it, so today this is carried for the log and for
+      // any client that wants to say how long it waited.
+      const thinkSeconds = Math.max(0, Math.round((Date.now() - (job.startedAt ?? job.createdAt).getTime()) / 1000));
+      // "Nothing was delivered" is true of the chat client, which throws the
+      // burned turn's reasoning away, and NOT of a STREAMING API caller: the
+      // bridge relays every token as it arrives (handleJobToken → app/api/v1/
+      // chat/completions), so the whole response can reach them inside <think>
+      // and a refund would be paying for an answer they already have. The
+      // non-streaming bridge counts those same tokens and discards them — that
+      // caller gets the error and nothing else — so it is refunded like a chat
+      // job. Which one this is comes from the bridge's own `stream` flag at
+      // submit; nothing else on the network may set it.
+      const deliveredToApi = !!job.internal && !!job.apiStream && tokensGenerated > 0;
+      const rule = !job.internal ? 'chat'
+        : !job.apiStream ? 'api-nonstream'
+        : deliveredToApi ? 'api-streamed'
+        : 'api-silent';
+      const paidBack = !deliveredToApi && !!job.privyUserId && this.claimBurnoutRefund(job.privyUserId);
+      const refunded = !job.privyUserId ? 'nothing'
+        : deliveredToApi ? 'withheld'
+        : !paidBack ? 'capped'
+        : (job.creditsCharged ?? 0) > 0 ? `${job.creditsCharged}cr`
+        : job.subsidyKind === 'free' ? '1 free prompt'
+        : job.subsidyCredits ? `${job.subsidyCredits}cr ${job.subsidyKind}`
+        : 'nothing';
+      // KNOWN AND ACCEPTED: an anon free prompt gives back the session counter
+      // (restoreFreePrompt) but not the per-IP day counter, so a burnout still
+      // burns one anon_ip_daily slot. That counter is an abuse ceiling rather
+      // than a wallet, and burnouts run about ten a week.
+      if (paidBack) this.refundJobCharges(job, 'Think burnout: no answer produced');
       console.warn(
         `[Orchestrator] [think-burnout] job=${jobId} worker=${w?.id ?? job.assignedWorker ?? 'unknown'} ` +
           `model=${w?.model ?? job.requestedModel ?? 'unknown'} think=${!!job.think} ` +
-          `tokens=${tokensGenerated} respChars=${response.length}`
+          `tokens=${tokensGenerated} respChars=${response.length} doneReason=${doneReason ?? 'unknown'} ` +
+          `cutOff=${cutOff} thinkSeconds=${thinkSeconds} rule=${rule} refunded=${refunded}`
       );
       if (w) w.status = 'idle';
       const userSocket = this.io.sockets.sockets.get(job.userSocketId);
       if (userSocket) {
         userSocket.emit('job:error', {
           jobId,
-          error: 'The model spent its whole output budget thinking and produced no answer.'
+          code: 'THINK_BURNOUT',
+          thinkSeconds,
+          error: (cutOff
+            ? 'The model ran out of output budget while thinking and never got to the answer.'
+            : 'The model finished thinking without writing an answer.')
             + (job.think ? ' Try again, or turn thinking off for this prompt.' : ' Try again.'),
         });
       }
@@ -2638,7 +2744,15 @@ export class Orchestrator {
 
     const userSocket = this.io.sockets.sockets.get(job.userSocketId);
     if (userSocket) {
-      userSocket.emit('job:complete', { jobId, response, usage: this.jobUsage(job) });
+      // The answer stopped at the lane's output cap, not at its own end. The
+      // stream gives no sign of that on its own — it just stops mid-sentence —
+      // so the client is told, and offers to continue it.
+      userSocket.emit('job:complete', {
+        jobId,
+        response,
+        usage: this.jobUsage(job),
+        truncated: hitOutputCap(job, doneReason, tokensGenerated),
+      });
     }
 
     // Tell the worker a real job landed so it can log/count it. Canaries return
@@ -2876,6 +2990,21 @@ export class Orchestrator {
     }
   }
 
+  /** What a worker's raw error becomes on the way to the reader. Ollama answers
+   *  a request it cannot serve with its own JSON, and that used to be forwarded
+   *  word for word: a conversation that outgrew the worker's context window
+   *  reached the user as `{"error":{"code":"exceed_context_size_error",...}}`.
+   *  The raw text is kept in the log line below, which is where it belongs. */
+  private userFacingError(error: string): string {
+    const raw = typeof error === 'string' ? error : '';
+    if (/exceed_context_size_error|exceeds the available context size/i.test(raw)) {
+      return 'This conversation is too long for the worker that picked it up. Start a new chat or shorten the message and try again.';
+    }
+    // Still carrying engine JSON: whatever it says, it is machine talk.
+    if (/^\s*[{[]/.test(raw) || /"error"\s*:/.test(raw)) return 'The worker hit an engine error. Try again.';
+    return raw || 'The job failed.';
+  }
+
   private handleJobError(jobId: string, error: string) {
     const job = this.jobs.get(jobId);
     if (!job) return;
@@ -2898,7 +3027,7 @@ export class Orchestrator {
 
     const userSocket = this.io.sockets.sockets.get(job.userSocketId);
     if (userSocket) {
-      userSocket.emit('job:error', { jobId, error });
+      userSocket.emit('job:error', { jobId, error: this.userFacingError(error) });
     }
 
     console.log(`[Orchestrator] Job ${jobId} failed: ${error}`);
