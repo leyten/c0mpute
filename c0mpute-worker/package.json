@@ -1,6 +1,6 @@
 {
   "name": "@compute-network/worker",
-  "version": "2.9.1",
+  "version": "2.9.2",
   "description": "Native CLI worker for Compute Network (compute.tech), the distributed inference network. Runs LLM inference via ollama and connects to the orchestrator via Socket.io.",
   "license": "MIT",
   "type": "module",

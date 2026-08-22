@@ -30,6 +30,8 @@ export interface InferenceResult {
   response: string;
   tokensGenerated: number;
   toolCalls?: ToolCall[];
+  doneReason?: string;   // ollama's done_reason: 'stop', 'length' (hit num_predict), ...
+  evalCount?: number;    // ollama's eval_count, when the engine reported one
 }
 
 /**
@@ -110,6 +112,8 @@ export async function runInference(
 
   let response = '';
   let tokensGenerated = 0;
+  let doneReason: string | undefined;
+  let evalCount: number | undefined;
   const toolCalls: ToolCall[] = [];
   // When think is on, ollama returns reasoning in a separate `thinking` field.
   // The frontend renders it from inline <think>...</think> tags, so re-wrap it.
@@ -172,9 +176,15 @@ export async function runInference(
             onToken('</think>');
             thinkingOpen = false;
           }
+          // Why the engine stopped — 'length' means num_predict cut the answer
+          // off. Passed through unchanged so callers can tell it from 'stop'.
+          if (typeof chunk.done_reason === 'string') {
+            doneReason = chunk.done_reason;
+          }
           // Use ollama's token count if available
           if (chunk.eval_count) {
             tokensGenerated = chunk.eval_count;
+            evalCount = chunk.eval_count;
           }
         }
       } catch {
@@ -189,7 +199,13 @@ export async function runInference(
     onToken('</think>');
   }
 
-  return { response, tokensGenerated, toolCalls: toolCalls.length > 0 ? toolCalls : undefined };
+  return {
+    response,
+    tokensGenerated,
+    toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+    doneReason,
+    evalCount,
+  };
 }
 
 /**
