@@ -284,13 +284,8 @@ export const MODEL_CATALOG: Record<string, ModelCatalogEntry> = {
   // THE public model — one name everywhere: this id, the worker's registration
   // string, and what users see. Served by worker 2.9.0+.
   'qwen3.8-27b-uncensored': { tier: 'max', workerModel: 'qwen3.8-27b-uncensored' },
-  // MIGRATION ONLY: the 2.8.x fleet still registers the old Qwen string, and
-  // there is no auto-update — old-id API traffic keeps routing to it until real
-  // supply moves. Removed at final cutover (together with enabling the
-  // C0MPUTE_RETIRE_LEGACY_WORKERS reject gate in orchestrator.ts).
-  'native-max': { tier: 'max', workerModel: 'qwen3.5-27b-abliterated' },
-  // native-supergemma and native-code are retired: their API ids now alias to
-  // other catalog entries in /api/v1/chat/completions (mapModel).
+  // native-max, native-supergemma and native-code are retired: their API ids now
+  // alias to this entry in /api/v1/chat/completions (mapModel).
 };
 
 /** Map user-facing model IDs to tiers (defaults to pro for browser models). */
