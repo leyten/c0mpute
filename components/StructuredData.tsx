@@ -11,7 +11,7 @@ import type { Brand } from '@/lib/brand';
 // half of the claim — an entity is only as identifiable as the accounts that
 // independently point back at it.
 const PROFILES = [
-  'https://x.com/c0mputeAI',
+  'https://x.com/computenet_',
   'https://t.me/c0mputeAI',
   'https://github.com/leyten/shard',
 ];
