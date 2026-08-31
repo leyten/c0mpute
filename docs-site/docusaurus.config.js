@@ -107,8 +107,8 @@ const config = {
               {
                 // A real account handle, not a brand string — same class of
                 // identifier as the npm package below, so both domains link it.
-                label: '@c0mputeAI',
-                href: 'https://x.com/c0mputeAI',
+                label: '@computenet_',
+                href: 'https://x.com/computenet_',
               },
               {
                 label: 'npm',
