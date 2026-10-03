@@ -590,24 +590,213 @@ article {
 
 /* ── paper ────────────────────────────────────────────────────────────────────
    docs.compute.tech builds with DOCS_COLOR_MODE=light, so Docusaurus stamps
-   [data-theme='light'] on <html>. Everything below is the same palette solved
-   against paper rather than inverted: the dark set carries its contrast as
-   light-on-ink, and each value here was chosen to land at the same ratio on
-   #faf8f6. docs.c0mpute.ai never sees this block — it builds dark and the
-   attribute is never light. */
-[data-theme='light'] {
-  --c0-bg: #faf8f6;
-  --c0-rail: #f3f0ec;
-  --c0-surface: rgba(20, 18, 16, 0.045);
-  --c0-surface-hi: rgba(20, 18, 16, 0.08);
-  --c0-text: rgba(20, 18, 16, 0.82);
-  --c0-heading: #141210;
-  --c0-muted: rgba(20, 18, 16, 0.56);
-  --c0-line: rgba(20, 18, 16, 0.12);
-  --c0-steel: #3a5a7d;
+   [data-theme='light'] on <html>. docs.c0mpute.ai never sees this block — it
+   builds dark and the attribute is never light. */
+/* Paper is now the compute.tech homepage's own two-tone set: paper ground, ink
+   text, no accent, square corners, Inter Display for headlines and the same
+   paper grain over everything. "steel" stays as a variable name so the rules
+   above keep working, but on paper it is plain ink. Code reads as ink on a
+   half-step darker paper, the one fill the page uses. */
+@font-face {
+  font-family: 'Inter Display';
+  src: url('../../static/fonts/InterDisplay-Medium.woff2') format('woff2');
+  font-weight: 500;
+  font-display: swap;
+}
 
-  --ifm-menu-color-background-active: rgba(58, 90, 125, 0.1);
-  --ifm-menu-color-background-hover: rgba(20, 18, 16, 0.05);
-  --ifm-table-stripe-background: rgba(20, 18, 16, 0.025);
-  --ifm-table-head-background: rgba(20, 18, 16, 0.03);
+[data-theme='light'] {
+  --c0-ink: #141210;
+  --c0-bg: #faf8f6;
+  --c0-rail: #faf8f6;
+  --c0-surface: #efebe6;
+  --c0-surface-hi: #e6e1db;
+  --c0-text: #141210;
+  --c0-heading: #141210;
+  --c0-muted: rgba(20, 18, 16, 0.62);
+  --c0-line: rgba(20, 18, 16, 0.16);
+  --c0-steel: #141210;
+  --c0-display: 'Inter Display', 'Inter', system-ui, sans-serif;
+
+  --ifm-heading-font-family: var(--c0-display);
+  --ifm-color-primary: #141210;
+  --ifm-color-primary-dark: #141210;
+  --ifm-color-primary-darker: #141210;
+  --ifm-color-primary-darkest: #0c0a09;
+  --ifm-color-primary-light: #141210;
+  --ifm-color-primary-lighter: #141210;
+  --ifm-color-primary-lightest: #141210;
+  --ifm-global-radius: 0;
+  --ifm-color-emphasis-200: rgba(20, 18, 16, 0.08);
+
+  --ifm-menu-color-background-active: rgba(20, 18, 16, 0.06);
+  --ifm-menu-color-background-hover: rgba(20, 18, 16, 0.04);
+  --ifm-table-stripe-background: transparent;
+  --ifm-table-head-background: transparent;
+  --ifm-pagination-nav-color-hover: var(--c0-ink);
+  --ifm-scrollbar-thumb-background-color: rgba(20, 18, 16, 0.2);
+  --ifm-scrollbar-thumb-hover-background-color: rgba(20, 18, 16, 0.35);
+
+  --prism-color: #141210;
+  --docusaurus-highlighted-code-line-bg: rgba(20, 18, 16, 0.07);
+}
+
+/* the grain, as on the homepage: two tiles of coprime size so it never repeats */
+[data-theme='light'] body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  pointer-events: none;
+  background:
+    url('../../static/img/grain-a.png') 0 0 / 479px 479px repeat,
+    url('../../static/img/grain-b.png') 211px 97px / 631px 631px repeat;
+}
+
+[data-theme='light'] ::selection {
+  background: rgba(20, 18, 16, 0.14);
+}
+
+[data-theme='light'] .navbar {
+  border-bottom: 1px solid var(--c0-ink);
+}
+
+/* Named literally, not through var(--c0-display): the production CSS minifier
+   drops any @font-face whose family no font-family declaration spells out. */
+[data-theme='light'] .markdown h1,
+[data-theme='light'] .markdown h2,
+[data-theme='light'] .markdown h3,
+[data-theme='light'] .navbar__wordmark,
+[data-theme='light'] .pagination-nav__label {
+  font-family: 'Inter Display', 'Inter', system-ui, sans-serif;
+}
+
+[data-theme='light'] .navbar__wordmark {
+  font-size: 19px;
+  letter-spacing: -0.02em;
+}
+
+[data-theme='light'] .navbar__link,
+[data-theme='light'] .navbar__item {
+  font-weight: 500;
+  color: var(--c0-ink) !important;
+}
+
+[data-theme='light'] .theme-doc-sidebar-container {
+  border-right: 1px solid var(--c0-line) !important;
+}
+
+[data-theme='light'] .menu__link,
+[data-theme='light'] .menu__list-item-collapsible {
+  border-radius: 0;
+}
+
+[data-theme='light'] .menu__link--active:not(.menu__link--sublist) {
+  background: transparent;
+  box-shadow: inset 2px 0 0 var(--c0-ink);
+}
+
+[data-theme='light'] .markdown h1 {
+  font-size: 2.6rem;
+  line-height: 1.05;
+  letter-spacing: -0.04em;
+}
+
+[data-theme='light'] .markdown h2 {
+  letter-spacing: -0.03em;
+  border-bottom-color: var(--c0-ink);
+}
+
+[data-theme='light'] .markdown h3 {
+  letter-spacing: -0.02em;
+}
+
+[data-theme='light'] .pagination-nav__label {
+  letter-spacing: -0.02em;
+}
+
+[data-theme='light'] .markdown li::marker {
+  color: var(--c0-ink);
+}
+
+[data-theme='light'] .markdown a {
+  border-bottom: 1px solid rgba(20, 18, 16, 0.4);
+}
+
+[data-theme='light'] .markdown a:hover {
+  border-bottom-color: var(--c0-ink);
+}
+
+[data-theme='light'] .markdown blockquote {
+  border-left-color: var(--c0-ink);
+}
+
+[data-theme='light'] .markdown img,
+[data-theme='light'] :not(pre) > code,
+[data-theme='light'] .theme-code-block,
+[data-theme='light'] .theme-code-block pre,
+[data-theme='light'] .markdown table,
+[data-theme='light'] .theme-admonition,
+[data-theme='light'] .alert,
+[data-theme='light'] .markdown details,
+[data-theme='light'] .card,
+[data-theme='light'] .pagination-nav__link,
+[data-theme='light'] .DocSearch-Button {
+  border-radius: 0 !important;
+}
+
+/* one ink for every token: no syntax colours on a two-tone page */
+[data-theme='light'] .theme-code-block .token {
+  color: var(--c0-ink) !important;
+  font-style: normal !important;
+}
+
+[data-theme='light'] .theme-code-block .token.comment {
+  opacity: 0.6;
+}
+
+[data-theme='light'] .markdown table th {
+  color: var(--c0-ink);
+  border-bottom-color: var(--c0-ink);
+}
+
+[data-theme='light'] .theme-admonition {
+  --ifm-alert-background-color: var(--c0-surface);
+  --ifm-alert-background-color-highlight: rgba(20, 18, 16, 0.08);
+  --ifm-alert-foreground-color: var(--c0-ink);
+  --ifm-alert-border-color: var(--c0-ink);
+  border-color: var(--c0-line);
+  border-left-color: var(--c0-ink);
+}
+
+[data-theme='light'] .pagination-nav__link {
+  background: transparent;
+  border: 1px solid var(--c0-ink);
+}
+
+[data-theme='light'] .pagination-nav__link:hover {
+  background: var(--c0-ink);
+}
+
+[data-theme='light'] .pagination-nav__link:hover .pagination-nav__sublabel,
+[data-theme='light'] .pagination-nav__link:hover .pagination-nav__label {
+  color: var(--c0-bg);
+}
+
+[data-theme='light'] .footer,
+[data-theme='light'] .footer--dark {
+  border-top: 1px solid var(--c0-ink);
+}
+
+[data-theme='light'] .footer__copyright {
+  color: var(--c0-muted);
+}
+
+[data-theme='light'] ::-webkit-scrollbar-thumb,
+[data-theme='light'] ::-webkit-scrollbar-thumb:hover {
+  background: rgba(20, 18, 16, 0.25);
+  background-clip: content-box;
+}
+
+[data-theme='light'] * {
+  scrollbar-color: rgba(20, 18, 16, 0.25) transparent;
 }
