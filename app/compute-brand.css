@@ -139,3 +139,34 @@
    Cards, panels, inputs and pills lose their radius. rounded-full stays: it
    draws dots, avatars and switch knobs, which would read as broken if squared. */
 .b-compute [class*="rounded"]:not([class*="rounded-full"]) { border-radius: 0; }
+
+/* ---------- chat: the homepage's paper and ink on the chat surfaces ----------
+   One paper for page and rail (an ink rule between them, not a second beige),
+   the header's lockup, the homepage's ask box (ink rule, square ink send),
+   square ink-ruled chips and user turns, a wider measure and larger type on
+   big screens, and a sign-in that reads as a button. */
+.b-compute .cu { --cu-rail: var(--cu-bg); --cu-live: var(--fg); }   /* no green status dot, in either theme */
+.b-compute .cu-rail { border-right: 1px solid var(--fg); }
+.b-compute .cu-lockup { font-family: "Inter Display", var(--font-inter), system-ui, sans-serif; font-size: 19px; font-weight: 500; letter-spacing: -0.02em; }
+.b-compute .cu-lockup > span { gap: 10px; }
+.b-compute .cu-lockup svg { width: 26px; height: 26px; margin-top: -2px; }
+.b-compute .cu-slab { background: var(--cu-bg) !important; border: 1.5px solid var(--fg); }
+.b-compute .cu-field::placeholder { color: color-mix(in oklab, var(--fg) 55%, transparent); }
+.b-compute .cu-send { width: 42px; height: 42px; background: var(--fg); color: var(--on-fg) !important; }
+.b-compute .cu-send:hover { background: var(--fg); opacity: .88; }
+.b-compute .cu-send:disabled { opacity: 1; }   /* solid ink at rest, like the homepage's ask button */
+.b-compute .cu .cu-chip, .b-compute .cu .cu-followups .cu-chip {
+  background: var(--cu-bg); background-image: none; border: 1px solid var(--fg); border-radius: 0; color: var(--fg) !important;
+}
+.b-compute .cu .cu-chip:hover, .b-compute .cu .cu-followups .cu-chip:hover { background: var(--fg); background-image: none; color: var(--on-fg) !important; }
+.b-compute .cu-user { background: transparent !important; border: 1px solid var(--fg); }
+.b-compute .cu-hero-h { font-size: clamp(40px, 3.4vw, 64px); letter-spacing: -0.04em; line-height: 1.02; }
+.b-compute .cu-account { border-top: 1px solid var(--fg); padding-top: 14px; padding-bottom: 14px; font-size: 13px; color: var(--fg) !important; }
+.b-compute .cu-signin { background: var(--fg); color: var(--on-fg); padding: 7px 14px; font-weight: 500; }
+.b-compute .cu-signin:hover { color: var(--on-fg); opacity: .88; }
+.b-compute .cu .max-w-\[46rem\] { max-width: 50rem; }
+@media (min-width: 1800px) {
+  .b-compute .cu .max-w-\[46rem\] { max-width: 58rem; }
+  .b-compute .cu .cu-answer, .b-compute .cu .cu-user, .b-compute .cu .cu-field { font-size: 17.5px; }
+  .b-compute .cu-rail { width: 300px; }
+}

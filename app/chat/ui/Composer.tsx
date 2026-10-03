@@ -103,7 +103,7 @@ export default function Composer({
 
         {/* the slab */}
         <div
-          className="rounded-[26px] transition-colors duration-200"
+          className="cu-slab rounded-[26px] transition-colors duration-200"
           style={{ background: 'var(--cu-surface)' }}
         >
           {images.length > 0 && (
@@ -246,7 +246,7 @@ function SendControl({
       onClick={busy ? onStop : onSend}
       disabled={!live}
       aria-label={busy ? 'Stop' : 'Send'}
-      className="grid h-9 w-9 place-items-center rounded-lg transition-all duration-150 hover:bg-[var(--chat-row-on)] active:scale-95 disabled:hover:bg-transparent"
+      className="cu-send grid h-9 w-9 place-items-center rounded-lg transition-all duration-150 hover:bg-[var(--chat-row-on)] active:scale-95 disabled:hover:bg-transparent"
       style={{ color: live ? 'var(--cu-text)' : 'var(--cu-faint)' }}
     >{busy ? <Stop /> : <Arrow />}</button>
   );

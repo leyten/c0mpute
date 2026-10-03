@@ -841,7 +841,7 @@ export default function Chat() {
         <div key="content" className={empty ? 'flex flex-1 flex-col justify-end' : 'grow shrink-0'}>
           {empty ? (
             <div className="cu-fade mx-auto mb-7 w-full max-w-[46rem] px-4">
-              <h1 className="pixel-serif text-[34px] leading-[1.15] tracking-[-0.01em] md:text-[42px]" style={{ color: 'var(--cu-text)' }}>
+              <h1 className="cu-hero-h pixel-serif text-[34px] leading-[1.15] tracking-[-0.01em] md:text-[42px]" style={{ color: 'var(--cu-text)' }}>
                 Ask the impossible.
               </h1>
               <p className="mt-3 text-[15px]" style={{ color: 'var(--cu-dim)' }}>
