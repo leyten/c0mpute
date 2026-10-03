@@ -7,6 +7,7 @@ import { BrandProvider } from "@/components/BrandProvider";
 import StructuredData from "@/components/StructuredData";
 import "./globals.css";
 import "./homepage-variants.css";
+import "./compute-brand.css";
 import PrivyProvider from "@/providers/PrivyProvider";
 
 // The editorial theme, app-wide: Newsreader display + Inter body. The legacy
@@ -91,7 +92,7 @@ export default async function RootLayout({
         {/* Legacy never carried structured data and does not start now. */}
         {isCompute && <StructuredData brand={brand} />}
       </head>
-      <body className={`v-b ${inter.variable} ${newsreader.variable}`}>
+      <body className={`v-b ${isCompute ? 'b-compute ' : ''}${inter.variable} ${newsreader.variable}`}>
         <BrandProvider brand={brand}>
           <PrivyProvider>
             {children}

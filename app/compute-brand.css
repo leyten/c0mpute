@@ -1,0 +1,27 @@
+/* Compute Network: the homepage's language carried onto the app pages.
+   Reference: dither.leyten.dev (paper, ink, Inter Display, grain, square ink
+   buttons). Everything here is scoped to body.b-compute, which only the
+   compute brand renders, so c0mpute.ai keeps exactly what it had. */
+
+@font-face { font-family: "Inter Display"; src: url("/fonts/InterDisplay-Medium.otf") format("opentype"); font-weight: 500; font-display: swap; }
+@font-face { font-family: "Inter Display"; src: url("/fonts/InterDisplay-SemiBold.otf") format("opentype"); font-weight: 600; font-display: swap; }
+
+/* ---------- type: Inter Display headlines, tight tracking, Medium ---------- */
+.b-compute .pixel-serif, .b-compute .pixel-serif-sub {
+  font-family: "Inter Display", var(--font-inter), system-ui, sans-serif;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+/* headline sizes get the homepage's tight tracking; small serif-hooked labels
+   and figures keep a looser -0.02em so they stay legible */
+.b-compute h1.pixel-serif, .b-compute h2.pixel-serif {
+  letter-spacing: -0.04em;
+  line-height: 1.04;
+}
+.b-compute .pixel-serif-logo {
+  font-family: "Inter Display", var(--font-inter), system-ui, sans-serif;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+}
+.b-compute .step-num { font-style: normal; }
