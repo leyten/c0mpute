@@ -78,3 +78,26 @@
   transform: rotate(45deg);
 }
 :root[data-theme="light"] .b-compute .btn-ink:not(:disabled):hover { background: #0c0a09; }
+
+/* ---------- nav: lockup left, words right, Login as an ink button ---------- */
+.b-compute .nav-lockup {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  margin-left: 0;
+  gap: 10px;
+  font-size: 19px;
+  font-weight: 500;
+}
+.b-compute .nav-tab { font-size: 14px; }
+.b-compute .nav-pill { border-radius: 0; }
+.b-compute .nav-login {
+  height: 34px;
+  border-radius: 0;
+  border-color: var(--fg);
+  background: var(--fg);
+  color: var(--on-fg);
+  backdrop-filter: none;
+}
+.b-compute .nav-login::before, .b-compute .nav-login::after { display: none; }
+:root[data-theme="light"] .b-compute .nav-login:hover { background: #0c0a09; border-color: #0c0a09; }

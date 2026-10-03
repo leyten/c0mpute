@@ -217,7 +217,7 @@ export default function SiteNav({
       } [&_a]:pointer-events-auto [&_button]:pointer-events-auto`}
     >
       <div className="relative z-10 max-w-6xl mx-auto px-4 md:px-6">
-        <div className="h-[54px] md:h-[72px] flex items-center justify-between md:grid md:grid-cols-[1fr_auto_1fr] gap-3">
+        <div className={`h-[54px] md:h-[72px] flex items-center justify-between gap-3 ${brand.mark ? '' : 'md:grid md:grid-cols-[1fr_auto_1fr]'}`}>
           {/* Left: logo */}
           <div className="flex items-center">
             {/* The wordmark rides in the same pill language as the header's
@@ -226,7 +226,7 @@ export default function SiteNav({
                 floating bar. */}
             <a
               href="/"
-              className="cursor-pointer pixel-serif-logo text-fg text-lg md:text-xl font-bold inline-flex items-center gap-2 md:gap-2.5 h-[38px] px-4 -ml-1 rounded-full border border-fg/10 bg-background"
+              className="cursor-pointer pixel-serif-logo nav-lockup text-fg text-lg md:text-xl font-bold inline-flex items-center gap-2 md:gap-2.5 h-[38px] px-4 -ml-1 rounded-full border border-fg/10 bg-background"
             >
               {brand.mark ? (
                 <>
@@ -242,7 +242,7 @@ export default function SiteNav({
           </div>
 
           {/* Center: tabs behind the shared pill */}
-          <div ref={scrubTabsRef} className="hidden md:flex justify-center transition-opacity duration-150 ease-out will-change-transform">
+          <div ref={scrubTabsRef} className={`hidden md:flex justify-center transition-opacity duration-150 ease-out will-change-transform ${brand.mark ? 'md:ml-auto' : ''}`}>
             <nav
               aria-label="Main"
               ref={rowRef}
@@ -257,7 +257,7 @@ export default function SiteNav({
                   key={t.href}
                   href={t.href}
                   onMouseEnter={(e) => { pillTo(e.currentTarget); scheduleClose(); }}
-                  className="relative z-[1] cursor-pointer pixel-sans text-fg text-[15px] font-medium px-3 h-full inline-flex items-center"
+                  className="relative z-[1] cursor-pointer pixel-sans nav-tab text-fg text-[15px] font-medium px-3 h-full inline-flex items-center"
                 >
                   {t.label}
                 </a>
@@ -270,7 +270,7 @@ export default function SiteNav({
                 onMouseEnter={(e) => { pillTo(e.currentTarget); openPanel(); }}
                 onFocus={openPanel}
                 onClick={() => { if (panelOnRef.current) { cancelClose(); commitClose(); } else openPanel(); }}
-                className="relative z-[1] cursor-pointer pixel-sans text-fg text-[15px] font-medium px-3 h-full inline-flex items-center gap-1.5"
+                className="relative z-[1] cursor-pointer pixel-sans nav-tab text-fg text-[15px] font-medium px-3 h-full inline-flex items-center gap-1.5"
               >
                 Token
                 {/* Stacked select-style chevrons. They never rotate — only
@@ -409,7 +409,7 @@ export default function SiteNav({
               ) : (
                 <button
                   onClick={() => login()}
-                  className="hdr-btn pixel-sans text-sm font-medium ml-1"
+                  className="hdr-btn nav-login pixel-sans text-sm font-medium ml-1"
                 >
                   <span>Login</span>
                 </button>
