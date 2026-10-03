@@ -177,6 +177,17 @@ export default function Chat() {
         text = (localStorage.getItem(PENDING_PROMPT_KEY) ?? '').trim();
         if (text) localStorage.removeItem(PENDING_PROMPT_KEY);
       } catch { /* no storage: nothing was handed over */ }
+      // The homepage's prompt box is a plain GET form, so it arrives as
+      // /chat?q=... Take it as the draft, then drop it from the URL so a
+      // reload does not hand the same prompt over twice.
+      if (!text) {
+        const url = new URL(window.location.href);
+        text = (url.searchParams.get('q') ?? '').trim();
+        if (url.searchParams.has('q')) {
+          url.searchParams.delete('q');
+          window.history.replaceState(window.history.state, '', url.pathname + url.search + url.hash);
+        }
+      }
       handoff.current = text;
       if (text) setDraft(text);
     }
