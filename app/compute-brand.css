@@ -25,3 +25,21 @@
   letter-spacing: -0.02em;
 }
 .b-compute .step-num { font-style: normal; }
+
+/* ---------- two-tone: no accent colour on paper ----------
+   The steel/green tokens and the remapped Tailwind greens all collapse to ink,
+   so links, status dots, progress bars and chart lines read in the same ink
+   as the homepage. Danger stays red: it marks failures, not decoration. */
+:root[data-theme="light"] {
+  --steel: #141210;
+  --steel-70: color-mix(in oklab, #141210 80%, transparent);
+  --steel-60: color-mix(in oklab, #141210 72%, transparent);
+  --steel-50: color-mix(in oklab, #141210 63%, transparent);
+  --success: #141210;
+  --live: #141210;
+  --live-text: #141210;
+  --ring: #141210;
+  --color-green-400: #141210;
+  --color-green-500: #141210;
+  --color-emerald-400: #141210;
+}

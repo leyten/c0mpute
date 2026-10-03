@@ -72,8 +72,6 @@ function AreaChart({ points, color, fmt, prefix, suffix }: {
   const pts = series.map((p, i) => [X(ts[i]), Y(vs[i])] as const);
   const line = pts.map((p, i) => `${i ? 'L' : 'M'}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
   const area = `M${pts[0][0].toFixed(1)},${H - padBot} ` + pts.map((p) => `L${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ') + ` L${pts[pts.length - 1][0].toFixed(1)},${H - padBot} Z`;
-  // colour is a var() reference now, so strip it to letters for a legal id
-  const gid = `grad_${color.replace(/[^a-z0-9]/gi, '')}`;
 
   // hover maps mouse x → nearest real data point (positions as % so they track the stretched svg)
   const onMove = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -90,20 +88,15 @@ function AreaChart({ points, color, fmt, prefix, suffix }: {
   return (
     <div className="relative h-40" onMouseMove={onMove} onMouseLeave={() => setHover(null)}>
       <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="w-full h-full block">
-        <defs>
-          <linearGradient id={gid} x1="0" x2="0" y1="0" y2="1">
-            <stop offset="0%" stopColor={color} stopOpacity="0.28" />
-            <stop offset="100%" stopColor={color} stopOpacity="0" />
-          </linearGradient>
-        </defs>
-        <path d={area} fill={`url(#${gid})`} />
+        {/* flat fill, no gradient: the same two-tone ink as the homepage */}
+        <path d={area} fill={color} fillOpacity={0.08} />
         <path d={line} fill="none" stroke={color} strokeWidth={2} vectorEffect="non-scaling-stroke" strokeLinejoin="round" strokeLinecap="round" />
       </svg>
       {h && (
         <>
           {/* vertical guide + dot as HTML overlays (avoids svg aspect-ratio distortion) */}
           <div className="absolute top-0 bottom-0 w-px pointer-events-none" style={{ left: `${hLeft}%`, background: `color-mix(in srgb, ${color} 33.33%, transparent)` }} />
-          <div className="absolute pointer-events-none rounded-full" style={{ left: `${hLeft}%`, top: `${hTop}%`, width: 8, height: 8, background: color, transform: 'translate(-50%,-50%)', boxShadow: `0 0 6px ${color}` }} />
+          <div className="absolute pointer-events-none rounded-full" style={{ left: `${hLeft}%`, top: `${hTop}%`, width: 8, height: 8, background: color, transform: 'translate(-50%,-50%)' }} />
           <div
             className="absolute pointer-events-none z-10 px-2 py-1 rounded-lg border border-fg/15 bg-tooltip whitespace-nowrap"
             style={{ left: `${Math.min(85, Math.max(15, hLeft))}%`, top: 0, transform: 'translateX(-50%)' }}
