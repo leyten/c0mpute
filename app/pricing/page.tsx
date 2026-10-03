@@ -95,7 +95,7 @@ function PlanCard({ plan }: { plan: PricingPlan }) {
           // sits at three different heights.
           className={`inline-block rounded-xl border px-5 py-2.5 text-[14.5px] transition-colors ${
             featured
-              ? 'border-transparent bg-fg text-on-fg hover:bg-fg/90'
+              ? 'btn-ink border-transparent bg-fg text-on-fg hover:bg-fg/90'
               : 'border-fg/15 text-fg-80 hover:bg-fg/[0.06] hover:text-fg'
           }`}
         >

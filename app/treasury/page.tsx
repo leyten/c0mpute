@@ -289,7 +289,7 @@ export default function TreasuryPage() {
                 Stake <span className="dollar">$</span>ZERO from self-custody and receive <span className="dollar">$</span>USDC from every distribution.
               </p>
             </div>
-            <a href="/staking" className="pixel-sans text-sm font-medium px-6 py-2.5 rounded-xl bg-fg text-on-fg hover:bg-fg/90 transition-colors whitespace-nowrap">
+            <a href="/staking" className="btn-ink pixel-sans text-sm font-medium px-6 py-2.5 rounded-xl bg-fg text-on-fg hover:bg-fg/90 transition-colors whitespace-nowrap">
               Stake <span className="dollar">$</span>ZERO
             </a>
           </div>

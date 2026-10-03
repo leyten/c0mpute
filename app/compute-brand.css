@@ -55,3 +55,26 @@
     url("/img/grain-a.png") 0 0 / 479px 479px repeat,
     url("/img/grain-b.png") 211px 97px / 631px 631px repeat;
 }
+
+/* ---------- primary buttons: square ink with a chevron ---------- */
+.b-compute .btn-ink {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0;
+  border-color: var(--fg);
+  background: var(--fg);
+  color: var(--on-fg);
+  font-weight: 500;
+}
+.b-compute .btn-ink::after {
+  content: "";
+  flex: none;
+  width: 7px;
+  height: 7px;
+  margin-left: 12px;
+  border-top: 1.5px solid;
+  border-right: 1.5px solid;
+  transform: rotate(45deg);
+}
+:root[data-theme="light"] .b-compute .btn-ink:not(:disabled):hover { background: #0c0a09; }

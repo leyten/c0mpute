@@ -42,7 +42,7 @@ function legacyLine(zero: number, usd: number): string {
 // Shared presentation tokens for this page.
 const card = 'border border-fg/10 bg-fg/[0.02] rounded-2xl';
 const secLabel = 'pixel-sans text-fg-40 text-[10px] tracking-widest uppercase';
-const btn = 'pixel-sans text-sm font-medium px-6 py-2.5 rounded-xl bg-fg text-on-fg hover:bg-fg/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed';
+const btn = 'btn-ink pixel-sans text-sm font-medium px-6 py-2.5 rounded-xl bg-fg text-on-fg hover:bg-fg/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed';
 const btnFull = `w-full ${btn}`;
 const btnGhost = 'pixel-sans text-xs px-2.5 py-1.5 rounded-lg border border-fg/20 text-fg-70 hover:text-fg hover:bg-fg/5 transition-colors disabled:opacity-40 disabled:cursor-not-allowed';
 const amountBox = 'flex items-center gap-2 bg-fg/[0.03] border border-fg/10 rounded-xl px-4 py-3 mb-3 focus-within:border-fg/25 transition-colors';
