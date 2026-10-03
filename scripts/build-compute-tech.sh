@@ -43,7 +43,7 @@ SHARD_SRC="/var/www/shard.c0mpute.ai"
 # leave those two units where they are. See scripts/deploy.sh for the other half.
 LIVE_DATA="/root/.openclaw/workspace/c0mpute/data-site"
 
-OUT="/var/www/compute.tech"
+OUT="${COMPUTE_TECH_OUT:-/var/www/compute.tech}"
 
 mkdir -p "$OUT"
 
@@ -69,6 +69,22 @@ DOCS_BASE_URL=/ \
 # ── blog.compute.tech ────────────────────────────────────────────────────────
 echo "==> blog"
 python3 "$REBRAND" "$BLOG_SRC" "$OUT/blog"
+# The blog's documents carry their stylesheet inline, so the rebrand's paper.css
+# hook (which keys off a style.css link) never fires. Its paper sheet, fonts and
+# grain live in the repo and are linked into the generated pages here, last in
+# <head> so they win; the Google Fonts link goes, the sheet ships Inter itself.
+cp -a "$REPO/blog-paper/." "$OUT/blog/"
+for f in "$OUT"/blog/*.html; do
+  python3 - "$f" <<'PYBLOG'
+import re, sys
+p = sys.argv[1]
+s = open(p).read()
+s = re.sub(r'<link rel="stylesheet" href="https://fonts\.googleapis\.com/[^"]*">\n?', '', s)
+if 'href="paper.css' not in s:
+    s = s.replace('</head>', '<link rel="stylesheet" href="paper.css">\n</head>', 1)
+open(p, 'w').write(s)
+PYBLOG
+done
 
 # ── data.compute.tech ────────────────────────────────────────────────────────
 echo "==> data"

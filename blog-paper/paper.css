@@ -1,0 +1,81 @@
+/* paper restyle: loaded after each page's inline <style>, so equal-specificity rules here win on source order.
+   two-tone only (paper + ink), matching the compute.tech homepage. */
+@font-face { font-family: "Inter Display"; src: url("fonts/InterDisplay-Medium.otf") format("opentype"); font-weight: 500; font-display: swap; }
+@font-face { font-family: "Inter Display"; src: url("fonts/InterDisplay-SemiBold.otf") format("opentype"); font-weight: 600; font-display: swap; }
+@font-face { font-family: "Inter"; src: url("fonts/Inter-Regular.otf") format("opentype"); font-weight: 400; font-display: swap; }
+@font-face { font-family: "Inter"; src: url("fonts/Inter-Medium.otf") format("opentype"); font-weight: 500; font-display: swap; }
+@font-face { font-family: "Inter"; src: url("fonts/Inter-Medium.otf") format("opentype"); font-weight: 600; font-display: swap; }
+
+:root{
+  --paper:#faf8f6; --ink:#141210; --night:#0c0a09; --well:#efebe6;
+  --bg:var(--paper); --text:var(--ink); --head:var(--ink); --meta:var(--ink);
+  --line:var(--ink); --steel:var(--ink); --surface:transparent;
+  --display:"Inter Display","Inter",system-ui,sans-serif;
+  --ui:"Inter",system-ui,sans-serif;
+}
+html{background:var(--paper)}
+body{background:var(--paper);color:var(--ink);font-family:var(--ui);text-rendering:optimizeLegibility}
+::selection{background:var(--ink);color:var(--paper)}
+:focus-visible{outline:2px solid currentColor;outline-offset:3px}
+
+/* paper grain, as on the homepage: two coprime tiles so the sum never visibly repeats */
+body::after{
+  content:"";position:fixed;inset:0;z-index:50;pointer-events:none;
+  background:url("img/grain-a.png") 0 0 / 479px 479px repeat, url("img/grain-b.png") 211px 97px / 631px 631px repeat;
+}
+
+/* type: Inter Display for headlines, Inter for everything else */
+.serif,h1,h2,.logo{font-family:var(--display);font-weight:500;letter-spacing:-0.03em}
+h1{color:var(--ink);letter-spacing:-0.045em;line-height:1.04}
+article h2{color:var(--ink);letter-spacing:-0.03em}
+strong,b,article strong{color:var(--ink);font-weight:500}
+.logo{color:var(--ink);font-size:19px;letter-spacing:-0.02em}
+
+/* links: ink with an underline */
+a{color:var(--ink);text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:3px}
+a:hover{text-decoration-thickness:1.5px}
+article p a,.dek a{border-bottom:0}
+article p a:hover,.dek a:hover{border-bottom-color:transparent}
+.more a{border-bottom:0}
+
+/* nav: paper bar with a hairline ink rule */
+nav{background:var(--paper);backdrop-filter:none;border-bottom:1px solid var(--ink)}
+nav .logo{text-decoration:none}
+nav .links a{color:var(--ink);font-weight:500;text-decoration:none}
+nav .links a:hover{color:var(--ink);text-decoration:underline;text-underline-offset:4px}
+
+/* index: hairline rules instead of grey cards */
+.tag{color:var(--ink)}
+.post{border:0;border-top:1px solid var(--ink);border-radius:0;background:transparent;padding:28px 0;margin-bottom:0;text-decoration:none}
+.post:last-of-type{border-bottom:1px solid var(--ink)}
+.post:hover{border-color:var(--ink);background:transparent}
+.post:hover h2{text-decoration:underline;text-decoration-thickness:1.5px;text-underline-offset:5px}
+.post .date{color:var(--ink);font-weight:500;font-size:12px;letter-spacing:0.08em}
+.post h2{color:var(--ink);letter-spacing:-0.03em}
+.post p{color:var(--ink)}
+
+/* post */
+.kicker{color:var(--ink);font-weight:500;letter-spacing:0.08em}
+.dek{color:var(--ink)}
+article p{color:var(--ink)}
+.cap,.more,footer{color:var(--ink)}
+hr{border-top:1px solid var(--ink)}
+article code{color:var(--ink);background:var(--well);border-radius:0}
+
+/* button: square ink block with a chevron, as on the homepage */
+.cta{background:var(--ink);color:var(--paper);border-radius:0;font-family:var(--ui);padding:0 18px;height:44px;line-height:44px;text-decoration:none}
+.cta:hover{background:var(--night)}
+
+/* code wells: ink on slightly darker paper, square, no border */
+.addr{background:var(--well);border:0;border-radius:0;color:var(--ink)}
+.install{background:var(--well);border:0;border-radius:0;color:var(--ink)}
+.install .p,.install .c{color:var(--ink)}
+.install .copy{border:1px solid var(--ink);border-radius:0;color:var(--ink);background:transparent}
+.install .copy:hover{border-color:var(--ink);color:var(--paper);background:var(--ink)}
+.install .copy.copied{color:var(--paper);background:var(--ink);border-color:var(--ink)}
+.term{background:var(--well);border:0;border-radius:0}
+.term .bar i{background:var(--ink);opacity:0.18}
+.term pre{color:var(--ink)}
+.term .g,.term .b,.term .w{color:var(--ink)}
+.term .w{font-weight:500}
+.term .d{color:var(--ink);opacity:0.55}
