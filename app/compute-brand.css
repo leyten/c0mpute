@@ -159,6 +159,10 @@
 .b-compute .cu-send { width: 36px; height: 36px; border-radius: 999px !important; background: var(--fg); color: var(--on-fg) !important; }
 .b-compute .cu-send:hover { background: var(--fg); opacity: .85; }
 .b-compute .cu-send:disabled { background: color-mix(in oklab, var(--fg) 14%, transparent); color: color-mix(in oklab, var(--fg) 45%, transparent) !important; opacity: 1; }
+/* Thinking: off is quiet text, on is a filled ink pill, so the state reads at a glance */
+.b-compute .cu-think[data-on="false"] { color: color-mix(in oklab, var(--fg) 55%, transparent) !important; }
+.b-compute .cu-think[data-on="true"] { background: var(--fg); color: var(--on-fg) !important; }
+.b-compute .cu-think[data-on="true"]:hover { background: var(--fg); opacity: .88; }
 .b-compute .cu .cu-chip { color: color-mix(in oklab, var(--fg) 72%, transparent) !important; }
 .b-compute .cu-hero-h { font-size: clamp(34px, 2.8vw, 48px); letter-spacing: -0.03em; line-height: 1.1; }
 .b-compute .cu-account { font-size: 13px; }

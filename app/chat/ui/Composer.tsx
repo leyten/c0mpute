@@ -193,7 +193,9 @@ export default function Composer({
               <button
                 onClick={() => onThink(!think)}
                 aria-label="Thinking"
-                className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1.5 text-[13px] transition-colors hover:bg-[var(--chat-row-on)]"
+                aria-pressed={think}
+                data-on={think}
+                className="cu-think flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1.5 text-[13px] transition-colors hover:bg-[var(--chat-row-on)]"
                 style={{ color: think ? 'var(--cu-steel)' : 'var(--cu-dim)' }}
               >
                 <Spark />

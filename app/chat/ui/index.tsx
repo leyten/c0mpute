@@ -191,10 +191,10 @@ export default function Chat() {
       handoff.current = text;
       if (text) setDraft(text);
     }
-    // A hero prompt opens a conversation of its own: leaving activeId null is
-    // what makes the first send create one, instead of appending to whatever
-    // the visitor happened to ask last time.
-    if (!handoff.current && list.length > 0) setActiveId(list[0].id);
+    // Arriving at /chat always lands on a new, empty conversation (activeId
+    // null: the first send creates one). Reopening the most recent thread made
+    // the landing depend on whatever was asked last; past threads stay one
+    // click away in the rail.
   }, []);
 
   // Two tabs on /chat each hold their own copy of the list, and `save` writes the
