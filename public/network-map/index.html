@@ -80,6 +80,34 @@
     }
   </style>
   <style>.embed .brand-hud { display: none; }</style>
+  <style>
+    /* paper and ink, like the rest of compute.tech: two-tone, square, Inter Display figures */
+    @font-face { font-family: "Inter Display"; src: url("/fonts/InterDisplay-Medium.otf") format("opentype"); font-weight: 500; }
+    :root { --bg: #faf8f6; --pop: #faf8f6; --text: #141210; --dim: rgba(20,18,16,0.62); --faint: rgba(20,18,16,0.42);
+      --line: rgba(20,18,16,0.16); --surface: rgba(20,18,16,0.03); --steel: #141210; }
+    body::after { content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 5; opacity: .9;
+      background: url("/img/grain-a.png"), url("/img/grain-b.png"); }
+    .pxnum, .pixel-serif { font-family: "Inter Display", Inter, system-ui, sans-serif; letter-spacing: -0.035em; }
+    .stat .v { color: var(--text); }
+    .stat .v small { font-family: Inter, system-ui, sans-serif; letter-spacing: 0; margin-left: 4px; }
+    .stats-left .stat { border-left-color: rgba(20,18,16,0.55); }
+    .stats-right .stat { border-right-color: rgba(20,18,16,0.55); }
+    .legend-hud .sw { border-radius: 0; }
+    .ticker .row b { color: var(--text); }
+    .ticker .row .g { color: var(--text); }
+    .ticker .row .loc { color: rgba(20,18,16,0.8); }
+    .cmd-hud code { background: transparent; border: 1px solid rgba(20,18,16,0.55); border-radius: 0; color: var(--text); }
+    .cmd-hud button { background: var(--text); border: 1px solid var(--text); border-radius: 0; color: var(--bg); }
+    .cmd-hud button:hover { background: var(--text); color: var(--bg); opacity: .85; }
+    .node-panel { border: 1px solid var(--text); border-radius: 0; box-shadow: none; }
+    .node-panel .np-city { color: var(--text); font-family: "Inter Display", Inter, sans-serif; letter-spacing: -0.03em; }
+    .node-panel .np-x { border-radius: 0; }
+    .node-panel .np-x:hover { background: rgba(20,18,16,0.06); }
+    .node-panel .np-status.serve { color: var(--text); }
+    .node-panel .np-status.stand { color: var(--dim); }
+    .node-panel .np-bar { border-radius: 0; background: rgba(20,18,16,0.08); }
+    .node-panel .np-bar .fl { border-radius: 0; background: var(--text); }
+  </style>
   <script>if (/[?&]embed\b/.test(location.search)) document.documentElement.classList.add('embed');</script>
 </head>
 <body>
@@ -91,9 +119,9 @@
       <span class="brand-sub">/ Map</span>
     </a>
     <div class="hud legend-hud">
-      <i class="sw" style="background:#22c55e"></i>serving
-      <i class="sw" style="background:rgba(255,255,255,0.82)"></i>standby
-      <i class="sw" style="background:rgba(255,255,255,0.32)"></i>joining
+      <i class="sw" style="background:#141210"></i>serving
+      <i class="sw" style="background:rgba(20,18,16,0.5)"></i>standby
+      <i class="sw" style="background:rgba(20,18,16,0.22)"></i>joining
     </div>
 
     <div class="hud stats stats-left">
@@ -269,42 +297,42 @@
     function draw(){
       ctx.clearRect(0,0,W,H); setRot();
       // globe edge + faint disc
-      ctx.strokeStyle='rgba(255,255,255,0.09)'; ctx.lineWidth=1;
+      ctx.strokeStyle='rgba(20,18,16,0.18)'; ctx.lineWidth=1;
       ctx.beginPath(); ctx.arc(CX,CY,R,0,2*PI); ctx.stroke();
       // land dots (front hemisphere only), brightness by depth
       var i,n=LAND.length/3;
       for(i=0;i<n;i++){ _t[0]=LAND[i*3]; _t[1]=LAND[i*3+1]; _t[2]=LAND[i*3+2]; rot(_t,_t);
         if(_t[2]<=0.02) continue; var sx=CX+_t[0]*R, sy=CY-_t[1]*R;
-        var a=0.06+0.34*_t[2]; ctx.fillStyle='rgba(255,255,255,'+a.toFixed(3)+')'; ctx.fillRect(sx|0,sy|0,2,2); }
+        var a=0.10+0.44*_t[2]; ctx.fillStyle='rgba(20,18,16,'+a.toFixed(3)+')'; ctx.fillRect(sx|0,sy|0,2,2); }
       // country borders (front-facing segments)
-      ctx.strokeStyle='rgba(255,255,255,0.22)'; ctx.lineWidth=0.6; ctx.beginPath();
+      ctx.strokeStyle='rgba(20,18,16,0.22)'; ctx.lineWidth=0.6; ctx.beginPath();
       for(var r=0;r<BORDERS.length;r++){ var ring=BORDERS[r], m=ring.length/3, up=false;
         for(var v=0;v<m;v++){ _t[0]=ring[v*3]; _t[1]=ring[v*3+1]; _t[2]=ring[v*3+2]; rot(_t,_t);
           if(_t[2]>0.02){ var X=CX+_t[0]*R, Y=CY-_t[1]*R; if(up) ctx.lineTo(X,Y); else ctx.moveTo(X,Y); up=true; } else up=false; } }
       ctx.stroke();
       // arcs (raised great circles) + travelling pulses
       for(var e=0;e<ARCS.length;e++){ var pts=ARCS[e].pts, m2=pts.length/3, up2=false;
-        ctx.strokeStyle='rgba(34,197,94,0.5)'; ctx.lineWidth=1; ctx.beginPath();
+        ctx.strokeStyle='rgba(20,18,16,0.6)'; ctx.lineWidth=1; ctx.beginPath();
         for(var k=0;k<m2;k++){ _t[0]=pts[k*3]; _t[1]=pts[k*3+1]; _t[2]=pts[k*3+2]; rot(_t,_t);
           if(_t[2]>0){ var AX=CX+_t[0]*R, AY=CY-_t[1]*R; if(up2) ctx.lineTo(AX,AY); else ctx.moveTo(AX,AY); up2=true; } else up2=false; }
         ctx.stroke();
         // pulse
         var pt=pulse%1, idx=Math.floor(pt*(m2-1));
         _t[0]=pts[idx*3]; _t[1]=pts[idx*3+1]; _t[2]=pts[idx*3+2]; rot(_t,_t);
-        if(_t[2]>0){ ctx.fillStyle='#fff'; ctx.fillRect((CX+_t[0]*R|0)-1,(CY-_t[1]*R|0)-1,3,3); } }
+        if(_t[2]>0){ ctx.fillStyle='#141210'; ctx.fillRect((CX+_t[0]*R|0)-1,(CY-_t[1]*R|0)-1,3,3); } }
       // nodes on the surface — store screen pos for hit-testing; hovered/selected get a ring + label
       for(i=0;i<NODES.length;i++){ var nd=NODES[i]; _t[0]=nd.v[0]; _t[1]=nd.v[1]; _t[2]=nd.v[2]; rot(_t,_t);
         if(_t[2]<=0.02){ nd.front=false; continue; }
         var nx=CX+_t[0]*R, ny=CY-_t[1]*R, edge=Math.min(1,(_t[2]-0.02)*4), ix=nx|0, iy=ny|0;
         nd.sx=nx; nd.sy=ny; nd.front=true; var sel=(nd===selected), hov=(nd===hovered);
-        if(nd.status==="serve"){ ctx.fillStyle='rgba(34,197,94,'+(0.20*edge).toFixed(2)+')'; ctx.fillRect(ix-4,iy-4,8,8);
-          ctx.fillStyle='rgba(34,197,94,'+edge.toFixed(2)+')'; ctx.fillRect(ix-2,iy-2,4,4); }
-        else{ var al=(nd.status==="stand"?0.8:0.34)*edge; if(nd.status==="off"&&Math.floor(now/300)%2)al*=0.45;
-          ctx.fillStyle='rgba(255,255,255,'+al.toFixed(2)+')'; ctx.fillRect(ix-2,iy-2,4,4); }
-        if(sel||hov){ ctx.strokeStyle=sel?'rgba(34,197,94,0.95)':'rgba(255,255,255,0.7)'; ctx.lineWidth=1; ctx.strokeRect(ix-6.5,iy-6.5,13,13);
-          ctx.font='11px "Courier New",monospace'; ctx.textBaseline='middle';
+        if(nd.status==="serve"){ ctx.fillStyle='rgba(20,18,16,'+(0.16*edge).toFixed(2)+')'; ctx.fillRect(ix-4,iy-4,8,8);
+          ctx.fillStyle='rgba(20,18,16,'+edge.toFixed(2)+')'; ctx.fillRect(ix-2,iy-2,4,4); }
+        else{ var al=(nd.status==="stand"?0.5:0.22)*edge; if(nd.status==="off"&&Math.floor(now/300)%2)al*=0.45;
+          ctx.fillStyle='rgba(20,18,16,'+al.toFixed(2)+')'; ctx.fillRect(ix-2,iy-2,4,4); }
+        if(sel||hov){ ctx.strokeStyle=sel?'rgba(20,18,16,0.95)':'rgba(20,18,16,0.6)'; ctx.lineWidth=1; ctx.strokeRect(ix-6.5,iy-6.5,13,13);
+          ctx.font='500 11px Inter,system-ui,sans-serif'; ctx.textBaseline='middle';
           var lbl=nd.city.toLowerCase(), tx=ix+11; if(tx+ctx.measureText(lbl).width>W-4) tx=ix-11-ctx.measureText(lbl).width;
-          ctx.fillStyle=sel?'rgba(34,197,94,0.95)':'rgba(255,255,255,0.85)'; ctx.fillText(lbl,tx,iy); } }
+          ctx.fillStyle=sel?'rgba(20,18,16,0.95)':'rgba(20,18,16,0.75)'; ctx.fillText(lbl,tx,iy); } }
     }
 
     // ── stats ──
