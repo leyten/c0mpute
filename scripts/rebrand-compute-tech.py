@@ -38,16 +38,23 @@ TEXT_SUFFIXES = (".md", ".html", ".css", ".js")
 # compute.tech copies simply ARE light. Appending an override after the original
 # :root wins on source order without editing the c0mpute.ai sources at all.
 #
-# Values are solved against #faf8f6, not inverted: each dark value's contrast
-# ratio against #0c0a09 was matched on paper.
+# The compute.tech homepage is two-tone: paper #faf8f6, ink #141210, no accent.
+# Text, links and the live dot are all plain ink; only dim/faint/line keep an
+# alpha, for hierarchy.
 PAPER_VARS = {
-    "--bg": "#faf8f6", "--pop": "#f1ede8", "--page": None,
-    "--text": "rgba(20,18,16,0.82)", "--head": "#141210", "--heading": "#141210",
-    "--meta": "rgba(20,18,16,0.56)", "--dim": "rgba(20,18,16,0.6)",
-    "--faint": "rgba(20,18,16,0.5)", "--line": "rgba(20,18,16,0.12)",
-    "--surface": "rgba(20,18,16,0.035)", "--steel": "#3a5a7d",
-    "--live": "rgba(6,120,80,0.95)",
+    "--bg": "#faf8f6", "--pop": "#efebe6", "--page": None,
+    "--text": "#141210", "--head": "#141210", "--heading": "#141210",
+    "--meta": "rgba(20,18,16,0.62)", "--dim": "rgba(20,18,16,0.62)",
+    "--faint": "rgba(20,18,16,0.5)", "--line": "rgba(20,18,16,0.16)",
+    "--surface": "transparent", "--steel": "#141210",
+    "--live": "#141210",
 }
+
+# A site that ships a paper.css next to its style.css gets it linked last in
+# <head>, after any inline <style>, so it wins on source order. It carries what
+# a variable cannot: the display face, square corners and the paper grain.
+PAPER_SHEET = '<link rel="stylesheet" href="paper.css">\n</head>'
+
 
 # ── ink for paper ─────────────────────────────────────────────────────────────
 # These three sites were written for a dark ground and say so literally: the
@@ -164,7 +171,7 @@ CODE_REGIONS = [
 _SENTINEL = "\x00CODE%d\x00"
 
 
-def rebrand(text: str, paper: bool = False) -> str:
+def rebrand(text: str, paper: bool = False, paper_sheet: bool = False) -> str:
     """Apply the compute.tech rebrand to one file's contents.
 
     ``paper`` also converts the site to the light ground. It is off by default:
@@ -179,6 +186,8 @@ def rebrand(text: str, paper: bool = False) -> str:
         # Only stylesheets carry a :root; paper_override no-ops on anything else.
         text = paper_override(text)
         text = ink_for_paper(text)
+        if paper_sheet and 'href="style.css"' in text:
+            text = text.replace("</head>", PAPER_SHEET, 1)
     text = own_links(text)
     text = WORDMARK_UPPER.sub(BRAND_UPPER, text)
     text = WORDMARK_LOWER.sub(BRAND, text)
@@ -207,6 +216,7 @@ def main(src: str, dst: str, paper: bool = False) -> None:
     if os.path.exists(dst):
         shutil.rmtree(dst)
     os.makedirs(dst)
+    paper_sheet = paper and os.path.isfile(os.path.join(src, "paper.css"))
 
     for root, _dirs, files in os.walk(src):
         out_root = os.path.join(dst, os.path.relpath(root, src))
@@ -218,7 +228,7 @@ def main(src: str, dst: str, paper: bool = False) -> None:
                 with open(src_path, encoding="utf-8") as fh:
                     content = fh.read()
                 with open(out_path, "w", encoding="utf-8") as fh:
-                    fh.write(rebrand(content, paper))
+                    fh.write(rebrand(content, paper, paper_sheet))
             else:
                 shutil.copy2(src_path, out_path)
 
