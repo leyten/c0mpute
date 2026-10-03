@@ -1,0 +1,55 @@
+/* data.compute.tech on paper: the homepage's two-tone chrome over style.css.
+   Linked only into the compute.tech copy (rebrand-compute-tech.py --paper);
+   data.c0mpute.ai never loads it. The palette itself comes from the paper
+   :root the same script appends, so this file only carries what a variable
+   cannot: the display face, square corners, ink rules and the grain. */
+
+@font-face {
+  font-family: 'Inter Display';
+  src: url('fonts/InterDisplay-Medium.woff2') format('woff2');
+  font-weight: 500;
+  font-display: swap;
+}
+
+.pixel-serif,
+.pxnum {
+  font-family: 'Inter Display', 'Inter', system-ui, sans-serif;
+  font-weight: 500;
+  letter-spacing: -0.03em;
+}
+.brand-name { letter-spacing: -0.02em; }
+.hero-num { letter-spacing: -0.045em; line-height: 1; }
+.section-title { border-bottom-color: #141210; }
+
+.card,
+.panel {
+  border-radius: 0;
+  background: transparent;
+  border-color: rgba(20, 18, 16, 0.16);
+}
+.legend .sw { border-radius: 0; }
+.card .k .dot { border-radius: 0; background: #141210; }
+
+#burn-list .row a { color: #141210; border-bottom-color: rgba(20, 18, 16, 0.4); }
+#burn-list .row a:hover { border-bottom-color: #141210; }
+footer { border-top-color: #141210; }
+
+#tooltip {
+  border: 0;
+  border-radius: 0;
+  background: #141210;
+  color: #faf8f6;
+  box-shadow: none;
+}
+
+/* paper grain: two tiles with coprime sizes, so the sum never visibly repeats */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  pointer-events: none;
+  background:
+    url('img/grain-a.png') 0 0 / 479px 479px repeat,
+    url('img/grain-b.png') 211px 97px / 631px 631px repeat;
+}
