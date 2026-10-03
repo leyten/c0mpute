@@ -61,9 +61,9 @@ const nextConfig: NextConfig = {
   // on as plain HTML/CSS/JS.
   async rewrites() {
     return {
-      // The homepage is the static tower page in public/home/ (a WebGL dither
-      // of Bruegel's Babel, built from scratchpad/compute-site-v2/a with
-      // build-prod.sh). beforeFiles, so it wins over app/page.tsx.
+      // The homepage is a static page in public/home/ (a WebGL 1-bit dither
+      // of Bruegel's Tower of Babel). beforeFiles, so it wins over
+      // app/page.tsx.
       beforeFiles: [
         { source: '/', destination: '/home/index.html' },
       ],
