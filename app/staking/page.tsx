@@ -337,7 +337,9 @@ export default function StakingPage() {
       <main className="pt-32 pb-20 px-4 md:px-6">
         <div className="max-w-3xl mx-auto">
           {/* Page lede */}
-          <div className="mb-10">
+          <div className="mb-10 flow-root">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/art/staking-wallet.png" width={120} height={189} alt="" aria-hidden="true" className="dither-art mb-6 md:float-right md:ml-8 md:mb-0" />
             <h1 className="pixel-serif text-fg text-4xl md:text-5xl mb-3">Stake <span className="dollar">$</span>ZERO</h1>
             <p className="pixel-sans text-fg-70 text-sm max-w-xl">
               Self-custody staking. Your <span className="dollar">$</span>ZERO sits in an on-chain vault only you control,

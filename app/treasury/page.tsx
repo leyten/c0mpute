@@ -166,7 +166,9 @@ export default function TreasuryPage() {
       <main className="pt-32 pb-20 px-4 md:px-6">
         <div className="max-w-5xl mx-auto">
           {/* Page lede */}
-          <div className="mb-8">
+          <div className="mb-8 flow-root">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/art/treasury-bonfire.png" width={200} height={176} alt="" aria-hidden="true" className="dither-art mb-6 md:float-right md:ml-8 md:mb-0" />
             <h1 className="pixel-serif text-fg text-4xl md:text-5xl mb-3">Treasury</h1>
             <p className="pixel-sans text-fg-70 text-sm max-w-2xl">
               The compute margin and a share of <span className="dollar">$</span>ZERO trading fees accumulate here.
