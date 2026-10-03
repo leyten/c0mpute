@@ -1,6 +1,5 @@
 import SiteNav from '@/components/SiteNav';
 import SiteFooter from '@/components/SiteFooter';
-import NetworkGlobe from '@/components/network/NetworkGlobe';
 import NetworkIndex from '@/components/network/NetworkIndex';
 import TreasuryPanel from '@/components/treasury/TreasuryPanel';
 import { pageMetadata } from '@/lib/seo';
@@ -66,18 +65,9 @@ export default async function NetworkPage() {
       <div className="nw-top" />
       <NetworkIndex />
 
-      {/* 01 Live: the night ground with the globe */}
+      {/* 01 Live: the shard.compute.tech map itself, embedded as-is */}
       <section id="live" className="nw-hero">
-        <div className="nw-hero-head">
-          <Eyebrow n="01" t="Live" night />
-          <h1>Network</h1>
-        </div>
-        <NetworkGlobe
-          net={lv ? {
-            workersOnline: lv.workersOnline, gpu: lv.byType.native, browser: lv.byType.browser, image: lv.byType.image,
-            jobs: stats?.network?.totals?.jobs, images: stats?.network?.totals?.images, at: stats?.generatedAt,
-          } : null}
-        />
+        <iframe className="nw-map" src="/network-map/index.html?embed" title="Live map of the network" loading="eager" />
       </section>
 
       {/* 02 Usage */}

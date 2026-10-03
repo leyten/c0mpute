@@ -60,9 +60,9 @@ const nextConfig: NextConfig = {
   async rewrites() {
     return [
       { source: '/roadmap', destination: '/roadmap-clone/index.html' },
-      // /network's globe polls the shard map feed. That host sends no CORS
-      // header, so it is proxied same-origin instead of fetched cross-site.
-      { source: '/network/live.json', destination: 'https://shard.compute.tech/network.json' },
+      // /network embeds the shard map (public/network-map/), which polls its
+      // feed as a relative network.json. Proxy it same-origin to the live feed.
+      { source: '/network-map/network.json', destination: 'https://shard.compute.tech/network.json' },
     ];
   },
   // Polyfill Buffer for client-side @solana/web3.js (on-chain staking UI).
@@ -79,6 +79,15 @@ const nextConfig: NextConfig = {
         // Global security headers (Privy production mode: CSP + anti-clickjacking)
         source: '/:path*',
         headers: securityHeaders,
+      },
+      {
+        // The live map is a static page with no auth or wallet surface, framed by
+        // /network. Same-origin framing only; the last match wins per key.
+        source: '/network-map/:path*',
+        headers: [
+          { key: 'Content-Security-Policy', value: csp.replace("frame-ancestors 'none'", "frame-ancestors 'self'") },
+          { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
+        ],
       },
       {
         source: '/models/:path*',

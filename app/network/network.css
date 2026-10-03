@@ -27,29 +27,9 @@
 
 /* 01 the night hero */
 .nw-hero { position: relative; background: var(--nw-night); color: var(--nw-paper); }
-.nw-hero-head { position: absolute; z-index: 3; left: var(--nw-pad); top: 40px; pointer-events: none; }
-.nw-hero h1 { color: var(--nw-paper); font-size: clamp(40px, 4.3vw, 64px); }
-.nw-globe { position: relative; height: max(580px, calc(100svh - var(--nw-nav) - 44px)); }
-.nw-globe-cv { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; }
-.nw-globe-cv.drag { cursor: grabbing; }
-.nw-stats { position: absolute; z-index: 2; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; gap: 28px; pointer-events: none; }
-.nw-stats-l { left: var(--nw-pad); }
-.nw-stats-r { right: var(--nw-pad); text-align: right; }
-.nw-stat .v { font-family: "Inter Display", var(--font-inter), system-ui, sans-serif; font-weight: 500; font-size: 42px; line-height: 1.15; letter-spacing: -0.04em; color: var(--nw-paper); font-variant-numeric: tabular-nums; }
-.nw-stat .v small { font-size: 15px; letter-spacing: -0.005em; color: rgba(250,248,246,0.6); margin-left: 3px; }
-.nw-stat .k { margin-top: 7px; font-size: 11px; letter-spacing: 0.07em; text-transform: uppercase; color: rgba(250,248,246,0.6); }
-.nw-stats-l .nw-stat { border-left: 1px solid rgba(250,248,246,0.5); padding-left: 14px; }
-.nw-stats-r .nw-stat { border-right: 1px solid rgba(250,248,246,0.5); padding-right: 14px; }
-.nw-feed { position: absolute; z-index: 2; left: var(--nw-pad); bottom: 28px; font-size: 11px; letter-spacing: 0.07em; text-transform: uppercase; color: rgba(250,248,246,0.45); }
+.nw-map { display: block; width: 100%; height: max(600px, calc(100svh - var(--nw-nav) - 44px)); border: 0; background: var(--nw-night); }
 @media (max-width: 820px) {
-  .nw-hero-head { top: 28px; }
-  .nw-globe { height: auto; display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 0 20px 64px; }
-  .nw-globe-cv { position: relative; grid-column: 1 / -1; height: min(100vw, 460px); margin-top: 84px; }
-  .nw-stats { position: static; transform: none; gap: 16px; }
-  .nw-stats-r { text-align: left; }
-  .nw-stats-r .nw-stat { border-right: 0; padding-right: 0; border-left: 1px solid rgba(250,248,246,0.5); padding-left: 14px; }
-  .nw-stat .v { font-size: 26px; }
-  .nw-feed { left: 20px; bottom: 24px; }
+  .nw-map { height: max(640px, calc(100svh - var(--nw-nav))); }
 }
 
 /* paper sections */
