@@ -1,0 +1,195 @@
+@font-face { font-family: "Inter Display"; src: url("/home/shared/InterDisplay-Medium.otf") format("opentype"); font-weight: 500; font-display: swap; }
+@font-face { font-family: "Inter Display"; src: url("/home/shared/InterDisplay-SemiBold.otf") format("opentype"); font-weight: 600; font-display: swap; }
+@font-face { font-family: "Inter"; src: url("/home/shared/Inter-Regular.otf") format("opentype"); font-weight: 400; font-display: swap; }
+@font-face { font-family: "Inter"; src: url("/home/shared/Inter-Medium.otf") format("opentype"); font-weight: 500; font-display: swap; }
+
+:root {
+  --paper: #faf8f6;
+  --ink: #141210;
+  --night: #0c0a09;
+  --pad: clamp(20px, 5vw, 72px);
+  --display: "Inter Display", "Inter", system-ui, sans-serif;
+  --ui: "Inter", system-ui, sans-serif;
+}
+
+* { box-sizing: border-box; }
+html { background: var(--paper); scroll-snap-type: y proximity; }
+body {
+  margin: 0; background: var(--paper); color: var(--ink);
+  font: 400 16px/1.5 var(--ui);
+  -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
+}
+a { color: inherit; text-decoration: none; }
+br.m { display: none; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
+
+/* paper grain: two tiles with coprime sizes (479, 631), so the sum never visibly repeats */
+.grain {
+  position: fixed; inset: 0; z-index: 50; pointer-events: none;
+  background: url("img/grain-a.png?v=1791044563") 0 0 / 479px 479px repeat, url("img/grain-b.png?v=1791044563") 211px 97px / 631px 631px repeat;
+}
+
+/* ---------- the descent: one sticky stage ---------- */
+.climb { position: relative; height: 600vh; }
+.stage { position: sticky; top: 0; height: 100vh; height: 100svh; overflow: hidden; }
+.tower { position: absolute; left: 0; top: 0; width: 100%; height: 100%; display: block; }
+.snaps { position: absolute; inset: 0; pointer-events: none; }
+.snaps i { position: absolute; left: 0; width: 1px; height: 1px; scroll-snap-align: start; }
+
+/* nav: lockup, the door index, a few small words; it sits in one dithered clearing at the top */
+.nav {
+  position: absolute; z-index: 6; left: 0; right: 0; top: 0; height: 84px;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 var(--pad);
+}
+.lockup { display: inline-flex; align-items: center; gap: 10px; font: 500 19px/1 var(--display); letter-spacing: -0.02em; }
+.lockup img { width: 26px; height: 26px; display: block; margin-top: -2px; }
+.links { display: flex; align-items: center; gap: 2px; font: 500 14px/1 var(--ui); }
+.sheet { display: flex; align-items: center; gap: 2px; }
+.sheet a { padding: 9px 11px; }
+.sheet a:hover { text-decoration: underline; text-underline-offset: 4px; }
+.login { margin-left: 10px; background: var(--ink); color: var(--paper); padding: 9px 16px; }
+.login:hover { background: var(--night); }
+.menu-btn { display: none; }
+
+/* Token dropdown, icon links and theme switch: the same header the app pages carry */
+.tok { position: relative; }
+.tok-btn { display: inline-flex; align-items: center; gap: 4px; padding: 9px 11px; border: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.tok-btn svg { opacity: .55; }
+.tok-btn:hover, .tok.open .tok-btn { text-decoration: underline; text-underline-offset: 4px; }
+.tok-panel {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 8; min-width: 220px; padding: 6px;
+  background: var(--paper); border: 1.5px solid var(--ink);
+  opacity: 0; visibility: hidden; transform: translateY(-4px); transition: opacity .16s ease, transform .16s ease, visibility 0s .16s;
+}
+.tok.open .tok-panel { opacity: 1; visibility: visible; transform: none; transition: opacity .16s ease, transform .16s ease; }
+.tok-panel a { display: block; padding: 10px 12px; }
+.tok-panel a:hover { background: var(--ink); color: var(--paper); text-decoration: none; }
+.tok-panel b { display: block; font-weight: 500; font-size: 14px; }
+.tok-panel span { display: block; margin-top: 3px; font-size: 12px; opacity: .65; }
+.icons { display: flex; align-items: center; margin-left: 10px; }
+.icons a, .icons button { display: inline-flex; padding: 8px; border: 0; background: transparent; color: inherit; cursor: pointer; opacity: .78; }
+.icons a:hover, .icons button:hover { opacity: 1; }
+.theme .sun, html[data-theme="dark"] .theme .moon, .lockup .mk-d, html[data-theme="dark"] .lockup .mk-l { display: none; }
+html[data-theme="dark"] .theme .sun, html[data-theme="dark"] .lockup .mk-d { display: block; }
+
+/* dark: the same page with paper and ink swapped; the tower turns to paper dots on night */
+html[data-theme="dark"] { --paper: #0c0a09; --ink: #faf8f6; }
+html[data-theme="dark"] .foot { color: #faf8f6; }
+html[data-theme="dark"] .legal { border-top-color: #faf8f6; }
+html[data-theme="dark"] .login:hover { background: #e9e6e2; }
+
+.index {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  display: flex; gap: 26px; font: 500 13px/1 var(--ui); letter-spacing: -0.005em; white-space: nowrap;
+  opacity: 0; visibility: hidden;
+}
+.index a { display: inline-flex; gap: 8px; align-items: baseline; padding: 6px 0; }
+.index .n { font-size: 11px; letter-spacing: 0.04em; font-variant-numeric: tabular-nums; }
+.index .t { position: relative; }
+.index .t::after { content: ""; position: absolute; left: 0; right: 0; bottom: -4px; height: 1.5px; background: var(--ink); transform: scaleX(0); transform-origin: left; transition: transform .3s ease; }
+.index a:hover .t::after, .index a.on .t::after { transform: scaleX(1); }
+@media (max-width: 1759px) { .index { display: none; } }
+
+/* hero copy: in the open sky above the crown, on the tower's axis */
+.hero {
+  position: absolute; z-index: 4; left: var(--pad); right: var(--pad); top: 13vh;
+  display: flex; flex-direction: column; align-items: center; text-align: center;
+  will-change: transform, opacity;
+}
+.hero h1 { margin: 0; font: 500 clamp(40px, 4.5vw, 72px)/1 var(--display); letter-spacing: -0.045em; }
+.hero .sub { margin: 18px 0 0; max-width: 48em; font-size: 18px; line-height: 1.5; letter-spacing: -0.006em; }
+.ask {
+  margin-top: 28px; display: flex; align-items: center; width: min(520px, 100%); height: 58px; text-align: left;
+  background: var(--paper); border: 1.5px solid var(--ink); padding: 0 7px 0 20px;
+}
+.ask input {
+  flex: 1; min-width: 0; height: 100%; border: 0; outline: 0; background: transparent;
+  font: 400 17px/1 var(--ui); color: var(--ink); letter-spacing: -0.01em;
+}
+.ask input::placeholder { color: var(--ink); opacity: 1; }
+.ask:focus-within { outline: 2px solid var(--ink); outline-offset: 3px; }
+.ask button { width: 42px; height: 42px; border: 0; background: var(--ink); color: var(--paper); cursor: pointer; display: grid; place-items: center; flex: none; }
+.cue { margin-top: 22px; display: inline-flex; align-items: center; gap: 8px; font: 500 14px/1 var(--ui); padding: 6px 2px; }
+.cue:hover { text-decoration: underline; text-underline-offset: 4px; }
+
+/* doors: the tower on the left, the copy beside it on the right */
+.door { position: absolute; z-index: 4; inset: 0; display: grid; place-items: center end; padding-right: max(var(--pad), 6vw); pointer-events: none; opacity: 0; will-change: transform, opacity; }
+.door-in { width: min(560px, 38vw); text-align: left; }
+.door .eyebrow { margin: 0 0 20px; display: flex; justify-content: flex-start; gap: 14px; font: 500 12px/1 var(--ui); letter-spacing: 0.08em; text-transform: uppercase; }
+.door .eyebrow .n { letter-spacing: 0.04em; }
+.door h2 { margin: 0; font: 500 clamp(40px, 4.3vw, 64px)/1 var(--display); letter-spacing: -0.045em; }
+.door .body { margin: 20px 0 0; font-size: 18px; line-height: 1.5; letter-spacing: -0.006em; max-width: 31em; }
+.door .acts { margin: 28px 0 0; display: flex; flex-wrap: wrap; justify-content: flex-start; align-items: center; gap: 10px 24px; font: 500 15px/1 var(--ui); }
+.door .acts a:not(.btn) { padding: 6px 0; border-bottom: 1.5px solid var(--ink); }
+.btn { display: inline-flex; align-items: center; height: 44px; padding: 0 18px; background: var(--ink); color: var(--paper); }
+.btn::after { content: ""; width: 7px; height: 7px; margin-left: 12px; border-top: 1.5px solid; border-right: 1.5px solid; transform: rotate(45deg); }
+.btn:hover { background: var(--night); }
+
+/* ---------- footer: the ground has already dithered down into this night ---------- */
+.foot { position: relative; background: var(--night); color: var(--paper); }
+.foot .band { display: none; position: absolute; left: 0; right: 0; top: -192px; height: 192px; background: url("img/night-band.png?v=1791044563") 0 0 / 32px 192px repeat-x; image-rendering: pixelated; }
+.foot-in { padding: 40px var(--pad) 40px; }
+.manifesto { margin: 0; max-width: 15.5em; font: 500 clamp(34px, 4.4vw, 68px)/1.02 var(--display); letter-spacing: -0.04em; }
+.cols { margin-top: 112px; display: grid; grid-template-columns: 1.6fr 1fr 1fr 1fr; gap: 32px; align-items: start; }
+.col h3 { margin: 0 0 18px; font: 500 12px/1 var(--ui); letter-spacing: 0.08em; text-transform: uppercase; }
+.col a { display: block; padding: 5px 0; font-size: 15px; }
+.col a:hover { text-decoration: underline; text-underline-offset: 4px; }
+.legal { margin-top: 88px; padding-top: 22px; border-top: 1px solid var(--paper); display: flex; flex-wrap: wrap; gap: 8px 26px; font-size: 13px; }
+.legal .credit { margin-left: auto; }
+
+/* ---------- small screens ---------- */
+@media (max-width: 760px) {
+  .nav { height: 72px; }
+  .icons { display: none; }
+  .tok-btn { padding: 14px 0; font: 500 20px/1 var(--display); letter-spacing: -0.02em; }
+  .tok-panel { position: static; border: 0; padding: 0 0 6px 12px; display: none; opacity: 1; visibility: visible; transform: none; }
+  .tok.open .tok-panel { display: block; }
+  .tok { border-top: 1px solid var(--ink); }
+  .lockup { font-size: 17px; gap: 8px; }
+  .lockup img { width: 22px; height: 22px; }
+  .menu-btn {
+    display: inline-flex; align-items: center; height: 34px; padding: 0 12px; border: 1.5px solid var(--ink); background: transparent;
+    color: var(--ink); font: 500 14px/1 var(--ui); cursor: pointer;
+  }
+  .login { padding: 0 14px; height: 34px; display: inline-flex; align-items: center; margin-left: 8px; }
+  .sheet {
+    position: absolute; left: 0; right: 0; top: 72px; z-index: 7; display: none; flex-direction: column; align-items: stretch;
+    padding: 4px var(--pad) 20px; background: var(--paper); border-bottom: 1.5px solid var(--ink);
+  }
+  .nav.open .sheet { display: flex; }
+  .sheet a { padding: 14px 0; font: 500 20px/1 var(--display); letter-spacing: -0.02em; border-top: 1px solid var(--ink); }
+  .sheet a:first-child { border-top: 0; }
+  br.m { display: inline; }
+  .hero { top: 92px; }
+  .hero h1 { font-size: 40px; line-height: 1.02; }
+  .hero .sub { margin-top: 16px; font-size: 16px; }
+  .ask { margin-top: 20px; height: 52px; }
+  .ask button { width: 38px; height: 38px; }
+  .cue { margin-top: 14px; }
+  .door { place-items: start stretch; padding: 86px var(--pad) 0; }
+  .door-in { width: auto; text-align: left; }
+  .door .eyebrow { justify-content: flex-start; margin-bottom: 14px; }
+  .door h2 { font-size: 40px; }
+  .door .body { font-size: 16px; margin-top: 14px; }
+  .door .acts { justify-content: flex-start; margin-top: 18px; gap: 8px 16px; font-size: 14px; }
+  .btn { height: 40px; }
+  .foot-in { padding-top: 28px; }
+  .cols { grid-template-columns: 1fr 1fr; margin-top: 72px; }
+  .cols .lockup { grid-column: 1 / -1; }
+  .legal .credit { margin-left: 0; }
+}
+
+/* ---------- reduced motion: no sticky stage, static stacked sections (a still of the tower each) ---------- */
+.rm html, html.rm { scroll-snap-type: none; }
+.rm .climb { height: auto; }
+.rm .stage { position: static; height: auto; overflow: visible; }
+.rm .stage > .tower, .rm .snaps, .rm .index { display: none; }
+.rm .panel { position: relative; height: 100vh; min-height: 640px; overflow: hidden; }
+.rm .panel.base { height: 60vh; min-height: 360px; }
+.rm .panel canvas { position: absolute; left: 0; top: 0; width: 100%; height: 100%; }
+.rm .hero, .rm .door { opacity: 1 !important; transform: none !important; pointer-events: auto; }
+.rm.nogl .panel.base { display: none; }
+.rm.nogl .foot .band { display: block; }
+.rm.nogl .foot-in { padding-top: 64px; }

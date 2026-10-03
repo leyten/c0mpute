@@ -52,18 +52,29 @@ const nextConfig: NextConfig = {
     return [
       { source: '/user', destination: '/chat', permanent: true },
       { source: '/worker', destination: '/earn', permanent: true },
+      // the treasury dashboard now lives on /network, one page for the network
+      { source: '/treasury', destination: '/network#treasury', permanent: false },
     ];
   },
   // /roadmap is a self-contained static page (panzoom board) served from
   // public/roadmap-clone/, kept outside the React app so it can be iterated
   // on as plain HTML/CSS/JS.
   async rewrites() {
-    return [
-      { source: '/roadmap', destination: '/roadmap-clone/index.html' },
-      // /network's live graph polls the orchestrator's public counts (no
-      // identities, no locations), proxied same-origin from this box.
-      { source: '/network/live-stats', destination: 'http://127.0.0.1:3004/api/stats' },
-    ];
+    return {
+      // The homepage is the static tower page in public/home/ (a WebGL dither
+      // of Bruegel's Babel, built from scratchpad/compute-site-v2/a with
+      // build-prod.sh). beforeFiles, so it wins over app/page.tsx.
+      beforeFiles: [
+        { source: '/', destination: '/home/index.html' },
+      ],
+      afterFiles: [
+        { source: '/roadmap', destination: '/roadmap-clone/index.html' },
+        // /network's live graph polls the orchestrator's public counts (no
+        // identities, no locations), proxied same-origin from this box.
+        { source: '/network/live-stats', destination: 'http://127.0.0.1:3004/api/stats' },
+      ],
+      fallback: [],
+    };
   },
   // Polyfill Buffer for client-side @solana/web3.js (on-chain staking UI).
   // Only affects the webpack build; turbopack ignores this callback.
