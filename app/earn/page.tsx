@@ -39,6 +39,8 @@ export default function Earn() {
               inside the gate is absent from the delivered HTML. These two lines
               are what the page is about, and a crawler that never runs the
               script has to be able to read them. */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/art/earn-gpu.png" width={220} height={136} alt="" aria-hidden="true" className="dither-art mx-auto mb-6" />
           <h1 className="pixel-serif text-center text-[30px] leading-tight text-fg md:text-[36px]">
             Put your GPU to work.
           </h1>

@@ -103,7 +103,7 @@ export default function Composer({
 
         {/* the slab */}
         <div
-          className="rounded-[26px] transition-colors duration-200"
+          className="cu-slab rounded-[26px] transition-colors duration-200"
           style={{ background: 'var(--cu-surface)' }}
         >
           {images.length > 0 && (
@@ -193,7 +193,9 @@ export default function Composer({
               <button
                 onClick={() => onThink(!think)}
                 aria-label="Thinking"
-                className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1.5 text-[13px] transition-colors hover:bg-[var(--chat-row-on)]"
+                aria-pressed={think}
+                data-on={think}
+                className="cu-think flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1.5 text-[13px] transition-colors hover:bg-[var(--chat-row-on)]"
                 style={{ color: think ? 'var(--cu-steel)' : 'var(--cu-dim)' }}
               >
                 <Spark />
@@ -246,7 +248,7 @@ function SendControl({
       onClick={busy ? onStop : onSend}
       disabled={!live}
       aria-label={busy ? 'Stop' : 'Send'}
-      className="grid h-9 w-9 place-items-center rounded-lg transition-all duration-150 hover:bg-[var(--chat-row-on)] active:scale-95 disabled:hover:bg-transparent"
+      className="cu-send grid h-9 w-9 place-items-center rounded-lg transition-all duration-150 hover:bg-[var(--chat-row-on)] active:scale-95 disabled:hover:bg-transparent"
       style={{ color: live ? 'var(--cu-text)' : 'var(--cu-faint)' }}
     >{busy ? <Stop /> : <Arrow />}</button>
   );

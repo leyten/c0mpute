@@ -62,7 +62,7 @@ export function Button({ onClick, disabled, kind = 'solid', children }: {
   onClick: () => void; disabled?: boolean; kind?: 'solid' | 'quiet'; children: React.ReactNode;
 }) {
   const look = kind === 'solid'
-    ? 'bg-fg text-on-fg hover:bg-fg/90'
+    ? 'btn-ink bg-fg text-on-fg hover:bg-fg/90'
     : 'border border-fg/15 text-fg-80 hover:bg-fg/[0.06] hover:text-fg';
   return (
     <button onClick={onClick} disabled={disabled}

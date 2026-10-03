@@ -177,13 +177,24 @@ export default function Chat() {
         text = (localStorage.getItem(PENDING_PROMPT_KEY) ?? '').trim();
         if (text) localStorage.removeItem(PENDING_PROMPT_KEY);
       } catch { /* no storage: nothing was handed over */ }
+      // The homepage's prompt box is a plain GET form, so it arrives as
+      // /chat?q=... Take it as the draft, then drop it from the URL so a
+      // reload does not hand the same prompt over twice.
+      if (!text) {
+        const url = new URL(window.location.href);
+        text = (url.searchParams.get('q') ?? '').trim();
+        if (url.searchParams.has('q')) {
+          url.searchParams.delete('q');
+          window.history.replaceState(window.history.state, '', url.pathname + url.search + url.hash);
+        }
+      }
       handoff.current = text;
       if (text) setDraft(text);
     }
-    // A hero prompt opens a conversation of its own: leaving activeId null is
-    // what makes the first send create one, instead of appending to whatever
-    // the visitor happened to ask last time.
-    if (!handoff.current && list.length > 0) setActiveId(list[0].id);
+    // Arriving at /chat always lands on a new, empty conversation (activeId
+    // null: the first send creates one). Reopening the most recent thread made
+    // the landing depend on whatever was asked last; past threads stay one
+    // click away in the rail.
   }, []);
 
   // Two tabs on /chat each hold their own copy of the list, and `save` writes the
@@ -830,7 +841,7 @@ export default function Chat() {
         <div key="content" className={empty ? 'flex flex-1 flex-col justify-end' : 'grow shrink-0'}>
           {empty ? (
             <div className="cu-fade mx-auto mb-7 w-full max-w-[46rem] px-4">
-              <h1 className="pixel-serif text-[34px] leading-[1.15] tracking-[-0.01em] md:text-[42px]" style={{ color: 'var(--cu-text)' }}>
+              <h1 className="cu-hero-h pixel-serif text-[34px] leading-[1.15] tracking-[-0.01em] md:text-[42px]" style={{ color: 'var(--cu-text)' }}>
                 Ask the impossible.
               </h1>
               <p className="mt-3 text-[15px]" style={{ color: 'var(--cu-dim)' }}>

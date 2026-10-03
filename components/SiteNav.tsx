@@ -88,9 +88,14 @@ export default function SiteNav({
     if (unmountTimer.current) { clearTimeout(unmountTimer.current); unmountTimer.current = null; }
   };
   const wantOpen = useRef(false);
+  // Compute Network hangs the panel straight under the Token trigger, the
+  // homepage's construction; measured on open since the tabs move with width.
+  const [panelAt, setPanelAt] = useState<{ left: number; top: number } | null>(null);
   const openPanel = () => {
     cancelClose();
     wantOpen.current = true;
+    const r = tokenBtnRef.current?.getBoundingClientRect();
+    if (r) setPanelAt({ left: Math.round(r.left), top: Math.round(r.bottom + 6 - 24) });
     if (panelMounted) setPanelOn(true);
     else setPanelMounted(true);
   };
@@ -201,10 +206,10 @@ export default function SiteNav({
       ? `${walletAddress.slice(0, 4)}...${walletAddress.slice(-4)}`
       : 'User';
 
-  const tokenItems = [
+  const tokenItems: { href: string; label: string; note: string; ext?: boolean }[] = [
     { href: '/staking', label: 'Staking', note: 'Stake and earn' },
-    { href: '/treasury', label: 'Treasury', note: 'Buybacks and burns' },
-    { href: brand.urls.data, label: 'Data', note: 'Live network stats', ext: true },
+    { href: '/network#treasury', label: 'Treasury', note: 'Buybacks and burns' },
+    { href: '/network#usage', label: 'Data', note: 'Live network stats' },
   ];
 
   // The header itself never catches the pointer on the homepage (content
@@ -216,8 +221,8 @@ export default function SiteNav({
         overHero ? 'pointer-events-none' : 'pointer-events-auto bg-background'
       } [&_a]:pointer-events-auto [&_button]:pointer-events-auto`}
     >
-      <div className="relative z-10 max-w-6xl mx-auto px-4 md:px-6">
-        <div className="h-[54px] md:h-[72px] flex items-center justify-between md:grid md:grid-cols-[1fr_auto_1fr] gap-3">
+      <div className="site-hdr-in relative z-10 max-w-6xl mx-auto px-4 md:px-6">
+        <div className={`h-[54px] md:h-[72px] flex items-center justify-between gap-3 ${brand.mark ? '' : 'md:grid md:grid-cols-[1fr_auto_1fr]'}`}>
           {/* Left: logo */}
           <div className="flex items-center">
             {/* The wordmark rides in the same pill language as the header's
@@ -226,7 +231,7 @@ export default function SiteNav({
                 floating bar. */}
             <a
               href="/"
-              className="cursor-pointer pixel-serif-logo text-fg text-lg md:text-xl font-bold inline-flex items-center gap-2 md:gap-2.5 h-[38px] px-4 -ml-1 rounded-full border border-fg/10 bg-background"
+              className="cursor-pointer pixel-serif-logo nav-lockup text-fg text-lg md:text-xl font-bold inline-flex items-center gap-2 md:gap-2.5 h-[38px] px-4 -ml-1 rounded-full border border-fg/10 bg-background"
             >
               {brand.mark ? (
                 <>
@@ -242,7 +247,7 @@ export default function SiteNav({
           </div>
 
           {/* Center: tabs behind the shared pill */}
-          <div ref={scrubTabsRef} className="hidden md:flex justify-center transition-opacity duration-150 ease-out will-change-transform">
+          <div ref={scrubTabsRef} className={`hidden md:flex justify-center transition-opacity duration-150 ease-out will-change-transform ${brand.mark ? 'md:ml-auto' : ''}`}>
             <nav
               aria-label="Main"
               ref={rowRef}
@@ -257,7 +262,7 @@ export default function SiteNav({
                   key={t.href}
                   href={t.href}
                   onMouseEnter={(e) => { pillTo(e.currentTarget); scheduleClose(); }}
-                  className="relative z-[1] cursor-pointer pixel-sans text-fg text-[15px] font-medium px-3 h-full inline-flex items-center"
+                  className="relative z-[1] cursor-pointer pixel-sans nav-tab text-fg text-[15px] font-medium px-3 h-full inline-flex items-center"
                 >
                   {t.label}
                 </a>
@@ -270,7 +275,7 @@ export default function SiteNav({
                 onMouseEnter={(e) => { pillTo(e.currentTarget); openPanel(); }}
                 onFocus={openPanel}
                 onClick={() => { if (panelOnRef.current) { cancelClose(); commitClose(); } else openPanel(); }}
-                className="relative z-[1] cursor-pointer pixel-sans text-fg text-[15px] font-medium px-3 h-full inline-flex items-center gap-1.5"
+                className="relative z-[1] cursor-pointer pixel-sans nav-tab text-fg text-[15px] font-medium px-3 h-full inline-flex items-center gap-1.5"
               >
                 Token
                 {/* Stacked select-style chevrons. They never rotate — only
@@ -297,7 +302,8 @@ export default function SiteNav({
           {panelMounted && (
             <div
               ref={panelWrapRef}
-              className="hidden md:block fixed left-1/2 -translate-x-1/2 top-10 z-20 pt-6 pointer-events-auto"
+              className="nav-panel-wrap hidden md:block fixed left-1/2 -translate-x-1/2 top-10 z-20 pt-6 pointer-events-auto"
+              style={brand.mark && panelAt ? { left: panelAt.left, top: panelAt.top, right: 'auto', translate: 'none' } : undefined}
               onMouseEnter={openPanel}
               onMouseLeave={scheduleClose}
               onBlur={onNavBlur}
@@ -342,7 +348,7 @@ export default function SiteNav({
                   </svg>
                 </a>
                 <a
-                  href="https://x.com/computenet_"
+                  href="https://x.com/UseCompute"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="cursor-pointer nav-icon text-fg-70 hover:text-fg p-2"
@@ -409,7 +415,7 @@ export default function SiteNav({
               ) : (
                 <button
                   onClick={() => login()}
-                  className="hdr-btn pixel-sans text-sm font-medium ml-1"
+                  className="hdr-btn nav-login pixel-sans text-sm font-medium ml-1"
                 >
                   <span>Login</span>
                 </button>
@@ -479,16 +485,14 @@ export default function SiteNav({
                 Staking
               </a>
               <a
-                href="/treasury"
+                href="/network#treasury"
                 className="cursor-pointer pixel-sans text-fg-70 hover:text-fg transition-colors text-sm tracking-wide"
                 onClick={() => setMenuOpen(false)}
               >
                 Treasury
               </a>
               <a
-                href={brand.urls.data}
-                target="_blank"
-                rel="noopener noreferrer"
+                href="/network#usage"
                 className="cursor-pointer pixel-sans text-fg-70 hover:text-fg transition-colors text-sm tracking-wide"
                 onClick={() => setMenuOpen(false)}
               >
@@ -513,7 +517,7 @@ export default function SiteNav({
                 Blog
               </a>
               <a
-                href="https://x.com/computenet_"
+                href="https://x.com/UseCompute"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="cursor-pointer pixel-sans text-fg-70 hover:text-fg transition-colors text-sm tracking-wide flex items-center gap-2"

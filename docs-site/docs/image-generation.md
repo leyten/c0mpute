@@ -37,4 +37,4 @@ Flat **10 credits ($0.01) per image**. It comes out of your daily plan credits f
 
 ## API
 
-Image generation is also available over HTTP — see the [API reference](/api-reference#image-generation).
+Image generation is also available over HTTP — see the [API reference](/api#image-generation).

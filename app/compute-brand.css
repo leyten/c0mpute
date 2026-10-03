@@ -1,0 +1,176 @@
+/* Compute Network: the homepage's language carried onto the app pages.
+   Reference: the homepage, public/home/ (paper, ink, Inter Display, grain, square ink
+   buttons). Everything here is scoped to body.b-compute, which only the
+   compute brand renders, so c0mpute.ai keeps exactly what it had. */
+
+@font-face { font-family: "Inter Display"; src: url("/fonts/InterDisplay-Medium.otf") format("opentype"); font-weight: 500; font-display: swap; }
+@font-face { font-family: "Inter Display"; src: url("/fonts/InterDisplay-SemiBold.otf") format("opentype"); font-weight: 600; font-display: swap; }
+
+/* ---------- type: Inter Display headlines, tight tracking, Medium ---------- */
+.b-compute .pixel-serif, .b-compute .pixel-serif-sub {
+  font-family: "Inter Display", var(--font-inter), system-ui, sans-serif;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+/* headline sizes get the homepage's tight tracking; small serif-hooked labels
+   and figures keep a looser -0.02em so they stay legible */
+.b-compute h1.pixel-serif, .b-compute h2.pixel-serif {
+  letter-spacing: -0.04em;
+  line-height: 1.04;
+}
+.b-compute .pixel-serif-logo {
+  font-family: "Inter Display", var(--font-inter), system-ui, sans-serif;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+}
+.b-compute .step-num { font-style: normal; }
+
+/* ---------- two-tone: no accent colour on paper ----------
+   The steel/green tokens and the remapped Tailwind greens all collapse to ink,
+   so links, status dots, progress bars and chart lines read in the same ink
+   as the homepage. Danger stays red: it marks failures, not decoration. */
+:root[data-theme="light"] {
+  --steel: #141210;
+  --steel-70: color-mix(in oklab, #141210 80%, transparent);
+  --steel-60: color-mix(in oklab, #141210 72%, transparent);
+  --steel-50: color-mix(in oklab, #141210 63%, transparent);
+  --success: #141210;
+  --live: #141210;
+  --live-text: #141210;
+  --ring: #141210;
+  --color-green-400: #141210;
+  --color-green-500: #141210;
+  --color-emerald-400: #141210;
+}
+
+/* ---------- paper grain: two coprime tiles, as on the homepage ---------- */
+:root[data-theme="light"] body.b-compute::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  pointer-events: none;
+  background:
+    url("/img/grain-a.png") 0 0 / 479px 479px repeat,
+    url("/img/grain-b.png") 211px 97px / 631px 631px repeat;
+}
+
+/* ---------- primary buttons: square ink with a chevron ---------- */
+.b-compute .btn-ink {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0;
+  border-color: var(--fg);
+  background: var(--fg);
+  color: var(--on-fg);
+  font-weight: 500;
+}
+.b-compute .btn-ink::after {
+  content: "";
+  flex: none;
+  width: 7px;
+  height: 7px;
+  margin-left: 12px;
+  border-top: 1.5px solid;
+  border-right: 1.5px solid;
+  transform: rotate(45deg);
+}
+:root[data-theme="light"] .b-compute .btn-ink:not(:disabled):hover { background: #0c0a09; }
+
+/* ---------- nav: the homepage's header, exactly ----------
+   Full-width bar on the homepage's padding, a bare lockup, words that
+   underline on hover (no sliding pill), square icons, a square ink Login, and
+   a Token panel that hangs under its trigger with an ink rule and inverted
+   hover rows. Height stays 72px so no page's top offset moves. */
+.b-compute .site-hdr-in { max-width: none; padding-left: clamp(20px, 5vw, 72px); padding-right: clamp(20px, 5vw, 72px); }
+.b-compute .nav-lockup {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  margin-left: 0;
+  height: auto;
+  gap: 10px;
+  font-family: "Inter Display", var(--font-inter), system-ui, sans-serif;
+  font-size: 19px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+}
+.b-compute .nav-lockup svg { width: 26px; height: 26px; margin-top: -2px; }
+.b-compute .nav-pill { display: none; }
+.b-compute .nav-tab { font-size: 14px; font-weight: 500; padding: 0 11px; letter-spacing: 0; }
+.b-compute .nav-card-inner a span { letter-spacing: 0; }
+.b-compute .nav-tab:hover, .b-compute .nav-tab[aria-expanded="true"] { text-decoration: underline; text-underline-offset: 4px; }
+.b-compute .nav-icon { padding: 8px; color: var(--fg); opacity: .78; }
+.b-compute .nav-icon:hover { opacity: 1; }
+.b-compute .nav-panel { transform-origin: top left; }
+.b-compute .nav-card { border: 1.5px solid var(--fg); border-radius: 0; background: var(--background); padding: 6px; box-shadow: none; width: auto; min-width: 220px; }
+.b-compute .nav-card-inner { border: 0; border-radius: 0; background: transparent; }
+.b-compute .nav-card-inner > * { border-width: 0 !important; }   /* no row dividers; Tailwind's divide-y sets them */
+.b-compute .nav-card-inner a, .b-compute .nav-card-inner button { padding: 10px 12px; }
+.b-compute .nav-card-inner a:hover, .b-compute .nav-card-inner button:hover { background: var(--fg); color: var(--on-fg); }
+.b-compute .nav-card-inner a:hover span { color: var(--on-fg); }
+.b-compute .nav-card-inner a span:first-child { font-size: 14px; line-height: 1; }
+.b-compute .nav-card-inner a span + span { margin-top: 3px; font-size: 12px; line-height: 1; opacity: .65; color: inherit; }
+.b-compute .nav-login {
+  height: 34px;
+  padding: 0 16px;
+  font-size: 14px;
+  border-radius: 0;
+  border-color: var(--fg);
+  background: var(--fg);
+  color: var(--on-fg);
+  backdrop-filter: none;
+}
+.b-compute .nav-login::before, .b-compute .nav-login::after { display: none; }
+:root[data-theme="light"] .b-compute .nav-login:hover { background: #0c0a09; border-color: #0c0a09; }
+
+/* ---------- dithered accent: 1-bit, crisp, integer scale ---------- */
+.dither-art {
+  display: block;
+  image-rendering: pixelated;
+  user-select: none;
+  pointer-events: none;
+}
+:root[data-theme="dark"] .dither-art { filter: invert(1); }
+
+/* ---------- square corners, like the homepage ----------
+   Cards, panels, inputs and pills lose their radius. rounded-full stays: it
+   draws dots, avatars and switch knobs, which would read as broken if squared. */
+.b-compute [class*="rounded"]:not([class*="rounded-full"]) { border-radius: 0; }
+
+/* ---------- chat: familiar, not a statement ----------
+   Chat is the everyday tool, so it keeps the shapes people already know from
+   every chat app (soft rounded composer with a light shadow, round send,
+   rounded bubbles and chips, a quiet rail) and only takes the brand's paper,
+   ink and type. The site-wide square-corner rule is undone here. */
+.b-compute .cu [class*="rounded"] { border-radius: revert-layer; }
+.b-compute .cu { --cu-live: var(--fg); }   /* no green status dot */
+.b-compute .cu-lockup { font-family: "Inter Display", var(--font-inter), system-ui, sans-serif; font-size: 18px; font-weight: 500; letter-spacing: -0.02em; }
+.b-compute .cu-lockup > span { gap: 9px; }
+.b-compute .cu-lockup svg { width: 22px; height: 22px; }
+.b-compute .cu-slab {
+  background: var(--cu-bg) !important;
+  border: 1px solid color-mix(in oklab, var(--fg) 12%, transparent);
+  box-shadow: 0 6px 28px -10px color-mix(in oklab, var(--fg) 22%, transparent);
+}
+.b-compute .cu-field::placeholder { color: color-mix(in oklab, var(--fg) 50%, transparent); }
+.b-compute .cu-send { width: 36px; height: 36px; border-radius: 999px !important; background: var(--fg); color: var(--on-fg) !important; }
+.b-compute .cu-send:hover { background: var(--fg); opacity: .85; }
+.b-compute .cu-send:disabled { background: color-mix(in oklab, var(--fg) 14%, transparent); color: color-mix(in oklab, var(--fg) 45%, transparent) !important; opacity: 1; }
+/* Thinking: off is quiet text, on is a filled ink pill, so the state reads at a glance */
+.b-compute .cu-think[data-on="false"] { color: color-mix(in oklab, var(--fg) 55%, transparent) !important; }
+.b-compute .cu-think[data-on="true"] { background: var(--fg); color: var(--on-fg) !important; }
+.b-compute .cu-think[data-on="true"]:hover { background: var(--fg); opacity: .88; }
+.b-compute .cu .cu-chip { color: color-mix(in oklab, var(--fg) 72%, transparent) !important; }
+.b-compute .cu-hero-h { font-size: clamp(34px, 2.8vw, 48px); letter-spacing: -0.03em; line-height: 1.1; }
+.b-compute .cu-account { font-size: 13px; }
+.b-compute .cu-signin { background: var(--fg); color: var(--on-fg); padding: 6px 14px; border-radius: 999px; font-weight: 500; }
+.b-compute .cu-signin:hover { color: var(--on-fg); opacity: .85; }
+.b-compute .cu .max-w-\[46rem\] { max-width: 48rem; }
+@media (min-width: 1800px) {
+  .b-compute .cu .max-w-\[46rem\] { max-width: 54rem; }
+  .b-compute .cu .cu-answer, .b-compute .cu .cu-user, .b-compute .cu .cu-field { font-size: 17px; }
+  .b-compute .cu-rail { width: 288px; }
+}

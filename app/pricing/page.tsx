@@ -95,7 +95,7 @@ function PlanCard({ plan }: { plan: PricingPlan }) {
           // sits at three different heights.
           className={`inline-block rounded-xl border px-5 py-2.5 text-[14.5px] transition-colors ${
             featured
-              ? 'border-transparent bg-fg text-on-fg hover:bg-fg/90'
+              ? 'btn-ink border-transparent bg-fg text-on-fg hover:bg-fg/90'
               : 'border-fg/15 text-fg-80 hover:bg-fg/[0.06] hover:text-fg'
           }`}
         >
@@ -134,7 +134,9 @@ export default function Pricing() {
       <SiteNav />
 
       {/* the claim */}
-      <section className="max-w-6xl mx-auto px-4 md:px-6 pt-32 md:pt-40 pb-12 md:pb-16">
+      <section className="max-w-6xl mx-auto px-4 md:px-6 pt-32 md:pt-40 pb-12 md:pb-16 flow-root">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/art/pricing-rack.png" width={96} height={202} alt="" aria-hidden="true" className="dither-art mb-6 md:float-right md:ml-8 md:mb-0" />
         <div className="max-w-2xl">
           <div className="pixel-sans text-fg-40 text-xs tracking-widest mb-4">PRICING</div>
           <h1 className="pixel-serif text-fg text-3xl md:text-5xl leading-tight tracking-tight">

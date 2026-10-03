@@ -62,11 +62,11 @@ export default function Sidebar({
       {open && <div className="fixed inset-0 z-30 bg-scrim md:hidden" onClick={onClose} />}
 
       <aside
-        className={`fixed inset-y-0 left-0 z-40 flex w-[272px] flex-col transition-transform duration-200 md:static md:translate-x-0 ${open ? 'translate-x-0' : '-translate-x-full'}`}
+        className={`cu-rail fixed inset-y-0 left-0 z-40 flex w-[272px] flex-col transition-transform duration-200 md:static md:translate-x-0 ${open ? 'translate-x-0' : '-translate-x-full'}`}
         style={{ background: 'var(--cu-rail)' }}
       >
         <div className="flex items-center justify-between px-4 pb-2 pt-4">
-          <a href="/" className="pixel-serif text-[17px]" style={{ color: 'var(--cu-text)' }}>
+          <a href="/" className="cu-lockup pixel-serif text-[17px]" style={{ color: 'var(--cu-text)' }}>
             {brand.mark ? (
               <span className="flex items-center gap-2">
                 <LogoMark className="h-4 w-4 shrink-0" />
@@ -168,7 +168,7 @@ export default function Sidebar({
           ))}
         </div>
 
-        <div className="px-4 py-3 text-[12.5px]" style={{ color: 'var(--cu-faint)' }}>
+        <div className="cu-account px-4 py-3 text-[12.5px]" style={{ color: 'var(--cu-faint)' }}>
           {engine.isAuthenticated ? (
             <div className="flex items-center justify-between gap-3">
               <span className="truncate" style={{ color: 'var(--cu-dim)' }}>{engine.displayName ?? 'Signed in'}</span>
@@ -180,7 +180,7 @@ export default function Sidebar({
           ) : (
             <div className="flex items-center justify-between gap-3">
               <button onClick={() => { onUsage(); onClose(); }} className="tabular-nums transition-colors hover:text-fg-70">{balanceLabel(engine)}</button>
-              <button onClick={engine.login} className="transition-colors hover:text-fg-70">Sign in</button>
+              <button onClick={engine.login} className="cu-signin transition-colors hover:text-fg-70">Sign in</button>
             </div>
           )}
         </div>

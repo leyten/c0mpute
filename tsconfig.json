@@ -40,6 +40,7 @@
   ],
   "exclude": [
     "node_modules",
+    "scratchpad",
     "scripts",
     ".next",
     ".next-dev",
