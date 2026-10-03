@@ -201,10 +201,10 @@ export default function SiteNav({
       ? `${walletAddress.slice(0, 4)}...${walletAddress.slice(-4)}`
       : 'User';
 
-  const tokenItems = [
+  const tokenItems: { href: string; label: string; note: string; ext?: boolean }[] = [
     { href: '/staking', label: 'Staking', note: 'Stake and earn' },
-    { href: '/treasury', label: 'Treasury', note: 'Buybacks and burns' },
-    { href: brand.urls.data, label: 'Data', note: 'Live network stats', ext: true },
+    { href: '/network#treasury', label: 'Treasury', note: 'Buybacks and burns' },
+    { href: '/network#usage', label: 'Data', note: 'Live network stats' },
   ];
 
   // The header itself never catches the pointer on the homepage (content
@@ -479,16 +479,14 @@ export default function SiteNav({
                 Staking
               </a>
               <a
-                href="/treasury"
+                href="/network#treasury"
                 className="cursor-pointer pixel-sans text-fg-70 hover:text-fg transition-colors text-sm tracking-wide"
                 onClick={() => setMenuOpen(false)}
               >
                 Treasury
               </a>
               <a
-                href={brand.urls.data}
-                target="_blank"
-                rel="noopener noreferrer"
+                href="/network#usage"
                 className="cursor-pointer pixel-sans text-fg-70 hover:text-fg transition-colors text-sm tracking-wide"
                 onClick={() => setMenuOpen(false)}
               >
