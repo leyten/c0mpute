@@ -117,3 +117,8 @@
   pointer-events: none;
 }
 :root[data-theme="dark"] .dither-art { filter: invert(1); }
+
+/* ---------- square corners, like the homepage ----------
+   Cards, panels, inputs and pills lose their radius. rounded-full stays: it
+   draws dots, avatars and switch knobs, which would read as broken if squared. */
+.b-compute [class*="rounded"]:not([class*="rounded-full"]) { border-radius: 0; }
