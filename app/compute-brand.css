@@ -91,6 +91,13 @@
 }
 .b-compute .nav-tab { font-size: 14px; }
 .b-compute .nav-pill { border-radius: 0; }
+/* the tabs now sit on the right, so the Token panel opens under them, flush
+   with the header's right edge (max-w-6xl, px-6), instead of mid-viewport */
+.b-compute .nav-panel-wrap {
+  left: auto;
+  right: max(1.5rem, calc((100vw - 72rem) / 2 + 1.5rem));
+  translate: none;
+}
 .b-compute .nav-login {
   height: 34px;
   border-radius: 0;

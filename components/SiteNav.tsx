@@ -297,7 +297,7 @@ export default function SiteNav({
           {panelMounted && (
             <div
               ref={panelWrapRef}
-              className="hidden md:block fixed left-1/2 -translate-x-1/2 top-10 z-20 pt-6 pointer-events-auto"
+              className="nav-panel-wrap hidden md:block fixed left-1/2 -translate-x-1/2 top-10 z-20 pt-6 pointer-events-auto"
               onMouseEnter={openPanel}
               onMouseLeave={scheduleClose}
               onBlur={onNavBlur}
