@@ -88,9 +88,14 @@ export default function SiteNav({
     if (unmountTimer.current) { clearTimeout(unmountTimer.current); unmountTimer.current = null; }
   };
   const wantOpen = useRef(false);
+  // Compute Network hangs the panel straight under the Token trigger, the
+  // homepage's construction; measured on open since the tabs move with width.
+  const [panelAt, setPanelAt] = useState<{ left: number; top: number } | null>(null);
   const openPanel = () => {
     cancelClose();
     wantOpen.current = true;
+    const r = tokenBtnRef.current?.getBoundingClientRect();
+    if (r) setPanelAt({ left: Math.round(r.left), top: Math.round(r.bottom + 6 - 24) });
     if (panelMounted) setPanelOn(true);
     else setPanelMounted(true);
   };
@@ -216,7 +221,7 @@ export default function SiteNav({
         overHero ? 'pointer-events-none' : 'pointer-events-auto bg-background'
       } [&_a]:pointer-events-auto [&_button]:pointer-events-auto`}
     >
-      <div className="relative z-10 max-w-6xl mx-auto px-4 md:px-6">
+      <div className="site-hdr-in relative z-10 max-w-6xl mx-auto px-4 md:px-6">
         <div className={`h-[54px] md:h-[72px] flex items-center justify-between gap-3 ${brand.mark ? '' : 'md:grid md:grid-cols-[1fr_auto_1fr]'}`}>
           {/* Left: logo */}
           <div className="flex items-center">
@@ -298,6 +303,7 @@ export default function SiteNav({
             <div
               ref={panelWrapRef}
               className="nav-panel-wrap hidden md:block fixed left-1/2 -translate-x-1/2 top-10 z-20 pt-6 pointer-events-auto"
+              style={brand.mark && panelAt ? { left: panelAt.left, top: panelAt.top, right: 'auto', translate: 'none' } : undefined}
               onMouseEnter={openPanel}
               onMouseLeave={scheduleClose}
               onBlur={onNavBlur}

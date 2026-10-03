@@ -79,27 +79,44 @@
 }
 :root[data-theme="light"] .b-compute .btn-ink:not(:disabled):hover { background: #0c0a09; }
 
-/* ---------- nav: lockup left, words right, Login as an ink button ---------- */
+/* ---------- nav: the homepage's header, exactly ----------
+   Full-width bar on the homepage's padding, a bare lockup, words that
+   underline on hover (no sliding pill), square icons, a square ink Login, and
+   a Token panel that hangs under its trigger with an ink rule and inverted
+   hover rows. Height stays 72px so no page's top offset moves. */
+.b-compute .site-hdr-in { max-width: none; padding-left: clamp(20px, 5vw, 72px); padding-right: clamp(20px, 5vw, 72px); }
 .b-compute .nav-lockup {
   border: 0;
   background: transparent;
   padding: 0;
   margin-left: 0;
+  height: auto;
   gap: 10px;
+  font-family: "Inter Display", var(--font-inter), system-ui, sans-serif;
   font-size: 19px;
   font-weight: 500;
+  letter-spacing: -0.02em;
 }
-.b-compute .nav-tab { font-size: 14px; }
-.b-compute .nav-pill { border-radius: 0; }
-/* the tabs now sit on the right, so the Token panel opens under them, flush
-   with the header's right edge (max-w-6xl, px-6), instead of mid-viewport */
-.b-compute .nav-panel-wrap {
-  left: auto;
-  right: max(1.5rem, calc((100vw - 72rem) / 2 + 1.5rem));
-  translate: none;
-}
+.b-compute .nav-lockup svg { width: 26px; height: 26px; margin-top: -2px; }
+.b-compute .nav-pill { display: none; }
+.b-compute .nav-tab { font-size: 14px; font-weight: 500; padding: 0 11px; letter-spacing: 0; }
+.b-compute .nav-card-inner a span { letter-spacing: 0; }
+.b-compute .nav-tab:hover, .b-compute .nav-tab[aria-expanded="true"] { text-decoration: underline; text-underline-offset: 4px; }
+.b-compute .nav-icon { padding: 8px; color: var(--fg); opacity: .78; }
+.b-compute .nav-icon:hover { opacity: 1; }
+.b-compute .nav-panel { transform-origin: top left; }
+.b-compute .nav-card { border: 1.5px solid var(--fg); border-radius: 0; background: var(--background); padding: 6px; box-shadow: none; width: auto; min-width: 220px; }
+.b-compute .nav-card-inner { border: 0; border-radius: 0; background: transparent; }
+.b-compute .nav-card-inner > * { border-width: 0 !important; }   /* no row dividers; Tailwind's divide-y sets them */
+.b-compute .nav-card-inner a, .b-compute .nav-card-inner button { padding: 10px 12px; }
+.b-compute .nav-card-inner a:hover, .b-compute .nav-card-inner button:hover { background: var(--fg); color: var(--on-fg); }
+.b-compute .nav-card-inner a:hover span { color: var(--on-fg); }
+.b-compute .nav-card-inner a span:first-child { font-size: 14px; line-height: 1; }
+.b-compute .nav-card-inner a span + span { margin-top: 3px; font-size: 12px; line-height: 1; opacity: .65; color: inherit; }
 .b-compute .nav-login {
   height: 34px;
+  padding: 0 16px;
+  font-size: 14px;
   border-radius: 0;
   border-color: var(--fg);
   background: var(--fg);
