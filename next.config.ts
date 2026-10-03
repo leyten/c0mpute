@@ -60,6 +60,9 @@ const nextConfig: NextConfig = {
   async rewrites() {
     return [
       { source: '/roadmap', destination: '/roadmap-clone/index.html' },
+      // /network's globe polls the shard map feed. That host sends no CORS
+      // header, so it is proxied same-origin instead of fetched cross-site.
+      { source: '/network/live.json', destination: 'https://shard.compute.tech/network.json' },
     ];
   },
   // Polyfill Buffer for client-side @solana/web3.js (on-chain staking UI).
