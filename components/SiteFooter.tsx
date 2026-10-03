@@ -9,7 +9,7 @@ export default function SiteFooter() {
   return (
     <footer className="border-t border-fg/10 mt-8">
       <div className="max-w-6xl mx-auto px-4 md:px-6 py-10 md:py-14">
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-8">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-8">
           <div>
             <a href="/" className="pixel-serif-logo text-fg text-lg flex items-center gap-2">
               {brand.mark ? (
@@ -41,16 +41,8 @@ export default function SiteFooter() {
             <div className="flex flex-col gap-2">
               <a href="/network" className="pixel-sans text-fg-60 hover:text-fg transition-colors text-sm">Network</a>
               <a href="/staking" className="pixel-sans text-fg-60 hover:text-fg transition-colors text-sm">Staking</a>
-              <a href="https://docs.compute.tech" target="_blank" rel="noopener noreferrer" className="pixel-sans text-fg-60 hover:text-fg transition-colors text-sm">Docs</a>
+              <a href={brand.urls.docs} target="_blank" rel="noopener noreferrer" className="pixel-sans text-fg-60 hover:text-fg transition-colors text-sm">Docs</a>
               <a href="https://github.com/leyten/shard" target="_blank" rel="noopener noreferrer" className="pixel-sans text-fg-60 hover:text-fg transition-colors text-sm">GitHub</a>
-            </div>
-          </div>
-          <div>
-            <div className="pixel-sans text-fg-40 text-xs tracking-widest mb-3"><span className="dollar">$</span>ZERO</div>
-            <div className="flex flex-col gap-2">
-              <a href="/staking" className="pixel-sans text-fg-60 hover:text-fg transition-colors text-sm">Staking</a>
-              <a href="/treasury" className="pixel-sans text-fg-60 hover:text-fg transition-colors text-sm">Treasury</a>
-              <a href={brand.urls.data} target="_blank" rel="noopener noreferrer" className="pixel-sans text-fg-60 hover:text-fg transition-colors text-sm">Data</a>
             </div>
           </div>
           <div>

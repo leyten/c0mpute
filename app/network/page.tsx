@@ -15,13 +15,14 @@ export const revalidate = 60;
 export const generateMetadata = () =>
   pageMetadata({
     title: 'Network',
-    description: 'A live globe of scattered consumer GPUs serving one model together.',
+    description: 'A permissionless network of user-owned GPUs that funds inference and training of open models.',
     path: '/network',
   });
 
 interface Stats {
   live?: { workersOnline: number; byType: { native: number; browser: number; image: number }; busy: number };
-  network?: { totals?: { tokens?: number }; jobsDaily?: { day: string; tier: string; jobs: number }[] };
+  generatedAt?: string;
+  network?: { totals?: { tokens?: number; jobs?: number; images?: number }; jobsDaily?: { day: string; tier: string; jobs: number }[] };
 }
 
 async function getStats(): Promise<Stats | null> {
@@ -71,7 +72,12 @@ export default async function NetworkPage() {
           <Eyebrow n="01" t="Live" night />
           <h1>Network</h1>
         </div>
-        <NetworkGlobe />
+        <NetworkGlobe
+          net={lv ? {
+            workersOnline: lv.workersOnline, gpu: lv.byType.native, browser: lv.byType.browser, image: lv.byType.image,
+            jobs: stats?.network?.totals?.jobs, images: stats?.network?.totals?.images, at: stats?.generatedAt,
+          } : null}
+        />
       </section>
 
       {/* 02 Usage */}

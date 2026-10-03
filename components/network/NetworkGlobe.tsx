@@ -64,7 +64,13 @@ const commas = (n: number) => String(Math.floor(n)).replace(/\B(?=(\d{3})+(?!\d)
 
 interface GNode { city: string; v: number[]; serve: boolean; sx: number; sy: number; front: boolean }
 
-export default function NetworkGlobe() {
+/** The network's own live counts (data stats.json), shown while the shard map feed has no nodes. */
+export interface NetCounts {
+  workersOnline: number; gpu: number; browser: number; image: number;
+  jobs?: number; images?: number; at?: string;
+}
+
+export default function NetworkGlobe({ net }: { net: NetCounts | null }) {
   const cvRef = useRef<HTMLCanvasElement>(null);
   const [feed, setFeed] = useState<Feed | null>(null);
   const [failed, setFailed] = useState(false);
@@ -244,6 +250,33 @@ export default function NetworkGlobe() {
 
   const st = feed?.stats;
   const has = (n: unknown): n is number => typeof n === 'number';
+  // The shard map feed only carries numbers while the betanet is live. Until then
+  // the hero shows the network's real worker counts, never zeros or simulated nodes.
+  const shardLive = feed?.live === true && (feed.nodes?.length ?? 0) > 0;
+  if (!shardLive && net) {
+    const left = [
+      { v: String(net.workersOnline), k: 'workers online' },
+      { v: String(net.gpu), k: 'GPU workers' },
+    ];
+    const right = [
+      { v: has(net.jobs) ? commas(net.jobs) : '–', k: 'jobs served' },
+      { v: has(net.images) ? commas(net.images) : '–', k: 'images generated' },
+      { v: String(net.browser), k: 'browser workers' },
+    ];
+    const at = net.at ? new Date(net.at) : null;
+    return (
+      <div className="nw-globe">
+        <canvas ref={cvRef} className="nw-globe-cv" aria-label="Globe of the network" />
+        <div className="nw-stats nw-stats-l">
+          {left.map((s) => (<div key={s.k} className="nw-stat"><div className="v">{s.v}</div><div className="k">{s.k}</div></div>))}
+        </div>
+        <div className="nw-stats nw-stats-r">
+          {right.map((s) => (<div key={s.k} className="nw-stat"><div className="v">{s.v}</div><div className="k">{s.k}</div></div>))}
+        </div>
+        <div className="nw-feed">{at ? `Updated ${at.toISOString().slice(11, 16)} UTC` : ''}</div>
+      </div>
+    );
+  }
   const left = [
     { v: has(st?.gpusOnline) ? String(st.gpusOnline) : '–', k: 'GPUs online' },
     { v: has(st?.countries) ? String(st.countries) : '–', k: 'countries' },
