@@ -2,11 +2,12 @@ import SiteNav from '@/components/SiteNav';
 import SiteFooter from '@/components/SiteFooter';
 import NetworkIndex from '@/components/network/NetworkIndex';
 import TreasuryPanel from '@/components/treasury/TreasuryPanel';
+import LiveGraph from '@/components/network/LiveGraph';
 import { pageMetadata } from '@/lib/seo';
 import './network.css';
 
 // /network: the live map, usage, treasury, $ZERO and how it works as one
-// top-to-bottom story. Every figure is live: the globe polls the shard map feed,
+// top-to-bottom story. Every figure is live: the graph polls the orchestrator's counts,
 // usage is the data site's stats.json (fetched here, refreshed every 60s) and
 // the treasury block is the same component /treasury renders.
 export const revalidate = 60;
@@ -65,9 +66,15 @@ export default async function NetworkPage() {
       <div className="nw-top" />
       <NetworkIndex />
 
-      {/* 01 Live: the shard.compute.tech map itself, embedded as-is */}
+      {/* 01 Live: the network as a graph of anonymous workers, never a map */}
       <section id="live" className="nw-hero">
-        <iframe className="nw-map" src="/network-map/index.html?embed" title="Live map of the network" loading="eager" />
+        <div className="nw-live-copy">
+          <Eyebrow n="01" t="Live" />
+          <h1 className="nw-h">Network</h1>
+          <p className="nw-body">A permissionless network of user-owned GPUs that funds inference and training of open models.</p>
+          <a className="nw-btn" href="/earn">Start earning</a>
+        </div>
+        <LiveGraph initial={lv ? { workersOnline: lv.workersOnline, byType: lv.byType, busy: lv.busy } : null} />
       </section>
 
       {/* 02 Usage */}
