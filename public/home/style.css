@@ -27,7 +27,7 @@ br.m { display: none; }
 /* paper grain: two tiles with coprime sizes (479, 631), so the sum never visibly repeats */
 .grain {
   position: fixed; inset: 0; z-index: 50; pointer-events: none;
-  background: url("img/grain-a.png?v=1791044563") 0 0 / 479px 479px repeat, url("img/grain-b.png?v=1791044563") 211px 97px / 631px 631px repeat;
+  background: url("img/grain-a.png?v=1791048025") 0 0 / 479px 479px repeat, url("img/grain-b.png?v=1791048025") 211px 97px / 631px 631px repeat;
 }
 
 /* ---------- the descent: one sticky stage ---------- */
@@ -129,7 +129,7 @@ html[data-theme="dark"] .login:hover { background: #e9e6e2; }
 
 /* ---------- footer: the ground has already dithered down into this night ---------- */
 .foot { position: relative; background: var(--night); color: var(--paper); }
-.foot .band { display: none; position: absolute; left: 0; right: 0; top: -192px; height: 192px; background: url("img/night-band.png?v=1791044563") 0 0 / 32px 192px repeat-x; image-rendering: pixelated; }
+.foot .band { display: none; position: absolute; left: 0; right: 0; top: -192px; height: 192px; background: url("img/night-band.png?v=1791048025") 0 0 / 32px 192px repeat-x; image-rendering: pixelated; }
 .foot-in { padding: 40px var(--pad) 40px; }
 .manifesto { margin: 0; max-width: 15.5em; font: 500 clamp(34px, 4.4vw, 68px)/1.02 var(--display); letter-spacing: -0.04em; }
 .cols { margin-top: 112px; display: grid; grid-template-columns: 1.6fr 1fr 1fr 1fr; gap: 32px; align-items: start; }

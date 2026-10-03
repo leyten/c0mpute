@@ -12,7 +12,7 @@
   const root = document.documentElement;
   const RM = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-  const PAINT = { src: '/home/img/tower-ink.jpg?v=1791044563', color: '/home/img/tower-color.jpg?v=1791044563', colorDark: '/home/img/tower-color-dark.jpg?v=1791044563', scale: 0.75, w: 3840, h: 2810 };   // must match prep.py
+  const PAINT = { src: '/home/img/tower-ink.jpg?v=1791048025', color: '/home/img/tower-color.jpg?v=1791048025', colorDark: '/home/img/tower-color-dark.jpg?v=1791048025', scale: 0.75, w: 3840, h: 2810 };   // must match prep.py
   const RAMP = [2540, 2800];   // painting y: the ground dithers down into night between these
 
   // camera keys: [progress, paintX, paintY, anchorX, anchorY, viewH]
