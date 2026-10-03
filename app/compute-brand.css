@@ -43,3 +43,15 @@
   --color-green-500: #141210;
   --color-emerald-400: #141210;
 }
+
+/* ---------- paper grain: two coprime tiles, as on the homepage ---------- */
+:root[data-theme="light"] body.b-compute::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  pointer-events: none;
+  background:
+    url("/img/grain-a.png") 0 0 / 479px 479px repeat,
+    url("/img/grain-b.png") 211px 97px / 631px 631px repeat;
+}
