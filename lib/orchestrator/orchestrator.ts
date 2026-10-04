@@ -361,7 +361,9 @@ function probeCtxExceeded(
 // idle workers whose reported numCtx holds that. With no idle fit it waits for
 // a fitting worker that is online but busy, for at most LONG_JOB_HOLD_MS, and
 // otherwise falls back to any idle eligible worker: nothing starves when the
-// big worker is offline, it just gets a truncated context on a smaller one.
+// big worker is offline. A fallback is trimmed back to the standard budget
+// before it ships (trimLongJobForWorker), so it runs exactly as it would have
+// before long context existed instead of overflowing the smaller window.
 //
 // The hold is short on purpose. While a long job waits, a short job queued
 // behind it may take the idle fallback worker; a 120s hold could then leave
@@ -414,6 +416,34 @@ export function nativeCtxNeed(
     required: input + NATIVE_PROMPT_OVERHEAD_TOKENS + outputTokenCap(job.requestedModel, job.think),
     mayHold: nowMs - job.createdAt.getTime() < LONG_JOB_HOLD_MS,
   };
+}
+
+/**
+ * A LONG job about to go to a worker whose window does not hold it (the hold
+ * ran out, the window is unknown, or the fitting worker left between submit and
+ * dispatch) is trimmed back to the standard budget, so the fallback ships what
+ * the job would have shipped before long context existed instead of
+ * overflowing the window — which ollama fails outright ("no user query found
+ * in messages"). job.inputTokens follows, so settlement charges the trimmed
+ * input and the rest of the hold comes back in the normal settle-down.
+ *
+ * null: nothing to do (short job, non-native lane, or the worker fits).
+ * ok:false: the newest message alone is over the standard budget, so nothing
+ * can be trimmed; the job ships as-is, the overflow risk that always existed.
+ */
+export function trimLongJobForWorker(
+  job: Pick<Job, 'requestedModel' | 'messages' | 'think' | 'createdAt' | 'inputTokens'>,
+  worker: { numCtx?: number },
+  nowMs: number,
+): { ok: true; dropped: number; before: number; after: number } | { ok: false; before: number } | null {
+  const need = nativeCtxNeed(job, nowMs);
+  if (!need || workerFitsCtx(worker, need.required)) return null;
+  const before = estimatePromptTokens(job.messages);
+  const bounded = boundInputMessages(job.messages, MAX_INPUT_TOKENS_NATIVE);
+  if (!bounded.ok) return { ok: false, before };
+  job.messages = bounded.messages;
+  job.inputTokens = estimatePromptTokens(job.messages);
+  return { ok: true, dropped: bounded.dropped, before, after: job.inputTokens };
 }
 
 /**
@@ -2538,6 +2568,15 @@ export class Orchestrator {
       const userSocket = this.io.sockets.sockets.get(job.userSocketId);
       if (userSocket) {
         userSocket.emit('job:assigned', { jobId: job.id, workerId: idleWorker.id });
+      }
+
+      // A long job on a worker too small for it goes out at the standard
+      // budget (see trimLongJobForWorker). Sizes only in the log, never content.
+      const fit = trimLongJobForWorker(job, idleWorker, Date.now());
+      if (fit?.ok) {
+        console.log(`[Orchestrator] [ctx-fallback] job=${job.id} worker=${idleWorker.id} numCtx=${idleWorker.numCtx ?? 'unknown'}: trimmed ${fit.dropped} oldest message(s), ~${fit.before} -> ~${fit.after} tokens`);
+      } else if (fit) {
+        console.warn(`[Orchestrator] [ctx-fallback] job=${job.id} worker=${idleWorker.id} numCtx=${idleWorker.numCtx ?? 'unknown'}: newest message alone exceeds the ${MAX_INPUT_TOKENS_NATIVE}-token budget, shipped as-is (~${fit.before} tokens)`);
       }
 
       let messages = job.messages;

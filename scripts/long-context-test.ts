@@ -14,6 +14,7 @@ import {
   nativeCtxNeed,
   pickWorkerForJob,
   pickNextDispatch,
+  trimLongJobForWorker,
   longContextNeed,
   longContextServable,
   LONG_JOB_HOLD_MS,
@@ -28,6 +29,7 @@ import {
   type ChatMessage,
   type Job,
 } from '../lib/orchestrator/types';
+import { textCreditCost, textCreditReservation } from '../lib/tokenomics';
 
 let failed = false;
 function check(cond: boolean, msg: string) { console.log(`${cond ? 'ok  ' : 'FAIL'}  ${msg}`); if (!cond) failed = true; }
@@ -279,6 +281,43 @@ const w16b: W = { id: 'w16', status: 'idle', numCtx: 16_384, tps: 40 }, w32b: W 
 const inHold = pickNextDispatch(q2, [w16b, w32b], () => true, weight, t0 + LONG_JOB_HOLD_MS - 1);
 const atExpiry = pickNextDispatch(q2, [w16b, w32b], () => true, weight, t0 + LONG_JOB_HOLD_MS);
 check(inHold.pick?.job === q2[1] && atExpiry.pick?.job === L2, 'idle 16K: S4 gets it 1ms before the hold ends, L2 gets it the moment it ends');
+
+// ── 6. Fallback re-trim: a long job on a worker too small for it ships at 12K ──
+console.log('\n# fallback re-trim');
+type TJ = Pick<Job, 'requestedModel' | 'messages' | 'think' | 'createdAt' | 'inputTokens'>;
+const longConvo = (): TJ => ({ requestedModel: MAX, messages: [...convo], think: false, createdAt: new Date(t0), inputTokens: est(convo) });
+// Admitted at 16K (14,100), held while the 32K is busy; the hold runs out and the
+// scan hands it to the idle 16K worker.
+const fb = longConvo();
+const fbPick = pickNextDispatch([{ ...fb, status: 'pending' as const }], [
+  { id: 'w16', status: 'idle' as const, numCtx: 16_384, tps: 40 }, { id: 'w32', status: 'busy' as const, numCtx: 32_768, tps: 40 },
+], () => true, weight, t0 + LONG_JOB_HOLD_MS);
+check(fbPick.pick?.worker.id === 'w16', 'hold expired: long job falls back to the 16K worker');
+const fbTrim = trimLongJobForWorker(fb, { numCtx: 16_384 }, t0 + LONG_JOB_HOLD_MS);
+check(!!fbTrim?.ok && est(fb.messages) <= MAX_INPUT_TOKENS_NATIVE && fb.inputTokens === est(fb.messages) && fb.inputTokens === 10_100,
+  `fallback re-trimmed before the emit: ~14,100 -> ~${fb.inputTokens} tokens, job.inputTokens updated`);
+const pre133 = boundInputMessages(convo, MAX_INPUT_TOKENS_NATIVE);
+check(pre133.ok && JSON.stringify(fb.messages) === JSON.stringify(pre133.messages), 'fallback ships exactly what the pre-#133 12K bound would have shipped');
+const unk = longConvo();
+check(!!trimLongJobForWorker(unk, { numCtx: undefined }, t0)?.ok && unk.inputTokens === 10_100, 'unknown-window worker -> re-trimmed');
+const fitJ = longConvo();
+const fitMsgs = fitJ.messages;
+check(trimLongJobForWorker(fitJ, { numCtx: 32_768 }, t0) === null && fitJ.messages === fitMsgs && fitJ.inputTokens === 14_100, 'long job on a fitting 32K worker -> untouched');
+const shortJ: TJ = { requestedModel: MAX, messages: [msg('user', 9_000)], think: true, createdAt: new Date(t0), inputTokens: 9_000 };
+const shortMsgs = shortJ.messages;
+check(trimLongJobForWorker(shortJ, { numCtx: 8_192 }, t0) === null && shortJ.messages === shortMsgs && shortJ.inputTokens === 9_000, 'short job on an 8K worker -> untouched');
+const proJ: TJ = { ...longConvo(), requestedModel: PRO };
+check(trimLongJobForWorker(proJ, { numCtx: 4_096 }, t0) === null, 'browser-lane job -> untouched');
+const oneBig: TJ = { requestedModel: MAX, messages: [msg('user', 13_000)], think: false, createdAt: new Date(t0), inputTokens: 13_000 };
+const oneBigMsgs = oneBig.messages;
+const ob = trimLongJobForWorker(oneBig, { numCtx: 16_384 }, t0);
+check(!!ob && !ob.ok && oneBig.messages === oneBigMsgs && oneBig.inputTokens === 13_000, 'newest message alone over 12K -> shipped as-is (ok:false, nothing changed)');
+// Settlement prices job.inputTokens at settle time (settleJobCharge), clamped to the hold.
+const hold = textCreditReservation(14_100, MAX_OUTPUT_TOKENS);
+const settledTrimmed = Math.min(textCreditCost(fb.inputTokens!, 20), hold);
+const settledUntrimmed = Math.min(textCreditCost(14_100, 20), hold);
+check(settledTrimmed === 2 && settledUntrimmed === 3 && hold === 6,
+  `settle on the re-trimmed input: hold ${hold}, charged ${settledTrimmed} (not ${settledUntrimmed}), ${hold - settledTrimmed} back`);
 
 console.log(failed ? '\nFAILED' : '\nall passed');
 process.exit(failed ? 1 : 0);
