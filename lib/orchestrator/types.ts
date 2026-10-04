@@ -393,14 +393,24 @@ export const MAX_INPUT_TOKENS_NATIVE = 12_000;
 // denser than prose (~3 chars/token) and the chat template wraps the tools in
 // its own instructions, so reserve double.
 export const NATIVE_PROMPT_OVERHEAD_TOKENS = 2_048;
-// NATIVE, PAID (long context): a Pro/Max plan, an API job, or a signed-in
-// account paying credits for this job. Free-plan grants, welcome prompts and
-// anonymous visitors stay on MAX_INPUT_TOKENS_NATIVE. Sized to the biggest
-// window the fleet runs (32K, a 24GB card) with a thinking answer in it:
-//   32,768 window - 8,192 thinking output - 2,048 overhead = 22,528 real tokens
-// 20,000 estimated leaves 12.6% (22,528 / 20,000) for chars/4 under-counting
-// the real tokenizer. Dispatch steers jobs over 12K to a worker that fits.
-export const MAX_INPUT_TOKENS_NATIVE_PAID = 20_000;
+// NATIVE, PAID (long context): a Pro/Max plan (chat or API), or an account
+// paying credits for this job. Free-plan grants, welcome prompts, the staking
+// allowance and anonymous visitors stay on MAX_INPUT_TOKENS_NATIVE.
+//
+// Sized so the PROMPT always fits the biggest window the fleet runs (32,768, a
+// 24GB card), because overflowing it is a hard failure, not a soft one: ollama
+// cuts the conversation from the front, and in prod 22 of ~100 ctx-exceeded
+// jobs died on "no user query found in messages". chars/4 under-counts badly
+// against the Qwen3.5 tokenizer: JSON measures 1.37-1.76x real/estimate and
+// Chinese 1.94x. At 16,000 estimated:
+//   JSON    16,000 x 1.76 = 28,160 real + ~1,100 injected = ~29,300 (30,208
+//           even at the 2,048 reserve above) <= 32,768
+//   Chinese 16,000 x 1.94 = 31,040 real + ~1,100 injected = ~32,100 <= 32,768
+// so the user turn is never cut. The answer gets what is left: all 8,192
+// thinking tokens for a prompt near its estimate (16,000 + 2,048 + 8,192 =
+// 26,240), less for a dense one. Dispatch steers jobs over 12K to a worker
+// whose window fits.
+export const MAX_INPUT_TOKENS_NATIVE_PAID = 16_000;
 // BROWSER (pro tier): the browser worker runs at a 4096-token window — prompt
 // AND output share it — and it asks for 2048 output tokens on top of a
 // ~170-token system prompt (app/earn/engine/useWorkerEngine.ts), leaving ~1900

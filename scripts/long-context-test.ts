@@ -13,6 +13,7 @@ import {
   longContextEligible,
   nativeCtxNeed,
   pickWorkerForJob,
+  pickNextDispatch,
   LONG_JOB_HOLD_MS,
 } from '../lib/orchestrator/orchestrator';
 import {
@@ -23,6 +24,7 @@ import {
   MAX_OUTPUT_TOKENS,
   MAX_OUTPUT_TOKENS_THINKING,
   type ChatMessage,
+  type Job,
 } from '../lib/orchestrator/types';
 
 let failed = false;
@@ -40,51 +42,59 @@ const est = (ms: ChatMessage[] | undefined) => Math.ceil((ms ?? []).reduce((n, m
 console.log('\n# budgets');
 check(MAX_INPUT_TOKENS_NATIVE === 12_000, 'free native budget is still 12,000 (credits route projects the free reservation on it)');
 check(inputTokenBudget(MAX) === 12_000 && inputTokenBudget(MAX, false) === 12_000, 'max lane, not long-context -> 12,000');
-check(inputTokenBudget(MAX, true) === MAX_INPUT_TOKENS_NATIVE_PAID && MAX_INPUT_TOKENS_NATIVE_PAID === 20_000, 'max lane, long-context -> 20,000');
+check(inputTokenBudget(MAX, true) === MAX_INPUT_TOKENS_NATIVE_PAID && MAX_INPUT_TOKENS_NATIVE_PAID === 16_000, 'max lane, long-context -> 16,000');
 check(inputTokenBudget(PRO, true) === MAX_INPUT_TOKENS_BROWSER && inputTokenBudget(PRO) === MAX_INPUT_TOKENS_BROWSER, 'browser lane unchanged either way (1,800)');
 check(inputTokenBudget(SWARM, true) === 12_000 && inputTokenBudget(SWARM) === 12_000, 'swarm lane unchanged either way (12,000)');
-const fullPaid = MAX_INPUT_TOKENS_NATIVE_PAID + NATIVE_PROMPT_OVERHEAD_TOKENS + MAX_OUTPUT_TOKENS_THINKING;
-check(Math.round(MAX_INPUT_TOKENS_NATIVE_PAID * 1.1) + NATIVE_PROMPT_OVERHEAD_TOKENS + MAX_OUTPUT_TOKENS_THINKING <= 32_768,
-  `paid input +10% + overhead + thinking cap fits 32K (${fullPaid} at estimate, ${Math.round(MAX_INPUT_TOKENS_NATIVE_PAID * 1.1) + NATIVE_PROMPT_OVERHEAD_TOKENS + MAX_OUTPUT_TOKENS_THINKING} at +10%)`);
+// Measured real/estimate ratios (Qwen3.5 tokenizer): JSON up to 1.76x, Chinese 1.94x.
+// Injected system prompt + tools measured ~1,100 real tokens.
+const json = Math.round(MAX_INPUT_TOKENS_NATIVE_PAID * 1.76), zh = Math.round(MAX_INPUT_TOKENS_NATIVE_PAID * 1.94);
+check(json + NATIVE_PROMPT_OVERHEAD_TOKENS <= 32_768, `worst JSON prompt fits 32K even at the 2,048 reserve (${json} + ${NATIVE_PROMPT_OVERHEAD_TOKENS} = ${json + NATIVE_PROMPT_OVERHEAD_TOKENS})`);
+check(zh + 1_100 <= 32_768, `Chinese prompt fits 32K at the measured overhead (${zh} + 1100 = ${zh + 1_100})`);
+check(MAX_INPUT_TOKENS_NATIVE_PAID + NATIVE_PROMPT_OVERHEAD_TOKENS + MAX_OUTPUT_TOKENS_THINKING <= 32_768,
+  `a prompt near its estimate keeps the full thinking answer (${MAX_INPUT_TOKENS_NATIVE_PAID + NATIVE_PROMPT_OVERHEAD_TOKENS + MAX_OUTPUT_TOKENS_THINKING})`);
 
 // ── 2. boundInputMessages at both budgets ──
 console.log('\n# boundInputMessages');
-// system + 9 turns of 2,000 tokens = 18,100 estimated: over 12K, under 20K.
+// system + 7 turns of 2,000 tokens = 14,100 estimated: over 12K, under 16K.
 const convo: ChatMessage[] = [{ role: 'system', content: 'x'.repeat(400) }];
-for (let i = 0; i < 9; i++) convo.push(msg(i % 2 === 0 ? 'user' : 'assistant', 2_000));
-check(est(convo) === 18_100, `fixture conversation is ~18,100 tokens (${est(convo)})`);
+for (let i = 0; i < 7; i++) convo.push(msg(i % 2 === 0 ? 'user' : 'assistant', 2_000));
+check(est(convo) === 14_100, `fixture conversation is ~14,100 tokens (${est(convo)})`);
 const free = boundInputMessages(convo, MAX_INPUT_TOKENS_NATIVE);
-check(free.ok && free.dropped === 4 && est(free.messages) <= 12_000, `12K budget trims oldest history (dropped ${free.ok ? free.dropped : '-'}, kept ~${free.ok ? est(free.messages) : '-'})`);
+check(free.ok && free.dropped === 2 && est(free.messages) <= 12_000, `12K budget trims oldest history (dropped ${free.ok ? free.dropped : '-'}, kept ~${free.ok ? est(free.messages) : '-'})`);
 check(free.ok && free.messages![0].role === 'system' && free.messages![free.messages!.length - 1] === convo[convo.length - 1], '12K trim keeps system + newest message');
 const paid = boundInputMessages(convo, MAX_INPUT_TOKENS_NATIVE_PAID);
-check(paid.ok && paid.dropped === 0 && paid.messages === convo, '20K budget ships the whole conversation untouched');
+check(paid.ok && paid.dropped === 0 && paid.messages === convo, '16K budget ships the whole conversation untouched');
 const big = [msg('user', 15_000)];
 const bigFree = boundInputMessages(big, MAX_INPUT_TOKENS_NATIVE);
 const bigPaid = boundInputMessages(big, MAX_INPUT_TOKENS_NATIVE_PAID);
 check(!bigFree.ok && bigFree.estTokens === 15_000, 'single 15K message rejected at the 12K budget');
-check(bigPaid.ok && bigPaid.dropped === 0, 'single 15K message accepted at the 20K budget');
-check(!boundInputMessages([msg('user', 21_000)], MAX_INPUT_TOKENS_NATIVE_PAID).ok, 'single 21K message rejected even at the 20K budget');
+check(bigPaid.ok && bigPaid.dropped === 0, 'single 15K message accepted at the 16K budget');
+check(!boundInputMessages([msg('user', 16_001)], MAX_INPUT_TOKENS_NATIVE_PAID).ok, 'single 16,001-token message rejected even at the 16K budget');
 // Rejection text is built from the budget that applied: floor(budget*4/1000)k chars.
-check(Math.floor((MAX_INPUT_TOKENS_NATIVE * 4) / 1000) === 48 && Math.floor((MAX_INPUT_TOKENS_NATIVE_PAID * 4) / 1000) === 80,
-  'too-long text quotes ~48k chars (free) / ~80k chars (long context)');
+check(Math.floor((MAX_INPUT_TOKENS_NATIVE * 4) / 1000) === 48 && Math.floor((MAX_INPUT_TOKENS_NATIVE_PAID * 4) / 1000) === 64,
+  'too-long text quotes ~48k chars (free) / ~64k chars (long context)');
 
 // ── 3. Paid / free decision ──
 console.log('\n# longContextEligible');
-const lc = (anon: boolean, internal: boolean, plan: 'free' | 'pro' | 'max' | undefined, paysCredits: boolean) =>
-  longContextEligible({ anon, internal, plan, paysCredits });
-check(!lc(true, false, undefined, false), 'anonymous visitor -> standard 12K');
-check(!lc(true, false, undefined, true), 'anonymous visitor never long-context, whatever else is claimed');
-check(!lc(false, false, 'free', false), 'Free-plan user on the free grant / welcome prompts -> standard 12K');
-check(lc(false, false, 'free', true), 'Free-plan user paying credits for this job -> long context');
-check(lc(false, false, 'pro', false), 'Pro plan user -> long context');
-check(lc(false, false, 'max', false), 'Max plan user -> long context');
-check(lc(false, true, 'free', false), 'API job (internal, owner on Free) -> long context');
-for (const [anon, internal, plan, pays, want] of [
-  [true, false, undefined, false, 12_000], [false, false, 'free', false, 12_000], [false, false, 'free', true, 20_000],
-  [false, false, 'pro', false, 20_000], [false, true, 'free', false, 20_000],
-] as const) {
-  const b = inputTokenBudget(MAX, lc(anon, internal, plan, pays));
-  check(b === want, `budget anon=${anon} internal=${internal} plan=${plan} paysCredits=${pays} -> ${b}`);
+// API jobs follow the chat rule: the decision has no internal/API input at all.
+const lc = (anon: boolean, plan: 'free' | 'pro' | 'max' | undefined, paysCredits: boolean) =>
+  longContextEligible({ anon, plan, paysCredits });
+const cases: [string, boolean, 'free' | 'pro' | 'max' | undefined, boolean, number][] = [
+  ['anonymous visitor', true, undefined, false, 12_000],
+  ['anonymous visitor claiming credits (impossible lane)', true, undefined, true, 12_000],
+  ['chat, Free plan, free grant / welcome prompt', false, 'free', false, 12_000],
+  ['chat, Free plan, staking allowance', false, 'free', false, 12_000],
+  ['chat, Free plan, paying credits', false, 'free', true, 16_000],
+  ['chat, Pro plan', false, 'pro', false, 16_000],
+  ['chat, Max plan', false, 'max', false, 16_000],
+  ['API, Free-plan key on the staking allowance (resale key)', false, 'free', false, 12_000],
+  ['API, Free-plan key paying credits', false, 'free', true, 16_000],
+  ['API, Pro-plan key (from the start)', false, 'pro', false, 16_000],
+  ['API, Max-plan key (from the start)', false, 'max', false, 16_000],
+];
+for (const [label, anon, plan, pays, want] of cases) {
+  const b = inputTokenBudget(MAX, lc(anon, plan, pays));
+  check(b === want, `${label} -> ${b}`);
 }
 
 // ── 4. Dispatch ──
@@ -114,10 +124,10 @@ const outcomes = (ws: W[], ctx: ReturnType<typeof nativeCtxNeed>) => {
 const t0 = 1_700_000_000_000;
 const job = (inputTokens: number, think = false, model = MAX) => ({ requestedModel: model, messages: [msg('user', inputTokens)], think, createdAt: new Date(t0) });
 
-const longJob = job(18_000);
+const longJob = job(15_000);
 const longNeed = nativeCtxNeed(longJob, t0 + 1_000)!;
-check(longNeed.required === 18_000 + NATIVE_PROMPT_OVERHEAD_TOKENS + MAX_OUTPUT_TOKENS && longNeed.mayHold, `long job needs ${longNeed.required} ctx and may hold`);
-check(nativeCtxNeed(job(18_000, true), t0)!.required === 18_000 + NATIVE_PROMPT_OVERHEAD_TOKENS + MAX_OUTPUT_TOKENS_THINKING, 'thinking job reserves the thinking output cap');
+check(longNeed.required === 15_000 + NATIVE_PROMPT_OVERHEAD_TOKENS + MAX_OUTPUT_TOKENS && longNeed.mayHold, `long job needs ${longNeed.required} ctx and may hold`);
+check(nativeCtxNeed(job(15_000, true), t0)!.required === 15_000 + NATIVE_PROMPT_OVERHEAD_TOKENS + MAX_OUTPUT_TOKENS_THINKING, 'thinking job reserves the thinking output cap');
 check(outcomes(fleet(), longNeed) === 'w32', 'long job + idle 32K worker -> always the 32K worker');
 check(outcomes(fleet({ w32: { status: 'busy' } }), longNeed) === 'hold', 'long job + 32K worker busy -> stays queued (hold)');
 check(outcomes(fleet({ w32: null }), longNeed) === 'w16a,w16b,w8,wUnk', 'long job + no 32K online -> falls back to any idle worker (unknown included)');
@@ -150,7 +160,7 @@ for (let k = 0; k < 1_000; k++) {
   if (pickId(pickWorkerForJob(ws, all, weight, nativeCtxNeed(job(11_000, true), t0), () => r0)) !== pickId(pickWorkerForJob(ws, all, weight, null, () => r0))) { shortSame = false; break; }
 }
 check(shortSame, 'short job pick identical to the no-rule pick for every random draw');
-check(nativeCtxNeed(job(18_000, false, PRO), t0) === null, 'browser-lane job has no window rule');
+check(nativeCtxNeed(job(15_000, false, PRO), t0) === null, 'browser-lane job has no window rule');
 check(outcomes(fleet(), null) === 'w16a,w16b,w32,w8,wUnk', 'no window rule -> every idle worker, as before');
 const gated = pickWorkerForJob(fleet({ w32: { status: 'busy' } }), (w) => w.id !== 'w32', weight, longNeed);
 check(gated !== 'hold' && gated !== null, 'a busy 32K worker that cannot serve the job (model/age gate) never causes a hold');
@@ -176,6 +186,65 @@ for (let trial = 0; trial < 2_000; trial++) {
   if (pickWorkerForJob(ws, all, weight, null, () => r0) !== oldPick(ws, r0)) { same = false; break; }
 }
 check(same, 'weighted-random pick identical to the old inline loop (2,000 random fleets)');
+
+// ── 5. Queue timeline: a held long job and the short jobs that arrive after it ──
+// Replays processQueue's scan (pickNextDispatch) one call at a time on a fake
+// clock: each step dispatches at most one job, exactly like processQueue.
+console.log('\n# queue timeline');
+check(LONG_JOB_HOLD_MS === 30_000, 'long-job hold is 30s');
+type QJ = Pick<Job, 'status' | 'requestedModel' | 'messages' | 'think' | 'createdAt'> & { id: string };
+const qjob = (id: string, inputTokens: number, atMs: number): QJ =>
+  ({ id, status: 'pending', requestedModel: MAX, messages: [msg('user', inputTokens)], think: false, createdAt: new Date(atMs) });
+const w16: W = { id: 'w16', status: 'idle', numCtx: 16_384, tps: 40 };
+const w32: W = { id: 'w32', status: 'busy', numCtx: 32_768, tps: 40 };
+const queue: QJ[] = [];
+const log: { job: string; worker: string; atS: number }[] = [];
+let pickedNonPending = false;
+const step = (atMs: number) => {
+  const s = pickNextDispatch(queue, [w16, w32], () => true, weight, atMs);
+  if (s.pick) {
+    if (s.pick.job.status !== 'pending') pickedNonPending = true;
+    s.pick.job.status = 'processing';
+    s.pick.worker.status = 'busy';
+    log.push({ job: s.pick.job.id, worker: s.pick.worker.id, atS: (atMs - t0) / 1000 });
+    queue.splice(s.pick.index, 1);
+  }
+  return { picked: s.pick ? `${s.pick.job.id}->${s.pick.worker.id}` : 'none', held: s.held.map((h) => h.job.id).join(',') };
+};
+const L = qjob('L', 15_000, t0);
+queue.push(L);
+let st = step(t0);
+check(st.picked === 'none' && st.held === 'L', `t=0  long job L, 32K busy, 16K idle -> L held (${st.picked}, held=${st.held})`);
+queue.push(qjob('S1', 2_000, t0 + 5_000));
+st = step(t0 + 5_000);
+check(st.picked === 'S1->w16' && st.held === 'L' && L.status === 'pending', `t=5  later short S1 takes the idle 16K, L still held (${st.picked})`);
+queue.push(qjob('S2', 2_000, t0 + 10_000));
+st = step(t0 + 10_000);
+check(st.picked === 'none', 't=10 S2 arrives, nothing idle -> queued');
+w16.status = 'idle';
+st = step(t0 + 20_000);
+check(st.picked === 'S2->w16' && st.held === 'L', `t=20 16K frees inside the hold -> S2 takes it, L still held (${st.picked})`);
+queue.push(qjob('S3', 2_000, t0 + 25_000));
+st = step(t0 + LONG_JOB_HOLD_MS);
+check(st.picked === 'none' && st.held === '' && queue[0] === L, 't=30 hold expires (re-check timer): nothing idle, L no longer held and first in line');
+w16.status = 'idle';
+st = step(t0 + 40_000);
+check(st.picked === 'L->w16' && queue.some((j) => j.id === 'S3'), `t=40 first free worker after the hold goes to L, not the later S3 (${st.picked})`);
+const lDispatch = log.find((e) => e.job === 'L');
+check(!!lDispatch && lDispatch.atS * 1000 < 180_000, `L dispatched at ${lDispatch?.atS}s, inside the 180s queue timeout`);
+// An entry still in the queue for a job that is already in flight is never picked.
+queue.unshift(L);
+w32.status = 'idle';
+st = step(t0 + 41_000);
+check(st.picked === 'S3->w32', `in-flight L left in the queue is skipped; S3 gets the idle 32K (${st.picked})`);
+check(!pickedNonPending && log.filter((e) => e.job === 'L').length === 1, 'L dispatched exactly once, never while not pending');
+// The same hold expiry with the 16K idle hands it to L at once.
+const L2 = qjob('L2', 15_000, t0);
+const q2: QJ[] = [L2, qjob('S4', 2_000, t0 + 1_000)];
+const w16b: W = { id: 'w16', status: 'idle', numCtx: 16_384, tps: 40 }, w32b: W = { id: 'w32', status: 'busy', numCtx: 32_768, tps: 40 };
+const inHold = pickNextDispatch(q2, [w16b, w32b], () => true, weight, t0 + LONG_JOB_HOLD_MS - 1);
+const atExpiry = pickNextDispatch(q2, [w16b, w32b], () => true, weight, t0 + LONG_JOB_HOLD_MS);
+check(inHold.pick?.job === q2[1] && atExpiry.pick?.job === L2, 'idle 16K: S4 gets it 1ms before the hold ends, L2 gets it the moment it ends');
 
 console.log(failed ? '\nFAILED' : '\nall passed');
 process.exit(failed ? 1 : 0);

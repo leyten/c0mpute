@@ -192,14 +192,16 @@ export function inputTokenBudget(model: string | undefined, longContext = false)
   return MAX_INPUT_TOKENS_BROWSER;
 }
 
-/** Long context is a paid perk: a paid plan, an API job (the API always
- *  charges), or a signed-in account paying credits for THIS job. The Free
- *  plan's grant and welcome prompts and anonymous visitors keep the standard
- *  budget. `paysCredits` is only known once the free lanes have been tried, so
- *  the submit handler asks once up front (false) and again at the credit lane. */
-export function longContextEligible(who: { anon: boolean; internal: boolean; plan: PlanId | undefined; paysCredits: boolean }): boolean {
+/** Long context is a paid perk: a paid plan, or an account paying credits for
+ *  THIS job. The Free plan's grant and welcome prompts, the staking allowance
+ *  and anonymous visitors keep the standard budget. API jobs follow the same
+ *  rule as the chat: a Free-plan key on the allowance (a resale key) is not
+ *  paying, so it does not get long context. `paysCredits` is only known once
+ *  the other lanes have been tried, so the submit handler asks once up front
+ *  (false) and again at the credit lane. */
+export function longContextEligible(who: { anon: boolean; plan: PlanId | undefined; paysCredits: boolean }): boolean {
   if (who.anon) return false;
-  return who.internal || (who.plan !== undefined && who.plan !== 'free') || who.paysCredits;
+  return (who.plan !== undefined && who.plan !== 'free') || who.paysCredits;
 }
 
 /** Billable-output ceiling for the lane this job will be served on — the size of
@@ -357,15 +359,20 @@ function probeCtxExceeded(
 // construction) has a window rule. It needs a window that holds its input, the
 // injected system prompt and tools, and a full-length answer; dispatch prefers
 // idle workers whose reported numCtx holds that. With no idle fit it waits for
-// a fitting worker that is online but busy — for at most LONG_JOB_HOLD_MS, so
-// it is dispatched well inside the 180s queue timeout — and otherwise falls
-// back to any idle eligible worker: nothing starves when the big worker is
-// offline, it just gets a truncated context on a smaller one.
+// a fitting worker that is online but busy, for at most LONG_JOB_HOLD_MS, and
+// otherwise falls back to any idle eligible worker: nothing starves when the
+// big worker is offline, it just gets a truncated context on a smaller one.
+//
+// The hold is short on purpose. While a long job waits, a short job queued
+// behind it may take the idle fallback worker; a 120s hold could then leave
+// the long job with every worker busy when the hold ended and run it into the
+// 180s queue timeout. At 30s it is first in line for the next free worker
+// with 150s to spare.
 //
 // SHORT jobs (input at or under 12K) have no window rule at all: every idle
 // eligible worker, weighted-random, exactly as before. That keeps the earnings
 // spread unchanged and keeps short jobs from crowding the few big workers.
-export const LONG_JOB_HOLD_MS = 120_000;
+export const LONG_JOB_HOLD_MS = 30_000;
 
 /** Does this worker's reported window hold `required` tokens? Unknown = no. */
 export function workerFitsCtx(worker: { numCtx?: number }, required: number): boolean {
@@ -421,6 +428,48 @@ export function pickWorkerForJob<W extends { status: 'idle' | 'busy'; numCtx?: n
   let r = rand() * weights.reduce((a, b) => a + b, 0);
   for (let k = 0; k < pool.length; k++) { if ((r -= weights[k]) <= 0) return pool[k]; }
   return pool[pool.length - 1];
+}
+
+/**
+ * One dispatch scan, in queue order: the first job that gets a worker, plus
+ * the long jobs held on the way to it (the caller arms their hold-expiry
+ * re-check). A held job is skipped, not blocking: jobs behind it still go.
+ */
+export function pickNextDispatch<
+  J extends Pick<Job, 'status' | 'requestedModel' | 'messages' | 'think' | 'createdAt'>,
+  W extends { status: 'idle' | 'busy'; numCtx?: number },
+>(
+  queue: (J | undefined)[],
+  workers: W[],
+  canServe: (w: W, job: J) => boolean,
+  weightOf: (w: W) => number,
+  nowMs: number,
+  rand: () => number = Math.random,
+): { pick: { index: number; job: J; worker: W } | null; held: { job: J; required: number }[] } {
+  const held: { job: J; required: number }[] = [];
+  for (let i = 0; i < queue.length; i++) {
+    const j = queue[i];
+    if (!j) continue;
+    // Only a job nobody is serving yet may be dispatched. Queue removal is the primary
+    // guard (tryDispatchSwarm / the splice in processQueue), this is the invariant behind
+    // it: a job already in flight must never be handed to a second worker.
+    if (j.status !== 'pending') continue;
+    // Weighted-random pick among idle matching workers, weight = avg tok/s
+    // (measured throughput, falling back to the registration benchmark). This
+    // spreads earnings across the pool instead of always paying the single
+    // fastest worker, while still favoring faster workers so users mostly get
+    // good speed. Tunable via WORKER_WEIGHT_* in types.ts. Anti-cheat (canaries)
+    // still strikes/bans workers that fake high tok/s.
+    //
+    // A LONG native job first narrows that set to workers whose context window
+    // fits it, and may wait for a fitting worker that is busy (pickWorkerForJob
+    // / nativeCtxNeed). Short jobs use the set unchanged.
+    const ctx = nativeCtxNeed(j, nowMs);
+    const chosen = pickWorkerForJob(workers, (w) => canServe(w, j), weightOf, ctx, rand);
+    if (chosen === 'hold') { held.push({ job: j, required: ctx!.required }); continue; }
+    if (chosen) return { pick: { index: i, job: j, worker: chosen }, held };
+  }
+  return { pick: null, held };
 }
 
 // Submit-time rejection for a free-lane job the dispatch loop provably cannot
@@ -1173,7 +1222,7 @@ export class Orchestrator {
         // (long context) and the bound has to come before the reservation is
         // priced. Anonymous visitors have no plan and skip the lookup entirely.
         const submitPlan = isAnon ? null : resolvePlanState(privyUserId);
-        const longContext = longContextEligible({ anon: isAnon, internal: isInternal, plan: submitPlan?.plan, paysCredits: false });
+        const longContext = longContextEligible({ anon: isAnon, plan: submitPlan?.plan, paysCredits: false });
         // Kept untrimmed for the credit lane, which re-bounds a Free-plan account
         // that turns out to be paying at the long-context budget.
         const originalMessages = data.messages;
@@ -1434,15 +1483,16 @@ export class Orchestrator {
 
         if (creditCost > 0) {
           const creditBalance = getCreditBalance(privyUserId);
-          // A Free-plan account that reached this lane is paying credits, which
-          // makes it a long-context job. If the standard bound trimmed history,
+          // A Free-plan account (chat or API key; a resale key was refused just
+          // above) that reached this lane is paying credits, which makes it a
+          // long-context job. If the standard bound trimmed history,
           // re-bound the ORIGINAL messages at the long-context budget and
           // re-price before anything is held, so the reservation is on what the
           // worker is shipped. Only when the balance covers the bigger hold:
           // otherwise the job runs on the standard bound exactly as before.
           const longBudget = inputTokenBudget(data.model, true);
           if (bounded.dropped > 0 && !longContext && longBudget > inputBudget
-            && longContextEligible({ anon: isAnon, internal: isInternal, plan: planState.plan, paysCredits: true })) {
+            && longContextEligible({ anon: isAnon, plan: planState.plan, paysCredits: true })) {
             const long = boundInputMessages(originalMessages, longBudget);
             if (long.ok) {
               const longTokens = estimatePromptTokens(long.messages);
@@ -2409,67 +2459,35 @@ export class Orchestrator {
 
     if (this.jobQueue.length === 0) return;
 
-    let matchedJob: Job | null = null;
-    let matchedJobIndex = -1;
-    let idleWorker: WorkerInfo | null = null;
-    let workerSocketId: string | null = null;
+    const scan = pickNextDispatch(
+      this.jobQueue.map((id) => this.jobs.get(id)),
+      [...this.workers.values()],
+      (worker, j) => this.workerCanServe(worker, j.requestedModel, j.subsidyKind),
+      (worker) => {
+        const samples = worker.measuredTokPerSec ?? [];
+        const speed = samples.length
+          ? samples.reduce((a, b) => a + b, 0) / samples.length
+          : (worker.tokPerSec || 0);
+        return selectionWeight(speed);
+      },
+      Date.now(),
+    );
 
-    for (let i = 0; i < this.jobQueue.length; i++) {
-      const j = this.jobs.get(this.jobQueue[i]);
-      if (!j) continue;
-      // Only a job nobody is serving yet may be dispatched. Queue removal is the primary
-      // guard (tryDispatchSwarm / the splice below), this is the invariant behind it: a job
-      // already in flight must never be handed to a second worker.
-      if (j.status !== 'pending') continue;
-      // Weighted-random pick among idle matching workers, weight = avg tok/s
-      // (measured throughput, falling back to the registration benchmark). This
-      // spreads earnings across the pool instead of always paying the single
-      // fastest worker, while still favoring faster workers so users mostly get
-      // good speed. Tunable via WORKER_WEIGHT_* in types.ts. Anti-cheat (canaries)
-      // still strikes/bans workers that fake high tok/s.
-      //
-      // A LONG native job first narrows that set to workers whose context
-      // window fits it, and may wait for a fitting worker that is busy (see
-      // pickWorkerForJob / nativeCtxNeed). Short jobs use the set unchanged.
-      const ctx = nativeCtxNeed(j, Date.now());
-      const chosen = pickWorkerForJob(
-        this.workers.values(),
-        (worker) => this.workerCanServe(worker, j.requestedModel, j.subsidyKind),
-        (worker) => {
-          const samples = worker.measuredTokPerSec ?? [];
-          const speed = samples.length
-            ? samples.reduce((a, b) => a + b, 0) / samples.length
-            : (worker.tokPerSec || 0);
-          return selectionWeight(speed);
-        },
-        ctx,
-      );
-      if (chosen === 'hold') {
-        // Held for a fitting worker. Arm ONE re-check at the end of the hold:
-        // on a quiet network nothing else may run the queue before the 180s
-        // queue timeout, and the fallback has to happen before that.
-        if (!j.ctxHoldArmed) {
-          j.ctxHoldArmed = true;
-          console.log(`[Orchestrator] [ctx-hold] job=${j.id} needs ~${ctx?.required} ctx; waiting for a fitting worker`);
-          setTimeout(() => this.processQueue(), Math.max(0, j.createdAt.getTime() + LONG_JOB_HOLD_MS - Date.now()) + 50);
-        }
-        continue;
-      }
-      if (chosen) {
-        matchedJob = j;
-        matchedJobIndex = i;
-        idleWorker = chosen;
-        workerSocketId = chosen.socketId;
-        break;
-      }
+    // Long jobs held for a fitting worker. Arm ONE re-check per job at the end
+    // of its hold: on a quiet network nothing else may run the queue before the
+    // 180s queue timeout, and the fallback has to happen before that.
+    for (const { job: j, required } of scan.held) {
+      if (j.ctxHoldArmed) continue;
+      j.ctxHoldArmed = true;
+      console.log(`[Orchestrator] [ctx-hold] job=${j.id} needs ~${required} ctx; waiting for a fitting worker`);
+      setTimeout(() => this.processQueue(), Math.max(0, j.createdAt.getTime() + LONG_JOB_HOLD_MS - Date.now()) + 50);
     }
 
-    if (!matchedJob || !idleWorker || !workerSocketId || matchedJobIndex === -1) {
-      return;
-    }
+    if (!scan.pick) return;
+    const { index: matchedJobIndex, job, worker: idleWorker } = scan.pick;
+    const workerSocketId = idleWorker.socketId;
 
     this.jobQueue.splice(matchedJobIndex, 1);
-    const job = matchedJob;
     job.status = 'processing';
     job.assignedWorker = idleWorker.id;
     job.startedAt = new Date();
