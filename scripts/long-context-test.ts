@@ -14,6 +14,9 @@ import {
   nativeCtxNeed,
   pickWorkerForJob,
   pickNextDispatch,
+  trimLongJobForWorker,
+  longContextNeed,
+  longContextServable,
   LONG_JOB_HOLD_MS,
 } from '../lib/orchestrator/orchestrator';
 import {
@@ -26,6 +29,7 @@ import {
   type ChatMessage,
   type Job,
 } from '../lib/orchestrator/types';
+import { textCreditCost, textCreditReservation } from '../lib/tokenomics';
 
 let failed = false;
 function check(cond: boolean, msg: string) { console.log(`${cond ? 'ok  ' : 'FAIL'}  ${msg}`); if (!cond) failed = true; }
@@ -96,6 +100,38 @@ for (const [label, anon, plan, pays, want] of cases) {
   const b = inputTokenBudget(MAX, lc(anon, plan, pays));
   check(b === want, `${label} -> ${b}`);
 }
+
+// ── 3b. Servability gate ──
+// The paid budget only applies while some online worker (busy included) that can
+// serve the job has a known window holding a full long-context job. Prod fleet at
+// the time of the incident: 7 x 16384 + 1 x 8192, the only 32K worker offline.
+console.log('\n# servability gate');
+type GW = { id: string; status: 'idle' | 'busy'; numCtx?: number; model: string };
+const prodFleet: GW[] = [
+  ...Array.from({ length: 7 }, (_, k): GW => ({ id: `s${k}`, status: k % 2 ? 'busy' : 'idle', numCtx: 16_384, model: MAX })),
+  { id: 'e8', status: 'idle', numCtx: 8_192, model: MAX },
+];
+const serves = (w: GW) => w.model === MAX;
+const fits = (ws: GW[], think: boolean) => longContextServable(ws, serves, MAX, think);
+/** The budget the submit handler bounds at: eligible AND servable. */
+const gatedBudget = (ws: GW[], plan: 'free' | 'pro', paysCredits: boolean, think: boolean) =>
+  inputTokenBudget(MAX, lc(false, plan, paysCredits) && fits(ws, think));
+check(longContextNeed(MAX, false) === 16_000 + 2_048 + 4_096 && longContextNeed(MAX, true) === 16_000 + 2_048 + 8_192,
+  `need: ${longContextNeed(MAX, false)} without thinking, ${longContextNeed(MAX, true)} with`);
+check(!fits(prodFleet, false) && !fits(prodFleet, true), 'prod fleet (7x16K + 1x8K, 32K offline) holds no long-context job');
+check(gatedBudget(prodFleet, 'pro', false, false) === 12_000 && gatedBudget(prodFleet, 'pro', false, true) === 12_000, 'Pro user, no fitting worker online -> 12K');
+const with32 = (status: 'idle' | 'busy') => [...prodFleet, { id: 'b32', status, numCtx: 32_768, model: MAX }];
+check(gatedBudget(with32('idle'), 'pro', false, false) === 16_000 && gatedBudget(with32('idle'), 'pro', false, true) === 16_000, 'Pro user, idle 32K worker online -> 16K');
+check(gatedBudget(with32('busy'), 'pro', false, false) === 16_000 && gatedBudget(with32('busy'), 'pro', false, true) === 16_000, 'Pro user, busy 32K worker online -> 16K');
+const with24 = [...prodFleet, { id: 'm24', status: 'idle' as const, numCtx: 24_576, model: MAX }];
+check(gatedBudget(with24, 'pro', false, false) === 16_000, `24K worker holds a non-thinking job (${longContextNeed(MAX, false)}) -> 16K`);
+check(gatedBudget(with24, 'pro', false, true) === 12_000, `24K worker cannot hold a thinking job (${longContextNeed(MAX, true)}) -> 12K`);
+check(gatedBudget([...prodFleet, { id: 'u', status: 'idle', numCtx: undefined, model: MAX }], 'pro', false, false) === 12_000, 'unknown-window worker does not open the gate');
+check(gatedBudget([...prodFleet, { id: 'x32', status: 'idle', numCtx: 32_768, model: 'other-model' }], 'pro', false, false) === 12_000,
+  '32K worker that cannot serve the model does not open the gate');
+check(gatedBudget(prodFleet, 'free', true, false) === 12_000, 'Free-plan credit payer, no fitting worker -> no re-bound, 12K');
+check(gatedBudget(with32('busy'), 'free', true, false) === 16_000, 'Free-plan credit payer, fitting worker online -> re-bound to 16K');
+check(gatedBudget(with32('idle'), 'free', false, false) === 12_000, 'Free-plan grant user stays 12K even with a 32K worker online');
 
 // ── 4. Dispatch ──
 console.log('\n# dispatch');
@@ -245,6 +281,43 @@ const w16b: W = { id: 'w16', status: 'idle', numCtx: 16_384, tps: 40 }, w32b: W 
 const inHold = pickNextDispatch(q2, [w16b, w32b], () => true, weight, t0 + LONG_JOB_HOLD_MS - 1);
 const atExpiry = pickNextDispatch(q2, [w16b, w32b], () => true, weight, t0 + LONG_JOB_HOLD_MS);
 check(inHold.pick?.job === q2[1] && atExpiry.pick?.job === L2, 'idle 16K: S4 gets it 1ms before the hold ends, L2 gets it the moment it ends');
+
+// ── 6. Fallback re-trim: a long job on a worker too small for it ships at 12K ──
+console.log('\n# fallback re-trim');
+type TJ = Pick<Job, 'requestedModel' | 'messages' | 'think' | 'createdAt' | 'inputTokens'>;
+const longConvo = (): TJ => ({ requestedModel: MAX, messages: [...convo], think: false, createdAt: new Date(t0), inputTokens: est(convo) });
+// Admitted at 16K (14,100), held while the 32K is busy; the hold runs out and the
+// scan hands it to the idle 16K worker.
+const fb = longConvo();
+const fbPick = pickNextDispatch([{ ...fb, status: 'pending' as const }], [
+  { id: 'w16', status: 'idle' as const, numCtx: 16_384, tps: 40 }, { id: 'w32', status: 'busy' as const, numCtx: 32_768, tps: 40 },
+], () => true, weight, t0 + LONG_JOB_HOLD_MS);
+check(fbPick.pick?.worker.id === 'w16', 'hold expired: long job falls back to the 16K worker');
+const fbTrim = trimLongJobForWorker(fb, { numCtx: 16_384 }, t0 + LONG_JOB_HOLD_MS);
+check(!!fbTrim?.ok && est(fb.messages) <= MAX_INPUT_TOKENS_NATIVE && fb.inputTokens === est(fb.messages) && fb.inputTokens === 10_100,
+  `fallback re-trimmed before the emit: ~14,100 -> ~${fb.inputTokens} tokens, job.inputTokens updated`);
+const pre133 = boundInputMessages(convo, MAX_INPUT_TOKENS_NATIVE);
+check(pre133.ok && JSON.stringify(fb.messages) === JSON.stringify(pre133.messages), 'fallback ships exactly what the pre-#133 12K bound would have shipped');
+const unk = longConvo();
+check(!!trimLongJobForWorker(unk, { numCtx: undefined }, t0)?.ok && unk.inputTokens === 10_100, 'unknown-window worker -> re-trimmed');
+const fitJ = longConvo();
+const fitMsgs = fitJ.messages;
+check(trimLongJobForWorker(fitJ, { numCtx: 32_768 }, t0) === null && fitJ.messages === fitMsgs && fitJ.inputTokens === 14_100, 'long job on a fitting 32K worker -> untouched');
+const shortJ: TJ = { requestedModel: MAX, messages: [msg('user', 9_000)], think: true, createdAt: new Date(t0), inputTokens: 9_000 };
+const shortMsgs = shortJ.messages;
+check(trimLongJobForWorker(shortJ, { numCtx: 8_192 }, t0) === null && shortJ.messages === shortMsgs && shortJ.inputTokens === 9_000, 'short job on an 8K worker -> untouched');
+const proJ: TJ = { ...longConvo(), requestedModel: PRO };
+check(trimLongJobForWorker(proJ, { numCtx: 4_096 }, t0) === null, 'browser-lane job -> untouched');
+const oneBig: TJ = { requestedModel: MAX, messages: [msg('user', 13_000)], think: false, createdAt: new Date(t0), inputTokens: 13_000 };
+const oneBigMsgs = oneBig.messages;
+const ob = trimLongJobForWorker(oneBig, { numCtx: 16_384 }, t0);
+check(!!ob && !ob.ok && oneBig.messages === oneBigMsgs && oneBig.inputTokens === 13_000, 'newest message alone over 12K -> shipped as-is (ok:false, nothing changed)');
+// Settlement prices job.inputTokens at settle time (settleJobCharge), clamped to the hold.
+const hold = textCreditReservation(14_100, MAX_OUTPUT_TOKENS);
+const settledTrimmed = Math.min(textCreditCost(fb.inputTokens!, 20), hold);
+const settledUntrimmed = Math.min(textCreditCost(14_100, 20), hold);
+check(settledTrimmed === 2 && settledUntrimmed === 3 && hold === 6,
+  `settle on the re-trimmed input: hold ${hold}, charged ${settledTrimmed} (not ${settledUntrimmed}), ${hold - settledTrimmed} back`);
 
 console.log(failed ? '\nFAILED' : '\nall passed');
 process.exit(failed ? 1 : 0);

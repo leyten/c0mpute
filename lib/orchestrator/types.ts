@@ -394,8 +394,10 @@ export const MAX_INPUT_TOKENS_NATIVE = 12_000;
 // its own instructions, so reserve double.
 export const NATIVE_PROMPT_OVERHEAD_TOKENS = 2_048;
 // NATIVE, PAID (long context): a Pro/Max plan (chat or API), or an account
-// paying credits for this job. Free-plan grants, welcome prompts, the staking
-// allowance and anonymous visitors stay on MAX_INPUT_TOKENS_NATIVE.
+// paying credits for this job, and only while an online worker can hold it
+// (longContextServable in orchestrator.ts). Free-plan grants, welcome
+// prompts, the staking allowance and anonymous visitors stay on
+// MAX_INPUT_TOKENS_NATIVE.
 //
 // Sized so the PROMPT always fits the biggest window the fleet runs (32,768, a
 // 24GB card), because overflowing it is a hard failure, not a soft one: ollama

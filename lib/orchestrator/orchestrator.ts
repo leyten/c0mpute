@@ -361,7 +361,9 @@ function probeCtxExceeded(
 // idle workers whose reported numCtx holds that. With no idle fit it waits for
 // a fitting worker that is online but busy, for at most LONG_JOB_HOLD_MS, and
 // otherwise falls back to any idle eligible worker: nothing starves when the
-// big worker is offline, it just gets a truncated context on a smaller one.
+// big worker is offline. A fallback is trimmed back to the standard budget
+// before it ships (trimLongJobForWorker), so it runs exactly as it would have
+// before long context existed instead of overflowing the smaller window.
 //
 // The hold is short on purpose. While a long job waits, a short job queued
 // behind it may take the idle fallback worker; a 120s hold could then leave
@@ -379,6 +381,28 @@ export function workerFitsCtx(worker: { numCtx?: number }, required: number): bo
   return typeof worker.numCtx === 'number' && worker.numCtx >= required;
 }
 
+/** The most window a long-context job can need: the full paid input budget,
+ *  the injected prompt and tools, and this request's output cap. */
+export function longContextNeed(model: string | undefined, think: boolean): number {
+  return MAX_INPUT_TOKENS_NATIVE_PAID + NATIVE_PROMPT_OVERHEAD_TOKENS + outputTokenCap(model, think);
+}
+
+/** Submit-time gate for the paid budget: is any ONLINE worker (busy included)
+ *  that can serve this job able to hold a full long-context job? Without one,
+ *  a long job falls back onto a smaller worker, overflows its window, and
+ *  ollama fails it outright ("no user query found in messages"), where the
+ *  same job trimmed to the standard budget would have been served. */
+export function longContextServable<W extends { numCtx?: number }>(
+  workers: Iterable<W>,
+  canServe: (w: W) => boolean,
+  model: string | undefined,
+  think: boolean,
+): boolean {
+  const need = longContextNeed(model, think);
+  for (const w of workers) if (canServe(w) && workerFitsCtx(w, need)) return true;
+  return false;
+}
+
 /** The window a queued job needs, or null when it has no window rule: anything
  *  but a LONG native max-tier job (swarm jobs never reach the queue). */
 export function nativeCtxNeed(
@@ -392,6 +416,34 @@ export function nativeCtxNeed(
     required: input + NATIVE_PROMPT_OVERHEAD_TOKENS + outputTokenCap(job.requestedModel, job.think),
     mayHold: nowMs - job.createdAt.getTime() < LONG_JOB_HOLD_MS,
   };
+}
+
+/**
+ * A LONG job about to go to a worker whose window does not hold it (the hold
+ * ran out, the window is unknown, or the fitting worker left between submit and
+ * dispatch) is trimmed back to the standard budget, so the fallback ships what
+ * the job would have shipped before long context existed instead of
+ * overflowing the window — which ollama fails outright ("no user query found
+ * in messages"). job.inputTokens follows, so settlement charges the trimmed
+ * input and the rest of the hold comes back in the normal settle-down.
+ *
+ * null: nothing to do (short job, non-native lane, or the worker fits).
+ * ok:false: the newest message alone is over the standard budget, so nothing
+ * can be trimmed; the job ships as-is, the overflow risk that always existed.
+ */
+export function trimLongJobForWorker(
+  job: Pick<Job, 'requestedModel' | 'messages' | 'think' | 'createdAt' | 'inputTokens'>,
+  worker: { numCtx?: number },
+  nowMs: number,
+): { ok: true; dropped: number; before: number; after: number } | { ok: false; before: number } | null {
+  const need = nativeCtxNeed(job, nowMs);
+  if (!need || workerFitsCtx(worker, need.required)) return null;
+  const before = estimatePromptTokens(job.messages);
+  const bounded = boundInputMessages(job.messages, MAX_INPUT_TOKENS_NATIVE);
+  if (!bounded.ok) return { ok: false, before };
+  job.messages = bounded.messages;
+  job.inputTokens = estimatePromptTokens(job.messages);
+  return { ok: true, dropped: bounded.dropped, before, after: job.inputTokens };
 }
 
 /**
@@ -1222,7 +1274,11 @@ export class Orchestrator {
         // (long context) and the bound has to come before the reservation is
         // priced. Anonymous visitors have no plan and skip the lookup entirely.
         const submitPlan = isAnon ? null : resolvePlanState(privyUserId);
-        const longContext = longContextEligible({ anon: isAnon, plan: submitPlan?.plan, paysCredits: false });
+        // Paid AND servable: the long budget only applies while some online
+        // worker can actually hold it (see longContextServable). Otherwise the
+        // job is bounded at the standard budget, exactly as before.
+        const longContext = longContextEligible({ anon: isAnon, plan: submitPlan?.plan, paysCredits: false })
+          && this.longContextFits(data.model, data.think === true);
         // Kept untrimmed for the credit lane, which re-bounds a Free-plan account
         // that turns out to be paying at the long-context budget.
         const originalMessages = data.messages;
@@ -1488,11 +1544,13 @@ export class Orchestrator {
           // long-context job. If the standard bound trimmed history,
           // re-bound the ORIGINAL messages at the long-context budget and
           // re-price before anything is held, so the reservation is on what the
-          // worker is shipped. Only when the balance covers the bigger hold:
-          // otherwise the job runs on the standard bound exactly as before.
+          // worker is shipped. Only when some online worker can hold it and the
+          // balance covers the bigger hold: otherwise the job runs on the
+          // standard bound exactly as before.
           const longBudget = inputTokenBudget(data.model, true);
           if (bounded.dropped > 0 && !longContext && longBudget > inputBudget
-            && longContextEligible({ anon: isAnon, plan: planState.plan, paysCredits: true })) {
+            && longContextEligible({ anon: isAnon, plan: planState.plan, paysCredits: true })
+            && this.longContextFits(data.model, data.think === true)) {
             const long = boundInputMessages(originalMessages, longBudget);
             if (long.ok) {
               const longTokens = estimatePromptTokens(long.messages);
@@ -2422,6 +2480,16 @@ export class Orchestrator {
   }
 
   /**
+   * Can the network hold a full long-context job for this model right now?
+   * Same eligibility as dispatch (workerCanServe), judged with no subsidy
+   * kind: every lane that can get long context (plan grant, staking
+   * allowance, credits) is outside the free-lane worker age gate.
+   */
+  private longContextFits(requestedModel: string | undefined, think: boolean): boolean {
+    return longContextServable(this.workers.values(), (w) => this.workerCanServe(w, requestedModel), requestedModel, think);
+  }
+
+  /**
    * The submit-time gate for the two subsidized free lanes: can the network
    * provably not serve this job right now?
    *
@@ -2500,6 +2568,15 @@ export class Orchestrator {
       const userSocket = this.io.sockets.sockets.get(job.userSocketId);
       if (userSocket) {
         userSocket.emit('job:assigned', { jobId: job.id, workerId: idleWorker.id });
+      }
+
+      // A long job on a worker too small for it goes out at the standard
+      // budget (see trimLongJobForWorker). Sizes only in the log, never content.
+      const fit = trimLongJobForWorker(job, idleWorker, Date.now());
+      if (fit?.ok) {
+        console.log(`[Orchestrator] [ctx-fallback] job=${job.id} worker=${idleWorker.id} numCtx=${idleWorker.numCtx ?? 'unknown'}: trimmed ${fit.dropped} oldest message(s), ~${fit.before} -> ~${fit.after} tokens`);
+      } else if (fit) {
+        console.warn(`[Orchestrator] [ctx-fallback] job=${job.id} worker=${idleWorker.id} numCtx=${idleWorker.numCtx ?? 'unknown'}: newest message alone exceeds the ${MAX_INPUT_TOKENS_NATIVE}-token budget, shipped as-is (~${fit.before} tokens)`);
       }
 
       let messages = job.messages;
