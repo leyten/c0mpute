@@ -41,7 +41,8 @@ export interface WorkerInfo {
   // varies across the pool; browser workers report the fixed 4096 of their ctx4k
   // model lib. Undefined = unknown: image workers never have one, and native
   // workers from before this field existed (2.8.2 and older) never send it.
-  // Diagnostics only — dispatch does not consider it.
+  // Native dispatch prefers workers whose window fits the job (pickWorkerForJob
+  // in orchestrator.ts); unknown counts as not fitting.
   numCtx?: number;
 }
 
@@ -150,6 +151,9 @@ export interface Job {
   // A server-side tool round is executing: the worker is blocked on
   // job:tool_result and CANNOT emit tokens, so token silence is expected here.
   toolRunning?: boolean;
+  // A long-context job is being held in the queue for a worker whose window
+  // fits it, and the one re-check that ends the hold has been scheduled.
+  ctxHoldArmed?: boolean;
   // serverTokenCount as it stood when the CURRENT generation round began. A
   // tool loop runs several rounds into one job and each gets its own output
   // budget, so the running total says nothing about whether this round ran out
@@ -381,6 +385,21 @@ export function workerServesModel(
 // the [ctx-exceeded] probe measures. A swarm ring's KV cap is 40960, so the same
 // number is comfortably inside it too.
 export const MAX_INPUT_TOKENS_NATIVE = 12_000;
+// What a native worker gets injected on top of the job's own messages, which
+// estimatePromptTokens does not see: the native system prompt (745 chars) and
+// the AVAILABLE_TOOLS schemas (3,152 chars as compact JSON, 3,911 pretty),
+// measured 2026-10-04. That is ~1,000 tokens at chars/4, but JSON tokenizes
+// denser than prose (~3 chars/token) and the chat template wraps the tools in
+// its own instructions, so reserve double.
+export const NATIVE_PROMPT_OVERHEAD_TOKENS = 2_048;
+// NATIVE, PAID (long context): a Pro/Max plan, an API job, or a signed-in
+// account paying credits for this job. Free-plan grants, welcome prompts and
+// anonymous visitors stay on MAX_INPUT_TOKENS_NATIVE. Sized to the biggest
+// window the fleet runs (32K, a 24GB card) with a thinking answer in it:
+//   32,768 window - 8,192 thinking output - 2,048 overhead = 22,528 real tokens
+// 20,000 estimated leaves 12.6% (22,528 / 20,000) for chars/4 under-counting
+// the real tokenizer. Dispatch steers jobs over 12K to a worker that fits.
+export const MAX_INPUT_TOKENS_NATIVE_PAID = 20_000;
 // BROWSER (pro tier): the browser worker runs at a 4096-token window — prompt
 // AND output share it — and it asks for 2048 output tokens on top of a
 // ~170-token system prompt (app/earn/engine/useWorkerEngine.ts), leaving ~1900

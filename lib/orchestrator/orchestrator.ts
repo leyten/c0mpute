@@ -16,6 +16,8 @@ import {
   workerServesModel,
   selectionWeight,
   MAX_INPUT_TOKENS_NATIVE,
+  MAX_INPUT_TOKENS_NATIVE_PAID,
+  NATIVE_PROMPT_OVERHEAD_TOKENS,
   MAX_INPUT_TOKENS_BROWSER,
   MAX_OUTPUT_TOKENS,
   MAX_OUTPUT_TOKENS_THINKING,
@@ -31,6 +33,7 @@ import { CREDITS_PER_USD } from '../token-price';
 import { getWorkerRevenueShare } from '../staking';
 import { drawStakerAllowance, recordStakerRequest, refundStakerAllowance } from '../staker-allowance';
 import { resolvePlanState, drawDailyGrant, refundDailyGrant, dailyGrantRemaining, type DailyGrantDraw } from '../plan-state';
+import type { PlanId } from '../plans';
 import { scanOutput, BLOCKED_MESSAGE } from '../safety';
 import { AVAILABLE_TOOLS, executeToolCalls } from './tools';
 import { attachSwarmLoop } from './swarm-loop';
@@ -140,11 +143,11 @@ export function splitReasoning(response: string): { hasThink: boolean; visible: 
 
 // ── [ctx-exceeded] probe (diagnostics only) ────────────────────────────────
 // Native workers self-tune num_ctx to their VRAM (8K on a small card, 32K on a
-// 4090), but dispatch has never known a worker's window — so a long conversation
-// landing on a small worker truncates or dies with no trace. Workers now report
-// the window at registration; this counts how often we actually overrun one, so
-// we can size the problem before doing anything about it. MEASURE ONLY: nothing
-// here filters, reorders or influences dispatch.
+// 4090), and a long conversation landing on a small worker truncates or dies
+// with no trace. Workers report the window at registration; this counts how
+// often we actually overrun one (dispatch prefers fitting workers, see
+// pickWorkerForJob, but falls back to any). MEASURE ONLY: nothing here filters,
+// reorders or influences dispatch.
 //
 // PRIVACY: logs sizes only. Never a prompt, never any message content.
 let ctxExceededHits = 0;
@@ -178,13 +181,25 @@ function estimatePromptTokens(messages: ChatMessage[] | undefined): number {
 // their bytes would trim an entire conversation away the moment someone pastes a
 // photo. Existing image-size limits are untouched.
 
-/** Estimated-input budget for the lane this job will be served on. */
-function inputTokenBudget(model: string | undefined): number {
+/** Estimated-input budget for the lane this job will be served on. `longContext`
+ *  (see longContextEligible) lifts the native lane to MAX_INPUT_TOKENS_NATIVE_PAID;
+ *  the swarm and browser lanes are unchanged by it. */
+export function inputTokenBudget(model: string | undefined, longContext = false): number {
   // Max tier goes to a native worker; a sharded model goes to a swarm ring, whose
   // KV cap is larger still. Everything else is a browser worker's 4K window.
-  if (getModelTier(model) === 'max') return MAX_INPUT_TOKENS_NATIVE;
+  if (getModelTier(model) === 'max') return longContext ? MAX_INPUT_TOKENS_NATIVE_PAID : MAX_INPUT_TOKENS_NATIVE;
   if (model && specForModel(model)) return MAX_INPUT_TOKENS_NATIVE;
   return MAX_INPUT_TOKENS_BROWSER;
+}
+
+/** Long context is a paid perk: a paid plan, an API job (the API always
+ *  charges), or a signed-in account paying credits for THIS job. The Free
+ *  plan's grant and welcome prompts and anonymous visitors keep the standard
+ *  budget. `paysCredits` is only known once the free lanes have been tried, so
+ *  the submit handler asks once up front (false) and again at the credit lane. */
+export function longContextEligible(who: { anon: boolean; internal: boolean; plan: PlanId | undefined; paysCredits: boolean }): boolean {
+  if (who.anon) return false;
+  return who.internal || (who.plan !== undefined && who.plan !== 'free') || who.paysCredits;
 }
 
 /** Billable-output ceiling for the lane this job will be served on — the size of
@@ -335,6 +350,72 @@ function probeCtxExceeded(
   } catch {
     // Diagnostics must never reach the hot path.
   }
+}
+
+// ── Context-aware native dispatch ──────────────────────────────────────────
+// A native job needs a window that holds its input, the injected system prompt
+// and tools, and a full-length answer. Dispatch prefers idle workers whose
+// reported numCtx holds that. A LONG job (input over the standard 12K budget,
+// so paid by construction) with no idle fit waits for a fitting worker that is
+// online but busy — for at most LONG_JOB_HOLD_MS, so it is dispatched well
+// inside the 180s queue timeout. Everything else falls back to any idle
+// eligible worker, exactly as before: nothing starves when the big worker is
+// offline, it just gets a truncated context on a smaller one.
+export const LONG_JOB_HOLD_MS = 120_000;
+
+/** Does this worker's reported window hold `required` tokens? Unknown = no. */
+export function workerFitsCtx(worker: { numCtx?: number }, required: number): boolean {
+  return typeof worker.numCtx === 'number' && worker.numCtx >= required;
+}
+
+/** The window a queued job needs, or null when its lane has no window rule
+ *  (only the native max-tier lane does; swarm jobs never reach the queue). */
+export function nativeCtxNeed(
+  job: Pick<Job, 'requestedModel' | 'messages' | 'think' | 'createdAt'>,
+  nowMs: number,
+): { required: number; mayHold: boolean } | null {
+  if (getModelTier(job.requestedModel) !== 'max') return null;
+  const input = estimatePromptTokens(job.messages);
+  return {
+    required: input + NATIVE_PROMPT_OVERHEAD_TOKENS + outputTokenCap(job.requestedModel, job.think),
+    mayHold: input > MAX_INPUT_TOKENS_NATIVE && nowMs - job.createdAt.getTime() < LONG_JOB_HOLD_MS,
+  };
+}
+
+/**
+ * Choose the worker for one queued job: a worker, 'hold' (leave it queued for a
+ * fitting worker that is busy), or null (no idle eligible worker at all). The
+ * pick within the candidate set is weighted-random by `weightOf`, the same draw
+ * dispatch has always made.
+ */
+export function pickWorkerForJob<W extends { status: 'idle' | 'busy'; numCtx?: number }>(
+  workers: Iterable<W>,
+  canServe: (w: W) => boolean,
+  weightOf: (w: W) => number,
+  ctx: { required: number; mayHold: boolean } | null,
+  rand: () => number = Math.random,
+): W | 'hold' | null {
+  const idle: W[] = [];
+  const fits: W[] = [];
+  let fitOnline = false;
+  for (const w of workers) {
+    if (!canServe(w)) continue;
+    const fit = ctx !== null && workerFitsCtx(w, ctx.required);
+    if (fit) fitOnline = true;
+    if (w.status !== 'idle') continue;
+    idle.push(w);
+    if (fit) fits.push(w);
+  }
+  let pool = idle;
+  if (ctx) {
+    if (fits.length) pool = fits;
+    else if (ctx.mayHold && fitOnline) return 'hold';
+  }
+  if (!pool.length) return null;
+  const weights = pool.map(weightOf);
+  let r = rand() * weights.reduce((a, b) => a + b, 0);
+  for (let k = 0; k < pool.length; k++) { if ((r -= weights[k]) <= 0) return pool[k]; }
+  return pool[pool.length - 1];
 }
 
 // Submit-time rejection for a free-lane job the dispatch loop provably cannot
@@ -1082,7 +1163,16 @@ export class Orchestrator {
         // costs the user nothing. `data.messages` is reassigned rather than
         // shadowed: every downstream submitJob call then ships the bounded array
         // by construction, including the anon lane below.
-        const inputBudget = inputTokenBudget(data.model);
+        //
+        // The plan is resolved HERE, once, because a paid plan lifts the bound
+        // (long context) and the bound has to come before the reservation is
+        // priced. Anonymous visitors have no plan and skip the lookup entirely.
+        const submitPlan = isAnon ? null : resolvePlanState(privyUserId);
+        const longContext = longContextEligible({ anon: isAnon, internal: isInternal, plan: submitPlan?.plan, paysCredits: false });
+        // Kept untrimmed for the credit lane, which re-bounds a Free-plan account
+        // that turns out to be paying at the long-context budget.
+        const originalMessages = data.messages;
+        const inputBudget = inputTokenBudget(data.model, longContext);
         const bounded = boundInputMessages(data.messages, inputBudget);
         if (!bounded.ok) {
           console.warn(`[Orchestrator] Input rejected from ${privyUserId}: ~${bounded.estTokens} tokens over the ${inputBudget}-token budget`);
@@ -1120,7 +1210,7 @@ export class Orchestrator {
         const requestedTierForCredits = getModelTier(data.model);
         const deepThinking = data.think === true && requestedTierForCredits === 'max';
         // The bounded array, so what we price is what the worker is shipped.
-        const inputTokens = estimatePromptTokens(data.messages);
+        let inputTokens = estimatePromptTokens(data.messages);
         // `data.think`, not `deepThinking`: the worker raises its output budget
         // whenever thinking is on, so that is what decides how much can be
         // generated — and therefore how much has to be reserved.
@@ -1196,8 +1286,9 @@ export class Orchestrator {
         // Resolved once and threaded through both lanes below: resolution can
         // renew or lapse a period, and doing it twice in one submit would mean
         // the welcome-prompt guard and the grant draw could disagree about which
-        // plan the user is on.
-        const planState = resolvePlanState(privyUserId);
+        // plan the user is on. Resolved at the input bound above (null only for
+        // anon, which has returned by now, so the fallback never runs).
+        const planState = submitPlan ?? resolvePlanState(privyUserId);
         let usedFreePrompt = false;
         if (creditCost > 0 && !isInternal && profileHasLogin(privyUserId) && planState.plan === 'free') {
           // Same subsidy-cap reservation as the anon path: only grant the onboarding
@@ -1338,6 +1429,27 @@ export class Orchestrator {
 
         if (creditCost > 0) {
           const creditBalance = getCreditBalance(privyUserId);
+          // A Free-plan account that reached this lane is paying credits, which
+          // makes it a long-context job. If the standard bound trimmed history,
+          // re-bound the ORIGINAL messages at the long-context budget and
+          // re-price before anything is held, so the reservation is on what the
+          // worker is shipped. Only when the balance covers the bigger hold:
+          // otherwise the job runs on the standard bound exactly as before.
+          const longBudget = inputTokenBudget(data.model, true);
+          if (bounded.dropped > 0 && !longContext && longBudget > inputBudget
+            && longContextEligible({ anon: isAnon, internal: isInternal, plan: planState.plan, paysCredits: true })) {
+            const long = boundInputMessages(originalMessages, longBudget);
+            if (long.ok) {
+              const longTokens = estimatePromptTokens(long.messages);
+              const longCost = textCreditReservation(longTokens, outputTokenCap(data.model, data.think === true));
+              if (creditBalance.balance >= longCost) {
+                data.messages = long.messages;
+                inputTokens = longTokens;
+                creditCost = longCost;
+                console.log(`[Orchestrator] Long context for ${privyUserId} (paying credits): ${long.dropped} oldest message(s) dropped at the ${longBudget}-token budget`);
+              }
+            }
+          }
           if (creditBalance.balance < creditCost) {
             // Floor, not round: a balance of 0.6 credits used to be reported as
             // "have 1" — telling a user they had enough for the job we had just
@@ -2310,26 +2422,38 @@ export class Orchestrator {
       // fastest worker, while still favoring faster workers so users mostly get
       // good speed. Tunable via WORKER_WEIGHT_* in types.ts. Anti-cheat (canaries)
       // still strikes/bans workers that fake high tok/s.
-      const eligible: { worker: WorkerInfo; socketId: string; weight: number }[] = [];
-      let totalWeight = 0;
-      for (const [socketId, worker] of this.workers) {
-        if (worker.status !== 'idle') continue;
-        if (!this.workerCanServe(worker, j.requestedModel, j.subsidyKind)) continue;
-        const samples = worker.measuredTokPerSec ?? [];
-        const speed = samples.length
-          ? samples.reduce((a, b) => a + b, 0) / samples.length
-          : (worker.tokPerSec || 0);
-        const weight = selectionWeight(speed);
-        eligible.push({ worker, socketId, weight });
-        totalWeight += weight;
+      //
+      // Native jobs first narrow that set to workers whose context window fits
+      // them, and a long one may wait for a fitting worker that is busy (see
+      // pickWorkerForJob / nativeCtxNeed).
+      const ctx = nativeCtxNeed(j, Date.now());
+      const chosen = pickWorkerForJob(
+        this.workers.values(),
+        (worker) => this.workerCanServe(worker, j.requestedModel, j.subsidyKind),
+        (worker) => {
+          const samples = worker.measuredTokPerSec ?? [];
+          const speed = samples.length
+            ? samples.reduce((a, b) => a + b, 0) / samples.length
+            : (worker.tokPerSec || 0);
+          return selectionWeight(speed);
+        },
+        ctx,
+      );
+      if (chosen === 'hold') {
+        // Held for a fitting worker. Arm ONE re-check at the end of the hold:
+        // on a quiet network nothing else may run the queue before the 180s
+        // queue timeout, and the fallback has to happen before that.
+        if (!j.ctxHoldArmed) {
+          j.ctxHoldArmed = true;
+          console.log(`[Orchestrator] [ctx-hold] job=${j.id} needs ~${ctx?.required} ctx; waiting for a fitting worker`);
+          setTimeout(() => this.processQueue(), Math.max(0, j.createdAt.getTime() + LONG_JOB_HOLD_MS - Date.now()) + 50);
+        }
+        continue;
       }
-      if (eligible.length) {
-        let r = Math.random() * totalWeight;
-        let chosen = eligible[eligible.length - 1];
-        for (const e of eligible) { if ((r -= e.weight) <= 0) { chosen = e; break; } }
+      if (chosen) {
         matchedJob = j;
         matchedJobIndex = i;
-        idleWorker = chosen.worker;
+        idleWorker = chosen;
         workerSocketId = chosen.socketId;
         break;
       }

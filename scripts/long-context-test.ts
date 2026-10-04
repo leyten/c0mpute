@@ -1,0 +1,168 @@
+/**
+ * Long context (paid native budget) + context-aware native dispatch.
+ *
+ * Pure-function test, no sockets: exercises the input bound at both native
+ * budgets, the paid/free budget decision, and the worker pick for long and short
+ * jobs against a mixed-window fleet (8K / 16K / 32K / unknown).
+ *
+ * Run:  npx tsx scripts/long-context-test.ts
+ */
+import {
+  boundInputMessages,
+  inputTokenBudget,
+  longContextEligible,
+  nativeCtxNeed,
+  pickWorkerForJob,
+  LONG_JOB_HOLD_MS,
+} from '../lib/orchestrator/orchestrator';
+import {
+  MAX_INPUT_TOKENS_NATIVE,
+  MAX_INPUT_TOKENS_NATIVE_PAID,
+  MAX_INPUT_TOKENS_BROWSER,
+  NATIVE_PROMPT_OVERHEAD_TOKENS,
+  MAX_OUTPUT_TOKENS,
+  MAX_OUTPUT_TOKENS_THINKING,
+  type ChatMessage,
+} from '../lib/orchestrator/types';
+
+let failed = false;
+function check(cond: boolean, msg: string) { console.log(`${cond ? 'ok  ' : 'FAIL'}  ${msg}`); if (!cond) failed = true; }
+
+const MAX = 'qwen3.8-27b-uncensored';   // native (max tier)
+const PRO = 'some-browser-model';       // browser lane (not in the catalog -> pro)
+const SWARM = 'minimax-m2.5';           // sharded swarm lane
+
+/** A message of exactly `tokens` estimated tokens (chars/4). */
+const msg = (role: ChatMessage['role'], tokens: number): ChatMessage => ({ role, content: 'x'.repeat(tokens * 4) });
+const est = (ms: ChatMessage[] | undefined) => Math.ceil((ms ?? []).reduce((n, m) => n + (m.content?.length ?? 0), 0) / 4);
+
+// ── 1. Budgets ──
+console.log('\n# budgets');
+check(MAX_INPUT_TOKENS_NATIVE === 12_000, 'free native budget is still 12,000 (credits route projects the free reservation on it)');
+check(inputTokenBudget(MAX) === 12_000 && inputTokenBudget(MAX, false) === 12_000, 'max lane, not long-context -> 12,000');
+check(inputTokenBudget(MAX, true) === MAX_INPUT_TOKENS_NATIVE_PAID && MAX_INPUT_TOKENS_NATIVE_PAID === 20_000, 'max lane, long-context -> 20,000');
+check(inputTokenBudget(PRO, true) === MAX_INPUT_TOKENS_BROWSER && inputTokenBudget(PRO) === MAX_INPUT_TOKENS_BROWSER, 'browser lane unchanged either way (1,800)');
+check(inputTokenBudget(SWARM, true) === 12_000 && inputTokenBudget(SWARM) === 12_000, 'swarm lane unchanged either way (12,000)');
+const fullPaid = MAX_INPUT_TOKENS_NATIVE_PAID + NATIVE_PROMPT_OVERHEAD_TOKENS + MAX_OUTPUT_TOKENS_THINKING;
+check(Math.round(MAX_INPUT_TOKENS_NATIVE_PAID * 1.1) + NATIVE_PROMPT_OVERHEAD_TOKENS + MAX_OUTPUT_TOKENS_THINKING <= 32_768,
+  `paid input +10% + overhead + thinking cap fits 32K (${fullPaid} at estimate, ${Math.round(MAX_INPUT_TOKENS_NATIVE_PAID * 1.1) + NATIVE_PROMPT_OVERHEAD_TOKENS + MAX_OUTPUT_TOKENS_THINKING} at +10%)`);
+
+// ── 2. boundInputMessages at both budgets ──
+console.log('\n# boundInputMessages');
+// system + 9 turns of 2,000 tokens = 18,100 estimated: over 12K, under 20K.
+const convo: ChatMessage[] = [{ role: 'system', content: 'x'.repeat(400) }];
+for (let i = 0; i < 9; i++) convo.push(msg(i % 2 === 0 ? 'user' : 'assistant', 2_000));
+check(est(convo) === 18_100, `fixture conversation is ~18,100 tokens (${est(convo)})`);
+const free = boundInputMessages(convo, MAX_INPUT_TOKENS_NATIVE);
+check(free.ok && free.dropped === 4 && est(free.messages) <= 12_000, `12K budget trims oldest history (dropped ${free.ok ? free.dropped : '-'}, kept ~${free.ok ? est(free.messages) : '-'})`);
+check(free.ok && free.messages![0].role === 'system' && free.messages![free.messages!.length - 1] === convo[convo.length - 1], '12K trim keeps system + newest message');
+const paid = boundInputMessages(convo, MAX_INPUT_TOKENS_NATIVE_PAID);
+check(paid.ok && paid.dropped === 0 && paid.messages === convo, '20K budget ships the whole conversation untouched');
+const big = [msg('user', 15_000)];
+const bigFree = boundInputMessages(big, MAX_INPUT_TOKENS_NATIVE);
+const bigPaid = boundInputMessages(big, MAX_INPUT_TOKENS_NATIVE_PAID);
+check(!bigFree.ok && bigFree.estTokens === 15_000, 'single 15K message rejected at the 12K budget');
+check(bigPaid.ok && bigPaid.dropped === 0, 'single 15K message accepted at the 20K budget');
+check(!boundInputMessages([msg('user', 21_000)], MAX_INPUT_TOKENS_NATIVE_PAID).ok, 'single 21K message rejected even at the 20K budget');
+// Rejection text is built from the budget that applied: floor(budget*4/1000)k chars.
+check(Math.floor((MAX_INPUT_TOKENS_NATIVE * 4) / 1000) === 48 && Math.floor((MAX_INPUT_TOKENS_NATIVE_PAID * 4) / 1000) === 80,
+  'too-long text quotes ~48k chars (free) / ~80k chars (long context)');
+
+// ── 3. Paid / free decision ──
+console.log('\n# longContextEligible');
+const lc = (anon: boolean, internal: boolean, plan: 'free' | 'pro' | 'max' | undefined, paysCredits: boolean) =>
+  longContextEligible({ anon, internal, plan, paysCredits });
+check(!lc(true, false, undefined, false), 'anonymous visitor -> standard 12K');
+check(!lc(true, false, undefined, true), 'anonymous visitor never long-context, whatever else is claimed');
+check(!lc(false, false, 'free', false), 'Free-plan user on the free grant / welcome prompts -> standard 12K');
+check(lc(false, false, 'free', true), 'Free-plan user paying credits for this job -> long context');
+check(lc(false, false, 'pro', false), 'Pro plan user -> long context');
+check(lc(false, false, 'max', false), 'Max plan user -> long context');
+check(lc(false, true, 'free', false), 'API job (internal, owner on Free) -> long context');
+for (const [anon, internal, plan, pays, want] of [
+  [true, false, undefined, false, 12_000], [false, false, 'free', false, 12_000], [false, false, 'free', true, 20_000],
+  [false, false, 'pro', false, 20_000], [false, true, 'free', false, 20_000],
+] as const) {
+  const b = inputTokenBudget(MAX, lc(anon, internal, plan, pays));
+  check(b === want, `budget anon=${anon} internal=${internal} plan=${plan} paysCredits=${pays} -> ${b}`);
+}
+
+// ── 4. Dispatch ──
+console.log('\n# dispatch');
+type W = { id: string; status: 'idle' | 'busy'; numCtx?: number; tps: number };
+const fleet = (over: Partial<Record<string, Partial<W> | null>> = {}): W[] => {
+  const base: W[] = [
+    { id: 'w8', status: 'idle', numCtx: 8_192, tps: 40 },
+    { id: 'w16a', status: 'idle', numCtx: 16_384, tps: 40 },
+    { id: 'w16b', status: 'idle', numCtx: 16_384, tps: 40 },
+    { id: 'w32', status: 'idle', numCtx: 32_768, tps: 40 },
+    { id: 'wUnk', status: 'idle', numCtx: undefined, tps: 40 },
+  ];
+  return base.flatMap((w) => (over[w.id] === null ? [] : [{ ...w, ...(over[w.id] ?? {}) }]));
+};
+const all = () => true;
+const weight = (w: W) => w.tps;
+/** Every distinct outcome over a sweep of the random draw. */
+const outcomes = (ws: W[], ctx: ReturnType<typeof nativeCtxNeed>) => {
+  const seen = new Set<string>();
+  for (let k = 0; k < 200; k++) {
+    const r = pickWorkerForJob(ws, all, weight, ctx, () => k / 200);
+    seen.add(r === null ? 'null' : r === 'hold' ? 'hold' : r.id);
+  }
+  return [...seen].sort().join(',');
+};
+const t0 = 1_700_000_000_000;
+const job = (inputTokens: number, think = false, model = MAX) => ({ requestedModel: model, messages: [msg('user', inputTokens)], think, createdAt: new Date(t0) });
+
+const longJob = job(18_000);
+const longNeed = nativeCtxNeed(longJob, t0 + 1_000)!;
+check(longNeed.required === 18_000 + NATIVE_PROMPT_OVERHEAD_TOKENS + MAX_OUTPUT_TOKENS && longNeed.mayHold, `long job needs ${longNeed.required} ctx and may hold`);
+check(nativeCtxNeed(job(18_000, true), t0)!.required === 18_000 + NATIVE_PROMPT_OVERHEAD_TOKENS + MAX_OUTPUT_TOKENS_THINKING, 'thinking job reserves the thinking output cap');
+check(outcomes(fleet(), longNeed) === 'w32', 'long job + idle 32K worker -> always the 32K worker');
+check(outcomes(fleet({ w32: { status: 'busy' } }), longNeed) === 'hold', 'long job + 32K worker busy -> stays queued (hold)');
+check(outcomes(fleet({ w32: null }), longNeed) === 'w16a,w16b,w8,wUnk', 'long job + no 32K online -> falls back to any idle worker (unknown included)');
+check(outcomes(fleet({ w32: { status: 'busy' } }), nativeCtxNeed(longJob, t0 + LONG_JOB_HOLD_MS)!) === 'w16a,w16b,w8,wUnk',
+  `long job held ${LONG_JOB_HOLD_MS / 1000}s -> hold expires, falls back to any idle worker`);
+check(outcomes(fleet({ w8: { status: 'busy' }, w16a: { status: 'busy' }, w16b: { status: 'busy' }, wUnk: { status: 'busy' }, w32: { status: 'busy' } }), longNeed) === 'hold',
+  'long job + whole fleet busy -> hold (stays queued, as before)');
+check(outcomes(fleet({ w32: { numCtx: undefined } }), longNeed) === 'w16a,w16b,w32,w8,wUnk', 'unknown-window worker is not preferred for a long job, only part of the fallback');
+check(outcomes(fleet({ w32: null, wUnk: { status: 'busy' } }), longNeed) === 'w16a,w16b,w8', 'a busy unknown-window worker never causes a hold');
+
+const shortJob = job(2_000);
+const shortNeed = nativeCtxNeed(shortJob, t0)!;
+check(!shortNeed.mayHold, `short job (${shortNeed.required} ctx) never holds`);
+check(outcomes(fleet(), shortNeed) === 'w16a,w16b,w32,w8', 'short job -> spread over every worker that fits (8K included)');
+check(outcomes(fleet({ w16a: null, w16b: null, w32: null, wUnk: null }), nativeCtxNeed(job(2_000, true), t0)!) === 'w8',
+  'short thinking job that fits nothing idle -> dispatched to the 8K worker anyway, never queued');
+check(outcomes(fleet({ w8: null, w16a: null, w16b: null, w32: null }), shortNeed) === 'wUnk', 'short job + only an unknown-window worker -> dispatched to it');
+check(outcomes(fleet({ w8: { status: 'busy' }, w16a: { status: 'busy' }, w16b: { status: 'busy' }, wUnk: { status: 'busy' }, w32: { status: 'busy' } }), shortNeed) === 'null',
+  'short job + whole fleet busy -> no pick (stays queued, as before)');
+check(nativeCtxNeed(job(18_000, false, PRO), t0) === null, 'browser-lane job has no window rule');
+check(outcomes(fleet(), null) === 'w16a,w16b,w32,w8,wUnk', 'no window rule -> every idle worker, as before');
+const gated = pickWorkerForJob(fleet({ w32: { status: 'busy' } }), (w) => w.id !== 'w32', weight, longNeed);
+check(gated !== 'hold' && gated !== null, 'a busy 32K worker that cannot serve the job (model/age gate) never causes a hold');
+
+// The weighted draw is the one dispatch always made: same order, same weights,
+// same subtract-until-<=0 walk. Compare against the old inline loop verbatim.
+const oldPick = (ws: W[], r0: number) => {
+  const eligible: { worker: W; weight: number }[] = [];
+  let totalWeight = 0;
+  for (const worker of ws) { if (worker.status !== 'idle') continue; eligible.push({ worker, weight: worker.tps }); totalWeight += worker.tps; }
+  if (!eligible.length) return null;
+  let r = r0 * totalWeight;
+  let chosen = eligible[eligible.length - 1];
+  for (const e of eligible) { if ((r -= e.weight) <= 0) { chosen = e; break; } }
+  return chosen.worker;
+};
+let same = true;
+for (let trial = 0; trial < 2_000; trial++) {
+  const ws: W[] = Array.from({ length: 1 + (trial % 7) }, (_, k) => ({
+    id: `t${k}`, status: Math.random() < 0.3 ? 'busy' : 'idle', numCtx: 16_384, tps: 5 + Math.floor(Math.random() * 80),
+  }));
+  const r0 = Math.random();
+  if (pickWorkerForJob(ws, all, weight, null, () => r0) !== oldPick(ws, r0)) { same = false; break; }
+}
+check(same, 'weighted-random pick identical to the old inline loop (2,000 random fleets)');
+
+console.log(failed ? '\nFAILED' : '\nall passed');
+process.exit(failed ? 1 : 0);
