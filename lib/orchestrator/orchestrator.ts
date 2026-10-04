@@ -353,14 +353,18 @@ function probeCtxExceeded(
 }
 
 // ── Context-aware native dispatch ──────────────────────────────────────────
-// A native job needs a window that holds its input, the injected system prompt
-// and tools, and a full-length answer. Dispatch prefers idle workers whose
-// reported numCtx holds that. A LONG job (input over the standard 12K budget,
-// so paid by construction) with no idle fit waits for a fitting worker that is
-// online but busy — for at most LONG_JOB_HOLD_MS, so it is dispatched well
-// inside the 180s queue timeout. Everything else falls back to any idle
-// eligible worker, exactly as before: nothing starves when the big worker is
+// Only a LONG native job (input over the standard 12K budget, so paid by
+// construction) has a window rule. It needs a window that holds its input, the
+// injected system prompt and tools, and a full-length answer; dispatch prefers
+// idle workers whose reported numCtx holds that. With no idle fit it waits for
+// a fitting worker that is online but busy — for at most LONG_JOB_HOLD_MS, so
+// it is dispatched well inside the 180s queue timeout — and otherwise falls
+// back to any idle eligible worker: nothing starves when the big worker is
 // offline, it just gets a truncated context on a smaller one.
+//
+// SHORT jobs (input at or under 12K) have no window rule at all: every idle
+// eligible worker, weighted-random, exactly as before. That keeps the earnings
+// spread unchanged and keeps short jobs from crowding the few big workers.
 export const LONG_JOB_HOLD_MS = 120_000;
 
 /** Does this worker's reported window hold `required` tokens? Unknown = no. */
@@ -368,17 +372,18 @@ export function workerFitsCtx(worker: { numCtx?: number }, required: number): bo
   return typeof worker.numCtx === 'number' && worker.numCtx >= required;
 }
 
-/** The window a queued job needs, or null when its lane has no window rule
- *  (only the native max-tier lane does; swarm jobs never reach the queue). */
+/** The window a queued job needs, or null when it has no window rule: anything
+ *  but a LONG native max-tier job (swarm jobs never reach the queue). */
 export function nativeCtxNeed(
   job: Pick<Job, 'requestedModel' | 'messages' | 'think' | 'createdAt'>,
   nowMs: number,
 ): { required: number; mayHold: boolean } | null {
   if (getModelTier(job.requestedModel) !== 'max') return null;
   const input = estimatePromptTokens(job.messages);
+  if (input <= MAX_INPUT_TOKENS_NATIVE) return null;
   return {
     required: input + NATIVE_PROMPT_OVERHEAD_TOKENS + outputTokenCap(job.requestedModel, job.think),
-    mayHold: input > MAX_INPUT_TOKENS_NATIVE && nowMs - job.createdAt.getTime() < LONG_JOB_HOLD_MS,
+    mayHold: nowMs - job.createdAt.getTime() < LONG_JOB_HOLD_MS,
   };
 }
 
@@ -2423,9 +2428,9 @@ export class Orchestrator {
       // good speed. Tunable via WORKER_WEIGHT_* in types.ts. Anti-cheat (canaries)
       // still strikes/bans workers that fake high tok/s.
       //
-      // Native jobs first narrow that set to workers whose context window fits
-      // them, and a long one may wait for a fitting worker that is busy (see
-      // pickWorkerForJob / nativeCtxNeed).
+      // A LONG native job first narrows that set to workers whose context
+      // window fits it, and may wait for a fitting worker that is busy (see
+      // pickWorkerForJob / nativeCtxNeed). Short jobs use the set unchanged.
       const ctx = nativeCtxNeed(j, Date.now());
       const chosen = pickWorkerForJob(
         this.workers.values(),

@@ -128,15 +128,28 @@ check(outcomes(fleet({ w8: { status: 'busy' }, w16a: { status: 'busy' }, w16b: {
 check(outcomes(fleet({ w32: { numCtx: undefined } }), longNeed) === 'w16a,w16b,w32,w8,wUnk', 'unknown-window worker is not preferred for a long job, only part of the fallback');
 check(outcomes(fleet({ w32: null, wUnk: { status: 'busy' } }), longNeed) === 'w16a,w16b,w8', 'a busy unknown-window worker never causes a hold');
 
-const shortJob = job(2_000);
-const shortNeed = nativeCtxNeed(shortJob, t0)!;
-check(!shortNeed.mayHold, `short job (${shortNeed.required} ctx) never holds`);
-check(outcomes(fleet(), shortNeed) === 'w16a,w16b,w32,w8', 'short job -> spread over every worker that fits (8K included)');
-check(outcomes(fleet({ w16a: null, w16b: null, w32: null, wUnk: null }), nativeCtxNeed(job(2_000, true), t0)!) === 'w8',
-  'short thinking job that fits nothing idle -> dispatched to the 8K worker anyway, never queued');
-check(outcomes(fleet({ w8: null, w16a: null, w16b: null, w32: null }), shortNeed) === 'wUnk', 'short job + only an unknown-window worker -> dispatched to it');
-check(outcomes(fleet({ w8: { status: 'busy' }, w16a: { status: 'busy' }, w16b: { status: 'busy' }, wUnk: { status: 'busy' }, w32: { status: 'busy' } }), shortNeed) === 'null',
+// Short jobs (input <= 12K) have NO window rule: today's candidate set, unchanged.
+// `outcomes` sweeps the random draw across [0,1), so it returns the full set of
+// workers the pick can reach — the candidate set, not one random pick.
+check(nativeCtxNeed(job(2_000), t0) === null, 'short job -> no window rule');
+check(nativeCtxNeed(job(2_000, true), t0) === null, 'short thinking job -> no window rule');
+check(nativeCtxNeed(job(MAX_INPUT_TOKENS_NATIVE), t0) === null, 'job at exactly the 12K budget is short -> no window rule');
+check(nativeCtxNeed(job(MAX_INPUT_TOKENS_NATIVE + 1), t0) !== null, 'job at 12K + 1 is long -> window rule');
+const shortThink = nativeCtxNeed(job(2_000, true), t0);   // would need 12,240 ctx under a fit rule
+const w8w32 = fleet({ w16a: null, w16b: null, wUnk: null });
+check(outcomes(w8w32, shortThink) === 'w32,w8', `short thinking job + idle 8K and 32K workers -> candidate set keeps both (${outcomes(w8w32, shortThink)})`);
+check(outcomes(fleet(), nativeCtxNeed(job(10_000), t0)) === 'w16a,w16b,w32,w8,wUnk', 'short job -> every idle worker is a candidate (8K and unknown included)');
+check(outcomes(fleet({ w8: { status: 'busy' }, w16a: { status: 'busy' }, w16b: { status: 'busy' }, wUnk: { status: 'busy' }, w32: { status: 'busy' } }), nativeCtxNeed(job(2_000), t0)) === 'null',
   'short job + whole fleet busy -> no pick (stays queued, as before)');
+// Same draw as before for a short job: identical pick to the no-rule path for every rand.
+let shortSame = true;
+const pickId = (r: W | 'hold' | null) => (r === null || r === 'hold' ? r : r.id);
+for (let k = 0; k < 1_000; k++) {
+  const r0 = k / 1_000;
+  const ws = fleet();
+  if (pickId(pickWorkerForJob(ws, all, weight, nativeCtxNeed(job(11_000, true), t0), () => r0)) !== pickId(pickWorkerForJob(ws, all, weight, null, () => r0))) { shortSame = false; break; }
+}
+check(shortSame, 'short job pick identical to the no-rule pick for every random draw');
 check(nativeCtxNeed(job(18_000, false, PRO), t0) === null, 'browser-lane job has no window rule');
 check(outcomes(fleet(), null) === 'w16a,w16b,w32,w8,wUnk', 'no window rule -> every idle worker, as before');
 const gated = pickWorkerForJob(fleet({ w32: { status: 'busy' } }), (w) => w.id !== 'w32', weight, longNeed);

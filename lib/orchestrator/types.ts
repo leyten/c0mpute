@@ -41,8 +41,9 @@ export interface WorkerInfo {
   // varies across the pool; browser workers report the fixed 4096 of their ctx4k
   // model lib. Undefined = unknown: image workers never have one, and native
   // workers from before this field existed (2.8.2 and older) never send it.
-  // Native dispatch prefers workers whose window fits the job (pickWorkerForJob
-  // in orchestrator.ts); unknown counts as not fitting.
+  // Dispatch prefers workers whose window fits a LONG native job (over 12K
+  // input; pickWorkerForJob in orchestrator.ts); unknown counts as not fitting.
+  // Short jobs ignore it.
   numCtx?: number;
 }
 
