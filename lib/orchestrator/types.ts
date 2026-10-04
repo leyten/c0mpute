@@ -41,7 +41,9 @@ export interface WorkerInfo {
   // varies across the pool; browser workers report the fixed 4096 of their ctx4k
   // model lib. Undefined = unknown: image workers never have one, and native
   // workers from before this field existed (2.8.2 and older) never send it.
-  // Diagnostics only — dispatch does not consider it.
+  // Dispatch prefers workers whose window fits a LONG native job (over 12K
+  // input; pickWorkerForJob in orchestrator.ts); unknown counts as not fitting.
+  // Short jobs ignore it.
   numCtx?: number;
 }
 
@@ -150,6 +152,9 @@ export interface Job {
   // A server-side tool round is executing: the worker is blocked on
   // job:tool_result and CANNOT emit tokens, so token silence is expected here.
   toolRunning?: boolean;
+  // A long-context job is being held in the queue for a worker whose window
+  // fits it, and the one re-check that ends the hold has been scheduled.
+  ctxHoldArmed?: boolean;
   // serverTokenCount as it stood when the CURRENT generation round began. A
   // tool loop runs several rounds into one job and each gets its own output
   // budget, so the running total says nothing about whether this round ran out
@@ -381,6 +386,31 @@ export function workerServesModel(
 // the [ctx-exceeded] probe measures. A swarm ring's KV cap is 40960, so the same
 // number is comfortably inside it too.
 export const MAX_INPUT_TOKENS_NATIVE = 12_000;
+// What a native worker gets injected on top of the job's own messages, which
+// estimatePromptTokens does not see: the native system prompt (745 chars) and
+// the AVAILABLE_TOOLS schemas (3,152 chars as compact JSON, 3,911 pretty),
+// measured 2026-10-04. That is ~1,000 tokens at chars/4, but JSON tokenizes
+// denser than prose (~3 chars/token) and the chat template wraps the tools in
+// its own instructions, so reserve double.
+export const NATIVE_PROMPT_OVERHEAD_TOKENS = 2_048;
+// NATIVE, PAID (long context): a Pro/Max plan (chat or API), or an account
+// paying credits for this job. Free-plan grants, welcome prompts, the staking
+// allowance and anonymous visitors stay on MAX_INPUT_TOKENS_NATIVE.
+//
+// Sized so the PROMPT always fits the biggest window the fleet runs (32,768, a
+// 24GB card), because overflowing it is a hard failure, not a soft one: ollama
+// cuts the conversation from the front, and in prod 22 of ~100 ctx-exceeded
+// jobs died on "no user query found in messages". chars/4 under-counts badly
+// against the Qwen3.5 tokenizer: JSON measures 1.37-1.76x real/estimate and
+// Chinese 1.94x. At 16,000 estimated:
+//   JSON    16,000 x 1.76 = 28,160 real + ~1,100 injected = ~29,300 (30,208
+//           even at the 2,048 reserve above) <= 32,768
+//   Chinese 16,000 x 1.94 = 31,040 real + ~1,100 injected = ~32,100 <= 32,768
+// so the user turn is never cut. The answer gets what is left: all 8,192
+// thinking tokens for a prompt near its estimate (16,000 + 2,048 + 8,192 =
+// 26,240), less for a dense one. Dispatch steers jobs over 12K to a worker
+// whose window fits.
+export const MAX_INPUT_TOKENS_NATIVE_PAID = 16_000;
 // BROWSER (pro tier): the browser worker runs at a 4096-token window — prompt
 // AND output share it — and it asks for 2048 output tokens on top of a
 // ~170-token system prompt (app/earn/engine/useWorkerEngine.ts), leaving ~1900
