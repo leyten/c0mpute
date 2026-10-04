@@ -14,6 +14,8 @@ import {
   nativeCtxNeed,
   pickWorkerForJob,
   pickNextDispatch,
+  longContextNeed,
+  longContextServable,
   LONG_JOB_HOLD_MS,
 } from '../lib/orchestrator/orchestrator';
 import {
@@ -96,6 +98,38 @@ for (const [label, anon, plan, pays, want] of cases) {
   const b = inputTokenBudget(MAX, lc(anon, plan, pays));
   check(b === want, `${label} -> ${b}`);
 }
+
+// ── 3b. Servability gate ──
+// The paid budget only applies while some online worker (busy included) that can
+// serve the job has a known window holding a full long-context job. Prod fleet at
+// the time of the incident: 7 x 16384 + 1 x 8192, the only 32K worker offline.
+console.log('\n# servability gate');
+type GW = { id: string; status: 'idle' | 'busy'; numCtx?: number; model: string };
+const prodFleet: GW[] = [
+  ...Array.from({ length: 7 }, (_, k): GW => ({ id: `s${k}`, status: k % 2 ? 'busy' : 'idle', numCtx: 16_384, model: MAX })),
+  { id: 'e8', status: 'idle', numCtx: 8_192, model: MAX },
+];
+const serves = (w: GW) => w.model === MAX;
+const fits = (ws: GW[], think: boolean) => longContextServable(ws, serves, MAX, think);
+/** The budget the submit handler bounds at: eligible AND servable. */
+const gatedBudget = (ws: GW[], plan: 'free' | 'pro', paysCredits: boolean, think: boolean) =>
+  inputTokenBudget(MAX, lc(false, plan, paysCredits) && fits(ws, think));
+check(longContextNeed(MAX, false) === 16_000 + 2_048 + 4_096 && longContextNeed(MAX, true) === 16_000 + 2_048 + 8_192,
+  `need: ${longContextNeed(MAX, false)} without thinking, ${longContextNeed(MAX, true)} with`);
+check(!fits(prodFleet, false) && !fits(prodFleet, true), 'prod fleet (7x16K + 1x8K, 32K offline) holds no long-context job');
+check(gatedBudget(prodFleet, 'pro', false, false) === 12_000 && gatedBudget(prodFleet, 'pro', false, true) === 12_000, 'Pro user, no fitting worker online -> 12K');
+const with32 = (status: 'idle' | 'busy') => [...prodFleet, { id: 'b32', status, numCtx: 32_768, model: MAX }];
+check(gatedBudget(with32('idle'), 'pro', false, false) === 16_000 && gatedBudget(with32('idle'), 'pro', false, true) === 16_000, 'Pro user, idle 32K worker online -> 16K');
+check(gatedBudget(with32('busy'), 'pro', false, false) === 16_000 && gatedBudget(with32('busy'), 'pro', false, true) === 16_000, 'Pro user, busy 32K worker online -> 16K');
+const with24 = [...prodFleet, { id: 'm24', status: 'idle' as const, numCtx: 24_576, model: MAX }];
+check(gatedBudget(with24, 'pro', false, false) === 16_000, `24K worker holds a non-thinking job (${longContextNeed(MAX, false)}) -> 16K`);
+check(gatedBudget(with24, 'pro', false, true) === 12_000, `24K worker cannot hold a thinking job (${longContextNeed(MAX, true)}) -> 12K`);
+check(gatedBudget([...prodFleet, { id: 'u', status: 'idle', numCtx: undefined, model: MAX }], 'pro', false, false) === 12_000, 'unknown-window worker does not open the gate');
+check(gatedBudget([...prodFleet, { id: 'x32', status: 'idle', numCtx: 32_768, model: 'other-model' }], 'pro', false, false) === 12_000,
+  '32K worker that cannot serve the model does not open the gate');
+check(gatedBudget(prodFleet, 'free', true, false) === 12_000, 'Free-plan credit payer, no fitting worker -> no re-bound, 12K');
+check(gatedBudget(with32('busy'), 'free', true, false) === 16_000, 'Free-plan credit payer, fitting worker online -> re-bound to 16K');
+check(gatedBudget(with32('idle'), 'free', false, false) === 12_000, 'Free-plan grant user stays 12K even with a 32K worker online');
 
 // ── 4. Dispatch ──
 console.log('\n# dispatch');

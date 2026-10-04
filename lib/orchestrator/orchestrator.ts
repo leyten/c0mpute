@@ -379,6 +379,28 @@ export function workerFitsCtx(worker: { numCtx?: number }, required: number): bo
   return typeof worker.numCtx === 'number' && worker.numCtx >= required;
 }
 
+/** The most window a long-context job can need: the full paid input budget,
+ *  the injected prompt and tools, and this request's output cap. */
+export function longContextNeed(model: string | undefined, think: boolean): number {
+  return MAX_INPUT_TOKENS_NATIVE_PAID + NATIVE_PROMPT_OVERHEAD_TOKENS + outputTokenCap(model, think);
+}
+
+/** Submit-time gate for the paid budget: is any ONLINE worker (busy included)
+ *  that can serve this job able to hold a full long-context job? Without one,
+ *  a long job falls back onto a smaller worker, overflows its window, and
+ *  ollama fails it outright ("no user query found in messages"), where the
+ *  same job trimmed to the standard budget would have been served. */
+export function longContextServable<W extends { numCtx?: number }>(
+  workers: Iterable<W>,
+  canServe: (w: W) => boolean,
+  model: string | undefined,
+  think: boolean,
+): boolean {
+  const need = longContextNeed(model, think);
+  for (const w of workers) if (canServe(w) && workerFitsCtx(w, need)) return true;
+  return false;
+}
+
 /** The window a queued job needs, or null when it has no window rule: anything
  *  but a LONG native max-tier job (swarm jobs never reach the queue). */
 export function nativeCtxNeed(
@@ -1222,7 +1244,11 @@ export class Orchestrator {
         // (long context) and the bound has to come before the reservation is
         // priced. Anonymous visitors have no plan and skip the lookup entirely.
         const submitPlan = isAnon ? null : resolvePlanState(privyUserId);
-        const longContext = longContextEligible({ anon: isAnon, plan: submitPlan?.plan, paysCredits: false });
+        // Paid AND servable: the long budget only applies while some online
+        // worker can actually hold it (see longContextServable). Otherwise the
+        // job is bounded at the standard budget, exactly as before.
+        const longContext = longContextEligible({ anon: isAnon, plan: submitPlan?.plan, paysCredits: false })
+          && this.longContextFits(data.model, data.think === true);
         // Kept untrimmed for the credit lane, which re-bounds a Free-plan account
         // that turns out to be paying at the long-context budget.
         const originalMessages = data.messages;
@@ -1488,11 +1514,13 @@ export class Orchestrator {
           // long-context job. If the standard bound trimmed history,
           // re-bound the ORIGINAL messages at the long-context budget and
           // re-price before anything is held, so the reservation is on what the
-          // worker is shipped. Only when the balance covers the bigger hold:
-          // otherwise the job runs on the standard bound exactly as before.
+          // worker is shipped. Only when some online worker can hold it and the
+          // balance covers the bigger hold: otherwise the job runs on the
+          // standard bound exactly as before.
           const longBudget = inputTokenBudget(data.model, true);
           if (bounded.dropped > 0 && !longContext && longBudget > inputBudget
-            && longContextEligible({ anon: isAnon, plan: planState.plan, paysCredits: true })) {
+            && longContextEligible({ anon: isAnon, plan: planState.plan, paysCredits: true })
+            && this.longContextFits(data.model, data.think === true)) {
             const long = boundInputMessages(originalMessages, longBudget);
             if (long.ok) {
               const longTokens = estimatePromptTokens(long.messages);
@@ -2419,6 +2447,16 @@ export class Orchestrator {
       if (this.workerCanServe(worker, requestedModel, subsidyKind)) return true;
     }
     return false;
+  }
+
+  /**
+   * Can the network hold a full long-context job for this model right now?
+   * Same eligibility as dispatch (workerCanServe), judged with no subsidy
+   * kind: every lane that can get long context (plan grant, staking
+   * allowance, credits) is outside the free-lane worker age gate.
+   */
+  private longContextFits(requestedModel: string | undefined, think: boolean): boolean {
+    return longContextServable(this.workers.values(), (w) => this.workerCanServe(w, requestedModel), requestedModel, think);
   }
 
   /**
