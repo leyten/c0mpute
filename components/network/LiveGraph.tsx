@@ -13,8 +13,6 @@ export interface LiveCounts {
   busy: number;
 }
 
-const INK = '20,18,16';
-const PAPER = '#faf8f6';
 const GOLDEN = Math.PI * (3 - Math.sqrt(5));
 // node radii follow the mark's three nodes (12, 10, 8): GPU, image, browser
 const RADIUS = { native: 12, image: 10, browser: 8 } as const;
@@ -107,6 +105,12 @@ export default function LiveGraph({ initial }: { initial: LiveCounts | null }) {
     ro.observe(cv);
     const io = new IntersectionObserver(([e]) => { visible = e.isIntersecting; if (visible && !reduce) loop(); });
     io.observe(cv);
+    // ink and ground follow the theme: the canvas inherits the hero's ink, the ground is the page's
+    let ink = '', ground = '';
+    const readTheme = () => { const cs = getComputedStyle(cv); ink = cs.color; ground = cs.getPropertyValue('--background').trim(); };
+    readTheme();
+    const mo = new MutationObserver(() => { readTheme(); if (reduce) draw(0); });
+    mo.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
 
     function draw(t: number) {
       const c = countsRef.current;
@@ -126,7 +130,7 @@ export default function LiveGraph({ initial }: { initial: LiveCounts | null }) {
       }));
       // tapered links, the mark's construction (half-width proportional to each end's radius),
       // drawn finer than the mark because these links run much longer
-      ctx!.fillStyle = `rgb(${INK})`;
+      ctx!.fillStyle = ink;
       for (const [a, b] of L) {
         const A = P[a], B = P[b], dx = B.x - A.x, dy = B.y - A.y, len = Math.hypot(dx, dy) || 1;
         const nx = -dy / len, ny = dx / len, wa = A.r * 0.2, wb = B.r * 0.2;
@@ -139,12 +143,13 @@ export default function LiveGraph({ initial }: { initial: LiveCounts | null }) {
       for (const p of P) {
         if (p.n.busy && !reduce) {
           const ph = ((t / 2200 + p.n.phase) % 1 + 1) % 1;
-          ctx!.strokeStyle = `rgba(${INK},${(0.5 * (1 - ph)).toFixed(3)})`; ctx!.lineWidth = 1.5;
+          ctx!.globalAlpha = 0.5 * (1 - ph); ctx!.strokeStyle = ink; ctx!.lineWidth = 1.5;
           ctx!.beginPath(); ctx!.arc(p.x, p.y, p.r + 4 + ph * 22 * k, 0, Math.PI * 2); ctx!.stroke();
+          ctx!.globalAlpha = 1;
         }
         ctx!.beginPath(); ctx!.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-        if (p.n.busy) { ctx!.fillStyle = `rgb(${INK})`; ctx!.fill(); }
-        else { ctx!.fillStyle = PAPER; ctx!.fill(); ctx!.strokeStyle = `rgb(${INK})`; ctx!.lineWidth = Math.max(1.5, 2 * k); ctx!.stroke(); }
+        if (p.n.busy) { ctx!.fillStyle = ink; ctx!.fill(); }
+        else { ctx!.fillStyle = ground; ctx!.fill(); ctx!.strokeStyle = ink; ctx!.lineWidth = Math.max(1.5, 2 * k); ctx!.stroke(); }
       }
     }
 
@@ -160,7 +165,7 @@ export default function LiveGraph({ initial }: { initial: LiveCounts | null }) {
     }
     redraw.current = reduce ? () => draw(0) : null;
     if (reduce) draw(0); else loop();
-    return () => { cancelAnimationFrame(raf); ro.disconnect(); io.disconnect(); };
+    return () => { cancelAnimationFrame(raf); ro.disconnect(); io.disconnect(); mo.disconnect(); };
   }, []);
 
   // under reduced motion nothing animates, so a new count needs one static redraw

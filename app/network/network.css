@@ -25,8 +25,8 @@
 .nw-h { font-size: clamp(36px, 4.3vw, 64px); }
 .nw-body { margin: 20px 0 0; font-size: 18px; line-height: 1.5; letter-spacing: -0.006em; max-width: 34em; color: var(--nw-ink); }
 
-/* 01 the live map, on paper like the rest */
-.nw-hero { position: relative; background: var(--nw-paper); color: var(--nw-ink); height: max(620px, calc(100svh - var(--nw-nav) - 44px)); overflow: hidden; }
+/* 01 the live map, on the page ground like the rest (paper, night in dark mode) */
+.nw-hero { position: relative; background: var(--background); color: var(--nw-ink); height: max(620px, calc(100svh - var(--nw-nav) - 44px)); overflow: hidden; }
 .nw-graph { position: absolute; top: 0; bottom: 0; right: 0; width: 62%; height: 100%; display: block; }
 .nw-live-copy { position: absolute; z-index: 2; left: var(--nw-pad); top: 56px; max-width: 30rem; }
 .nw-live-stats { position: absolute; z-index: 2; left: var(--nw-pad); bottom: 48px; display: flex; gap: 56px; }
