@@ -13,7 +13,7 @@ import { Viewer } from './Viewer';
 import { IconBell, IconX } from './icons';
 import {
   ASPECTS, MAX_ACTIVE, NSFW_ACK_KEY, SUGGESTED_PROMPTS, VIDEO_CREDITS,
-  aspectIdFor, expectedRenderMs, idbAll, idbDelete, idbPut, progressOf, readPending, recordRenderMs, removePending, writePending,
+  aspectIdFor, expectedRenderMs, idbAll, idbDelete, idbPut, progressOf, readPending, recordRenderMs, removePending, updatePending, writePending,
   type AspectId, type JobState, type PendingJob, type SavedVideo, type ShownVideo,
 } from './lib';
 
@@ -51,8 +51,8 @@ export default function StudioPage() {
   const [noticeDismissed, setNoticeDismissed] = useState(true);
   const [balance, setBalance] = useState<number | null>(null);
   const [grantLeft, setGrantLeft] = useState(0);
-  // What the tab says after a render lands while nobody is looking.
-  const [titleNote, setTitleNote] = useState<'Finished' | 'Failed' | null>(null);
+  // What landed while nobody was looking, for the tab title.
+  const [unseen, setUnseen] = useState({ finished: 0, failed: 0 });
   const historyRef = useRef<ShownVideo[]>([]);
   const jobsRef = useRef<JobState[]>([]);
   const baseTitle = useRef('');
@@ -81,7 +81,7 @@ export default function StudioPage() {
       idbAll().then((recs) => setHistory(recs.map((r) => ({ ...r, url: URL.createObjectURL(r.blob) })))).catch(() => {});
     }
     const pending = readPending();
-    if (pending.length) setJobs(pending.map((p) => ({ ...p, status: 'queued', pct: 0 })));
+    if (pending.length) setJobs(pending.map((p) => ({ ...p, status: p.renderStartedAt ? 'rendering' : 'queued', pct: 0 })));
     try {
       const a = localStorage.getItem(ASPECT_KEY);
       if (ASPECTS.some((x) => x.id === a)) setAspect(a as AspectId);
@@ -107,20 +107,27 @@ export default function StudioPage() {
 
   // The tab says what is happening: "42% · Generating..." while a render
   // runs (background tabs tick about once a second, so the dots are discrete),
-  // then "Finished" or "Failed" until the tab is looked at again.
+  // then what landed while the tab was away ("Finished", "1 finished, 1
+  // failed") until it is looked at again.
   useEffect(() => {
     if (!baseTitle.current) return;
     const first = active[0];
+    const { finished: f, failed: x } = unseen;
     if (first) {
       const pr = progressOf(first, now, expectedMs);
       const dots = '.'.repeat((Math.floor(now / 1000) % 3) + 1);
-      document.title = first.status === 'queued' ? `Queued · Studio` : `${pr.pct === null ? 'Finishing' : `${pr.pct}%`} · Generating${dots}`;
+      document.title = pr.queued ? 'Queued · Studio' : pr.pct === null ? `Finishing${dots}` : `${pr.pct}% · Generating${dots}`;
+    } else if (f && x) {
+      document.title = `${f} finished, ${x} failed · Studio`;
+    } else if (f || x) {
+      const n = f || x;
+      document.title = `${n > 1 ? `${n} ${f ? 'finished' : 'failed'}` : f ? 'Finished' : 'Failed'} · Studio`;
     } else {
-      document.title = titleNote ? `${titleNote} · Studio` : baseTitle.current;
+      document.title = baseTitle.current;
     }
-  }, [active, now, expectedMs, titleNote]);
+  }, [active, now, expectedMs, unseen]);
   useEffect(() => {
-    const seen = () => { if (document.visibilityState === 'visible' && document.hasFocus()) setTitleNote(null); };
+    const seen = () => { if (document.visibilityState === 'visible' && document.hasFocus()) setUnseen({ finished: 0, failed: 0 }); };
     window.addEventListener('focus', seen);
     document.addEventListener('visibilitychange', seen);
     return () => { window.removeEventListener('focus', seen); document.removeEventListener('visibilitychange', seen); };
@@ -173,7 +180,12 @@ export default function StudioPage() {
   };
 
   const onProgress = useCallback((jobId: string, status: 'queued' | 'rendering', pct: number, stage?: VideoStage) => {
-    setJobs((js) => js.map((j) => (j.jobId === jobId ? { ...j, status, pct, stage } : j)));
+    const prev = jobsRef.current.find((j) => j.jobId === jobId);
+    // The first poll that says rendering starts the render clock, and it is
+    // kept with the pending job so a reload does not count queue time again.
+    const renderStartedAt = prev?.renderStartedAt ?? (status === 'rendering' ? Date.now() : undefined);
+    if (renderStartedAt && !prev?.renderStartedAt) updatePending(jobId, { renderStartedAt });
+    setJobs((js) => js.map((j) => (j.jobId === jobId ? { ...j, status, pct, stage, renderStartedAt } : j)));
   }, []);
 
   // The clip is saved to IndexedDB first, so it is kept even if the page is
@@ -183,18 +195,19 @@ export default function StudioPage() {
     removePending(jobId);
     setJobs((js) => js.filter((j) => j.jobId !== jobId));
     if (!job) return;
-    const renderMs = Date.now() - job.startedAt;
+    // Render time only; a clip whose start was never seen has no figure.
+    const renderMs = job.renderStartedAt ? Date.now() - job.renderStartedAt : undefined;
     const rec: SavedVideo = {
       id: jobId, blob, prompt: job.prompt, seed: job.seed, width: job.width, height: job.height,
       createdAt: Date.now(), adult: job.adult, renderMs,
     };
     idbPut(rec).catch(() => {});
-    recordRenderMs(renderMs);
+    if (renderMs) recordRenderMs(renderMs);
     setExpectedMs(expectedRenderMs());
     const shown = { ...rec, url: URL.createObjectURL(blob) };
     setHistory((h) => (h.some((x) => x.id === jobId) ? h : [shown, ...h]));
     if (away()) {
-      setTitleNote('Finished');
+      setUnseen((u) => ({ ...u, finished: u.finished + 1 }));
       if (localStorage.getItem(NOTIFY_KEY) === '1' && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
         try { new Notification('Your clip is ready', { body: job.prompt.slice(0, 120), tag: jobId }); } catch {}
       }
@@ -204,7 +217,7 @@ export default function StudioPage() {
   const onFail = useCallback((jobId: string, message: string) => {
     removePending(jobId);
     setJobs((js) => js.map((j) => (j.jobId === jobId ? { ...j, status: 'failed', error: message } : j)));
-    if (away()) setTitleNote('Failed');
+    if (away()) setUnseen((u) => ({ ...u, failed: u.failed + 1 }));
     loadBalance();
   }, [loadBalance]);
 

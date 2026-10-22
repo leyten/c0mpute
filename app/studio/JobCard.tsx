@@ -41,13 +41,13 @@ export function JobCard({ job, now, expectedMs, onRetry, onDismiss }: {
           ) : (
             <>
               <div className="flex items-start justify-between gap-2">
-                <p className="st-eyebrow">{job.status === 'queued' ? 'Waiting for a GPU' : pr.pct === null ? 'Almost done' : pr.label}</p>
+                <p className="st-eyebrow">{pr.queued ? 'Waiting for a GPU' : pr.pct === null ? 'Almost done' : pr.label}</p>
                 {job.adult && <span className="pixel-sans border border-fg/25 px-1.5 text-[10px] leading-4 text-fg-60">18+</span>}
               </div>
               <div className="min-w-0">
                 {/* the big figure is the percentage while there is an honest one, else the stage */}
                 <p className="pixel-serif text-[28px] tabular-nums leading-none text-fg sm:text-[34px]">
-                  {job.status === 'queued' ? 'Queued' : pr.pct === null ? 'Finishing' : `${pr.pct}%`}
+                  {pr.queued ? 'Queued' : pr.pct === null ? 'Finishing' : `${pr.pct}%`}
                 </p>
                 <p className="pixel-sans mt-2.5 line-clamp-2 text-[12px] leading-snug text-fg-55">{job.prompt}</p>
               </div>
@@ -56,8 +56,9 @@ export function JobCard({ job, now, expectedMs, onRetry, onDismiss }: {
                   <div className="h-full bg-fg transition-[width] duration-1000 ease-linear" style={{ width: `${pr.barPct}%` }} />
                 </div>
                 <p className="pixel-sans mt-2 text-[11px] tabular-nums leading-snug text-fg-50">
-                  {fmtClock(pr.elapsed)}
-                  {pr.slow ? ' · taking longer than usual' : job.status === 'rendering' && pr.pct !== null ? ` · ${fmtRemaining(pr.remaining)}` : ''}
+                  {pr.queued
+                    ? `${fmtClock(pr.elapsed)} in the queue`
+                    : `${fmtClock(pr.elapsed)}${pr.slow ? ' · taking longer than usual' : pr.pct !== null ? ` · ${fmtRemaining(pr.remaining)}` : ''}`}
                 </p>
               </div>
             </>

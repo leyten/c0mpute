@@ -97,6 +97,9 @@ export interface PendingJob {
   height: number;
   adult?: boolean;
   startedAt: number;
+  // When the first poll reported it rendering. Everything before was queue
+  // time, which says nothing about how long the render itself takes.
+  renderStartedAt?: number;
 }
 const PENDING_KEY = 'c0mpute_studio_pending';
 
@@ -115,13 +118,17 @@ export function writePending(list: PendingJob[]) {
     else localStorage.removeItem(PENDING_KEY);
   } catch {}
 }
+export function updatePending(jobId: string, patch: Partial<PendingJob>) {
+  writePending(readPending().map((p) => (p.jobId === jobId ? { ...p, ...patch } : p)));
+}
 export function removePending(jobId: string) {
   writePending(readPending().filter((p) => p.jobId !== jobId));
 }
 
 // ── what this browser has measured ──────────────────────────────────────────
 const RENDER_MS_KEY = 'c0mpute_studio_render_ms';
-/** Rolling average of this browser's last five renders, submit to clip. */
+/** Rolling average of this browser's last five render times (first
+ *  rendering poll to clip; queue time is not part of it). */
 export function expectedRenderMs(): number {
   try {
     const xs = JSON.parse(localStorage.getItem(RENDER_MS_KEY) || '[]') as number[];
@@ -146,22 +153,26 @@ export interface JobState extends PendingJob {
   error?: string;
 }
 
-/** Honest progress: the worker's own percentage when it reports one, else
- *  elapsed over what this browser usually waits. Never a creeping 99%: past
- *  95 the number goes and the label says Finishing. */
+/** Honest progress. Queued: no percentage, only the time spent waiting.
+ *  Rendering: the worker's own percentage when it reports one, else render
+ *  time over what this browser's renders usually take, with elapsed, the
+ *  estimate and "slow" all measured from when rendering started. Never a
+ *  creeping 99%: past 95 the number goes and the label says Finishing. */
 export function progressOf(job: JobState, now: number, expectedMs: number) {
-  const elapsed = Math.max(0, now - job.startedAt);
+  if (job.status === 'queued') {
+    return { queued: true, elapsed: Math.max(0, now - job.startedAt), pct: null, barPct: 0, label: 'Queued', slow: false, remaining: 0 };
+  }
+  const elapsed = Math.max(0, now - (job.renderStartedAt ?? now));
   const estimate = Math.min(95, (elapsed / expectedMs) * 100);
-  const pct = job.status === 'rendering' && job.pct > 0 ? job.pct : job.status === 'queued' ? 0 : estimate;
+  const pct = job.pct > 0 ? job.pct : estimate;
   const finishing = pct > 95 || job.stage === 'interpolating' || job.stage === 'encoding';
-  const label = job.status === 'queued'
-    ? 'Queued'
-    : finishing ? 'Finishing'
-      : job.stage === 'loading' ? 'Loading model'
-        : job.stage === 'decoding' ? 'Decoding'
-          : 'Rendering';
+  const label = finishing ? 'Finishing'
+    : job.stage === 'loading' ? 'Loading model'
+      : job.stage === 'decoding' ? 'Decoding'
+        : 'Rendering';
   const remaining = job.pct > 5 ? (elapsed * (100 - job.pct)) / job.pct : expectedMs - elapsed;
   return {
+    queued: false,
     elapsed,
     pct: finishing ? null : Math.round(pct),
     barPct: finishing ? 100 : pct,
