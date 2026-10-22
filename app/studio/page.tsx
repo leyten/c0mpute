@@ -10,10 +10,11 @@ import Composer from './Composer';
 import { JobCard, JobRunner } from './JobCard';
 import { Gallery } from './Gallery';
 import { Viewer } from './Viewer';
+import { AdultGate } from './AdultGate';
 import { IconBell, IconX } from './icons';
 import {
   ASPECTS, MAX_ACTIVE, NSFW_ACK_KEY, SUGGESTED_PROMPTS, VIDEO_CREDITS,
-  aspectIdFor, expectedRenderMs, idbAll, saveDraft, takeDraft, idbDelete, idbPut, progressOf, readPending, recordRenderMs, removePending, updatePending, writePending,
+  aspectIdFor, downloadName, expectedRenderMs, idbAll, saveDraft, takeDraft, idbDelete, idbPut, progressOf, readPending, recordRenderMs, removePending, updatePending, writePending,
   type AspectId, type JobState, type PendingJob, type SavedVideo, type ShownVideo,
 } from './lib';
 
@@ -39,6 +40,12 @@ export default function StudioPage() {
   // canvas
   const [jobs, setJobs] = useState<JobState[]>([]);
   const [history, setHistory] = useState<ShownVideo[]>([]);
+  // Nothing is drawn on the canvas until the history has been read, so a
+  // returning user never sees the empty state flash first.
+  const [historyLoaded, setHistoryLoaded] = useState(false);
+  // A clip that came back but could not be written to IndexedDB (quota,
+  // private mode): offered as a download before it is lost on reload.
+  const [unsaved, setUnsaved] = useState<{ url: string; name: string } | null>(null);
   // The open clip, by id: a render landing while the viewer is open adds a clip
   // at the front, and an index would then point at a different one.
   const [viewerId, setViewerId] = useState<string | null>(null);
@@ -79,7 +86,16 @@ export default function StudioPage() {
   // Everything this browser remembers: clips, renders in flight, preferences.
   useEffect(() => {
     if (typeof indexedDB !== 'undefined') {
-      idbAll().then((recs) => setHistory(recs.map((r) => ({ ...r, url: URL.createObjectURL(r.blob) })))).catch(() => {});
+      // One broken record (no blob, no size) is skipped, never the whole list.
+      idbAll()
+        .then((recs) => setHistory(recs.flatMap((r) => {
+          if (!(r?.blob instanceof Blob) || !(r.width > 0) || !(r.height > 0)) return [];
+          try { return [{ ...r, url: URL.createObjectURL(r.blob) }]; } catch { return []; }
+        })))
+        .catch(() => {})
+        .finally(() => setHistoryLoaded(true));
+    } else {
+      setHistoryLoaded(true);
     }
     const pending = readPending();
     if (pending.length) setJobs(pending.map((p) => ({ ...p, status: p.renderStartedAt ? 'rendering' : 'queued', pct: 0 })));
@@ -222,10 +238,11 @@ export default function StudioPage() {
       id: jobId, blob, prompt: job.prompt, seed: job.seed, width: job.width, height: job.height,
       createdAt: Date.now(), adult: job.adult, renderMs,
     };
-    idbPut(rec).catch(() => {});
+    const shownUrl = URL.createObjectURL(blob);
+    idbPut(rec).catch(() => setUnsaved({ url: shownUrl, name: downloadName(rec) }));
     if (renderMs) recordRenderMs(renderMs);
     setExpectedMs(expectedRenderMs());
-    const shown = { ...rec, url: URL.createObjectURL(blob) };
+    const shown = { ...rec, url: shownUrl };
     setHistory((h) => (h.some((x) => x.id === jobId) ? h : [shown, ...h]));
     if (away()) {
       setUnseen((u) => ({ ...u, finished: u.finished + 1 }));
@@ -258,6 +275,7 @@ export default function StudioPage() {
     setAdult(true);
     setShowGate(false);
   };
+  const closeGate = useCallback(() => setShowGate(false), []);
 
   const chooseAspect = (a: AspectId) => {
     setAspect(a);
@@ -275,9 +293,11 @@ export default function StudioPage() {
   const reuse = (c: ShownVideo) => {
     setPrompt(c.prompt);
     chooseAspect(aspectIdFor(c.width, c.height));
+    const gate = !!c.adult && !adult && localStorage.getItem(NSFW_ACK_KEY) !== '1';
     if (!!c.adult !== adult) toggleAdult();
     setViewerId(null);
-    requestAnimationFrame(() => document.getElementById('st-prompt')?.focus());
+    // the 18+ gate, if it opens, keeps the focus
+    if (!gate) requestAnimationFrame(() => document.getElementById('st-prompt')?.focus());
   };
   const regenerate = (c: ShownVideo) => {
     closeViewer();
@@ -317,7 +337,8 @@ export default function StudioPage() {
             ? { reason: 'No video GPU is online right now. Try again in a minute.' }
             : null;
 
-  const isEmpty = !history.length && !jobs.length;
+  const isEmpty = historyLoaded && !history.length && !jobs.length;
+  const shape = ASPECTS.find((x) => x.id === aspect) ?? ASPECTS[0];
 
   return (
     <div className="studio ui-readable flex h-dvh flex-col overflow-hidden bg-background">
@@ -370,6 +391,16 @@ export default function StudioPage() {
             </div>
           )}
 
+          {unsaved && (
+            <div role="alert" className="pixel-sans mb-5 flex flex-wrap items-center justify-between gap-3 border border-danger/30 px-3.5 py-2.5 text-[13px] text-fg-80">
+              <span>Couldn&apos;t save this clip in your browser. Download it now or it is gone after a reload.</span>
+              <span className="flex shrink-0 items-center gap-3">
+                <a href={unsaved.url} download={unsaved.name} className="bg-fg px-3 py-1 text-[12px] text-on-fg hover:opacity-90">Download</a>
+                <button type="button" aria-label="Dismiss" onClick={() => setUnsaved(null)} className="cursor-pointer p-1 text-fg-40 hover:text-fg"><IconX size={12} /></button>
+              </span>
+            </div>
+          )}
+
           {jobs.length > 0 && (
             <div className="st-rows mb-2">
               {jobs.map((j) => (
@@ -387,7 +418,7 @@ export default function StudioPage() {
                   Wan 2.2 renders it on a GPU in the network and sends it straight to this browser. It is not stored anywhere else.
                 </p>
                 <div className="pixel-sans mt-6 flex flex-wrap justify-center gap-x-5 gap-y-1 text-[13px] tabular-nums text-fg-45">
-                  <span>5 seconds</span><span>1280 x 720</span><span>32 fps</span><span>~{Math.max(0.5, Math.round((expectedMs / 60_000) * 2) / 2)} min</span><span>{VIDEO_CREDITS} credits</span>
+                  <span>5 seconds</span><span>{shape.w} x {shape.h}</span><span>32 fps</span><span>~{Math.max(0.5, Math.round((expectedMs / 60_000) * 2) / 2)} min</span><span>{VIDEO_CREDITS} credits</span>
                 </div>
                 <div className="mt-8 grid gap-2 text-left sm:grid-cols-2">
                   {SUGGESTED_PROMPTS.map((s) => (
@@ -399,9 +430,9 @@ export default function StudioPage() {
                 </div>
               </div>
             </div>
-          ) : (
+          ) : historyLoaded ? (
             <Gallery clips={history} playingId={playingId} onPlay={setPlayingId} onOpen={openViewer} />
-          )}
+          ) : null}
         </main>
       </div>
       </div>
@@ -415,24 +446,7 @@ export default function StudioPage() {
           onReuse={reuse} onRegenerate={regenerate} onDelete={remove} />
       )}
 
-      {/* 18+ gate, as on /create */}
-      {showGate && (
-        <div className="fixed inset-0 z-[130] flex items-center justify-center bg-scrim-strong p-4 backdrop-blur-sm">
-          <div className="w-full max-w-md border border-fg/15 bg-background p-6">
-            <h3 className="pixel-serif mb-3 text-xl text-fg">Adult content (18+)</h3>
-            <p className="pixel-sans mb-2 text-sm text-fg-70">
-              Enabling 18+ allows generation of adult content. By continuing you confirm you are 18 or older and that adult content is legal where you live.
-            </p>
-            <p className="pixel-sans mb-5 text-xs text-fg-70">
-              Sexual content involving minors is never generated and is permanently blocked.
-            </p>
-            <div className="flex gap-3">
-              <button onClick={() => setShowGate(false)} className="pixel-sans flex-1 cursor-pointer border border-fg/15 px-4 py-2.5 text-sm text-fg-70 transition-colors hover:text-fg">Cancel</button>
-              <button onClick={confirmGate} className="pixel-serif flex-1 cursor-pointer bg-fg px-4 py-2.5 text-sm text-on-fg transition-colors hover:bg-fg/90">I&apos;m 18+, continue</button>
-            </div>
-          </div>
-        </div>
-      )}
+      {showGate && <AdultGate onCancel={closeGate} onConfirm={confirmGate} />}
     </div>
   );
 }

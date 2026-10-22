@@ -24,12 +24,13 @@ export function JobCard({ job, now, expectedMs, onRetry, onDismiss, onLogin }: {
         className={`relative overflow-hidden border ${failed ? 'border-danger/40' : 'border-fg/15'} bg-background`}
         role="status" aria-label={failed ? 'Render failed' : `Rendering, ${pr.pct ?? 'finishing'}`}>
         {!failed && <div className="st-shimmer" aria-hidden="true" />}
-        <div className="absolute inset-0 flex flex-col justify-between gap-2 p-3.5 sm:p-4">
+        {/* a running card holds the clip's shape; a message card may grow past it rather than cut its text */}
+        <div className={`${failed || job.authLost ? 'relative h-full' : 'absolute inset-0'} flex flex-col justify-between gap-2 p-3.5 sm:p-4`}>
           {failed ? (
             <>
               <div>
                 <p className="st-eyebrow !text-danger">Failed</p>
-                <p className="pixel-sans mt-2 line-clamp-4 text-[13px] leading-snug text-fg-80">{job.error || 'Video generation failed.'}</p>
+                <p className="pixel-sans mt-2 text-[13px] leading-snug text-fg-80">{job.error || 'Video generation failed.'}</p>
               </div>
               <div>
                 <p className="pixel-sans mb-3 line-clamp-2 text-[12px] leading-snug text-fg-45">{job.prompt}</p>
