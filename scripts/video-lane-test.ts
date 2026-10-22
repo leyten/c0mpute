@@ -12,6 +12,7 @@
  *   - completed job + worker earning recorded with tier 'video';
  *   - every failure path (worker error, bad/oversized clip, timeout, worker gone)
  *     refunds exactly once, and a late result after a failure is ignored;
+ *   - a clip under the 100KB junk floor is refused: refunded, no earning;
  *   - an adult job never reaches a worker that did not opt in;
  *   - a submit that reaches the orchestrator after its accept deadline is refused;
  *   - every charge is a video_charges row: settled on delivery, refunded on
@@ -165,7 +166,7 @@ async function main() {
   await sleep(100);
   p = await poll(j1);
   check('data' in p && p.data.pct === 55 && p.data.stage === 'sampling', 'progress relayed to the poll; an unknown stage string is dropped');
-  const clip = fakeMp4(4096);
+  const clip = fakeMp4(200 * 1024);
   sfw.sock.emit('video:result', { jobId: j1, video: clip.toString('base64') });
   await sleep(150);
   p = await poll(j1);
@@ -221,6 +222,14 @@ async function main() {
   p = await poll(s2);
   check('data' in p && p.data.status === 'failed' && p.data.code === 'BAD_RESULT' && /too large/.test(p.data.error), `oversized clip (${(big.length / 1048576).toFixed(1)}MB base64) rejected with a clear error`);
   check(balance() === bA, 'both refunded, exactly once each');
+  r = await generate({ prompt: 'nude figure on a balcony', adult: true });
+  const a3 = r.data.jobId as string;
+  check(await waitFor(() => adultW.jobs.length === 3), 'next adult job dispatched');
+  adultW.sock.emit('video:result', { jobId: a3, video: fakeMp4(50 * 1024).toString('base64') });
+  await sleep(100);
+  p = await poll(a3);
+  check('data' in p && p.data.code === 'BAD_RESULT' && balance() === bA && db.getRecentEarnings('did:privy:worker-adult').length === 0,
+    'a valid-looking MP4 under the 100KB floor is refused: refunded, no earning');
 
   // ── a large but legal clip arrives intact ──
   r = await generate({ prompt: 'timelapse of clouds over mountains' });

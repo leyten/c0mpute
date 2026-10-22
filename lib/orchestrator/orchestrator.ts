@@ -607,6 +607,8 @@ export class Orchestrator {
   // A worker's result rides the socket, which closes on anything over the 16MB
   // maxHttpBufferSize (server/index.ts). Refuse well before that, with a reason.
   private readonly MAX_VIDEO_B64_CHARS = 15 * 1024 * 1024;
+  // A real 5s clip is megabytes; anything under this is filler, not a render.
+  private readonly MIN_VIDEO_BYTES = 100 * 1024;
 
   // ── Job liveness (stall-aware, not wall-clock) ─────────────────────────────
   // A running job is healthy while it is still PRODUCING. Total runtime says
@@ -1893,6 +1895,17 @@ export class Orchestrator {
         if (!isMp4 || video.length > this.MAX_VIDEO_B64_CHARS) {
           console.warn(`[Orchestrator] Video job ${job.id}: rejected result from ${worker?.id || socket.id} (${isMp4 ? `${video.length} chars, over the cap` : 'not an MP4'})`);
           this.failVideoJob(job, isMp4 ? 'The clip came out too large to deliver.' : 'Video generation failed.', 'BAD_RESULT');
+          this.processVideoQueue();
+          return;
+        }
+        // Junk floor: the user is refunded and the worker earns nothing. No
+        // strike: strikes add up to a permanent ban, and a size heuristic (or
+        // a misconfigured manifest, which would hit every honest worker) is
+        // not proof of cheating. Tagged so repeat offenders can be found.
+        const bytes = Math.floor((video.length * 3) / 4);
+        if (bytes < this.MIN_VIDEO_BYTES) {
+          console.warn(`[Orchestrator] [video-junk] job=${job.id} worker=${worker?.id || socket.id} user=${worker?.privyUserId ?? 'unknown'} bytes=${bytes}`);
+          this.failVideoJob(job, 'Video generation failed. Try again.', 'BAD_RESULT');
           this.processVideoQueue();
           return;
         }
