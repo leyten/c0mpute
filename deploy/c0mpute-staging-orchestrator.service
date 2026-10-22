@@ -1,0 +1,45 @@
+[Unit]
+Description=c0mpute STAGING Orchestrator (staging.compute.tech)
+After=network.target
+StartLimitIntervalSec=300
+StartLimitBurst=30
+
+[Service]
+Type=simple
+# Staging tree, shipped only by scripts/deploy-staging.sh. Absolute paths, no
+# npx, for the same pkill reason as c0mpute-orchestrator.service. The env check
+# runs with full privileges (+) because it compares against the production env.
+WorkingDirectory=/srv/c0mpute/staging
+ExecStartPre=+/srv/c0mpute/staging-env-check.sh
+ExecStart=/srv/c0mpute/staging/node_modules/.bin/tsx /srv/c0mpute/staging/server/index.ts
+TimeoutStopSec=15
+KillMode=mixed
+KillSignal=SIGTERM
+SendSIGKILL=yes
+Restart=always
+RestartSec=3
+Environment=NODE_ENV=production
+Environment=SOCKET_PORT=3014
+Environment=ALLOWED_ORIGINS=https://staging.compute.tech,http://localhost:3013
+# No home: keeps staging off ~/.config/env/global.env (shared Brave key).
+Environment=HOME=/nonexistent
+
+# Same sandbox as c0mpute-staging-web.service; see the reasoning there.
+User=c0staging
+Group=c0staging
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=/srv/c0mpute/staging-data
+InaccessiblePaths=/srv/c0mpute/prod -/etc/letsencrypt
+PrivateTmp=yes
+PrivateDevices=yes
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+RestrictSUIDSGID=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+LockPersonality=yes
+
+[Install]
+WantedBy=multi-user.target

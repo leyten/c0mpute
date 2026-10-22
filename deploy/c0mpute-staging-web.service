@@ -1,0 +1,45 @@
+[Unit]
+Description=c0mpute STAGING Web App (staging.compute.tech)
+After=network.target c0mpute-staging-orchestrator.service
+StartLimitIntervalSec=300
+StartLimitBurst=30
+
+[Service]
+Type=simple
+# Staging tree, shipped only by scripts/deploy-staging.sh. The env check runs
+# with full privileges (+) because it compares against the production env.
+WorkingDirectory=/srv/c0mpute/staging
+ExecStartPre=+/srv/c0mpute/staging-env-check.sh
+ExecStart=/srv/c0mpute/staging/node_modules/.bin/next start -H 127.0.0.1 -p 3013
+TimeoutStopSec=15
+KillMode=mixed
+KillSignal=SIGTERM
+SendSIGKILL=yes
+Restart=always
+RestartSec=3
+Environment=NODE_ENV=production
+Environment=NEXT_TELEMETRY_DISABLED=1
+# No home: keeps staging off ~/.config/env/global.env (shared Brave key).
+Environment=HOME=/nonexistent
+
+# Staging runs branches before they are reviewed, so it gets no more reach than
+# it needs: its own user, no /root (production env, data and keys live there),
+# no production tree, and writes only to its data dir and Next's cache.
+User=c0staging
+Group=c0staging
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=/srv/c0mpute/staging-data /srv/c0mpute/staging/.next/cache
+InaccessiblePaths=/srv/c0mpute/prod -/etc/letsencrypt
+PrivateTmp=yes
+PrivateDevices=yes
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+RestrictSUIDSGID=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+LockPersonality=yes
+
+[Install]
+WantedBy=multi-user.target
