@@ -51,6 +51,7 @@ export default function StudioPage() {
   const [noticeDismissed, setNoticeDismissed] = useState(true);
   const [balance, setBalance] = useState<number | null>(null);
   const [grantLeft, setGrantLeft] = useState(0);
+  const [sheetH, setSheetH] = useState(240);
   // What landed while nobody was looking, for the tab title.
   const [unseen, setUnseen] = useState({ finished: 0, failed: 0 });
   const historyRef = useRef<ShownVideo[]>([]);
@@ -316,11 +317,15 @@ export default function StudioPage() {
           activeCount={active.length}
           isAuthenticated={isAuthenticated}
           balance={balance}
+          grantLeft={grantLeft}
+          onSheetHeight={setSheetH}
           expectedMs={expectedMs}
           error={error}
         />
 
-        <main className="min-h-0 flex-1 overflow-y-auto px-4 pb-48 pt-5 [--st-job:220px] [--st-row:132px] sm:px-6 sm:[--st-row:170px] lg:px-8 lg:pb-10 lg:pt-7 lg:[--st-job:290px] lg:[--st-row:220px]">
+        {/* on small screens the bottom padding is the collapsed sheet's measured height, so the last row is never under it */}
+        <main style={{ ['--st-sheet' as string]: `${Math.round(sheetH)}px` }}
+          className="min-h-0 flex-1 overflow-y-auto px-4 pb-[calc(var(--st-sheet)+24px)] pt-5 [--st-job:220px] [--st-row:132px] sm:px-6 sm:[--st-row:170px] lg:px-8 lg:pb-10 lg:pt-7 lg:[--st-job:290px] lg:[--st-row:220px]">
           <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
             <h1 className="pixel-serif text-[26px] text-fg lg:text-[30px]">
               Your clips{history.length > 0 && <span className="ml-2 text-fg-35 tabular-nums">{history.length}</span>}
@@ -366,7 +371,7 @@ export default function StudioPage() {
                 </div>
                 <div className="mt-8 grid gap-2 text-left sm:grid-cols-2">
                   {SUGGESTED_PROMPTS.map((s) => (
-                    <button key={s.label} type="button" onClick={() => setPrompt(s.prompt)}
+                    <button key={s.label} type="button" onClick={() => { setPrompt(s.prompt); document.getElementById('st-prompt')?.focus(); }}
                       className="pixel-sans cursor-pointer border border-fg/12 px-3.5 py-3 text-[13px] leading-snug text-fg-70 transition-colors hover:border-fg/40 hover:text-fg">
                       {s.prompt}
                     </button>
