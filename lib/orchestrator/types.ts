@@ -335,6 +335,8 @@ export interface NetworkStats {
   workersOnline: number;
   browserWorkers: number;
   nativeWorkers: number;
+  /** Studio video workers; counted apart so they never show as browser workers. */
+  videoWorkers?: number;
   /** Native worker counts broken down by the model string they run. */
   nativeByModel?: Record<string, number>;
   /** decentralized-swarm model ids with at least one READY ring serving them (the /models

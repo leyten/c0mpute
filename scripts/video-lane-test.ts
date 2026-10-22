@@ -18,6 +18,7 @@
  *   - a third job in flight for one account, or new work while held clips are
  *     over budget, is refused before anything is charged;
  *   - an adult job never reaches a worker that did not opt in;
+ *   - network stats count video workers as video, never as browser workers;
  *   - a submit that reaches the orchestrator after its accept deadline is refused;
  *   - every charge is a video_charges row: settled on delivery, refunded on
  *     failure, refunded by the next orchestrator's startup sweep after a crash,
@@ -54,6 +55,7 @@ process.chdir(tmp);
 process.env.INTERNAL_API_SECRET = 'video-lane-test-secret';
 process.env.VIDEO_JOB_TIMEOUT_MS = '3000';
 process.env.VIDEO_HELD_MAX_MB = '10'; // the 8MB clip at the end tips it over
+process.env.MIN_WORKER_ACCOUNT_AGE_HOURS = '0.000001'; // so fresh test workers appear in the stats
 process.env.VIDEO_WORKFLOW_PATH = EXAMPLE;
 // The 18+ manifest: the example plus a marker node, so a test can tell which
 // graph a job was built from.
@@ -88,7 +90,7 @@ async function main() {
   const { VIDEO_CREDITS } = await import('../lib/video-gen');
   const { refundVideoCharge } = await import('../lib/video-charges');
   const { NextRequest } = await import('next/server');
-  new Orchestrator(io);
+  const orch = new Orchestrator(io);
 
   const USER = 'did:privy:video-user';
   db.addCredits(USER, 10_000, undefined, 'test');
@@ -156,6 +158,8 @@ async function main() {
   r = await generate({ prompt: 'nude figure on a beach', adult: true });
   check(r.status === 503 && r.data.code === 'NO_VIDEO_WORKER' && balance() === b0 && txCount() === tx0, 'adult job with only a non-adult worker online -> refused before charging');
   check(sfw.jobs.length === 0, 'the non-adult worker never saw the adult job');
+  const st = orch.getStats();
+  check(st.videoWorkers === 1 && st.browserWorkers === 0, 'stats count the video worker as video, not as a browser worker');
 
   // ── happy path: dispatch, progress, delivery, earnings ──
   r = await generate({ prompt: 'a red fox running through snow', width: 720, height: 1280, seed: 1234, negative_prompt: 'adult, mature' });

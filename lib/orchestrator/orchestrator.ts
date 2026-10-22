@@ -3716,9 +3716,10 @@ export class Orchestrator {
     }
   }
 
-  private getWorkerCounts(): { browser: number; native: number; nativeByModel: Record<string, number>; total: number } {
+  private getWorkerCounts(): { browser: number; native: number; video: number; nativeByModel: Record<string, number>; total: number } {
     let browser = 0;
     let native = 0;
+    let video = 0;
     let total = 0;
     const nativeByModel: Record<string, number> = {};
     for (const w of this.workers.values()) {
@@ -3728,9 +3729,10 @@ export class Orchestrator {
       if (w.type === 'native') {
         native++;
         nativeByModel[w.model] = (nativeByModel[w.model] ?? 0) + 1;
-      } else browser++;
+      } else if (w.type === 'video') video++;
+      else browser++;
     }
-    return { browser, native, nativeByModel, total };
+    return { browser, native, video, nativeByModel, total };
   }
 
   private buildStats(): NetworkStats {
@@ -3744,6 +3746,7 @@ export class Orchestrator {
       workersOnline: counts.total,
       browserWorkers: counts.browser,
       nativeWorkers: counts.native,
+      videoWorkers: counts.video,
       nativeByModel: counts.nativeByModel,
       swarmModels,
       jobsInQueue: this.jobQueue.length,
