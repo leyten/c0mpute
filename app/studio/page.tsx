@@ -303,14 +303,17 @@ export default function StudioPage() {
     closeViewer();
     submit({ prompt: c.prompt, width: c.width, height: c.height, adult: !!c.adult });
   };
-  const remove = (c: ShownVideo) => {
+  const dropClip = (c: ShownVideo) => {
     URL.revokeObjectURL(c.url);
+    setHistory((h) => h.filter((x) => x.id !== c.id));
+    idbDelete(c.id).catch(() => {});
+  };
+  const remove = (c: ShownVideo) => {
     const at = history.findIndex((x) => x.id === c.id);
     const left = history.filter((x) => x.id !== c.id);
-    setHistory(left);
+    dropClip(c);
     // the viewer moves on to the clip that took its place, or closes
     setViewerId(left.length ? left[Math.min(at, left.length - 1)].id : null);
-    idbDelete(c.id).catch(() => {});
   };
 
   const viewerIndex = viewerId ? history.findIndex((c) => c.id === viewerId) : -1;
@@ -431,7 +434,7 @@ export default function StudioPage() {
               </div>
             </div>
           ) : historyLoaded ? (
-            <Gallery clips={history} playingId={playingId} onPlay={setPlayingId} onOpen={openViewer} />
+            <Gallery clips={history} playingId={playingId} onPlay={setPlayingId} onOpen={openViewer} onDelete={dropClip} />
           ) : null}
         </main>
       </div>
