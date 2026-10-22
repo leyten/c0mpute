@@ -21,6 +21,8 @@ const csp = [
   "script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://challenges.cloudflare.com",
   "style-src 'self' 'unsafe-inline' https://use.typekit.net https://p.typekit.net",
   "img-src 'self' data: blob: https:",
+  // Studio plays finished clips from object URLs of blobs kept in IndexedDB.
+  "media-src 'self' blob:",
   "font-src 'self' data: https://use.typekit.net https://p.typekit.net https://fonts.reown.com",
   "worker-src 'self' blob:",
   "child-src 'self' blob: https://auth.privy.io https://verify.walletconnect.com https://verify.walletconnect.org",
