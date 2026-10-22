@@ -1,133 +1,58 @@
 'use client';
 
 import SiteNav from '@/components/SiteNav';
+import './studio.css';
 
-import { useState, useEffect, useCallback, useRef, type CSSProperties } from 'react';
-import { useRouter } from 'next/navigation';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import type { VideoStage } from '@/lib/orchestrator/types';
+import Composer from './Composer';
+import { JobCard, JobRunner } from './JobCard';
+import { Gallery } from './Gallery';
+import { Viewer } from './Viewer';
+import { IconBell, IconX } from './icons';
+import {
+  ASPECTS, MAX_ACTIVE, NSFW_ACK_KEY, SUGGESTED_PROMPTS, VIDEO_CREDITS,
+  aspectIdFor, expectedRenderMs, idbAll, idbDelete, idbPut, progressOf, readPending, recordRenderMs, removePending, writePending,
+  type AspectId, type JobState, type PendingJob, type SavedVideo, type ShownVideo,
+} from './lib';
 
-const VIDEO_CREDITS = 250; // keep in sync with lib/video-gen VIDEO_CREDITS
-const NSFW_ACK_KEY = 'c0mpute_nsfw_ack'; // shared with /create: one 18+ confirmation covers both
-const PENDING_KEY = 'c0mpute_studio_pending';
-const ACCENT = 'var(--steel)';
-const POLL_MS = 3000;
-// Past this a render is over one way or another (up to 15 minutes queued, 15
-// rendering, then the server holds a finished clip for an hour), so a page
-// left open stops asking.
-const PENDING_MAX_MS = 90 * 60_000;
+const ASPECT_KEY = 'c0mpute_studio_aspect';
+const NOTIFY_KEY = 'c0mpute_studio_notify';
+const NOTICE_KEY = 'c0mpute_studio_notice_dismissed';
 
-// The sizes the server's workflow manifest allows; anything else falls back to the first.
-const RATIOS: { label: string; w: number; h: number }[] = [
-  { label: 'Landscape', w: 1280, h: 720 },
-  { label: 'Portrait', w: 720, h: 1280 },
-  { label: 'Square', w: 960, h: 960 },
-];
-
-const STAGE_COPY: Record<VideoStage, string> = {
-  loading: 'Loading the model',
-  sampling: 'Rendering frames',
-  decoding: 'Decoding frames',
-  interpolating: 'Smoothing motion',
-  encoding: 'Encoding the clip',
-};
-
-// Client-side history in IndexedDB, as on /create, but each record holds the
-// MP4 itself. The server keeps nothing: once collected, this is the only copy.
-interface SavedVideo { id: string; blob: Blob; prompt: string; seed?: number; width: number; height: number; createdAt: number; }
-// `url` is an object URL for the blob, revoked when the video leaves the page.
-interface ShownVideo extends SavedVideo { url: string; }
-// A render in flight. Kept in localStorage so a reload picks the poll back up.
-interface PendingJob { jobId: string; prompt: string; seed?: number; width: number; height: number; startedAt: number; }
-
-const IDB_NAME = 'c0mpute-studio';
-const IDB_STORE = 'videos';
-function idbOpen(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const r = indexedDB.open(IDB_NAME, 1);
-    r.onupgradeneeded = () => { if (!r.result.objectStoreNames.contains(IDB_STORE)) r.result.createObjectStore(IDB_STORE, { keyPath: 'id' }); };
-    r.onsuccess = () => resolve(r.result);
-    r.onerror = () => reject(r.error);
-  });
-}
-async function idbAll(): Promise<SavedVideo[]> {
-  const db = await idbOpen();
-  return new Promise((resolve, reject) => {
-    const req = db.transaction(IDB_STORE, 'readonly').objectStore(IDB_STORE).getAll();
-    req.onsuccess = () => resolve(((req.result as SavedVideo[]) || []).sort((a, b) => b.createdAt - a.createdAt));
-    req.onerror = () => reject(req.error);
-  });
-}
-async function idbPut(rec: SavedVideo): Promise<void> {
-  const db = await idbOpen();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(IDB_STORE, 'readwrite');
-    tx.objectStore(IDB_STORE).put(rec);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
-}
-async function idbDelete(id: string): Promise<void> {
-  const db = await idbOpen();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(IDB_STORE, 'readwrite');
-    tx.objectStore(IDB_STORE).delete(id);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
-}
-
-function readPending(): PendingJob | null {
-  try {
-    const p = JSON.parse(localStorage.getItem(PENDING_KEY) || 'null') as PendingJob | null;
-    if (p?.jobId && Date.now() - p.startedAt < PENDING_MAX_MS) return p;
-  } catch {}
-  localStorage.removeItem(PENDING_KEY);
-  return null;
-}
-
-function frameStyle(w: number, h: number): CSSProperties {
-  return { aspectRatio: `${w} / ${h}`, maxHeight: '100%', maxWidth: '100%' };
-}
-
-function IconDownload({ className }: { className?: string }) {
-  return (
-    <svg className={className} width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M8 2v8m0 0L5 7m3 3l3-3M2.5 12.5v1a1 1 0 001 1h9a1 1 0 001-1v-1" />
-    </svg>
-  );
-}
-function IconX({ className }: { className?: string }) {
-  return (
-    <svg className={className} width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
-      <path d="M2.5 2.5l7 7m0-7l-7 7" />
-    </svg>
-  );
-}
-function RatioGlyph({ w, h }: { w: number; h: number }) {
-  const cls = h > w ? 'w-2.5 h-3.5' : w > h ? 'w-4 h-2.5' : 'w-3 h-3';
-  return <span className={`inline-block rounded-[3px] border border-current ${cls}`} aria-hidden="true" />;
-}
+interface Submission { prompt: string; width: number; height: number; adult: boolean; seed?: number; seedPinned?: boolean }
 
 export default function StudioPage() {
-  const router = useRouter();
   const { isAuthenticated, login, getAccessToken } = useAuth();
 
+  // composer
   const [prompt, setPrompt] = useState('');
-  const [ratioIdx, setRatioIdx] = useState(0);
-  const [nsfw, setNsfw] = useState(false);
+  const [aspect, setAspect] = useState<AspectId>('landscape');
+  const [adult, setAdult] = useState(false);
   const [showGate, setShowGate] = useState(false);
-
-  const [job, setJob] = useState<PendingJob | null>(null);
-  const [progress, setProgress] = useState<{ status: 'queued' | 'rendering'; pct: number; stage?: VideoStage }>({ status: 'queued', pct: 0 });
-  const [elapsed, setElapsed] = useState(0);
+  const [seed, setSeed] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [current, setCurrent] = useState<ShownVideo | null>(null);
+  const [noWorker, setNoWorker] = useState(false);
+
+  // canvas
+  const [jobs, setJobs] = useState<JobState[]>([]);
   const [history, setHistory] = useState<ShownVideo[]>([]);
+  const [viewer, setViewer] = useState<number | null>(null);
+  const [playingId, setPlayingId] = useState<string | null>(null);
+  const [now, setNow] = useState(0);
+  const [expectedMs, setExpectedMs] = useState(150_000);
+  const [notify, setNotify] = useState(false);
+  const [notifySupported, setNotifySupported] = useState(false);
+  const [noticeDismissed, setNoticeDismissed] = useState(true);
   const [balance, setBalance] = useState<number | null>(null);
   const [grantLeft, setGrantLeft] = useState(0);
+  // What the tab says after a render lands while nobody is looking.
+  const [titleNote, setTitleNote] = useState<'Finished' | 'Failed' | null>(null);
   const historyRef = useRef<ShownVideo[]>([]);
+  const jobsRef = useRef<JobState[]>([]);
+  const baseTitle = useRef('');
 
   const loadBalance = useCallback(async () => {
     if (!isAuthenticated) return;
@@ -145,115 +70,91 @@ export default function StudioPage() {
 
   useEffect(() => { loadBalance(); }, [loadBalance]);
   useEffect(() => { historyRef.current = history; }, [history]);
+  useEffect(() => { jobsRef.current = jobs; }, [jobs]);
+
+  // Everything this browser remembers: clips, renders in flight, preferences.
   useEffect(() => {
-    // Saved clips, plus a render that was still running when the page was left.
     if (typeof indexedDB !== 'undefined') {
       idbAll().then((recs) => setHistory(recs.map((r) => ({ ...r, url: URL.createObjectURL(r.blob) })))).catch(() => {});
     }
     const pending = readPending();
-    if (pending) setJob(pending);
+    if (pending.length) setJobs(pending.map((p) => ({ ...p, status: 'queued', pct: 0 })));
+    try {
+      const a = localStorage.getItem(ASPECT_KEY);
+      if (ASPECTS.some((x) => x.id === a)) setAspect(a as AspectId);
+      setNoticeDismissed(localStorage.getItem(NOTICE_KEY) === '1');
+      const supported = typeof Notification !== 'undefined';
+      setNotifySupported(supported);
+      setNotify(supported && Notification.permission === 'granted' && localStorage.getItem(NOTIFY_KEY) === '1');
+    } catch {}
+    setExpectedMs(expectedRenderMs());
+    setNow(Date.now());
+    baseTitle.current = document.title;
     return () => { for (const v of historyRef.current) URL.revokeObjectURL(v.url); };
   }, []);
 
-  // Poll the render. Sequential (the next poll waits for this one), because the
-  // final answer is the whole MP4. It is saved to IndexedDB even if the page is
-  // already on its way out. A download that dies mid-body (res.blob() throws)
-  // lands in the catch and simply polls again: the server keeps the clip for
-  // an hour after it finishes.
+  const active = jobs.filter((j) => j.status !== 'failed');
+
+  // One clock for every card's elapsed time, and the tab title's dots.
   useEffect(() => {
-    if (!job) return;
-    let stopped = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const tick = setInterval(() => setElapsed(Math.floor((Date.now() - job.startedAt) / 1000)), 1000);
-    const end = (message: string | null) => {
-      localStorage.removeItem(PENDING_KEY);
-      if (stopped) return;
-      setJob(null);
-      if (message) setError(message);
-      loadBalance();
-    };
-    const poll = async () => {
-      if (Date.now() - job.startedAt > PENDING_MAX_MS) { end('This render is no longer available.'); return; }
-      try {
-        const token = await getAccessToken();
-        const res = await fetch(`/api/videos/${job.jobId}`, { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' });
-        if (res.ok && res.headers.get('content-type')?.startsWith('video/')) {
-          const blob = await res.blob();
-          const rec: SavedVideo = {
-            id: job.jobId, blob, prompt: job.prompt, seed: job.seed, width: job.width, height: job.height, createdAt: job.startedAt,
-          };
-          idbPut(rec).catch(() => {});
-          if (!stopped) {
-            const shown = { ...rec, url: URL.createObjectURL(blob) };
-            setHistory((h) => [shown, ...h]);
-            setCurrent(shown);
-          }
-          end(null);
-          return;
-        }
-        const data = await res.json();
-        if (data.status === 'failed' || data.status === 'gone') { end(data.error || 'Video generation failed.'); return; }
-        if (!stopped && (data.status === 'queued' || data.status === 'rendering')) {
-          setProgress({ status: data.status, pct: Number(data.pct) || 0, stage: data.stage });
-        }
-        // Anything else (the network briefly unreachable, a token refresh) just polls again.
-      } catch {}
-      if (!stopped) timer = setTimeout(poll, POLL_MS);
-    };
-    poll();
-    return () => { stopped = true; clearTimeout(timer); clearInterval(tick); };
-  }, [job, getAccessToken, loadBalance]);
+    if (!active.length) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [active.length]);
 
-  const deleteVideo = async (id: string) => {
-    const gone = history.find((x) => x.id === id);
-    if (gone) URL.revokeObjectURL(gone.url);
-    setHistory((h) => h.filter((x) => x.id !== id));
-    if (current?.id === id) setCurrent(null);
-    try { await idbDelete(id); } catch {}
-  };
+  // The tab says what is happening: "42% · Generating..." while a render
+  // runs (background tabs tick about once a second, so the dots are discrete),
+  // then "Finished" or "Failed" until the tab is looked at again.
+  useEffect(() => {
+    if (!baseTitle.current) return;
+    const first = active[0];
+    if (first) {
+      const pr = progressOf(first, now, expectedMs);
+      const dots = '.'.repeat((Math.floor(now / 1000) % 3) + 1);
+      document.title = first.status === 'queued' ? `Queued · Studio` : `${pr.pct === null ? 'Finishing' : `${pr.pct}%`} · Generating${dots}`;
+    } else {
+      document.title = titleNote ? `${titleNote} · Studio` : baseTitle.current;
+    }
+  }, [active, now, expectedMs, titleNote]);
+  useEffect(() => {
+    const seen = () => { if (document.visibilityState === 'visible' && document.hasFocus()) setTitleNote(null); };
+    window.addEventListener('focus', seen);
+    document.addEventListener('visibilitychange', seen);
+    return () => { window.removeEventListener('focus', seen); document.removeEventListener('visibilitychange', seen); };
+  }, []);
+  useEffect(() => () => { if (baseTitle.current) document.title = baseTitle.current; }, []);
 
-  const toggleNsfw = () => {
-    if (nsfw) { setNsfw(false); return; }
-    const acked = typeof window !== 'undefined' && localStorage.getItem(NSFW_ACK_KEY) === '1';
-    if (acked) { setNsfw(true); return; }
-    setShowGate(true);
-  };
+  const away = () => document.visibilityState !== 'visible' || !document.hasFocus();
 
-  const confirmGate = () => {
-    if (typeof window !== 'undefined') localStorage.setItem(NSFW_ACK_KEY, '1');
-    setNsfw(true);
-    setShowGate(false);
-  };
-
-  const generate = async () => {
+  const submit = async (s: Submission) => {
     setError(null);
-    if (!prompt.trim() || job || submitting) return;
     if (!isAuthenticated) { login(); return; }
-
     setSubmitting(true);
     try {
       const token = await getAccessToken();
       if (!token) { setError('Please log in first.'); return; }
-      const ratio = RATIOS[ratioIdx];
       const res = await fetch('/api/videos/generate', {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: prompt.trim(), width: ratio.w, height: ratio.h, adult: nsfw }),
+        body: JSON.stringify({ prompt: s.prompt, width: s.width, height: s.height, adult: s.adult, seed: s.seed }),
       });
       const data = await res.json();
       if (!res.ok) {
+        if (data.code === 'NO_VIDEO_WORKER') {
+          setNoWorker(true);
+          setTimeout(() => setNoWorker(false), 30_000);
+        }
         setError(data.error || 'Generation failed.');
         loadBalance();
         return;
       }
       const pending: PendingJob = {
-        jobId: data.jobId, prompt: prompt.trim(), seed: data.seed, width: data.width, height: data.height, startedAt: Date.now(),
+        jobId: data.jobId, prompt: s.prompt, seed: data.seed, seedPinned: s.seedPinned,
+        width: data.width, height: data.height, adult: s.adult, startedAt: Date.now(),
       };
-      localStorage.setItem(PENDING_KEY, JSON.stringify(pending));
-      setProgress({ status: 'queued', pct: 0 });
-      setElapsed(0);
-      setCurrent(null);
-      setJob(pending);
+      writePending([...readPending(), pending]);
+      setNow(Date.now());
+      setJobs((js) => [{ ...pending, status: 'queued', pct: 0 }, ...js]);
       loadBalance();
     } catch {
       setError('Generation failed. Try again.');
@@ -262,140 +163,207 @@ export default function StudioPage() {
     }
   };
 
-  const busy = submitting || job !== null;
-  const lowBalance = balance !== null && balance + grantLeft < VIDEO_CREDITS;
-  const videosLeftToday = Math.floor(grantLeft / VIDEO_CREDITS);
-  const ratio = RATIOS[ratioIdx];
-  const canvasShape = job ? frameStyle(job.width, job.height) : current ? frameStyle(current.width, current.height) : frameStyle(ratio.w, ratio.h);
-  const stageText = progress.status === 'queued' ? 'Waiting for a free GPU' : (progress.stage && STAGE_COPY[progress.stage]) || 'Rendering';
+  const generate = () => {
+    const a = ASPECTS.find((x) => x.id === aspect) ?? ASPECTS[0];
+    const pinned = seed.trim() ? Number(seed) : undefined;
+    submit({ prompt: prompt.trim(), width: a.w, height: a.h, adult, seed: pinned, seedPinned: pinned !== undefined });
+  };
 
-  const chip = (active: boolean) =>
-    `cursor-pointer pixel-sans text-xs px-3 py-1.5 rounded-lg border transition-colors ${
-      active ? 'bg-fg text-on-fg border-fg' : 'bg-transparent text-fg-60 border-fg/15 hover:text-fg hover:border-fg/35'
-    }`;
+  const onProgress = useCallback((jobId: string, status: 'queued' | 'rendering', pct: number, stage?: VideoStage) => {
+    setJobs((js) => js.map((j) => (j.jobId === jobId ? { ...j, status, pct, stage } : j)));
+  }, []);
+
+  // The clip is saved to IndexedDB first, so it is kept even if the page is
+  // already on its way out.
+  const onDone = useCallback((jobId: string, blob: Blob) => {
+    const job = jobsRef.current.find((j) => j.jobId === jobId);
+    removePending(jobId);
+    setJobs((js) => js.filter((j) => j.jobId !== jobId));
+    if (!job) return;
+    const renderMs = Date.now() - job.startedAt;
+    const rec: SavedVideo = {
+      id: jobId, blob, prompt: job.prompt, seed: job.seed, width: job.width, height: job.height,
+      createdAt: Date.now(), adult: job.adult, renderMs,
+    };
+    idbPut(rec).catch(() => {});
+    recordRenderMs(renderMs);
+    setExpectedMs(expectedRenderMs());
+    const shown = { ...rec, url: URL.createObjectURL(blob) };
+    setHistory((h) => (h.some((x) => x.id === jobId) ? h : [shown, ...h]));
+    if (away()) {
+      setTitleNote('Finished');
+      if (localStorage.getItem(NOTIFY_KEY) === '1' && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+        try { new Notification('Your clip is ready', { body: job.prompt.slice(0, 120), tag: jobId }); } catch {}
+      }
+    }
+  }, []);
+
+  const onFail = useCallback((jobId: string, message: string) => {
+    removePending(jobId);
+    setJobs((js) => js.map((j) => (j.jobId === jobId ? { ...j, status: 'failed', error: message } : j)));
+    if (away()) setTitleNote('Failed');
+    loadBalance();
+  }, [loadBalance]);
+
+  const dismiss = (jobId: string) => setJobs((js) => js.filter((j) => j.jobId !== jobId));
+  const retry = (job: JobState) => {
+    dismiss(job.jobId);
+    submit({ prompt: job.prompt, width: job.width, height: job.height, adult: !!job.adult, seed: job.seedPinned ? job.seed : undefined, seedPinned: job.seedPinned });
+  };
+
+  const toggleAdult = () => {
+    if (adult) { setAdult(false); return; }
+    if (localStorage.getItem(NSFW_ACK_KEY) === '1') { setAdult(true); return; }
+    setShowGate(true);
+  };
+  const confirmGate = () => {
+    localStorage.setItem(NSFW_ACK_KEY, '1');
+    setAdult(true);
+    setShowGate(false);
+  };
+
+  const chooseAspect = (a: AspectId) => {
+    setAspect(a);
+    try { localStorage.setItem(ASPECT_KEY, a); } catch {}
+  };
+
+  const toggleNotify = async () => {
+    if (notify) { setNotify(false); localStorage.setItem(NOTIFY_KEY, '0'); return; }
+    const perm = Notification.permission === 'granted' ? 'granted' : await Notification.requestPermission().catch(() => 'denied' as const);
+    const on = perm === 'granted';
+    setNotify(on);
+    localStorage.setItem(NOTIFY_KEY, on ? '1' : '0');
+  };
+
+  const reuse = (c: ShownVideo) => {
+    setPrompt(c.prompt);
+    chooseAspect(aspectIdFor(c.width, c.height));
+    if (!!c.adult !== adult) toggleAdult();
+    setViewer(null);
+  };
+  const regenerate = (c: ShownVideo) => {
+    setViewer(null);
+    submit({ prompt: c.prompt, width: c.width, height: c.height, adult: !!c.adult });
+  };
+  const remove = (c: ShownVideo) => {
+    URL.revokeObjectURL(c.url);
+    const left = history.filter((x) => x.id !== c.id);
+    setHistory(left);
+    setViewer((v) => (v === null || !left.length ? null : Math.min(v, left.length - 1)));
+    idbDelete(c.id).catch(() => {});
+  };
+
+  const lowBalance = balance !== null && balance + grantLeft < VIDEO_CREDITS;
+  const blocked = !isAuthenticated
+    ? null
+    : !prompt.trim()
+      ? { reason: 'Write a prompt to start.' }
+      : active.length >= MAX_ACTIVE
+        ? { reason: '2 renders are already running. Generate opens again when one finishes.' }
+        : lowBalance
+          ? { reason: `A clip costs ${VIDEO_CREDITS} credits.`, href: '/pricing', cta: 'Get credits' }
+          : noWorker
+            ? { reason: 'No video GPU is online right now. Try again in a minute.' }
+            : null;
+
+  const isEmpty = !history.length && !jobs.length;
 
   return (
-    <div className="ui-readable flex h-dvh flex-col overflow-hidden bg-background">
+    <div className="studio ui-readable flex h-dvh flex-col overflow-hidden bg-background">
       <SiteNav />
 
       {/* the nav is fixed, so the studio starts below it */}
-      <main className="flex min-h-0 flex-1 flex-col gap-3 px-4 pb-4 pt-[70px] md:pt-[88px] md:flex-row md:gap-4 md:px-6 md:pb-6">
-        {history.length > 0 && (
-          <aside className="flex shrink-0 gap-2 overflow-x-auto pb-1 md:w-[88px] md:flex-col md:overflow-y-auto md:overflow-x-hidden md:pb-0">
-            {history.map((g) => (
-              <div key={g.id} className="group relative aspect-square h-16 w-16 shrink-0 overflow-hidden rounded-xl border border-fg/10 md:h-auto md:w-full">
-                {/* #t=0.1 makes browsers paint a first frame as the thumbnail */}
-                <video src={`${g.url}#t=0.1`} muted playsInline preload="metadata" onClick={() => setCurrent(g)} aria-label={g.prompt}
-                  className={`h-full w-full cursor-pointer object-cover transition-opacity ${current?.id === g.id ? 'opacity-100' : 'opacity-60 hover:opacity-100'}`} />
-                <button onClick={() => deleteVideo(g.id)} aria-label="Delete video"
-                  className="absolute right-1 top-1 grid h-5 w-5 cursor-pointer place-items-center rounded-md bg-img-veil text-white/70 opacity-0 transition-opacity hover:bg-img-veil-hi hover:text-white group-hover:opacity-100">
-                  <IconX />
-                </button>
-              </div>
-            ))}
-          </aside>
-        )}
+      <div className="flex min-h-0 flex-1 flex-col pt-[54px] md:pt-[72px]">
+      <div className="flex min-h-0 flex-1 flex-col border-t border-fg/10 lg:flex-row">
+        <Composer
+          prompt={prompt} onPrompt={setPrompt}
+          aspect={aspect} onAspect={chooseAspect}
+          adult={adult} onToggleAdult={toggleAdult}
+          seed={seed} onSeed={setSeed}
+          onGenerate={generate}
+          blocked={blocked}
+          submitting={submitting}
+          activeCount={active.length}
+          isAuthenticated={isAuthenticated}
+          balance={balance}
+          expectedMs={expectedMs}
+          error={error}
+        />
 
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-          <section className="grid min-h-0 flex-1 place-items-center">
-            <div style={canvasShape}
-              className={`overflow-hidden rounded-2xl border bg-fg/[0.02] ${job ? 'border-fg/15' : 'border-fg/10'}`}>
-              {job ? (
-                <div className="flex h-full w-full flex-col items-center justify-center gap-4 p-8" role="status">
-                  <div className="h-1 w-48 max-w-full overflow-hidden rounded-full bg-fg/10">
-                    <div className="h-full rounded-full transition-all duration-500" style={{ width: `${Math.max(2, progress.pct)}%`, background: ACCENT }} />
-                  </div>
-                  <p className="pixel-sans text-xs text-fg-70">
-                    {stageText}{progress.status === 'rendering' && progress.pct > 0 ? ` · ${progress.pct}%` : ''}
-                  </p>
-                  <p className="pixel-sans text-xs tabular-nums text-fg-45">{elapsed}s elapsed · usually 4 to 10 minutes</p>
-                  <p className="pixel-sans line-clamp-2 max-w-sm text-center text-xs text-fg-35">{job.prompt}</p>
-                  <p className="pixel-sans max-w-sm text-center text-xs text-fg-30">You can leave and come back. A finished clip waits an hour.</p>
-                </div>
-              ) : current ? (
-                <video key={current.id} src={current.url} controls autoPlay muted loop playsInline className="block h-full w-full object-contain" />
-              ) : (
-                <div className="flex h-full w-full flex-col items-center justify-center gap-1.5 p-8 text-center">
-                  <p className="pixel-sans text-sm text-fg-55">Your video appears here</p>
-                  <p className="pixel-sans text-xs text-fg-30">Describe it below and press Generate</p>
-                </div>
-              )}
-            </div>
-          </section>
-
-          {current && !job && (
-            <div className="mt-3 flex shrink-0 items-center justify-between gap-4">
-              <span className="pixel-sans truncate text-xs tabular-nums text-fg-45">
-                {current.width} x {current.height}{current.seed ? ` · seed ${current.seed}` : ''}
-              </span>
-              <a href={current.url} download={`compute-${current.seed || 'video'}.mp4`}
-                className="pixel-sans inline-flex flex-shrink-0 cursor-pointer items-center gap-1.5 rounded-lg bg-fg px-3 py-1.5 text-xs text-on-fg transition-colors hover:bg-fg/90">
-                <IconDownload /> Download
-              </a>
-            </div>
-          )}
-
-          {isAuthenticated && lowBalance && !job && (
-            <div className="pixel-sans mt-3 shrink-0 rounded-xl border border-amber-400/20 bg-amber-400/[0.05] px-4 py-2.5 text-xs text-amber-300/90">
-              You have {(balance ?? 0).toLocaleString()} credits and a video costs {VIDEO_CREDITS}.{' '}
-              <button onClick={() => router.push('/settings')} className="cursor-pointer underline hover:text-amber-200">Top up in settings</button>
-            </div>
-          )}
-          {error && (
-            <div role="alert" className="pixel-sans mt-3 shrink-0 rounded-xl border border-danger/20 bg-danger/[0.05] px-4 py-2.5 text-xs text-danger-soft/90">{error}</div>
-          )}
-
-          <section className="mt-3 shrink-0 rounded-2xl border border-fg/10 bg-fg/[0.02] p-3 md:p-4">
-            <div className="mb-3 flex flex-wrap items-center gap-2">
-              {RATIOS.map((r, i) => (
-                <button key={r.label} onClick={() => setRatioIdx(i)} aria-pressed={ratioIdx === i} title={`${r.label} ${r.w} x ${r.h}`}
-                  className={`${chip(ratioIdx === i)} inline-flex items-center gap-2`}>
-                  <RatioGlyph w={r.w} h={r.h} /><span className="hidden sm:inline">{r.label}</span>
-                </button>
-              ))}
-              <span className="mx-1 hidden h-5 w-px bg-fg/10 sm:block" aria-hidden="true" />
-              <button onClick={toggleNsfw} aria-pressed={nsfw}
-                title="Allow adult content. Sexual content involving minors is never generated."
-                className={`pixel-sans inline-flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-1.5 text-xs transition-colors ${
-                  nsfw ? 'border-danger/40 bg-danger/15 text-danger-soft' : 'border-fg/15 bg-transparent text-fg-60 hover:border-fg/35 hover:text-fg'
+        <main className="min-h-0 flex-1 overflow-y-auto px-4 pb-48 pt-5 [--st-job:220px] [--st-row:132px] sm:px-6 sm:[--st-row:170px] lg:px-8 lg:pb-10 lg:pt-7 lg:[--st-job:290px] lg:[--st-row:220px]">
+          <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
+            <h1 className="pixel-serif text-[26px] text-fg lg:text-[30px]">
+              Your clips{history.length > 0 && <span className="ml-2 text-fg-35 tabular-nums">{history.length}</span>}
+            </h1>
+            {notifySupported && (
+              <button type="button" onClick={toggleNotify} aria-pressed={notify}
+                className={`pixel-sans flex cursor-pointer items-center gap-2 border px-3 py-1.5 text-[12px] transition-colors ${
+                  notify ? 'border-fg bg-fg text-on-fg' : 'border-fg/15 text-fg-60 hover:border-fg/40 hover:text-fg'
                 }`}>
-                <span className={`inline-block h-1.5 w-1.5 rounded-full ${nsfw ? 'bg-danger' : 'bg-fg/25'}`} aria-hidden="true" />18+
+                <IconBell size={13} />
+                <span className="sm:hidden">{notify ? 'Notifying' : 'Notify me'}</span>
+                <span className="hidden sm:inline">{notify ? 'Notifying when done' : 'Notify me when done'}</span>
               </button>
-            </div>
+            )}
+          </div>
 
-            <div className="flex items-end gap-3">
-              <textarea
-                value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); generate(); } }}
-                placeholder="Describe the scene and the motion you want"
-                maxLength={2000}
-                rows={2}
-                className="pixel-sans min-w-0 flex-1 resize-none bg-transparent text-[15px] text-fg placeholder-fg-40 focus:outline-none"
-              />
-              <button
-                onClick={generate}
-                disabled={busy || !prompt.trim() || (isAuthenticated && lowBalance)}
-                className="pixel-serif shrink-0 cursor-pointer rounded-xl bg-fg px-6 py-2.5 text-sm text-on-fg transition-colors hover:bg-fg/90 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {job ? `Rendering ${elapsed}s` : submitting ? 'Starting' : !isAuthenticated ? 'Log in to generate' : lowBalance ? 'Not enough credits' : `Generate · ${VIDEO_CREDITS} credits`}
-              </button>
+          {!noticeDismissed && (history.length > 0 || jobs.length > 0) && (
+            <div className="pixel-sans mb-5 flex items-center justify-between gap-3 border border-fg/12 px-3.5 py-2.5 text-[13px] text-fg-60">
+              <span>Clips live only in this browser. Download the ones you want to keep.</span>
+              <button type="button" aria-label="Dismiss" onClick={() => { setNoticeDismissed(true); localStorage.setItem(NOTICE_KEY, '1'); }}
+                className="shrink-0 cursor-pointer p-1 text-fg-40 hover:text-fg"><IconX size={12} /></button>
             </div>
+          )}
 
-            <div className="pixel-sans mt-2 text-xs">
-              {isAuthenticated && videosLeftToday > 0
-                ? <span className="text-fg-45">{videosLeftToday} video{videosLeftToday > 1 ? 's' : ''} left today · {VIDEO_CREDITS} credits each</span>
-                : <span className="text-fg-45">{VIDEO_CREDITS} credits per 5 second clip</span>}
-              <span className="hidden text-fg-30 md:inline"> · Enter to generate, Shift and Enter for a new line · saved in this browser only</span>
+          {jobs.length > 0 && (
+            <div className="st-rows mb-2">
+              {jobs.map((j) => (
+                <JobCard key={j.jobId} job={j} now={now} expectedMs={expectedMs} onRetry={() => retry(j)} onDismiss={() => dismiss(j.jobId)} />
+              ))}
             </div>
-          </section>
-        </div>
-      </main>
+          )}
 
-      {/* 18+ gate */}
+          {isEmpty ? (
+            <div className="grid min-h-[56vh] place-items-center py-8">
+              <div className="max-w-[34rem] text-center">
+                <p className="st-eyebrow">Studio</p>
+                <h2 className="pixel-serif mt-4 text-[36px] text-fg lg:text-[48px]">Describe a scene. Get a five second clip.</h2>
+                <p className="pixel-sans mx-auto mt-4 max-w-[28rem] text-[15px] leading-relaxed text-fg-55">
+                  Wan 2.2 renders it on a GPU in the network and sends it straight to this browser. It is not stored anywhere else.
+                </p>
+                <div className="pixel-sans mt-6 flex flex-wrap justify-center gap-x-5 gap-y-1 text-[13px] tabular-nums text-fg-45">
+                  <span>5 seconds</span><span>1280 x 720</span><span>32 fps</span><span>~{Math.max(0.5, Math.round((expectedMs / 60_000) * 2) / 2)} min</span><span>{VIDEO_CREDITS} credits</span>
+                </div>
+                <div className="mt-8 grid gap-2 text-left sm:grid-cols-2">
+                  {SUGGESTED_PROMPTS.map((s) => (
+                    <button key={s.label} type="button" onClick={() => setPrompt(s.prompt)}
+                      className="pixel-sans cursor-pointer border border-fg/12 px-3.5 py-3 text-[13px] leading-snug text-fg-70 transition-colors hover:border-fg/40 hover:text-fg">
+                      {s.prompt}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <Gallery clips={history} playingId={playingId} onPlay={setPlayingId} onOpen={setViewer} />
+          )}
+        </main>
+      </div>
+      </div>
+
+      {active.map((j) => (
+        <JobRunner key={j.jobId} job={j} getAccessToken={getAccessToken} onProgress={onProgress} onDone={onDone} onFail={onFail} />
+      ))}
+
+      {viewer !== null && history[viewer] && (
+        <Viewer clips={history} index={viewer} onIndex={setViewer} onClose={() => setViewer(null)}
+          onReuse={reuse} onRegenerate={regenerate} onDelete={remove} />
+      )}
+
+      {/* 18+ gate, as on /create */}
       {showGate && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-scrim-strong p-4 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-2xl border border-fg/15 bg-background p-6">
+        <div className="fixed inset-0 z-[130] flex items-center justify-center bg-scrim-strong p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md border border-fg/15 bg-background p-6">
             <h3 className="pixel-serif mb-3 text-xl text-fg">Adult content (18+)</h3>
             <p className="pixel-sans mb-2 text-sm text-fg-70">
               Enabling 18+ allows generation of adult content. By continuing you confirm you are 18 or older and that adult content is legal where you live.
@@ -404,8 +372,8 @@ export default function StudioPage() {
               Sexual content involving minors is never generated and is permanently blocked.
             </p>
             <div className="flex gap-3">
-              <button onClick={() => setShowGate(false)} className="pixel-sans flex-1 cursor-pointer rounded-xl border border-fg/15 px-4 py-2.5 text-sm text-fg-70 transition-colors hover:text-fg">Cancel</button>
-              <button onClick={confirmGate} className="pixel-serif flex-1 cursor-pointer rounded-xl bg-fg px-4 py-2.5 text-sm text-on-fg transition-colors hover:bg-fg/90">I&apos;m 18+, continue</button>
+              <button onClick={() => setShowGate(false)} className="pixel-sans flex-1 cursor-pointer border border-fg/15 px-4 py-2.5 text-sm text-fg-70 transition-colors hover:text-fg">Cancel</button>
+              <button onClick={confirmGate} className="pixel-serif flex-1 cursor-pointer bg-fg px-4 py-2.5 text-sm text-on-fg transition-colors hover:bg-fg/90">I&apos;m 18+, continue</button>
             </div>
           </div>
         </div>

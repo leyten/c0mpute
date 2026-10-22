@@ -1,0 +1,62 @@
+/* Studio-only pieces Tailwind can't say in a class: the render placeholder's
+   shimmer, the label style the homepage uses for eyebrows, and the viewer's
+   scrubber. Everything is scoped under .studio. */
+
+.studio .st-eyebrow {
+  font: 500 11px/1 var(--font-inter), system-ui, sans-serif;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg-45);
+}
+
+/* A render in progress: a slow sweep of light across a faint ink wash, over
+   the paper grain. No colour, and calm enough to sit there for minutes. */
+.studio .st-shimmer {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(100deg, transparent 20%, color-mix(in oklab, var(--fg) 7%, transparent) 50%, transparent 80%) 0 0 / 250% 100%,
+    color-mix(in oklab, var(--fg) 4%, transparent);
+  animation: st-sweep 2.8s var(--ease-std, ease-in-out) infinite;
+}
+@keyframes st-sweep {
+  from { background-position: 120% 0, 0 0; }
+  to { background-position: -120% 0, 0 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .studio .st-shimmer { animation: none; }
+}
+
+/* The viewer's scrubber: a thin white track with a square thumb, on the dark
+   backdrop the viewer always has. */
+.studio .st-range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 16px;
+  background: transparent;
+  cursor: pointer;
+}
+.studio .st-range::-webkit-slider-runnable-track {
+  height: 2px;
+  background: linear-gradient(to right, #fff var(--st-fill, 0%), rgba(255, 255, 255, 0.22) var(--st-fill, 0%));
+}
+.studio .st-range::-moz-range-track { height: 2px; background: rgba(255, 255, 255, 0.22); }
+.studio .st-range::-moz-range-progress { height: 2px; background: #fff; }
+.studio .st-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 10px;
+  height: 10px;
+  margin-top: -4px;
+  background: #fff;
+  border: 0;
+}
+.studio .st-range::-moz-range-thumb { width: 10px; height: 10px; background: #fff; border: 0; border-radius: 0; }
+
+/* Justified rows: each tile grows in proportion to its aspect ratio, so every
+   row fills the width at one height and every clip keeps its true shape. The
+   trailing spacer stops the last row from stretching. */
+.studio .st-rows { display: flex; flex-wrap: wrap; gap: 8px; }
+.studio .st-rows::after { content: ""; flex: 1000 1 0; }
+
+.studio textarea { scrollbar-width: thin; }
