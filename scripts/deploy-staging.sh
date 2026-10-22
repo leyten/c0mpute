@@ -88,6 +88,19 @@ fi
 mkdir -p "$STAGING/.next/cache"
 chown -R c0staging:c0staging "$STAGING/.next/cache"
 
+# A restart kills every render in flight (the user is refunded, but the clip
+# is lost), so wait for the orchestrator to go idle first. STAGING_FORCE=1
+# skips the wait.
+drained() {
+  curl -sf --max-time 3 http://127.0.0.1:3014/api/stats |
+    python3 -c 'import json,sys; d=json.load(sys.stdin); sys.exit(0 if d.get("busy",0)==0 and d.get("queueDepth",0)==0 else 1)'
+}
+if [ "${STAGING_FORCE:-}" != "1" ] && ! drained; then
+  say "jobs in flight; waiting up to 20 min for staging to go idle (STAGING_FORCE=1 skips)"
+  for _ in $(seq 1 240); do drained && break; sleep 5; done
+  drained || die "staging still busy after 20 min; the new build is ready, re-run to restart"
+fi
+
 say "restarting staging services"
 systemctl restart c0mpute-staging-orchestrator
 sleep 2
