@@ -24,6 +24,8 @@ import {
   MAX_OUTPUT_TOKENS_BROWSER,
   MAX_OUTPUT_TOKENS_SWARM,
   isFreeSubsidyKind,
+  VIDEO_STAGES,
+  type VideoStage,
 } from './types';
 import { verifyPrivyToken } from '../privy-server';
 import { incrementPromptsSent, verifyWorkerToken, recordCompletedJob, recordEarning, spendCredits, getCreditBalance, refundCredits, isWorkerBanned, recordWorkerStrike, recordCanaryResult, consumeFreePrompt, restoreFreePrompt, getFreePromptsUsed, recordSubsidizedPrompt, getTodayFreeSubsidyUsd, getThisHourFreeSubsidyUsd, anonGrantFreePrompt, getAnonRemaining, profileHasLogin, getAccountAgeMs } from '../db';
@@ -74,6 +76,37 @@ interface ImageJob {
   submittedAt: number;
   // Epoch ms this job was handed to an image worker. The basis for the
   // duration_ms recorded on completion — see the note at image:result.
+  dispatchedAt?: number;
+}
+
+// A text-to-video render (Studio). Same request/response shape as an image job,
+// but it outlives any HTTP request (4-11 minutes), so the web route charges,
+// submits and returns: from submit on, this record owns the refund, the
+// progress the user polls, and the finished clip until it is fetched.
+interface VideoJob {
+  id: string;
+  workflow: Record<string, unknown>;
+  outputNode?: string;
+  adult: boolean;
+  privyUserId: string;
+  seed?: number;
+  width?: number;
+  height?: number;
+  creditsCharged: number;
+  subsidized: boolean;
+  subsidyKind?: SubsidyKind;
+  chargeDay?: string;
+  status: 'queued' | 'rendering' | 'done' | 'failed';
+  pct: number;
+  stage?: VideoStage;
+  // base64 MP4, held from video:result until the first poll or the hold window.
+  video?: string;
+  error?: string;
+  code?: string;
+  refunded?: boolean;
+  assignedWorkerSocketId?: string;
+  timer?: ReturnType<typeof setTimeout>;
+  submittedAt: number;
   dispatchedAt?: number;
 }
 
@@ -564,6 +597,16 @@ export class Orchestrator {
   private imageJobs: Map<string, ImageJob> = new Map();
   private imageQueue: string[] = [];
   private readonly IMAGE_JOB_TIMEOUT_MS = 180_000;
+  // Video jobs (Studio): an image-style lane with async delivery, see VideoJob.
+  private videoJobs: Map<string, VideoJob> = new Map();
+  private videoQueue: string[] = [];
+  // Applies twice: to the wait for a free GPU, then again to the render itself.
+  private readonly VIDEO_JOB_TIMEOUT_MS = Number(process.env.VIDEO_JOB_TIMEOUT_MS) || 900_000;
+  // How long a finished clip (or a failure) waits for its poll before it is dropped.
+  private readonly VIDEO_RESULT_TTL_MS = 600_000;
+  // A worker's result rides the socket, which closes on anything over the 16MB
+  // maxHttpBufferSize (server/index.ts). Refuse well before that, with a reason.
+  private readonly MAX_VIDEO_B64_CHARS = 15 * 1024 * 1024;
 
   // ── Job liveness (stall-aware, not wall-clock) ─────────────────────────────
   // A running job is healthy while it is still PRODUCING. Total runtime says
@@ -679,7 +722,7 @@ export class Orchestrator {
   // Aggregate, anonymous worker counts for the public data dashboard.
   // No worker ids, models, or user ids — counts only.
   getPublicStats() {
-    const byType: Record<'native' | 'browser' | 'image', number> = { native: 0, browser: 0, image: 0 };
+    const byType: Record<'native' | 'browser' | 'image' | 'video', number> = { native: 0, browser: 0, image: 0, video: 0 };
     let busy = 0;
     let online = 0;
     for (const w of this.workers.values()) {
@@ -698,7 +741,7 @@ export class Orchestrator {
       workersOnline: online,
       byType,
       busy,
-      queueDepth: this.jobQueue.length + this.imageQueue.length,
+      queueDepth: this.jobQueue.length + this.imageQueue.length + this.videoQueue.length,
       at: new Date().toISOString(),
     };
   }
@@ -1168,9 +1211,9 @@ export class Orchestrator {
           return;
         }
         const tokPerSec = data.tokPerSec || 0;
-        // Image workers don't produce tokens, so the tok/s throughput floor
-        // doesn't apply to them. Text workers must still clear it.
-        if (workerType !== 'image' && tokPerSec < this.MIN_TOK_PER_SEC) {
+        // Image and video workers don't produce tokens, so the tok/s throughput
+        // floor doesn't apply to them. Text workers must still clear it.
+        if (workerType !== 'image' && workerType !== 'video' && tokPerSec < this.MIN_TOK_PER_SEC) {
           callback({ error: `Your device is too slow (${tokPerSec.toFixed(1)} tok/s). Minimum required: ${this.MIN_TOK_PER_SEC} tok/s.` });
           return;
         }
@@ -1204,6 +1247,7 @@ export class Orchestrator {
           // settle, so a job queued while the pool was empty sat until it timed
           // out even with a capable worker online.
           this.processQueue();
+          if (workerType === 'video') this.processVideoQueue();
         } else {
           callback({ error: 'Failed to register worker' });
         }
@@ -1731,6 +1775,123 @@ export class Orchestrator {
         this.processImageQueue();
       });
 
+      // ── Video generation (Studio) ──
+      // Internal-only, like image:submit: the web route authenticated the user,
+      // ran the prompt guard and charged them. Unlike images, the route returns
+      // as soon as this acks, so from here the orchestrator owns the refund.
+      socket.on('video:submit', (data, callback) => {
+        if (typeof callback !== 'function') return;
+        if ((socket as Socket & { isInternal?: boolean }).isInternal !== true) {
+          callback({ error: 'Video jobs are internal-only.' });
+          return;
+        }
+        if (!data?.workflow || typeof data.workflow !== 'object' || typeof data.privyUserId !== 'string' || !data.privyUserId) {
+          callback({ error: 'workflow and privyUserId required' });
+          return;
+        }
+        const adult = data.adult === true;
+        // Refuse up front when nothing could ever take it, so the route can
+        // refund and answer at once instead of the user polling a dead job.
+        if (![...this.workers.values()].some((w) => this.servesVideo(w, adult))) {
+          callback({ error: 'No video worker online.', code: 'NO_VIDEO_WORKER' });
+          return;
+        }
+        const jobId = uuidv4();
+        const job: VideoJob = {
+          id: jobId,
+          workflow: data.workflow,
+          outputNode: typeof data.outputNode === 'string' ? data.outputNode : undefined,
+          adult,
+          privyUserId: data.privyUserId,
+          seed: data.seed,
+          width: data.width,
+          height: data.height,
+          creditsCharged: Number(data.creditsCharged) || 0,
+          subsidized: data.subsidized === true,
+          subsidyKind: data.subsidyKind,
+          chargeDay: data.chargeDay,
+          status: 'queued',
+          pct: 0,
+          submittedAt: Date.now(),
+        };
+        // The queue wait gets the same budget as the render; dispatch re-arms it.
+        job.timer = setTimeout(() => {
+          this.failVideoJob(job, 'No video GPU freed up in time. Try again shortly.', 'QUEUE_TIMEOUT');
+        }, this.VIDEO_JOB_TIMEOUT_MS);
+        this.videoJobs.set(jobId, job);
+        this.videoQueue.push(jobId);
+        callback({ jobId });
+        this.processVideoQueue();
+      });
+
+      // The web's status poll. The finished clip is handed over once and then
+      // dropped; a failure is reported once too. Everything the user sees here
+      // was written by the orchestrator, never by a worker.
+      socket.on('video:status', (data, callback) => {
+        if (typeof callback !== 'function') return;
+        const isInternal = (socket as Socket & { isInternal?: boolean }).isInternal === true;
+        const job = isInternal && typeof data?.jobId === 'string' ? this.videoJobs.get(data.jobId) : undefined;
+        if (!job || job.privyUserId !== data.privyUserId) {
+          callback({ status: 'gone' });
+          return;
+        }
+        if (job.status === 'done' || job.status === 'failed') {
+          if (job.timer) clearTimeout(job.timer);
+          this.videoJobs.delete(job.id);
+          callback(job.status === 'done'
+            ? { status: 'done', video: job.video || '', seed: job.seed, width: job.width, height: job.height }
+            : { status: 'failed', error: job.error || 'Video generation failed.', code: job.code });
+          return;
+        }
+        callback({ status: job.status, pct: job.pct, stage: job.stage });
+      });
+
+      socket.on('video:progress', (data) => {
+        const job = this.videoJobs.get(data?.jobId);
+        if (!job || job.status !== 'rendering' || job.assignedWorkerSocketId !== socket.id) return;
+        const pct = Number(data.pct);
+        // 100 is reserved for a clip we actually hold.
+        if (Number.isFinite(pct)) job.pct = Math.max(0, Math.min(99, Math.round(pct)));
+        if ((VIDEO_STAGES as readonly string[]).includes(data.stage as string)) job.stage = data.stage as VideoStage;
+      });
+
+      // Video worker returned a finished MP4 (base64).
+      socket.on('video:result', (data) => {
+        const job = this.videoJobs.get(data?.jobId);
+        if (!job || job.status !== 'rendering' || job.assignedWorkerSocketId !== socket.id) return;
+        const worker = this.workers.get(socket.id);
+        const video = data.video;
+        // An MP4 opens with a box whose type is 'ftyp' at byte 4. Cheap proof the
+        // worker sent a video and not filler.
+        const isMp4 = typeof video === 'string'
+          && Buffer.from(video.slice(0, 16), 'base64').subarray(4, 8).toString('latin1') === 'ftyp';
+        if (!isMp4 || video.length > this.MAX_VIDEO_B64_CHARS) {
+          console.warn(`[Orchestrator] Video job ${job.id}: rejected result from ${worker?.id || socket.id} (${isMp4 ? `${video.length} chars, over the cap` : 'not an MP4'})`);
+          this.failVideoJob(job, isMp4 ? 'The clip came out too large to deliver.' : 'Video generation failed.', 'BAD_RESULT');
+          this.processVideoQueue();
+          return;
+        }
+        if (job.timer) clearTimeout(job.timer);
+        if (worker) { worker.status = 'idle'; worker.jobsCompleted++; this.totalJobsCompleted++; }
+        job.status = 'done';
+        job.pct = 100;
+        job.video = video;
+        job.workflow = {};
+        job.timer = setTimeout(() => this.videoJobs.delete(job.id), this.VIDEO_RESULT_TTL_MS);
+        if (worker?.privyUserId) this.recordRenderEarning(job, worker, worker.privyUserId, 'video');
+        console.log(`[Orchestrator] Video job ${job.id} completed by ${worker?.id || socket.id}`);
+        this.processVideoQueue();
+      });
+
+      // Video worker failed the render. Its error text is logged, not relayed.
+      socket.on('video:failed', (data) => {
+        const job = this.videoJobs.get(data?.jobId);
+        if (!job || job.status !== 'rendering' || job.assignedWorkerSocketId !== socket.id) return;
+        console.warn(`[Orchestrator] Video job ${job.id}: worker error: ${String(data.error).slice(0, 300)}`);
+        this.failVideoJob(job, 'Video generation failed. Try again.', 'WORKER_ERROR');
+        this.processVideoQueue();
+      });
+
       // User pressed Stop. Until this existed the client simply stopped
       // listening: the worker kept decoding to the end on a GPU the network
       // still counted as busy, the next prompt queued behind a job nobody
@@ -1778,11 +1939,13 @@ export class Orchestrator {
         this.unregisterWorker(socket.id);
         this.cleanupUserJobs(socket.id);
         this.cleanupImageJobs(socket.id);
+        this.cleanupVideoJobs(socket.id);
         this.broadcastStats();
         if (wasUserWorker && userId) {
           this.pushNativeStatus(userId);
         }
         this.processImageQueue();
+        this.processVideoQueue();
         // A disconnect frees whatever this worker held and can requeue its job;
         // dispatch so the queue moves now instead of on the stale-job sweep.
         this.processQueue();
@@ -2082,7 +2245,7 @@ export class Orchestrator {
     return accounts.size;
   }
 
-  private registerWorker(socket: Socket, model: string, privyUserId?: string, tokPerSec: number = 0, type: 'browser' | 'native' | 'image' = 'browser', capabilities: WorkerCapabilities = {}, ip?: string, accountAgeOk: boolean = false, numCtx?: number): string | null {
+  private registerWorker(socket: Socket, model: string, privyUserId?: string, tokPerSec: number = 0, type: 'browser' | 'native' | 'image' | 'video' = 'browser', capabilities: WorkerCapabilities = {}, ip?: string, accountAgeOk: boolean = false, numCtx?: number): string | null {
     try {
       const workerId = uuidv4();
       const worker: WorkerInfo = {
@@ -2151,7 +2314,7 @@ export class Orchestrator {
     job: Pick<ImageJob, 'id' | 'privyUserId' | 'creditsCharged' | 'subsidized' | 'subsidyKind' | 'dispatchedAt'>,
     worker: WorkerInfo,
     workerPrivyId: string,
-    tier: 'image',
+    tier: 'image' | 'video',
   ) {
     try {
       const workerShare = getWorkerRevenueShare(workerPrivyId);
@@ -2314,6 +2477,94 @@ export class Orchestrator {
         if (job.timer) clearTimeout(job.timer);
         this.imageQueue = this.imageQueue.filter((id) => id !== jobId);
         this.imageJobs.delete(jobId);
+      }
+    }
+  }
+
+  private servesVideo(w: WorkerInfo, adult: boolean): boolean {
+    return w.type === 'video' && (!adult || w.capabilities.adult === true);
+  }
+
+  // Dispatch queued video jobs, oldest first, one per idle capable worker. A
+  // job whose capable workers are all busy waits without blocking the jobs
+  // behind it (an SFW job can take a free non-adult worker while an adult job
+  // waits for an opted-in one). A job nothing online could ever serve fails.
+  private processVideoQueue() {
+    for (const jobId of [...this.videoQueue]) {
+      const job = this.videoJobs.get(jobId);
+      if (!job || job.status !== 'queued') {
+        this.videoQueue = this.videoQueue.filter((id) => id !== jobId);
+        continue;
+      }
+      const capable = [...this.workers.values()].filter((w) => this.servesVideo(w, job.adult));
+      if (capable.length === 0) {
+        this.failVideoJob(job, 'No video GPU is online right now. Try again shortly.', 'NO_VIDEO_WORKER');
+        continue;
+      }
+      const idle = capable.find((w) => w.status === 'idle');
+      const ws = idle ? this.io.sockets.sockets.get(idle.socketId) : undefined;
+      if (!idle || !ws) continue;
+      this.videoQueue = this.videoQueue.filter((id) => id !== jobId);
+      idle.status = 'busy';
+      job.status = 'rendering';
+      job.assignedWorkerSocketId = idle.socketId;
+      job.dispatchedAt = Date.now();
+      if (job.timer) clearTimeout(job.timer);
+      job.timer = setTimeout(() => {
+        this.failVideoJob(job, 'Video generation timed out. Try again.', 'TIMEOUT');
+        this.processVideoQueue();
+      }, this.VIDEO_JOB_TIMEOUT_MS);
+      ws.emit('video:job', { jobId, workflow: job.workflow, outputNode: job.outputNode });
+      console.log(`[Orchestrator] Video job ${jobId} dispatched to worker ${idle.id}${job.adult ? ' (adult)' : ''}`);
+    }
+  }
+
+  // Every failure path ends here, and only once: the status latch makes a late
+  // second path (a timeout racing a worker error) a no-op, and refundVideoJob
+  // has its own latch. Callers re-run processVideoQueue themselves.
+  private failVideoJob(job: VideoJob, error: string, code: string) {
+    if (job.status === 'done' || job.status === 'failed') return;
+    if (job.timer) clearTimeout(job.timer);
+    this.videoQueue = this.videoQueue.filter((id) => id !== job.id);
+    if (job.status === 'rendering' && job.assignedWorkerSocketId) {
+      const w = this.workers.get(job.assignedWorkerSocketId);
+      if (w) w.status = 'idle';
+      this.io.sockets.sockets.get(job.assignedWorkerSocketId)?.emit('video:cancel', { jobId: job.id });
+    }
+    this.refundVideoJob(job);
+    job.status = 'failed';
+    job.error = error;
+    job.code = code;
+    job.workflow = {};
+    job.timer = setTimeout(() => this.videoJobs.delete(job.id), this.VIDEO_RESULT_TTL_MS);
+    console.warn(`[Orchestrator] Video job ${job.id} failed: ${code}`);
+  }
+
+  // Give the charge back to the lane the web route drew it from (it passes the
+  // lane as subsidyKind and the draw's day as chargeDay).
+  private refundVideoJob(job: VideoJob) {
+    if (job.refunded || job.creditsCharged <= 0) return;
+    job.refunded = true;
+    try {
+      if (job.subsidyKind === 'plan' || job.subsidyKind === 'free_grant') {
+        refundDailyGrant(job.privyUserId, job.subsidyKind === 'plan' ? 'plan' : 'free', job.creditsCharged, job.chargeDay);
+      } else if (job.subsidyKind === 'allowance') {
+        refundStakerAllowance(job.privyUserId, job.creditsCharged, job.chargeDay);
+      } else if (!job.subsidyKind) {
+        refundCredits(job.privyUserId, job.creditsCharged, 'Video generation failed');
+      }
+    } catch (err) {
+      console.error(`[Orchestrator] Video refund failed for job ${job.id}:`, err);
+    }
+  }
+
+  // A worker socket went away: fail whatever it was rendering. (The web route
+  // disconnects right after submit by design, so a submitter leaving means
+  // nothing here, unlike the image lane.)
+  private cleanupVideoJobs(socketId: string) {
+    for (const job of this.videoJobs.values()) {
+      if (job.status === 'rendering' && job.assignedWorkerSocketId === socketId) {
+        this.failVideoJob(job, 'The video GPU dropped mid-render. Try again.', 'WORKER_GONE');
       }
     }
   }
@@ -3139,9 +3390,10 @@ export class Orchestrator {
   }
 
   private dispatchCanary(worker: WorkerInfo) {
-    // Image workers run no LLM — the text canary (math+nonce) is meaningless to
-    // them and would false-strike them. They're verified by producing valid PNGs.
-    if (worker.type === 'image') return;
+    // Image and video workers run no LLM — the text canary (math+nonce) is
+    // meaningless to them and would false-strike them. They're verified by
+    // producing valid PNGs / MP4s.
+    if (worker.type === 'image' || worker.type === 'video') return;
     const socket = this.io.sockets.sockets.get(worker.socketId);
     if (!socket) return;
 

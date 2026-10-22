@@ -336,7 +336,7 @@ function ensureEarningsTables() {
 export function recordEarning(data: {
   privyId: string;
   jobId: string;
-  tier: 'free' | 'pro' | 'max' | 'image';
+  tier: 'free' | 'pro' | 'max' | 'image' | 'video';
   creditsCharged: number;
   tokensGenerated: number;
   revenueShare?: number; // worker's effective share (defaults to base 70%)
