@@ -70,8 +70,10 @@ const nextConfig: NextConfig = {
       afterFiles: [
         { source: '/roadmap', destination: '/roadmap-clone/index.html' },
         // /network's live graph polls the orchestrator's public counts (no
-        // identities, no locations), proxied same-origin from this box.
-        { source: '/network/live-stats', destination: 'http://127.0.0.1:3004/api/stats' },
+        // identities, no locations), proxied same-origin from this box. Same
+        // env and default as the other internal orchestrator calls, so staging
+        // shows its own counts instead of production's.
+        { source: '/network/live-stats', destination: `${process.env.INTERNAL_ORCHESTRATOR_URL || 'http://127.0.0.1:3004'}/api/stats` },
       ],
       fallback: [],
     };
