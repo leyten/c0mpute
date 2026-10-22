@@ -103,7 +103,7 @@ export default function Composer(p: ComposerProps) {
         <IconChevron dir={expanded ? 'down' : 'up'} className="text-fg-50" />
       </button>
 
-      <div ref={scrollRef} onScroll={checkMore} className="relative min-h-0 flex-1 space-y-5 overflow-y-auto px-5 pb-4 pt-2 lg:px-6 lg:pt-5">
+      <div ref={scrollRef} onScroll={checkMore} className="relative min-h-0 flex-1 space-y-5 overflow-y-auto px-5 pb-4 pt-2 lg:space-y-4 lg:px-6 lg:pt-5">
         {/* Model */}
         <section className={sheet}>
           <div className="border border-fg/12 p-3.5">
@@ -169,14 +169,16 @@ export default function Composer(p: ComposerProps) {
               const fh = a.w > a.h ? 17 : a.w < a.h ? 30 : 24;
               return (
                 <button key={a.id} type="button" onClick={() => p.onAspect(a.id)} aria-pressed={on}
-                  className={`flex cursor-pointer flex-col items-center gap-1.5 border px-2 pb-2 pt-2.5 transition-colors ${
+                  className={`flex min-w-0 cursor-pointer items-center gap-2 border px-2 py-2 text-left transition-colors ${
                     on ? 'border-fg bg-fg/[0.05] text-fg' : 'border-fg/12 text-fg-55 hover:border-fg/35 hover:text-fg'
                   }`}>
-                  <span className="grid h-7 place-items-center" aria-hidden="true">
-                    <span style={{ width: fw, height: fh }} className={`block border-[1.5px] ${on ? 'border-fg' : 'border-current'}`} />
+                  <span className="grid h-7 w-5 shrink-0 place-items-center" aria-hidden="true">
+                    <span style={{ width: fw * 0.66, height: fh * 0.66 }} className={`block border-[1.5px] ${on ? 'border-fg' : 'border-current'}`} />
                   </span>
-                  <span className="pixel-sans text-[12px] leading-none">{a.label}</span>
-                  <span className="pixel-sans text-[11px] leading-none tabular-nums text-fg-40">{a.ratio}</span>
+                  <span className="min-w-0">
+                    <span className="pixel-sans block text-[12px] leading-tight">{a.label}</span>
+                    <span className="pixel-sans block text-[11px] leading-tight tabular-nums text-fg-40">{a.ratio}</span>
+                  </span>
                 </button>
               );
             })}
