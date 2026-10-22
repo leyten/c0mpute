@@ -8,9 +8,10 @@
 # Staging is a second git worktree (/srv/c0mpute/staging) with its own services
 # (c0mpute-staging-web :3013, c0mpute-staging-orchestrator :3014), its own
 # sqlite database (/srv/c0mpute/staging-data) and its own env file
-# (/srv/c0mpute/staging.env). The env is the safety boundary: it carries no
-# treasury key, no payout key, no notification tokens and a devnet RPC, so
-# nothing deployed here can move money or message a real user. Never point
+# (/srv/c0mpute/staging.env). Two things keep it harmless: the env carries no
+# treasury or payout key and a devnet RPC (scripts/staging-env-check.sh enforces
+# that on every deploy and every start), and the services run as the sandboxed
+# c0staging user, which cannot see /root or the production tree. Never point
 # staging/.env.local at the production env.
 #
 # Unlike deploy.sh this keeps no rollback build: if staging breaks, deploy the
@@ -30,20 +31,14 @@ flock -n 9 || { echo "[staging] FATAL: another staging deploy holds $LOCK" >&2; 
 say() { echo "[staging] $*"; }
 die() { echo "[staging] FATAL: $*" >&2; exit 1; }
 
-# The env file is what makes staging harmless. Refuse to run against anything
-# that looks like the production env rather than trusting it was set up right.
-[ -f "$ENVFILE" ] || die "missing $ENVFILE"
+# The env file is what makes staging harmless. Check it with the guard from
+# THIS checkout and install that copy for the units' ExecStartPre, so the check
+# never depends on which ref the staging tree happens to hold.
+HERE="$(cd "$(dirname "$0")" && pwd)"
 [ "$(readlink -f "$STAGING/.env.local")" = "$ENVFILE" ] || die "$STAGING/.env.local must be a symlink to $ENVFILE"
 [ "$(readlink -f "$STAGING/data")" = "$DATA" ] || die "$STAGING/data must be a symlink to $DATA"
-grep -q '^C0MPUTE_STAGING=1$' "$ENVFILE" || die "$ENVFILE lacks C0MPUTE_STAGING=1 — is this really the staging env?"
-# Keys that sign transactions or reach production-only services.
-FORBIDDEN='^(TREASURY_WALLET_KEY|PUMP_DEV_WALLET_KEY|ZERO_TOKEN_MINT|MIGRATE_ENABLED|SUPABASE_[A-Z_]*|SOLANA_TRACKER_API_KEY|PORT)='
-if grep -Eq "$FORBIDDEN" "$ENVFILE"; then
-  die "$ENVFILE sets a production-only key: $(grep -Eo "$FORBIDDEN" "$ENVFILE" | tr '\n' ' ')"
-fi
-grep -Eq '^SOLANA_RPC_URL=https://api\.devnet\.solana\.com' "$ENVFILE" || die "SOLANA_RPC_URL must be devnet on staging"
-grep -Eq '^SOLANA_RPC_FALLBACKS=.+' "$ENVFILE" || die "SOLANA_RPC_FALLBACKS must be set (empty means mainnet)"
-grep -Eq '^INTERNAL_ORCHESTRATOR_URL=http://127\.0\.0\.1:3014$' "$ENVFILE" || die "INTERNAL_ORCHESTRATOR_URL must be the staging orchestrator (default is prod)"
+bash "$HERE/staging-env-check.sh" "$ENVFILE" || die "staging env rejected"
+install -m 755 "$HERE/staging-env-check.sh" /srv/c0mpute/staging-env-check.sh
 
 health() {
   local i
@@ -88,6 +83,10 @@ if [ "$ceiling" != "max" ] && [ "$ceiling" -lt 5368709120 ] 2>/dev/null && comma
 else
   build || die "build failed (services still run the previous build)"
 fi
+
+# The services run as c0staging and may only write the data dir and Next's cache.
+mkdir -p "$STAGING/.next/cache"
+chown -R c0staging:c0staging "$STAGING/.next/cache"
 
 say "restarting staging services"
 systemctl restart c0mpute-staging-orchestrator
