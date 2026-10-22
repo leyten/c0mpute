@@ -661,9 +661,11 @@ export function closeVideoCharge(jobId: string, status: 'settled' | 'refunded'):
   return db.prepare('SELECT * FROM video_charges WHERE job_id = ?').get(jobId) as VideoChargeRow;
 }
 
-export function getVideoChargeStatus(jobId: string): VideoChargeRow['status'] | null {
+export function getVideoChargeStatus(jobId: string, privyId?: string): VideoChargeRow['status'] | null {
   ensureVideoChargesTable();
-  const row = getDb().prepare('SELECT status FROM video_charges WHERE job_id = ?').get(jobId) as { status: VideoChargeRow['status'] } | undefined;
+  const row = (privyId
+    ? getDb().prepare('SELECT status FROM video_charges WHERE job_id = ? AND privy_id = ?').get(jobId, privyId)
+    : getDb().prepare('SELECT status FROM video_charges WHERE job_id = ?').get(jobId)) as { status: VideoChargeRow['status'] } | undefined;
   return row?.status ?? null;
 }
 

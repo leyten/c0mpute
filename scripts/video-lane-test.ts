@@ -33,6 +33,7 @@
  */
 import { mkdtempSync, mkdirSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import crypto from 'node:crypto';
 import { join, resolve } from 'node:path';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -278,6 +279,21 @@ async function main() {
   sfw.sock.emit('video:failed', { jobId: c1, error: 'lost the GPU' });
   await sleep(100);
   check(balance() === bL, 'the old process failing the same job does not refund it again');
+
+  // ── a job the orchestrator no longer knows: the charge row explains why ──
+  const lost = crypto.randomUUID();
+  db.recordVideoCharge({ jobId: lost, privyId: USER, lane: 'credits', chargeDay: null, credits: VIDEO_CREDITS });
+  db.closeVideoCharge(lost, 'refunded');
+  p = await poll(lost);
+  check(p.status === 404 && 'data' in p && /interrupted/.test(p.data.error) && /refunded/.test(p.data.error),
+    'a job lost to a restart polls as "interrupted, credits refunded", not just "gone"');
+  p = await poll(lost, apiKey2);
+  check('data' in p && !/interrupted/.test(p.data.error), "another account polling it learns nothing about the charge");
+  const expired = crypto.randomUUID();
+  db.recordVideoCharge({ jobId: expired, privyId: USER, lane: 'credits', chargeDay: null, credits: VIDEO_CREDITS });
+  db.closeVideoCharge(expired, 'settled');
+  p = await poll(expired);
+  check('data' in p && /expired/.test(p.data.error), 'a delivered clip past its hold polls as expired');
 
   // ── timeout ──
   const bT = balance();
