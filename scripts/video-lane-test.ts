@@ -10,8 +10,10 @@
  *   - dispatch, progress relay (unknown stages dropped), the clip delivered and
  *     re-deliverable until it expires;
  *   - completed job + worker earning recorded with tier 'video';
- *   - every failure path (worker error, bad/oversized clip, timeout, worker gone)
- *     refunds exactly once, and a late result after a failure is ignored;
+ *   - every failure path (worker error, bad/oversized clip, timeout, worker gone
+ *     or unregistered mid-render) refunds exactly once, and a late result after a
+ *     failure is ignored;
+ *   - a queued job outlives its only capable worker dropping and reconnecting;
  *   - a clip under the 100KB junk floor is refused: refunded, no earning;
  *   - a third job in flight for one account, or new work while held clips are
  *     over budget, is refused before anything is charged;
@@ -280,14 +282,28 @@ async function main() {
   p = await poll(t1);
   check('data' in p && p.data.code === 'TIMEOUT' && balance() === bT, 'timeout reported and refunded');
 
-  // ── worker disconnects mid-render ──
+  // ── worker disconnects mid-render; the job queued behind it waits it out ──
   r = await generate({ prompt: 'nude figure in the rain at night', adult: true });
   const g1 = r.data.jobId as string;
   check(await waitFor(() => adultW.jobs.length === 4), 'job dispatched');
+  r = await generate({ prompt: 'nude figure in the snow', adult: true });
+  const g2 = r.data.jobId as string;
   adultW.sock.disconnect();
   await sleep(200);
   p = await poll(g1);
-  check('data' in p && p.data.code === 'WORKER_GONE' && balance() === bT, 'worker gone mid-render -> failed and refunded');
+  check('data' in p && p.data.code === 'WORKER_GONE', 'worker gone mid-render -> failed');
+  p = await poll(g2);
+  check('data' in p && p.data.status === 'queued' && balance() === bT - VIDEO_CREDITS,
+    'the adult job queued behind it is kept (not wiped) while no 18+ worker is connected; g1 refunded');
+  const adultW2 = await connectWorker('did:privy:worker-adult-2', true);
+  check(await waitFor(() => adultW2.jobs.length === 1) && adultW2.jobs[0].jobId === g2, 'a reconnecting 18+ worker picks the queued job up');
+
+  // ── worker unregisters mid-render: failed and refunded at once ──
+  adultW2.sock.emit('worker:unregister');
+  check(await waitFor(() => adultW2.cancels.includes(g2), 1000), 'unregister mid-render -> the worker is told to cancel straight away');
+  p = await poll(g2);
+  check('data' in p && p.data.code === 'WORKER_GONE' && balance() === bT, 'and the job is failed and refunded, not left to the timeout');
+  adultW2.sock.disconnect();
 
   // ── a large but legal clip arrives intact; then held clips are over budget ──
   r = await generate({ prompt: 'timelapse of clouds over mountains' });

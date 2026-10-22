@@ -1270,6 +1270,11 @@ export class Orchestrator {
 
       socket.on('worker:unregister', () => {
         this.unregisterWorker(socket.id);
+        // A video job on this worker can't finish now (its result would come
+        // from a socket that is no longer a worker), so fail and refund it at
+        // once rather than at the render timeout.
+        this.cleanupVideoJobs(socket.id);
+        this.processVideoQueue();
         this.broadcastStats();
         // unregisterWorker can requeue the job this worker was serving; without
         // a dispatch here it waits for the stale-job sweep instead of the next
@@ -2573,9 +2578,11 @@ export class Orchestrator {
   }
 
   // Dispatch queued video jobs, oldest first, one per idle capable worker. A
-  // job whose capable workers are all busy waits without blocking the jobs
-  // behind it (an SFW job can take a free non-adult worker while an adult job
-  // waits for an opted-in one). A job nothing online could ever serve fails.
+  // job whose capable workers are all busy, or all gone, waits without
+  // blocking the jobs behind it (an SFW job can take a free non-adult worker
+  // while an adult job waits for an opted-in one). Gone is not failed: the
+  // only 18+ worker reconnecting must not wipe the 18+ queue, and the queue
+  // timer still bounds the wait. Submit refuses new jobs nothing could take.
   private processVideoQueue() {
     for (const jobId of [...this.videoQueue]) {
       const job = this.videoJobs.get(jobId);
@@ -2583,12 +2590,7 @@ export class Orchestrator {
         this.videoQueue = this.videoQueue.filter((id) => id !== jobId);
         continue;
       }
-      const capable = [...this.workers.values()].filter((w) => this.servesVideo(w, job.adult));
-      if (capable.length === 0) {
-        this.failVideoJob(job, 'No video GPU is online right now. Try again shortly.', 'NO_VIDEO_WORKER');
-        continue;
-      }
-      const idle = capable.find((w) => w.status === 'idle');
+      const idle = [...this.workers.values()].find((w) => this.servesVideo(w, job.adult) && w.status === 'idle');
       const ws = idle ? this.io.sockets.sockets.get(idle.socketId) : undefined;
       if (!idle || !ws) continue;
       if (getVideoChargeStatus(job.id) !== 'pending') {
