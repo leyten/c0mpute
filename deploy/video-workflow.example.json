@@ -1,6 +1,6 @@
 {
   "label": "Wan 2.2 T2V A14B fp8 + Lightning LoRAs (example)",
-  "notes": "Example of the VIDEO_WORKFLOW_PATH manifest. Stock Wan 2.2 T2V A14B fp8 experts with the lightx2v Wan2.2-Lightning 250928 LoRAs: 8-step schedule split over three KSamplerAdvanced nodes (steps 0-2 high-noise base at cfg 3.5, 2-4 high-noise + Lightning, 4-8 low-noise + Lightning), then RIFE x2 frame interpolation, so 81 frames come out as a 5 s clip at 32 fps. 'workflow' may be the graph inline (as here) or the name of a graph file next to the manifest. Each param writes its value to every [node, input] in 'paths'. frames must be 4n+1 and sizes multiples of 16. output_node is the SaveVideo node the worker downloads.",
+  "notes": "Example of the VIDEO_WORKFLOW_PATH (SFW) manifest; the 18+ graph lives in a second manifest of the same format at VIDEO_WORKFLOW_PATH_ADULT, and neither is ever used for the other's requests. Stock Wan 2.2 T2V A14B fp8 experts with the lightx2v Wan2.2-Lightning 250928 LoRAs: 8-step schedule split over three KSamplerAdvanced nodes (steps 0-2 high-noise base at cfg 3.5, 2-4 high-noise + Lightning, 4-8 low-noise + Lightning), then RIFE x2 frame interpolation, so 81 frames come out as a 5 s clip at 32 fps. 'workflow' may be the graph inline (as here) or the name of a graph file next to the manifest. Each param writes its value to every [node, input] in 'paths'. frames must be 4n+1 and sizes multiples of 16. output_node is the SaveVideo node the worker downloads.",
   "workflow": {
     "1": {
       "class_type": "UNETLoader",

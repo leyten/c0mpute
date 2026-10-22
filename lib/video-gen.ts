@@ -1,16 +1,20 @@
 // Text-to-video (Studio): pricing, caller auth and the ComfyUI graph builder.
 //
 // The graph is DEPLOYMENT CONFIG, not code. Which diffusion model and LoRAs a
-// clip renders with is decided by an untracked manifest on the server, named by
-// VIDEO_WORKFLOW_PATH, so swapping models is an edit to that file, with no
-// code change. Unset or unreadable, Studio reports itself unavailable and nothing
-// is charged. deploy/video-workflow.example.json shows the format with the
-// stock Wan 2.2 T2V files.
+// clip renders with is decided by untracked manifests on the server, so
+// swapping models is an edit to a file, with no code change. There are two,
+// and a request only ever uses its own: VIDEO_WORKFLOW_PATH is the SFW graph,
+// VIDEO_WORKFLOW_PATH_ADULT the 18+ one (an adult LoRA must never load for an
+// SFW request). Unset or unreadable, that side of Studio reports itself
+// unavailable and nothing is charged. deploy/video-workflow.example.json shows
+// the format with the stock Wan 2.2 T2V files.
 //
 // Manifest: { workflow: <graph> | "<graph file next to the manifest>",
 //   params: { <name>: { paths: [[nodeId, inputName], ...], default? } },
 //   sizes: [[w, h], ...], output_node: "<SaveVideo node id>" }
 // The params filled here are prompt, negative, width, height, frames and seed.
+// The negative is always the manifest's: a user negative bypasses the prompt
+// guard, and in 18+ mode it could push apparent age down.
 
 import { NextRequest } from 'next/server';
 import { readFileSync } from 'fs';
@@ -57,8 +61,8 @@ export interface BuiltVideoWorkflow {
 }
 
 // Read per call: the file is a few KB, and an edit applies from the next clip.
-function loadManifest(): { manifest: VideoManifest; graph: Graph } | null {
-  const path = process.env.VIDEO_WORKFLOW_PATH;
+function loadManifest(adult: boolean): { manifest: VideoManifest; graph: Graph } | null {
+  const path = adult ? process.env.VIDEO_WORKFLOW_PATH_ADULT : process.env.VIDEO_WORKFLOW_PATH;
   if (!path) return null;
   try {
     const manifest = JSON.parse(readFileSync(path, 'utf8')) as VideoManifest;
@@ -66,19 +70,20 @@ function loadManifest(): { manifest: VideoManifest; graph: Graph } | null {
       ? JSON.parse(readFileSync(resolve(dirname(path), manifest.workflow), 'utf8'))
       : manifest.workflow;
     if (!graph || typeof graph !== 'object' || !manifest.params?.prompt?.paths?.length) {
-      console.error('[video-gen] VIDEO_WORKFLOW_PATH has no graph or no prompt param');
+      console.error(`[video-gen] ${path} has no graph or no prompt param`);
       return null;
     }
     return { manifest, graph };
   } catch (err) {
-    console.error('[video-gen] could not load VIDEO_WORKFLOW_PATH:', err instanceof Error ? err.message : err);
+    console.error(`[video-gen] could not load ${path}:`, err instanceof Error ? err.message : err);
     return null;
   }
 }
 
-/** The graph for one clip, or null when Studio is not configured. */
-export function buildVideoWorkflow(p: { prompt: string; negativePrompt?: string; width?: number; height?: number; seed?: number }): BuiltVideoWorkflow | null {
-  const loaded = loadManifest();
+/** The graph for one clip from the SFW or the 18+ manifest, or null when that
+ *  side of Studio is not configured. */
+export function buildVideoWorkflow(p: { prompt: string; adult: boolean; width?: number; height?: number; seed?: number }): BuiltVideoWorkflow | null {
+  const loaded = loadManifest(p.adult);
   if (!loaded) return null;
   const { manifest, graph } = loaded;
   const workflow = structuredClone(graph);
@@ -92,7 +97,7 @@ export function buildVideoWorkflow(p: { prompt: string; negativePrompt?: string;
   // Fixed per deployment, not per request: the price is per clip.
   const frames = Number(manifest.params.frames?.default) || 81;
   const seed = Number.isSafeInteger(Number(p.seed)) && Number(p.seed) > 0 ? Number(p.seed) : randomInt(1, 2 ** 31);
-  const negative = [manifest.params.negative?.default, (p.negativePrompt || '').trim()].filter(Boolean).join(', ');
+  const negative = manifest.params.negative?.default ?? '';
 
   const values: Record<string, unknown> = { prompt: p.prompt, negative, width, height, frames, seed };
   for (const [name, value] of Object.entries(values)) {

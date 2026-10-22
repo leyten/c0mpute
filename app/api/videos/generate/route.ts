@@ -25,7 +25,8 @@ export const dynamic = 'force-dynamic';
 // the finished clip in memory only until the first poll collects it.
 //
 // There is no output classifier for video yet, so SFW mode rests on the
-// prompt guard alone.
+// prompt guard and the SFW-only graph. Classifying SFW output is a
+// pre-public-launch item.
 
 export async function POST(req: NextRequest) {
   const caller = await resolveVideoCaller(req);
@@ -35,7 +36,7 @@ export async function POST(req: NextRequest) {
   const { privyId, freeOnly, isApiKey } = caller;
 
   // Untrusted JSON: every field is checked or coerced below.
-  let body: { prompt?: unknown; negative_prompt?: unknown; adult?: unknown; width?: number; height?: number; seed?: number };
+  let body: { prompt?: unknown; adult?: unknown; width?: number; height?: number; seed?: number };
   try {
     body = await req.json();
   } catch {
@@ -45,6 +46,9 @@ export async function POST(req: NextRequest) {
   const prompt = typeof body?.prompt === 'string' ? body.prompt.trim() : '';
   if (!prompt) {
     return NextResponse.json({ error: '`prompt` is required.' }, { status: 400 });
+  }
+  if (prompt.length > 2000) {
+    return NextResponse.json({ error: 'Prompt is too long (2000 characters max).' }, { status: 400 });
   }
 
   // Adult opt-in (18+ gated client-side, as on /create). An adult job only
@@ -56,15 +60,13 @@ export async function POST(req: NextRequest) {
   }
 
   // Built before anything is charged, so an unconfigured Studio costs nothing.
-  const built = buildVideoWorkflow({
-    prompt,
-    negativePrompt: typeof body.negative_prompt === 'string' ? body.negative_prompt : undefined,
-    width: body.width,
-    height: body.height,
-    seed: body.seed,
-  });
+  // An adult request only ever gets the 18+ graph and an SFW one only the SFW
+  // graph: neither falls back to the other.
+  const built = buildVideoWorkflow({ prompt, adult, width: body.width, height: body.height, seed: body.seed });
   if (!built) {
-    return NextResponse.json({ error: 'Studio is unavailable right now.', code: 'STUDIO_UNAVAILABLE' }, { status: 503 });
+    return adult
+      ? NextResponse.json({ error: '18+ Studio is unavailable right now.', code: 'STUDIO_ADULT_UNAVAILABLE' }, { status: 503 })
+      : NextResponse.json({ error: 'Studio is unavailable right now.', code: 'STUDIO_UNAVAILABLE' }, { status: 503 });
   }
 
   // Pay order as for images minus the onboarding free images (there are no

@@ -366,6 +366,7 @@ export default function StudioPage() {
                 onChange={(e) => setPrompt(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); generate(); } }}
                 placeholder="Describe the scene and the motion you want"
+                maxLength={2000}
                 rows={2}
                 className="pixel-sans min-w-0 flex-1 resize-none bg-transparent text-[15px] text-fg placeholder-fg-40 focus:outline-none"
               />

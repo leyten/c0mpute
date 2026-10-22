@@ -3,7 +3,10 @@
  * and GET /api/videos/<id> handlers (authenticated with an API key), a real
  * Orchestrator on a throwaway port, and fake video workers over socket.io that
  * answer with a tiny fake MP4. Proves:
- *   - no worker online, or Studio unconfigured: refused up front, nothing charged;
+ *   - no worker online, Studio (or its 18+ side) unconfigured, or an overlong
+ *     prompt: refused up front, nothing charged;
+ *   - SFW requests get the SFW graph and adult requests the 18+ graph, never the
+ *     other, and a user negative prompt is ignored;
  *   - dispatch, progress relay (unknown stages dropped), the clip delivered once;
  *   - completed job + worker earning recorded with tier 'video';
  *   - every failure path (worker error, bad/oversized clip, timeout, worker gone)
@@ -15,7 +18,7 @@
  *
  * Run:  npx tsx scripts/video-lane-test.ts
  */
-import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createServer } from 'node:http';
@@ -40,6 +43,14 @@ process.chdir(tmp);
 process.env.INTERNAL_API_SECRET = 'video-lane-test-secret';
 process.env.VIDEO_JOB_TIMEOUT_MS = '3000';
 process.env.VIDEO_WORKFLOW_PATH = EXAMPLE;
+// The 18+ manifest: the example plus a marker node, so a test can tell which
+// graph a job was built from.
+const ADULT = join(tmp, 'adult.manifest.json');
+const adultManifest = JSON.parse(readFileSync(EXAMPLE, 'utf8'));
+adultManifest.workflow['40'] = { class_type: 'LoraLoaderModelOnly', inputs: { lora_name: 'adult-marker.safetensors' } };
+writeFileSync(ADULT, JSON.stringify(adultManifest));
+process.env.VIDEO_WORKFLOW_PATH_ADULT = ADULT;
+const EXAMPLE_NEGATIVE: string = adultManifest.params.negative.default;
 
 function fakeMp4(size: number): Buffer {
   const b = Buffer.alloc(size, 7);
@@ -105,8 +116,15 @@ async function main() {
   r = await generate({ prompt: 'a lighthouse at dusk' });
   check(r.status === 503 && r.data.code === 'STUDIO_UNAVAILABLE' && balance() === b0, 'VIDEO_WORKFLOW_PATH unset -> studio unavailable, nothing charged');
   process.env.VIDEO_WORKFLOW_PATH = EXAMPLE;
+  process.env.VIDEO_WORKFLOW_PATH_ADULT = '';
+  r = await generate({ prompt: 'nude figure on a beach', adult: true });
+  check(r.status === 503 && r.data.code === 'STUDIO_ADULT_UNAVAILABLE' && balance() === b0,
+    'VIDEO_WORKFLOW_PATH_ADULT unset -> 18+ studio unavailable (no fallback to the SFW graph), nothing charged');
+  process.env.VIDEO_WORKFLOW_PATH_ADULT = ADULT;
   r = await generate({ prompt: 'nude figure on a beach' });
   check(r.status === 400 && balance() === b0, 'SFW mode refuses an adult prompt before charging');
+  r = await generate({ prompt: 'a'.repeat(2001) });
+  check(r.status === 400 && /2000/.test(r.data.error) && balance() === b0, 'prompt over 2000 characters refused before charging');
 
   const sfw = await connectWorker('did:privy:worker-sfw', false);
   r = await generate({ prompt: 'nude figure on a beach', adult: true });
@@ -114,7 +132,7 @@ async function main() {
   check(sfw.jobs.length === 0, 'the non-adult worker never saw the adult job');
 
   // ── happy path: dispatch, progress, delivery, earnings ──
-  r = await generate({ prompt: 'a red fox running through snow', width: 720, height: 1280, seed: 1234 });
+  r = await generate({ prompt: 'a red fox running through snow', width: 720, height: 1280, seed: 1234, negative_prompt: 'adult, mature' });
   check(r.status === 200 && typeof r.data.jobId === 'string', 'POST answers { jobId } immediately');
   check(balance() === b0 - VIDEO_CREDITS, `charged ${VIDEO_CREDITS} credits up front`);
   const j1 = r.data.jobId as string;
@@ -124,6 +142,8 @@ async function main() {
   check(wf?.['5']?.inputs?.text === 'a red fox running through snow' && wf?.['7']?.inputs?.width === 720
     && wf?.['7']?.inputs?.height === 1280 && wf?.['7']?.inputs?.length === 81 && wf?.['22']?.inputs?.noise_seed === 1234,
     'graph built from the manifest: prompt, size, 81 frames, seed on the samplers');
+  check(!wf?.['40'], 'an SFW job gets the SFW graph (no 18+ marker node)');
+  check(wf?.['6']?.inputs?.text === EXAMPLE_NEGATIVE, 'the user negative_prompt is ignored; the manifest negative is used');
   let p = await poll(j1);
   check(p.status === 200 && 'data' in p && p.data.status === 'rendering', 'status poll: rendering');
   sfw.sock.emit('video:progress', { jobId: j1, pct: 42, stage: 'sampling' });
@@ -150,6 +170,7 @@ async function main() {
   r = await generate({ prompt: 'nude figure on a beach', adult: true });
   const a1 = r.data.jobId as string;
   check(r.status === 200 && await waitFor(() => adultW.jobs.length === 1) && adultW.jobs[0].jobId === a1, 'adult job dispatched to the opted-in worker');
+  check(adultW.jobs[0]?.workflow?.['40']?.inputs?.lora_name === 'adult-marker.safetensors', 'an adult job gets the 18+ graph');
   r = await generate({ prompt: 'nude figure in the rain', adult: true });
   const a2 = r.data.jobId as string;
   await sleep(200);
