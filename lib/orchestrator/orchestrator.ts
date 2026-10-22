@@ -1709,56 +1709,7 @@ export class Orchestrator {
         if (submitter) submitter.emit('image:done', { jobId: job.id, image: data.image, seed: job.seed, width: job.width, height: job.height });
         this.settleImageTool(job.id, data.image);
         // Pay the worker for the render (same revenue-share model as text jobs).
-        if (worker?.privyUserId) {
-          try {
-            const workerShare = getWorkerRevenueShare(worker.privyUserId);
-            // Paid renders pay out of their own revenue. Subsidized (free) renders
-            // still pay the worker the list basis from the treasury — but only when
-            // it's not a self-deal (worker rendering their own free image) and the
-            // daily subsidy cap has room, so a sybil farm can't drain the treasury.
-            // Mirrors the text-job guard in handleJobComplete.
-            let payoutCredits = job.subsidized ? 0 : job.creditsCharged;
-            let subsidized = false;
-            if (job.subsidized && worker.privyUserId !== job.privyUserId) {
-              if (!isFreeSubsidyKind(job.subsidyKind)) {
-                // Funded lanes: the staker pool ceiling and the plan purchase
-                // already bounded these, so pay and leave the free budget alone.
-                payoutCredits = job.creditsCharged;
-                subsidized = true;
-              } else {
-                const subsidyUsd = (job.creditsCharged / CREDITS_PER_USD) * workerShare;
-                if (getTodayFreeSubsidyUsd() + subsidyUsd <= FREE_SUBSIDY_DAILY_CAP_USD) {
-                  payoutCredits = job.creditsCharged;
-                  subsidized = true;
-                } else {
-                  console.log(`[Orchestrator] Free-image subsidy cap reached — worker ${worker.privyUserId} not paid for job ${job.id}`);
-                }
-              }
-            }
-            // Render time, on the SAME basis as a text job's duration_ms: server-
-            // observed dispatch → completion (handleJobComplete measures from
-            // job.startedAt, which processQueue sets at dispatch), so queue wait
-            // counts against neither column and the two are comparable.
-            // duration_ms was NULL for every image job until now, so render cost
-            // has never been measurable.
-            const durationMs = job.dispatchedAt ? Date.now() - job.dispatchedAt : 0;
-            recordCompletedJob({ jobId: job.id, workerPrivyId: worker.privyUserId, userPrivyId: job.privyUserId, model: worker.model, tier: 'image', tokensGenerated: 0, durationMs: durationMs > 0 ? durationMs : undefined });
-            recordEarning({
-              privyId: worker.privyUserId,
-              jobId: job.id,
-              tier: 'image',
-              creditsCharged: job.subsidized ? 0 : job.creditsCharged,
-              payoutCredits,
-              subsidized,
-              subsidyKind: subsidized ? (job.subsidyKind ?? 'free') : undefined,
-              tokensGenerated: 0,
-              revenueShare: workerShare,
-              payerPrivyId: job.privyUserId,
-            });
-          } catch (err) {
-            console.error('[Orchestrator] Failed to record image earning:', err);
-          }
-        }
+        if (worker?.privyUserId) this.recordRenderEarning(job, worker, worker.privyUserId, 'image');
         this.imageJobs.delete(data.jobId);
         console.log(`[Orchestrator] Image job ${job.id} completed by ${worker?.id || socket.id}`);
         // Refresh the worker card so its images-rendered count ticks up live.
@@ -2192,6 +2143,63 @@ export class Orchestrator {
         }
       }
       this.workers.delete(socketId);
+    }
+  }
+
+  /** Book a finished render: the completed-job row and the worker's earning. */
+  private recordRenderEarning(
+    job: Pick<ImageJob, 'id' | 'privyUserId' | 'creditsCharged' | 'subsidized' | 'subsidyKind' | 'dispatchedAt'>,
+    worker: WorkerInfo,
+    workerPrivyId: string,
+    tier: 'image',
+  ) {
+    try {
+      const workerShare = getWorkerRevenueShare(workerPrivyId);
+      // Paid renders pay out of their own revenue. Subsidized (free) renders
+      // still pay the worker the list basis from the treasury — but only when
+      // it's not a self-deal (worker rendering their own free image) and the
+      // daily subsidy cap has room, so a sybil farm can't drain the treasury.
+      // Mirrors the text-job guard in handleJobComplete.
+      let payoutCredits = job.subsidized ? 0 : job.creditsCharged;
+      let subsidized = false;
+      if (job.subsidized && workerPrivyId !== job.privyUserId) {
+        if (!isFreeSubsidyKind(job.subsidyKind)) {
+          // Funded lanes: the staker pool ceiling and the plan purchase
+          // already bounded these, so pay and leave the free budget alone.
+          payoutCredits = job.creditsCharged;
+          subsidized = true;
+        } else {
+          const subsidyUsd = (job.creditsCharged / CREDITS_PER_USD) * workerShare;
+          if (getTodayFreeSubsidyUsd() + subsidyUsd <= FREE_SUBSIDY_DAILY_CAP_USD) {
+            payoutCredits = job.creditsCharged;
+            subsidized = true;
+          } else {
+            console.log(`[Orchestrator] Free-${tier} subsidy cap reached — worker ${workerPrivyId} not paid for job ${job.id}`);
+          }
+        }
+      }
+      // Render time, on the SAME basis as a text job's duration_ms: server-
+      // observed dispatch → completion (handleJobComplete measures from
+      // job.startedAt, which processQueue sets at dispatch), so queue wait
+      // counts against neither column and the two are comparable.
+      // duration_ms was NULL for every image job until now, so render cost
+      // has never been measurable.
+      const durationMs = job.dispatchedAt ? Date.now() - job.dispatchedAt : 0;
+      recordCompletedJob({ jobId: job.id, workerPrivyId, userPrivyId: job.privyUserId, model: worker.model, tier, tokensGenerated: 0, durationMs: durationMs > 0 ? durationMs : undefined });
+      recordEarning({
+        privyId: workerPrivyId,
+        jobId: job.id,
+        tier,
+        creditsCharged: job.subsidized ? 0 : job.creditsCharged,
+        payoutCredits,
+        subsidized,
+        subsidyKind: subsidized ? (job.subsidyKind ?? 'free') : undefined,
+        tokensGenerated: 0,
+        revenueShare: workerShare,
+        payerPrivyId: job.privyUserId,
+      });
+    } catch (err) {
+      console.error(`[Orchestrator] Failed to record ${tier} earning:`, err);
     }
   }
 
