@@ -12,9 +12,10 @@ const NSFW_ACK_KEY = 'c0mpute_nsfw_ack'; // shared with /create: one 18+ confirm
 const PENDING_KEY = 'c0mpute_studio_pending';
 const ACCENT = 'var(--steel)';
 const POLL_MS = 3000;
-// Past this a render is over one way or another (the server holds a finished
-// clip for 10 minutes), so a page left open stops asking.
-const PENDING_MAX_MS = 30 * 60_000;
+// Past this a render is over one way or another (up to 15 minutes queued, 15
+// rendering, then the server holds a finished clip for an hour), so a page
+// left open stops asking.
+const PENDING_MAX_MS = 90 * 60_000;
 
 // The sizes the server's workflow manifest allows; anything else falls back to the first.
 const RATIOS: { label: string; w: number; h: number }[] = [
@@ -158,7 +159,7 @@ export default function StudioPage() {
   // final answer is the whole MP4. It is saved to IndexedDB even if the page is
   // already on its way out. A download that dies mid-body (res.blob() throws)
   // lands in the catch and simply polls again: the server keeps the clip for
-  // ten minutes after it finishes.
+  // an hour after it finishes.
   useEffect(() => {
     if (!job) return;
     let stopped = false;
@@ -309,7 +310,7 @@ export default function StudioPage() {
                   </p>
                   <p className="pixel-sans text-xs tabular-nums text-fg-45">{elapsed}s elapsed · usually 4 to 10 minutes</p>
                   <p className="pixel-sans line-clamp-2 max-w-sm text-center text-xs text-fg-35">{job.prompt}</p>
-                  <p className="pixel-sans max-w-sm text-center text-xs text-fg-30">You can leave and come back. A finished clip waits 10 minutes.</p>
+                  <p className="pixel-sans max-w-sm text-center text-xs text-fg-30">You can leave and come back. A finished clip waits an hour.</p>
                 </div>
               ) : current ? (
                 <video key={current.id} src={current.url} controls autoPlay muted loop playsInline className="block h-full w-full object-contain" />

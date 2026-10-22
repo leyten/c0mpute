@@ -40,7 +40,7 @@ function refusal(code: string | undefined): NextResponse | null {
 // its startup sweep after a crash, goes through that row's latch, once.
 //
 // PRIVACY: same posture as images. Nothing is stored; the orchestrator holds
-// the finished clip in memory only, for ten minutes after it finishes.
+// the finished clip in memory only, for an hour after it finishes.
 //
 // There is no output classifier for video yet, so SFW mode rests on the
 // prompt guard and the SFW-only graph. Classifying SFW output is a

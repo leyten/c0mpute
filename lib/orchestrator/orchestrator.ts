@@ -604,14 +604,14 @@ export class Orchestrator {
   // Applies twice: to the wait for a free GPU, then again to the render itself.
   private readonly VIDEO_JOB_TIMEOUT_MS = Number(process.env.VIDEO_JOB_TIMEOUT_MS) || 900_000;
   // How long a finished clip (or a failure) waits for its poll before it is dropped.
-  private readonly VIDEO_RESULT_TTL_MS = 600_000;
+  private readonly VIDEO_RESULT_TTL_MS = 3_600_000;
   // A worker's result rides the socket, which closes on anything over the 16MB
   // maxHttpBufferSize (server/index.ts). Refuse well before that, with a reason.
   private readonly MAX_VIDEO_B64_CHARS = 15 * 1024 * 1024;
   // A real 5s clip is megabytes; anything under this is filler, not a render.
   private readonly MIN_VIDEO_BYTES = 100 * 1024;
   // Memory caps. Per account: jobs queued or rendering at once. Globally: the
-  // finished clips held for collection (each up to 15MB, for 10 minutes).
+  // finished clips held for collection (each up to 15MB, for an hour).
   private readonly MAX_VIDEO_JOBS_PER_USER = 2;
   private readonly MAX_HELD_VIDEO_CHARS = (Number(process.env.VIDEO_HELD_MAX_MB) || 600) * 1024 * 1024;
 
