@@ -83,7 +83,7 @@ interface ImageJob {
 // A text-to-video render (Studio). Same request/response shape as an image job,
 // but it outlives any HTTP request (4-11 minutes), so the web route charges,
 // submits and returns: from submit on, this record drives the refund, the
-// progress the user polls, and the finished clip until it is fetched. The
+// progress the user polls, and the finished clip until it expires. The
 // charge itself lives in video_charges (lib/db.ts), so it survives a restart.
 interface VideoJob {
   id: string;
@@ -100,7 +100,7 @@ interface VideoJob {
   status: 'queued' | 'rendering' | 'done' | 'failed';
   pct: number;
   stage?: VideoStage;
-  // base64 MP4, held from video:result until the first poll or the hold window.
+  // base64 MP4, held from video:result until VIDEO_RESULT_TTL_MS runs out.
   video?: string;
   error?: string;
   code?: string;
@@ -1849,9 +1849,10 @@ export class Orchestrator {
         this.processVideoQueue();
       });
 
-      // The web's status poll. The finished clip is handed over once and then
-      // dropped; a failure is reported once too. Everything the user sees here
-      // was written by the orchestrator, never by a worker.
+      // The web's status poll. A finished clip (or a failure) is answered on
+      // every poll until it expires, so a download that dies half way can just
+      // ask again; the first hand-out settles the charge. Everything the user
+      // sees here was written by the orchestrator, never by a worker.
       socket.on('video:status', (data, callback) => {
         if (typeof callback !== 'function') return;
         const isInternal = (socket as Socket & { isInternal?: boolean }).isInternal === true;
@@ -1861,8 +1862,6 @@ export class Orchestrator {
           return;
         }
         if (job.status === 'done' || job.status === 'failed') {
-          if (job.timer) clearTimeout(job.timer);
-          this.videoJobs.delete(job.id);
           if (job.status === 'done') closeVideoCharge(job.id, 'settled');
           callback(job.status === 'done'
             ? { status: 'done', video: job.video || '', seed: job.seed, width: job.width, height: job.height }

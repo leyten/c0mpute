@@ -155,8 +155,10 @@ export default function StudioPage() {
   }, []);
 
   // Poll the render. Sequential (the next poll waits for this one), because the
-  // final answer is the whole MP4. That answer is handed out once, so it is
-  // saved to IndexedDB even if the page is already on its way out.
+  // final answer is the whole MP4. It is saved to IndexedDB even if the page is
+  // already on its way out. A download that dies mid-body (res.blob() throws)
+  // lands in the catch and simply polls again: the server keeps the clip for
+  // ten minutes after it finishes.
   useEffect(() => {
     if (!job) return;
     let stopped = false;

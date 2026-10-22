@@ -318,8 +318,8 @@ export interface VideoSubmit {
   subsidyKind?: SubsidyKind;
 }
 
-/** What a status poll sees. `done` carries the MP4 as base64 and is handed
- *  out exactly once; after that, or after the hold window, the job is `gone`. */
+/** What a status poll sees. `done` carries the MP4 as base64, on every poll
+ *  until the clip expires; after that the job is `gone`. */
 export type VideoJobStatus =
   | { status: 'queued' | 'rendering'; pct: number; stage?: VideoStage }
   | { status: 'done'; video: string; seed?: number; width?: number; height?: number }

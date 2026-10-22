@@ -7,7 +7,8 @@
  *     prompt: refused up front, nothing charged;
  *   - SFW requests get the SFW graph and adult requests the 18+ graph, never the
  *     other, and a user negative prompt is ignored;
- *   - dispatch, progress relay (unknown stages dropped), the clip delivered once;
+ *   - dispatch, progress relay (unknown stages dropped), the clip delivered and
+ *     re-deliverable until it expires;
  *   - completed job + worker earning recorded with tier 'video';
  *   - every failure path (worker error, bad/oversized clip, timeout, worker gone)
  *     refunds exactly once, and a late result after a failure is ignored;
@@ -170,8 +171,8 @@ async function main() {
   p = await poll(j1);
   check('video' in p && p.status === 200 && p.video.equals(clip), 'done: GET returns the exact MP4 bytes as video/mp4');
   p = await poll(j1);
-  check(p.status === 404 && 'data' in p && p.data.status === 'gone', 'the clip is handed out once, then gone');
-  check(db.getVideoChargeStatus(j1) === 'settled', "the delivered job's charge row is settled");
+  check(db.getVideoChargeStatus(j1) === 'settled', "the first hand-out settles the job's charge row");
+  check('video' in p && p.video.equals(clip), 'a re-fetch gets the same clip again (kept until it expires, so a failed download can retry)');
   const earn = db.getRecentEarnings('did:privy:worker-sfw');
   check(earn.length === 1 && earn[0].tier === 'video' && earn[0].job_id === j1 && earn[0].earning_usd > 0, "worker earning recorded with tier 'video'");
   const hist = db.getWorkerJobHistory('did:privy:worker-sfw');

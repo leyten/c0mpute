@@ -25,7 +25,7 @@ export const dynamic = 'force-dynamic';
 // its startup sweep after a crash, goes through that row's latch, once.
 //
 // PRIVACY: same posture as images. Nothing is stored; the orchestrator holds
-// the finished clip in memory only until the first poll collects it.
+// the finished clip in memory only, for ten minutes after it finishes.
 //
 // There is no output classifier for video yet, so SFW mode rests on the
 // prompt guard and the SFW-only graph. Classifying SFW output is a
