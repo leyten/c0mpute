@@ -12,7 +12,11 @@
  *   - every failure path (worker error, bad/oversized clip, timeout, worker gone)
  *     refunds exactly once, and a late result after a failure is ignored;
  *   - an adult job never reaches a worker that did not opt in;
- *   - a submit that reaches the orchestrator after its accept deadline is refused.
+ *   - a submit that reaches the orchestrator after its accept deadline is refused;
+ *   - every charge is a video_charges row: settled on delivery, refunded on
+ *     failure, refunded by the next orchestrator's startup sweep after a crash,
+ *     and never refunded twice across processes; a clip whose charge was already
+ *     refunded (a lost ack) earns nothing.
  *
  * The DB is cwd/data/c0mpute.db, so this runs from a fresh temp dir and never
  * touches a real one.
@@ -75,6 +79,7 @@ async function main() {
   const { POST } = await import('../app/api/videos/generate/route');
   const { GET } = await import('../app/api/videos/[jobId]/route');
   const { VIDEO_CREDITS } = await import('../lib/video-gen');
+  const { refundVideoCharge } = await import('../lib/video-charges');
   const { NextRequest } = await import('next/server');
   new Orchestrator(io);
 
@@ -166,6 +171,7 @@ async function main() {
   check('video' in p && p.status === 200 && p.video.equals(clip), 'done: GET returns the exact MP4 bytes as video/mp4');
   p = await poll(j1);
   check(p.status === 404 && 'data' in p && p.data.status === 'gone', 'the clip is handed out once, then gone');
+  check(db.getVideoChargeStatus(j1) === 'settled', "the delivered job's charge row is settled");
   const earn = db.getRecentEarnings('did:privy:worker-sfw');
   check(earn.length === 1 && earn[0].tier === 'video' && earn[0].job_id === j1 && earn[0].earning_usd > 0, "worker earning recorded with tier 'video'");
   const hist = db.getWorkerJobHistory('did:privy:worker-sfw');
@@ -196,7 +202,7 @@ async function main() {
   check(await waitFor(() => adultW.jobs.length === 2) && adultW.jobs[1].jobId === a2, 'adult worker freed by the failure picks up the queued adult job');
   p = await poll(a1);
   check('data' in p && p.data.status === 'failed' && !/CUDA/.test(p.data.error), 'worker failure reported to the poll (worker text not relayed)');
-  check(balance() === bA - 2 * VIDEO_CREDITS, 'worker failure refunded (two jobs still running)');
+  check(balance() === bA - 2 * VIDEO_CREDITS && db.getVideoChargeStatus(a1) === 'refunded', 'worker failure refunded, charge row refunded (two jobs still running)');
 
   // ── exactly once: a late result for a failed job is ignored ──
   adultW.sock.emit('video:result', { jobId: a1, video: clip.toString('base64') });
@@ -225,11 +231,35 @@ async function main() {
   p = await poll(l1);
   check('video' in p && p.video.equals(large), '8MB clip delivered byte for byte');
 
+  // ── lost ack: the route refunded an accepted job; its clip must not earn ──
+  const bL = balance();
+  r = await generate({ prompt: 'a kite over a beach' });
+  const k1 = r.data.jobId as string;
+  check(await waitFor(() => sfw.jobs.length === 4), 'job dispatched');
+  check(refundVideoCharge(k1, 'test: route gave up on a lost ack') && balance() === bL, 'route-side refund (lost ack) goes through the latch');
+  sfw.sock.emit('video:result', { jobId: k1, video: clip.toString('base64') });
+  await sleep(150);
+  p = await poll(k1);
+  check('data' in p && p.data.code === 'CHARGE_VOID' && balance() === bL && !db.getRecentEarnings('did:privy:worker-sfw').some((e) => e.job_id === k1),
+    'its clip is not delivered, earns nothing, and is not refunded a second time');
+
+  // ── crash: the next orchestrator refunds what the last one left pending ──
+  r = await generate({ prompt: 'fog rolling over hills' });
+  const c1 = r.data.jobId as string;
+  check(await waitFor(() => sfw.jobs.length === 5) && balance() === bL - VIDEO_CREDITS, 'job charged and rendering');
+  new Orchestrator(new Server<ClientToServerEvents, ServerToClientEvents>());
+  check(balance() === bL && db.getVideoChargeStatus(c1) === 'refunded', 'a restarted orchestrator refunds the pending charge at startup');
+  new Orchestrator(new Server<ClientToServerEvents, ServerToClientEvents>());
+  check(balance() === bL, 'a second restart refunds nothing more');
+  sfw.sock.emit('video:failed', { jobId: c1, error: 'lost the GPU' });
+  await sleep(100);
+  check(balance() === bL, 'the old process failing the same job does not refund it again');
+
   // ── timeout ──
   const bT = balance();
   r = await generate({ prompt: 'a slow pan across a desert' });
   const t1 = r.data.jobId as string;
-  check(await waitFor(() => sfw.jobs.length === 4), 'job dispatched (worker will never answer)');
+  check(await waitFor(() => sfw.jobs.length === 6), 'job dispatched (worker will never answer)');
   check(await waitFor(() => sfw.cancels.includes(t1), 5000), 'render timeout -> worker told to cancel');
   p = await poll(t1);
   check('data' in p && p.data.code === 'TIMEOUT' && balance() === bT, 'timeout reported and refunded');
@@ -237,7 +267,7 @@ async function main() {
   // ── worker disconnects mid-render ──
   r = await generate({ prompt: 'rain on a window at night' });
   const g1 = r.data.jobId as string;
-  check(await waitFor(() => sfw.jobs.length === 5), 'job dispatched');
+  check(await waitFor(() => sfw.jobs.length === 7), 'job dispatched');
   sfw.sock.disconnect();
   await sleep(200);
   p = await poll(g1);

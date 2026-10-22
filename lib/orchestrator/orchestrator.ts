@@ -28,7 +28,8 @@ import {
   type VideoStage,
 } from './types';
 import { verifyPrivyToken } from '../privy-server';
-import { incrementPromptsSent, verifyWorkerToken, recordCompletedJob, recordEarning, spendCredits, getCreditBalance, refundCredits, isWorkerBanned, recordWorkerStrike, recordCanaryResult, consumeFreePrompt, restoreFreePrompt, getFreePromptsUsed, recordSubsidizedPrompt, getTodayFreeSubsidyUsd, getThisHourFreeSubsidyUsd, anonGrantFreePrompt, getAnonRemaining, profileHasLogin, getAccountAgeMs } from '../db';
+import { refundVideoCharge, refundOrphanedVideoCharges } from '../video-charges';
+import { incrementPromptsSent, verifyWorkerToken, recordCompletedJob, recordEarning, spendCredits, getCreditBalance, refundCredits, isWorkerBanned, recordWorkerStrike, recordCanaryResult, consumeFreePrompt, restoreFreePrompt, getFreePromptsUsed, recordSubsidizedPrompt, getTodayFreeSubsidyUsd, getThisHourFreeSubsidyUsd, anonGrantFreePrompt, getAnonRemaining, profileHasLogin, getAccountAgeMs, closeVideoCharge, getVideoChargeStatus } from '../db';
 import { FREE_PROMPT_LIMIT, FREE_SUBSIDY_DAILY_CAP_USD, FREE_SUBSIDY_HOURLY_CAP_USD, STAKER_ALLOWANCE_ENABLED, ANON_FREE_PROMPT_LIMIT, ANON_IP_DAILY_CAP, WORKER_STAKED_REVENUE_SHARE, textCreditCost, textCreditReservation } from '../tokenomics';
 import { verifyAnonToken } from '../anon-auth';
 import { CREDITS_PER_USD } from '../token-price';
@@ -81,8 +82,9 @@ interface ImageJob {
 
 // A text-to-video render (Studio). Same request/response shape as an image job,
 // but it outlives any HTTP request (4-11 minutes), so the web route charges,
-// submits and returns: from submit on, this record owns the refund, the
-// progress the user polls, and the finished clip until it is fetched.
+// submits and returns: from submit on, this record drives the refund, the
+// progress the user polls, and the finished clip until it is fetched. The
+// charge itself lives in video_charges (lib/db.ts), so it survives a restart.
 interface VideoJob {
   id: string;
   workflow: Record<string, unknown>;
@@ -95,7 +97,6 @@ interface VideoJob {
   creditsCharged: number;
   subsidized: boolean;
   subsidyKind?: SubsidyKind;
-  chargeDay?: string;
   status: 'queued' | 'rendering' | 'done' | 'failed';
   pct: number;
   stage?: VideoStage;
@@ -103,7 +104,6 @@ interface VideoJob {
   video?: string;
   error?: string;
   code?: string;
-  refunded?: boolean;
   assignedWorkerSocketId?: string;
   timer?: ReturnType<typeof setTimeout>;
   submittedAt: number;
@@ -790,6 +790,14 @@ export class Orchestrator {
     });
 
     this.setupEventHandlers();
+    // Studio charges whose render died with the previous process. Nothing is in
+    // flight yet, so every pending row is an orphan: refund it, once.
+    try {
+      const orphaned = refundOrphanedVideoCharges();
+      if (orphaned) console.log(`[Orchestrator] Refunded ${orphaned} video charge(s) left pending by the last run`);
+    } catch (err) {
+      console.error('[Orchestrator] Video charge sweep failed:', err);
+    }
     // Sharded-swarm control plane (the permissionless loop), alongside the whole-model worker path
     // above — nothing here changes it. It registers its own connection handlers for node:announce /
     // swarm:ready / swarm:job_complete and drives shard.plan (place) + shard.verify (settle).
@@ -1800,6 +1808,13 @@ export class Orchestrator {
           callback({ error: 'Duplicate jobId.', code: 'DUPLICATE' });
           return;
         }
+        // The route writes the charge row before it submits. No pending row
+        // means no charge, or one already refunded (a startup sweep that ran
+        // while this submit was in flight): either way, not ours to render.
+        if (getVideoChargeStatus(data.jobId) !== 'pending') {
+          callback({ error: 'No pending charge for this job.', code: 'NO_CHARGE' });
+          return;
+        }
         const adult = data.adult === true;
         // Refuse up front when nothing could ever take it, so the route can
         // refund and answer at once instead of the user polling a dead job.
@@ -1820,7 +1835,6 @@ export class Orchestrator {
           creditsCharged: Number(data.creditsCharged) || 0,
           subsidized: data.subsidized === true,
           subsidyKind: data.subsidyKind,
-          chargeDay: data.chargeDay,
           status: 'queued',
           pct: 0,
           submittedAt: Date.now(),
@@ -1849,6 +1863,7 @@ export class Orchestrator {
         if (job.status === 'done' || job.status === 'failed') {
           if (job.timer) clearTimeout(job.timer);
           this.videoJobs.delete(job.id);
+          if (job.status === 'done') closeVideoCharge(job.id, 'settled');
           callback(job.status === 'done'
             ? { status: 'done', video: job.video || '', seed: job.seed, width: job.width, height: job.height }
             : { status: 'failed', error: job.error || 'Video generation failed.', code: job.code });
@@ -1882,13 +1897,25 @@ export class Orchestrator {
           this.processVideoQueue();
           return;
         }
+        // Refunded behind our back (the route gave up on a lost ack): nobody
+        // paid for this clip and nobody holds its id, so it earns nothing.
+        if (getVideoChargeStatus(job.id) !== 'pending') {
+          this.failVideoJob(job, 'Video generation was cancelled.', 'CHARGE_VOID');
+          this.processVideoQueue();
+          return;
+        }
         if (job.timer) clearTimeout(job.timer);
         if (worker) { worker.status = 'idle'; worker.jobsCompleted++; this.totalJobsCompleted++; }
         job.status = 'done';
         job.pct = 100;
         job.video = video;
         job.workflow = {};
-        job.timer = setTimeout(() => this.videoJobs.delete(job.id), this.VIDEO_RESULT_TTL_MS);
+        // Never collected: the render happened and the worker is paid, so the
+        // charge stands.
+        job.timer = setTimeout(() => {
+          closeVideoCharge(job.id, 'settled');
+          this.videoJobs.delete(job.id);
+        }, this.VIDEO_RESULT_TTL_MS);
         if (worker?.privyUserId) this.recordRenderEarning(job, worker, worker.privyUserId, 'video');
         console.log(`[Orchestrator] Video job ${job.id} completed by ${worker?.id || socket.id}`);
         this.processVideoQueue();
@@ -2515,6 +2542,10 @@ export class Orchestrator {
       const idle = capable.find((w) => w.status === 'idle');
       const ws = idle ? this.io.sockets.sockets.get(idle.socketId) : undefined;
       if (!idle || !ws) continue;
+      if (getVideoChargeStatus(job.id) !== 'pending') {
+        this.failVideoJob(job, 'Video generation was cancelled.', 'CHARGE_VOID');
+        continue;
+      }
       this.videoQueue = this.videoQueue.filter((id) => id !== jobId);
       idle.status = 'busy';
       job.status = 'rendering';
@@ -2531,8 +2562,9 @@ export class Orchestrator {
   }
 
   // Every failure path ends here, and only once: the status latch makes a late
-  // second path (a timeout racing a worker error) a no-op, and refundVideoJob
-  // has its own latch. Callers re-run processVideoQueue themselves.
+  // second path (a timeout racing a worker error) a no-op, and the refund goes
+  // through the video_charges latch, which also covers the web route and a
+  // restart sweep. Callers re-run processVideoQueue themselves.
   private failVideoJob(job: VideoJob, error: string, code: string) {
     if (job.status === 'done' || job.status === 'failed') return;
     if (job.timer) clearTimeout(job.timer);
@@ -2542,31 +2574,17 @@ export class Orchestrator {
       if (w) w.status = 'idle';
       this.io.sockets.sockets.get(job.assignedWorkerSocketId)?.emit('video:cancel', { jobId: job.id });
     }
-    this.refundVideoJob(job);
+    try {
+      refundVideoCharge(job.id, 'Video generation failed');
+    } catch (err) {
+      console.error(`[Orchestrator] Video refund failed for job ${job.id}:`, err);
+    }
     job.status = 'failed';
     job.error = error;
     job.code = code;
     job.workflow = {};
     job.timer = setTimeout(() => this.videoJobs.delete(job.id), this.VIDEO_RESULT_TTL_MS);
     console.warn(`[Orchestrator] Video job ${job.id} failed: ${code}`);
-  }
-
-  // Give the charge back to the lane the web route drew it from (it passes the
-  // lane as subsidyKind and the draw's day as chargeDay).
-  private refundVideoJob(job: VideoJob) {
-    if (job.refunded || job.creditsCharged <= 0) return;
-    job.refunded = true;
-    try {
-      if (job.subsidyKind === 'plan' || job.subsidyKind === 'free_grant') {
-        refundDailyGrant(job.privyUserId, job.subsidyKind === 'plan' ? 'plan' : 'free', job.creditsCharged, job.chargeDay);
-      } else if (job.subsidyKind === 'allowance') {
-        refundStakerAllowance(job.privyUserId, job.creditsCharged, job.chargeDay);
-      } else if (!job.subsidyKind) {
-        refundCredits(job.privyUserId, job.creditsCharged, 'Video generation failed');
-      }
-    } catch (err) {
-      console.error(`[Orchestrator] Video refund failed for job ${job.id}:`, err);
-    }
   }
 
   // A worker socket went away: fail whatever it was rendering. (The web route

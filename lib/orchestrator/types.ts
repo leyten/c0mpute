@@ -283,8 +283,9 @@ export interface ClientToServerEvents {
   'image:result': (data: { jobId: string; image: string }) => void;
   'image:failed': (data: { jobId: string; error: string }) => void;
   // Video generation. Internal web -> orchestrator: submit a render the web
-  // route has already charged (from here on the orchestrator owns the refund),
-  // then poll it. A render outlives any HTTP request, so nothing waits on it.
+  // route has already charged and recorded in video_charges (from here on the
+  // orchestrator drives the refund), then poll it. A render outlives any HTTP
+  // request, so nothing waits on it.
   'video:submit': (data: VideoSubmit, callback: (response: { jobId: string } | { error: string; code?: string }) => void) => void;
   'video:status': (data: { jobId: string; privyUserId: string }, callback: (response: VideoJobStatus) => void) => void;
   // Video worker -> orchestrator: progress, then result or failure.
@@ -315,9 +316,6 @@ export interface VideoSubmit {
   creditsCharged: number;
   subsidized?: boolean;
   subsidyKind?: SubsidyKind;
-  // The UTC day a grant or allowance draw was written to, so a refund minutes
-  // later settles against the row that was actually charged.
-  chargeDay?: string;
 }
 
 /** What a status poll sees. `done` carries the MP4 as base64 and is handed

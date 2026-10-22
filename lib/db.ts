@@ -604,6 +604,74 @@ export function getRecentEarnings(privyId: string, limit = 20): any[] {
   ).all(privyId, limit);
 }
 
+// ── Video charges ──
+//
+// One row per charged Studio render, written by the web route as soon as it
+// charges and before it submits. A render outlives the request, and can
+// outlive the orchestrator process too, so this row (not memory) is what says
+// a user is owed their credits back: 'pending' until the clip is handed out
+// ('settled') or the charge is given back ('refunded'). Every settle and
+// refund goes through closeVideoCharge, so each happens at most once no
+// matter how many paths, or processes, reach it.
+
+export type VideoChargeLane = 'plan' | 'free_grant' | 'allowance' | 'credits';
+export interface VideoChargeRow {
+  job_id: string;
+  privy_id: string;
+  lane: VideoChargeLane;
+  charge_day: string | null;
+  credits: number;
+  status: 'pending' | 'settled' | 'refunded';
+  created_at: string;
+}
+
+function ensureVideoChargesTable() {
+  const db = getDb();
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS video_charges (
+      job_id TEXT PRIMARY KEY,
+      privy_id TEXT NOT NULL,
+      lane TEXT NOT NULL,
+      charge_day TEXT,
+      credits REAL NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      created_at TEXT NOT NULL,
+      closed_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_video_charges_status ON video_charges(status);
+  `);
+}
+
+export function recordVideoCharge(c: { jobId: string; privyId: string; lane: VideoChargeLane; chargeDay: string | null; credits: number }): void {
+  ensureVideoChargesTable();
+  getDb().prepare(
+    "INSERT INTO video_charges (job_id, privy_id, lane, charge_day, credits, status, created_at) VALUES (?, ?, ?, ?, ?, 'pending', ?)"
+  ).run(c.jobId, c.privyId, c.lane, c.chargeDay, c.credits, new Date().toISOString());
+}
+
+/** Move a pending charge to settled or refunded in one conditional UPDATE.
+ *  Returns the row only to the single call that made the move; every other
+ *  call (already closed, or no such job) gets null and must do nothing. */
+export function closeVideoCharge(jobId: string, status: 'settled' | 'refunded'): VideoChargeRow | null {
+  ensureVideoChargesTable();
+  const db = getDb();
+  const { changes } = db.prepare("UPDATE video_charges SET status = ?, closed_at = ? WHERE job_id = ? AND status = 'pending'")
+    .run(status, new Date().toISOString(), jobId);
+  if (changes !== 1) return null;
+  return db.prepare('SELECT * FROM video_charges WHERE job_id = ?').get(jobId) as VideoChargeRow;
+}
+
+export function getVideoChargeStatus(jobId: string): VideoChargeRow['status'] | null {
+  ensureVideoChargesTable();
+  const row = getDb().prepare('SELECT status FROM video_charges WHERE job_id = ?').get(jobId) as { status: VideoChargeRow['status'] } | undefined;
+  return row?.status ?? null;
+}
+
+export function listPendingVideoCharges(): VideoChargeRow[] {
+  ensureVideoChargesTable();
+  return getDb().prepare("SELECT * FROM video_charges WHERE status = 'pending'").all() as VideoChargeRow[];
+}
+
 // ── Worker Tokens ──
 
 function ensureWorkerTokensTable() {

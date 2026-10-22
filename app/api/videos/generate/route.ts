@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { randomUUID } from 'crypto';
-import { spendCredits, refundCredits, getTodayFreeSubsidyUsd, getThisHourFreeSubsidyUsd } from '@/lib/db';
+import { spendCredits, refundCredits, getTodayFreeSubsidyUsd, getThisHourFreeSubsidyUsd, recordVideoCharge } from '@/lib/db';
 import { drawStakerAllowance, refundStakerAllowance } from '@/lib/staker-allowance';
 import { drawDailyGrant, refundDailyGrant } from '@/lib/plan-state';
 import { STAKER_ALLOWANCE_ENABLED, FREE_SUBSIDY_DAILY_CAP_USD, FREE_SUBSIDY_HOURLY_CAP_USD, WORKER_STAKED_REVENUE_SHARE } from '@/lib/tokenomics';
 import { CREDITS_PER_USD } from '@/lib/token-price';
 import { buildVideoWorkflow, resolveVideoCaller, VIDEO_CREDITS } from '@/lib/video-gen';
 import { submitVideoJob, VideoJobError } from '@/lib/orchestrator-video-client';
+import { refundVideoCharge } from '@/lib/video-charges';
 import { checkImagePromptSafety } from '@/lib/image-safety';
 
 export const runtime = 'nodejs';
@@ -17,10 +18,11 @@ export const dynamic = 'force-dynamic';
 // guards the prompt, charges and queues the job, then answers { jobId } at
 // once. The client polls GET /api/videos/<jobId> for progress and the clip.
 //
-// The charge is made here, exactly as for images, but the refund cannot be:
-// this request is long gone when a render fails. So the lane that paid
-// (subsidyKind) and the day it was drawn on (chargeDay) travel with the job,
-// and the orchestrator refunds from them on every failure path, once.
+// The charge is made here, exactly as for images, but the refund mostly cannot
+// be: this request is long gone when a render fails. So the charge is written
+// to video_charges (lane, day, credits) under our own job id before the
+// submit, and every refund, ours below, the orchestrator's on any failure, or
+// its startup sweep after a crash, goes through that row's latch, once.
 //
 // PRIVACY: same posture as images. Nothing is stored; the orchestrator holds
 // the finished clip in memory only until the first poll collects it.
@@ -109,6 +111,16 @@ export async function POST(req: NextRequest) {
   // accepted by the time we refund below.
   const jobId = randomUUID();
   try {
+    recordVideoCharge({ jobId, privyId, lane: subsidyKind ?? 'credits', chargeDay: grantDraw?.day ?? allowanceDay, credits: VIDEO_CREDITS });
+  } catch (err) {
+    // Without the row nothing could refund this later, so give it back now.
+    if (grantDraw) refundDailyGrant(privyId, grantDraw.source, VIDEO_CREDITS, grantDraw.day);
+    else if (allowanceDay) refundStakerAllowance(privyId, VIDEO_CREDITS, allowanceDay);
+    else refundCredits(privyId, VIDEO_CREDITS, 'Video generation failed');
+    console.error('[videos/generate] could not record the charge', err instanceof Error ? err.message : err);
+    return NextResponse.json({ error: 'Video generation is unavailable right now. Try again.' }, { status: 503 });
+  }
+  try {
     // subsidized: no revenue was collected, so the payout must not book any
     // (see the same note in the image route).
     await submitVideoJob({
@@ -124,7 +136,6 @@ export async function POST(req: NextRequest) {
       creditsCharged: VIDEO_CREDITS,
       subsidized: subsidyKind !== undefined,
       subsidyKind,
-      chargeDay: grantDraw?.day ?? allowanceDay ?? undefined,
     });
     return NextResponse.json({
       jobId,
@@ -135,11 +146,9 @@ export async function POST(req: NextRequest) {
       credits_charged: VIDEO_CREDITS,
     });
   } catch (err) {
-    // Refused, or no ack before the deadline: never accepted, so the refund is
-    // still ours to make.
-    if (grantDraw) refundDailyGrant(privyId, grantDraw.source, VIDEO_CREDITS, grantDraw.day);
-    else if (allowanceDay) refundStakerAllowance(privyId, VIDEO_CREDITS, allowanceDay);
-    else refundCredits(privyId, VIDEO_CREDITS, 'Video generation failed');
+    // Refused, or no ack before the deadline: not accepted, so the refund is
+    // ours. Through the latch, in case the ack was lost after an accept.
+    refundVideoCharge(jobId, 'Video generation failed');
     const code = err instanceof VideoJobError ? err.code : undefined;
     if (code === 'NO_VIDEO_WORKER') {
       return NextResponse.json(
