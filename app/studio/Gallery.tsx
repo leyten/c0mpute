@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import type { ShownVideo } from './lib';
+import { downloadName, type ShownVideo } from './lib';
 import { IconDownload } from './icons';
 
 // Finished clips, newest first, in justified rows (see .st-rows) so each keeps
@@ -60,7 +60,7 @@ function Tile({ clip, playing, onPlay, onOpen }: {
         <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/75 via-black/25 to-transparent px-3 pb-2.5 pt-10 opacity-0 transition-opacity duration-200 group-hover:opacity-100 group-focus-visible:opacity-100">
           <p className="pixel-sans line-clamp-2 text-[12px] leading-snug text-white/90">{clip.prompt}</p>
         </div>
-        <a href={clip.url} download={`compute-${clip.seed || clip.id.slice(0, 8)}.mp4`} onClick={(e) => e.stopPropagation()}
+        <a href={clip.url} download={downloadName(clip)} onClick={(e) => e.stopPropagation()}
           aria-label="Download clip"
           className="absolute right-2 top-2 grid h-8 w-8 place-items-center bg-black/55 text-white/85 opacity-0 transition-opacity hover:bg-black/80 hover:text-white group-hover:opacity-100 group-focus-visible:opacity-100">
           <IconDownload size={14} />

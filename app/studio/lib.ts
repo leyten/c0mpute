@@ -185,6 +185,10 @@ export function fmtRemaining(ms: number): string {
   const m = Math.round(s / 60);
   return `about ${m} min left`;
 }
+/** Unique per clip: the id keeps two clips with one seed apart. */
+export function downloadName(c: { id: string; seed?: number }): string {
+  return `compute-${c.id.slice(0, 8)}${c.seed ? `-${c.seed}` : ''}.mp4`;
+}
 export function aspectIdFor(w: number, h: number): AspectId {
   return w > h ? 'landscape' : h > w ? 'portrait' : 'square';
 }

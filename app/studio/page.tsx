@@ -39,7 +39,10 @@ export default function StudioPage() {
   // canvas
   const [jobs, setJobs] = useState<JobState[]>([]);
   const [history, setHistory] = useState<ShownVideo[]>([]);
-  const [viewer, setViewer] = useState<number | null>(null);
+  // The open clip, by id: a render landing while the viewer is open adds a clip
+  // at the front, and an index would then point at a different one.
+  const [viewerId, setViewerId] = useState<string | null>(null);
+  const openerRef = useRef<HTMLElement | null>(null);
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [now, setNow] = useState(0);
   const [expectedMs, setExpectedMs] = useState(150_000);
@@ -239,18 +242,32 @@ export default function StudioPage() {
     setPrompt(c.prompt);
     chooseAspect(aspectIdFor(c.width, c.height));
     if (!!c.adult !== adult) toggleAdult();
-    setViewer(null);
+    setViewerId(null);
+    requestAnimationFrame(() => document.getElementById('st-prompt')?.focus());
   };
   const regenerate = (c: ShownVideo) => {
-    setViewer(null);
+    closeViewer();
     submit({ prompt: c.prompt, width: c.width, height: c.height, adult: !!c.adult });
   };
   const remove = (c: ShownVideo) => {
     URL.revokeObjectURL(c.url);
+    const at = history.findIndex((x) => x.id === c.id);
     const left = history.filter((x) => x.id !== c.id);
     setHistory(left);
-    setViewer((v) => (v === null || !left.length ? null : Math.min(v, left.length - 1)));
+    // the viewer moves on to the clip that took its place, or closes
+    setViewerId(left.length ? left[Math.min(at, left.length - 1)].id : null);
     idbDelete(c.id).catch(() => {});
+  };
+
+  const viewerIndex = viewerId ? history.findIndex((c) => c.id === viewerId) : -1;
+  const openViewer = (i: number) => {
+    openerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setViewerId(history[i]?.id ?? null);
+  };
+  // Focus goes back to the tile the viewer was opened from.
+  const closeViewer = () => {
+    setViewerId(null);
+    requestAnimationFrame(() => { if (openerRef.current?.isConnected) openerRef.current.focus(); });
   };
 
   const lowBalance = balance !== null && balance + grantLeft < VIDEO_CREDITS;
@@ -345,7 +362,7 @@ export default function StudioPage() {
               </div>
             </div>
           ) : (
-            <Gallery clips={history} playingId={playingId} onPlay={setPlayingId} onOpen={setViewer} />
+            <Gallery clips={history} playingId={playingId} onPlay={setPlayingId} onOpen={openViewer} />
           )}
         </main>
       </div>
@@ -355,8 +372,8 @@ export default function StudioPage() {
         <JobRunner key={j.jobId} job={j} getAccessToken={getAccessToken} onProgress={onProgress} onDone={onDone} onFail={onFail} />
       ))}
 
-      {viewer !== null && history[viewer] && (
-        <Viewer clips={history} index={viewer} onIndex={setViewer} onClose={() => setViewer(null)}
+      {viewerIndex >= 0 && (
+        <Viewer clips={history} index={viewerIndex} onIndex={(i) => setViewerId(history[i]?.id ?? null)} onClose={closeViewer}
           onReuse={reuse} onRegenerate={regenerate} onDelete={remove} />
       )}
 
