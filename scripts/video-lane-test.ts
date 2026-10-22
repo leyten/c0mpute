@@ -13,6 +13,8 @@
  *   - every failure path (worker error, bad/oversized clip, timeout, worker gone)
  *     refunds exactly once, and a late result after a failure is ignored;
  *   - a clip under the 100KB junk floor is refused: refunded, no earning;
+ *   - a third job in flight for one account, or new work while held clips are
+ *     over budget, is refused before anything is charged;
  *   - an adult job never reaches a worker that did not opt in;
  *   - a submit that reaches the orchestrator after its accept deadline is refused;
  *   - every charge is a video_charges row: settled on delivery, refunded on
@@ -49,6 +51,7 @@ mkdirSync(join(tmp, 'data'));
 process.chdir(tmp);
 process.env.INTERNAL_API_SECRET = 'video-lane-test-secret';
 process.env.VIDEO_JOB_TIMEOUT_MS = '3000';
+process.env.VIDEO_HELD_MAX_MB = '10'; // the 8MB clip at the end tips it over
 process.env.VIDEO_WORKFLOW_PATH = EXAMPLE;
 // The 18+ manifest: the example plus a marker node, so a test can tell which
 // graph a job was built from.
@@ -89,15 +92,20 @@ async function main() {
   db.addCredits(USER, 10_000, undefined, 'test');
   const apiKey = db.createApiKey(USER, 'test');
   const balance = () => db.getCreditBalance(USER).balance;
+  const txCount = () => db.getCreditTransactions(USER, 100_000).length;
+  const USER2 = 'did:privy:video-user-2';
+  db.addCredits(USER2, 10_000, undefined, 'test');
+  const apiKey2 = db.createApiKey(USER2, 'test');
+  const balance2 = () => db.getCreditBalance(USER2).balance;
 
-  const generate = async (body: Record<string, unknown>) => {
+  const generate = async (body: Record<string, unknown>, key = apiKey) => {
     const res = await POST(new NextRequest('http://t/api/videos/generate', {
-      method: 'POST', headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' }, body: JSON.stringify(body),
+      method: 'POST', headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' }, body: JSON.stringify(body),
     }));
     return { status: res.status, data: await res.json() };
   };
-  const poll = async (jobId: string) => {
-    const res = await GET(new NextRequest(`http://t/api/videos/${jobId}`, { headers: { authorization: `Bearer ${apiKey}` } }),
+  const poll = async (jobId: string, key = apiKey) => {
+    const res = await GET(new NextRequest(`http://t/api/videos/${jobId}`, { headers: { authorization: `Bearer ${key}` } }),
       { params: Promise.resolve({ jobId }) });
     if (res.headers.get('content-type') === 'video/mp4') return { status: res.status, video: Buffer.from(await res.arrayBuffer()) } as const;
     return { status: res.status, data: await res.json() } as const;
@@ -124,9 +132,10 @@ async function main() {
 
   // ── refused up front: nothing charged ──
   const b0 = balance();
+  const tx0 = txCount();
   let r = await generate({ prompt: 'a lighthouse at dusk, waves crashing' });
   check(r.status === 503 && r.data.code === 'NO_VIDEO_WORKER', 'no video worker online -> 503 NO_VIDEO_WORKER');
-  check(balance() === b0, 'and the charge was refunded at once');
+  check(balance() === b0 && txCount() === tx0, 'refused before charging (no credit transaction at all)');
   process.env.VIDEO_WORKFLOW_PATH = '';
   r = await generate({ prompt: 'a lighthouse at dusk' });
   check(r.status === 503 && r.data.code === 'STUDIO_UNAVAILABLE' && balance() === b0, 'VIDEO_WORKFLOW_PATH unset -> studio unavailable, nothing charged');
@@ -143,7 +152,7 @@ async function main() {
 
   const sfw = await connectWorker('did:privy:worker-sfw', false);
   r = await generate({ prompt: 'nude figure on a beach', adult: true });
-  check(r.status === 503 && r.data.code === 'NO_VIDEO_WORKER' && balance() === b0, 'adult job with only a non-adult worker online -> refused, refunded');
+  check(r.status === 503 && r.data.code === 'NO_VIDEO_WORKER' && balance() === b0 && txCount() === tx0, 'adult job with only a non-adult worker online -> refused before charging');
   check(sfw.jobs.length === 0, 'the non-adult worker never saw the adult job');
 
   // ── happy path: dispatch, progress, delivery, earnings ──
@@ -188,6 +197,7 @@ async function main() {
   // ── adult routing: an adult job waits for an opted-in worker ──
   const adultW = await connectWorker('did:privy:worker-adult', true);
   const bA = balance();
+  const b2 = balance2();
   r = await generate({ prompt: 'nude figure on a beach', adult: true });
   const a1 = r.data.jobId as string;
   check(r.status === 200 && await waitFor(() => adultW.jobs.length === 1) && adultW.jobs[0].jobId === a1, 'adult job dispatched to the opted-in worker');
@@ -197,19 +207,25 @@ async function main() {
   await sleep(200);
   p = await poll(a2);
   check('data' in p && p.data.status === 'queued' && sfw.jobs.length === 1, 'second adult job queues while the adult worker is busy; the idle non-adult worker is skipped');
-  r = await generate({ prompt: 'a paper boat on a pond' });
+
+  // ── per-account cap: two in flight, the third is refused before charging ──
+  const txA = txCount();
+  r = await generate({ prompt: 'a third clip while two are in flight' });
+  check(r.status === 429 && r.data.code === 'TOO_MANY_VIDEOS' && txCount() === txA, 'a third job in flight for one account -> 429 before charging');
+
+  r = await generate({ prompt: 'a paper boat on a pond' }, apiKey2);
   const s2 = r.data.jobId as string;
-  check(await waitFor(() => sfw.jobs.length === 2) && sfw.jobs[1].jobId === s2, 'an SFW job behind it still takes the free non-adult worker');
+  check(await waitFor(() => sfw.jobs.length === 2) && sfw.jobs[1].jobId === s2, "another account's SFW job takes the free non-adult worker meanwhile");
   adultW.sock.emit('video:failed', { jobId: a1, error: 'CUDA out of memory' });
   check(await waitFor(() => adultW.jobs.length === 2) && adultW.jobs[1].jobId === a2, 'adult worker freed by the failure picks up the queued adult job');
   p = await poll(a1);
   check('data' in p && p.data.status === 'failed' && !/CUDA/.test(p.data.error), 'worker failure reported to the poll (worker text not relayed)');
-  check(balance() === bA - 2 * VIDEO_CREDITS && db.getVideoChargeStatus(a1) === 'refunded', 'worker failure refunded, charge row refunded (two jobs still running)');
+  check(balance() === bA - VIDEO_CREDITS && db.getVideoChargeStatus(a1) === 'refunded', 'worker failure refunded, charge row refunded (a2 still charged)');
 
   // ── exactly once: a late result for a failed job is ignored ──
   adultW.sock.emit('video:result', { jobId: a1, video: clip.toString('base64') });
   await sleep(100);
-  check(balance() === bA - 2 * VIDEO_CREDITS && db.getRecentEarnings('did:privy:worker-adult').length === 0, 'late result after failure: no second refund, no earning');
+  check(balance() === bA - VIDEO_CREDITS && db.getRecentEarnings('did:privy:worker-adult').length === 0, 'late result after failure: no second refund, no earning');
 
   // ── bad and oversized clips ──
   adultW.sock.emit('video:result', { jobId: a2, video: Buffer.from('definitely not a video').toString('base64') });
@@ -219,9 +235,9 @@ async function main() {
   const big = fakeMp4(Math.ceil((15.5 * 1024 * 1024 * 3) / 4)).toString('base64');
   sfw.sock.emit('video:result', { jobId: s2, video: big });
   await sleep(500);
-  p = await poll(s2);
+  p = await poll(s2, apiKey2);
   check('data' in p && p.data.status === 'failed' && p.data.code === 'BAD_RESULT' && /too large/.test(p.data.error), `oversized clip (${(big.length / 1048576).toFixed(1)}MB base64) rejected with a clear error`);
-  check(balance() === bA, 'both refunded, exactly once each');
+  check(balance() === bA && balance2() === b2, 'both refunded, exactly once each');
   r = await generate({ prompt: 'nude figure on a balcony', adult: true });
   const a3 = r.data.jobId as string;
   check(await waitFor(() => adultW.jobs.length === 3), 'next adult job dispatched');
@@ -231,21 +247,11 @@ async function main() {
   check('data' in p && p.data.code === 'BAD_RESULT' && balance() === bA && db.getRecentEarnings('did:privy:worker-adult').length === 0,
     'a valid-looking MP4 under the 100KB floor is refused: refunded, no earning');
 
-  // ── a large but legal clip arrives intact ──
-  r = await generate({ prompt: 'timelapse of clouds over mountains' });
-  const l1 = r.data.jobId as string;
-  check(await waitFor(() => sfw.jobs.length === 3), 'next job dispatched');
-  const large = fakeMp4(8 * 1024 * 1024);
-  sfw.sock.emit('video:result', { jobId: l1, video: large.toString('base64') });
-  await sleep(800);
-  p = await poll(l1);
-  check('video' in p && p.video.equals(large), '8MB clip delivered byte for byte');
-
   // ── lost ack: the route refunded an accepted job; its clip must not earn ──
   const bL = balance();
   r = await generate({ prompt: 'a kite over a beach' });
   const k1 = r.data.jobId as string;
-  check(await waitFor(() => sfw.jobs.length === 4), 'job dispatched');
+  check(await waitFor(() => sfw.jobs.length === 3), 'job dispatched');
   check(refundVideoCharge(k1, 'test: route gave up on a lost ack') && balance() === bL, 'route-side refund (lost ack) goes through the latch');
   sfw.sock.emit('video:result', { jobId: k1, video: clip.toString('base64') });
   await sleep(150);
@@ -256,7 +262,7 @@ async function main() {
   // ── crash: the next orchestrator refunds what the last one left pending ──
   r = await generate({ prompt: 'fog rolling over hills' });
   const c1 = r.data.jobId as string;
-  check(await waitFor(() => sfw.jobs.length === 5) && balance() === bL - VIDEO_CREDITS, 'job charged and rendering');
+  check(await waitFor(() => sfw.jobs.length === 4) && balance() === bL - VIDEO_CREDITS, 'job charged and rendering');
   new Orchestrator(new Server<ClientToServerEvents, ServerToClientEvents>());
   check(balance() === bL && db.getVideoChargeStatus(c1) === 'refunded', 'a restarted orchestrator refunds the pending charge at startup');
   new Orchestrator(new Server<ClientToServerEvents, ServerToClientEvents>());
@@ -269,21 +275,34 @@ async function main() {
   const bT = balance();
   r = await generate({ prompt: 'a slow pan across a desert' });
   const t1 = r.data.jobId as string;
-  check(await waitFor(() => sfw.jobs.length === 6), 'job dispatched (worker will never answer)');
+  check(await waitFor(() => sfw.jobs.length === 5), 'job dispatched (worker will never answer)');
   check(await waitFor(() => sfw.cancels.includes(t1), 5000), 'render timeout -> worker told to cancel');
   p = await poll(t1);
   check('data' in p && p.data.code === 'TIMEOUT' && balance() === bT, 'timeout reported and refunded');
 
   // ── worker disconnects mid-render ──
-  r = await generate({ prompt: 'rain on a window at night' });
+  r = await generate({ prompt: 'nude figure in the rain at night', adult: true });
   const g1 = r.data.jobId as string;
-  check(await waitFor(() => sfw.jobs.length === 7), 'job dispatched');
-  sfw.sock.disconnect();
+  check(await waitFor(() => adultW.jobs.length === 4), 'job dispatched');
+  adultW.sock.disconnect();
   await sleep(200);
   p = await poll(g1);
   check('data' in p && p.data.code === 'WORKER_GONE' && balance() === bT, 'worker gone mid-render -> failed and refunded');
 
-  adultW.sock.disconnect();
+  // ── a large but legal clip arrives intact; then held clips are over budget ──
+  r = await generate({ prompt: 'timelapse of clouds over mountains' });
+  const l1 = r.data.jobId as string;
+  check(await waitFor(() => sfw.jobs.length === 6), 'next job dispatched');
+  const large = fakeMp4(8 * 1024 * 1024);
+  sfw.sock.emit('video:result', { jobId: l1, video: large.toString('base64') });
+  await sleep(800);
+  p = await poll(l1);
+  check('video' in p && p.video.equals(large), '8MB clip delivered byte for byte');
+  const txB = txCount();
+  r = await generate({ prompt: 'one more clip' });
+  check(r.status === 503 && r.data.code === 'STUDIO_BUSY' && txCount() === txB, 'held clips over budget -> "studio busy" before charging');
+
+  sfw.sock.disconnect();
   io.close();
   rmSync(tmp, { recursive: true, force: true });
   console.log(failed ? '\nRESULT: FAIL' : '\nRESULT: PASS');

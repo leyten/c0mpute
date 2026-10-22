@@ -288,6 +288,9 @@ export interface ClientToServerEvents {
   // request, so nothing waits on it.
   'video:submit': (data: VideoSubmit, callback: (response: { jobId: string } | { error: string; code?: string }) => void) => void;
   'video:status': (data: { jobId: string; privyUserId: string }, callback: (response: VideoJobStatus) => void) => void;
+  // Pre-flight before charging: would a submit for this user be accepted now?
+  // The submit re-checks, so this only spares a charge-and-refund.
+  'video:admit': (data: { privyUserId: string; adult: boolean }, callback: (response: VideoAdmission) => void) => void;
   // Video worker -> orchestrator: progress, then result or failure.
   'video:progress': (data: { jobId: string; pct?: number; stage?: string }) => void;
   'video:result': (data: { jobId: string; video: string }) => void;
@@ -317,6 +320,8 @@ export interface VideoSubmit {
   subsidized?: boolean;
   subsidyKind?: SubsidyKind;
 }
+
+export type VideoAdmission = { ok: true } | { error: string; code: 'NO_VIDEO_WORKER' | 'TOO_MANY_VIDEOS' | 'STUDIO_BUSY' };
 
 /** What a status poll sees. `done` carries the MP4 as base64, on every poll
  *  until the clip expires; after that the job is `gone`. */

@@ -1,5 +1,5 @@
 import { io, Socket } from 'socket.io-client';
-import type { VideoSubmit, VideoJobStatus } from './orchestrator/types';
+import type { VideoSubmit, VideoJobStatus, VideoAdmission } from './orchestrator/types';
 
 // The web side of the video lane. A render takes minutes and Cloudflare cuts
 // any HTTP request at 100s, so nothing here waits on one: submitVideoJob hands
@@ -14,7 +14,7 @@ export class VideoJobError extends Error {
   constructor(message: string, code?: string) { super(message); this.code = code; }
 }
 
-function internalCall<T>(event: 'video:submit' | 'video:status', payload: unknown): Promise<T> {
+function internalCall<T>(event: 'video:submit' | 'video:status' | 'video:admit', payload: unknown): Promise<T> {
   const internalSecret = process.env.INTERNAL_API_SECRET;
   if (!internalSecret) return Promise.reject(new VideoJobError('INTERNAL_API_SECRET not configured', 'CONFIG'));
 
@@ -29,6 +29,11 @@ function internalCall<T>(event: 'video:submit' | 'video:status', payload: unknow
       socket.emit(event, payload, (res: T) => finish(() => resolve(res)));
     });
   });
+}
+
+/** Pre-flight before charging: whether the orchestrator would take this job now. */
+export function checkVideoAdmission(privyUserId: string, adult: boolean): Promise<VideoAdmission> {
+  return internalCall<VideoAdmission>('video:admit', { privyUserId, adult });
 }
 
 /** Queue a charged render. Once this resolves the orchestrator owns the

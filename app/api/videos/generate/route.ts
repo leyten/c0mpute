@@ -6,12 +6,27 @@ import { drawDailyGrant, refundDailyGrant } from '@/lib/plan-state';
 import { STAKER_ALLOWANCE_ENABLED, FREE_SUBSIDY_DAILY_CAP_USD, FREE_SUBSIDY_HOURLY_CAP_USD, WORKER_STAKED_REVENUE_SHARE } from '@/lib/tokenomics';
 import { CREDITS_PER_USD } from '@/lib/token-price';
 import { buildVideoWorkflow, resolveVideoCaller, VIDEO_CREDITS } from '@/lib/video-gen';
-import { submitVideoJob, VideoJobError } from '@/lib/orchestrator-video-client';
+import { submitVideoJob, checkVideoAdmission, VideoJobError } from '@/lib/orchestrator-video-client';
 import { refundVideoCharge } from '@/lib/video-charges';
 import { checkImagePromptSafety } from '@/lib/image-safety';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+
+// What the user is told when the orchestrator won't take a job, by its code.
+// Null for anything unexpected (logged, generic message).
+function refusal(code: string | undefined): NextResponse | null {
+  if (code === 'NO_VIDEO_WORKER') {
+    return NextResponse.json({ error: 'No video GPU is online right now, so nothing was charged. Try again later.', code }, { status: 503 });
+  }
+  if (code === 'TOO_MANY_VIDEOS') {
+    return NextResponse.json({ error: 'You already have 2 videos in progress. Wait for one to finish.', code }, { status: 429 });
+  }
+  if (code === 'STUDIO_BUSY') {
+    return NextResponse.json({ error: 'Studio is busy, try again shortly.', code }, { status: 503 });
+  }
+  return null;
+}
 
 // Studio text-to-video. A clip renders for 4-11 minutes, far past the 100s
 // Cloudflare allows one HTTP request, so this route only authenticates,
@@ -70,6 +85,19 @@ export async function POST(req: NextRequest) {
     return adult
       ? NextResponse.json({ error: '18+ Studio is unavailable right now.', code: 'STUDIO_ADULT_UNAVAILABLE' }, { status: 503 })
       : NextResponse.json({ error: 'Studio is unavailable right now.', code: 'STUDIO_UNAVAILABLE' }, { status: 503 });
+  }
+
+  // Ask before charging: no capable worker, too many of this account's jobs in
+  // flight, or the orchestrator's held clips over budget all refuse here, for
+  // free. The submit re-checks (two requests can pass this together).
+  try {
+    const admission = await checkVideoAdmission(privyId, adult);
+    if ('error' in admission) {
+      return refusal(admission.code) ?? NextResponse.json({ error: 'Video generation is unavailable right now. Try again.' }, { status: 503 });
+    }
+  } catch (err) {
+    console.error('[videos/generate] admission check failed', err instanceof VideoJobError ? err.code : 'UNKNOWN', err instanceof Error ? err.message : err);
+    return NextResponse.json({ error: 'Video generation is unavailable right now. Try again.' }, { status: 503 });
   }
 
   // Pay order as for images minus the onboarding free images (there are no
@@ -150,12 +178,8 @@ export async function POST(req: NextRequest) {
     // ours. Through the latch, in case the ack was lost after an accept.
     refundVideoCharge(jobId, 'Video generation failed');
     const code = err instanceof VideoJobError ? err.code : undefined;
-    if (code === 'NO_VIDEO_WORKER') {
-      return NextResponse.json(
-        { error: 'No video GPU is online right now, so nothing was charged. Try again later.', code },
-        { status: 503 }
-      );
-    }
+    const refused = refusal(code);
+    if (refused) return refused;
     console.error('[videos/generate] submit failed', code || 'UNKNOWN', err instanceof Error ? err.message : err);
     return NextResponse.json({ error: 'Video generation is unavailable right now. Try again.' }, { status: 503 });
   }

@@ -26,6 +26,7 @@ import {
   isFreeSubsidyKind,
   VIDEO_STAGES,
   type VideoStage,
+  type VideoAdmission,
 } from './types';
 import { verifyPrivyToken } from '../privy-server';
 import { refundVideoCharge, refundOrphanedVideoCharges } from '../video-charges';
@@ -609,6 +610,10 @@ export class Orchestrator {
   private readonly MAX_VIDEO_B64_CHARS = 15 * 1024 * 1024;
   // A real 5s clip is megabytes; anything under this is filler, not a render.
   private readonly MIN_VIDEO_BYTES = 100 * 1024;
+  // Memory caps. Per account: jobs queued or rendering at once. Globally: the
+  // finished clips held for collection (each up to 15MB, for 10 minutes).
+  private readonly MAX_VIDEO_JOBS_PER_USER = 2;
+  private readonly MAX_HELD_VIDEO_CHARS = (Number(process.env.VIDEO_HELD_MAX_MB) || 600) * 1024 * 1024;
 
   // ── Job liveness (stall-aware, not wall-clock) ─────────────────────────────
   // A running job is healthy while it is still PRODUCING. Total runtime says
@@ -1818,10 +1823,11 @@ export class Orchestrator {
           return;
         }
         const adult = data.adult === true;
-        // Refuse up front when nothing could ever take it, so the route can
-        // refund and answer at once instead of the user polling a dead job.
-        if (![...this.workers.values()].some((w) => this.servesVideo(w, adult))) {
-          callback({ error: 'No video worker online.', code: 'NO_VIDEO_WORKER' });
+        // The route ran this same check before charging; it runs again here
+        // because two requests can pass the pre-flight together.
+        const admission = this.videoAdmission(data.privyUserId, adult);
+        if ('error' in admission) {
+          callback(admission);
           return;
         }
         const jobId = data.jobId;
@@ -1849,6 +1855,15 @@ export class Orchestrator {
         this.videoQueue.push(jobId);
         callback({ jobId });
         this.processVideoQueue();
+      });
+
+      socket.on('video:admit', (data, callback) => {
+        if (typeof callback !== 'function') return;
+        if ((socket as Socket & { isInternal?: boolean }).isInternal !== true || typeof data?.privyUserId !== 'string') {
+          callback({ error: 'Video jobs are internal-only.', code: 'STUDIO_BUSY' });
+          return;
+        }
+        callback(this.videoAdmission(data.privyUserId, data.adult === true));
       });
 
       // The web's status poll. A finished clip (or a failure) is answered on
@@ -2533,6 +2548,28 @@ export class Orchestrator {
 
   private servesVideo(w: WorkerInfo, adult: boolean): boolean {
     return w.type === 'video' && (!adult || w.capabilities.adult === true);
+  }
+
+  // Whether a new video job for this account can be taken now: a capable
+  // worker is connected (otherwise the user would poll a dead job), the
+  // account is under its concurrent-job cap, and held clips are under budget.
+  private videoAdmission(privyUserId: string, adult: boolean): VideoAdmission {
+    if (![...this.workers.values()].some((w) => this.servesVideo(w, adult))) {
+      return { error: 'No video worker online.', code: 'NO_VIDEO_WORKER' };
+    }
+    let active = 0;
+    let heldChars = 0;
+    for (const j of this.videoJobs.values()) {
+      if (j.privyUserId === privyUserId && (j.status === 'queued' || j.status === 'rendering')) active++;
+      if (j.status === 'done') heldChars += j.video?.length ?? 0;
+    }
+    if (active >= this.MAX_VIDEO_JOBS_PER_USER) {
+      return { error: `At most ${this.MAX_VIDEO_JOBS_PER_USER} videos at a time.`, code: 'TOO_MANY_VIDEOS' };
+    }
+    if (heldChars >= this.MAX_HELD_VIDEO_CHARS) {
+      return { error: 'Held clips are over budget.', code: 'STUDIO_BUSY' };
+    }
+    return { ok: true };
   }
 
   // Dispatch queued video jobs, oldest first, one per idle capable worker. A
