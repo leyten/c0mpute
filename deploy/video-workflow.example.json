@@ -1,0 +1,346 @@
+{
+  "label": "Wan 2.2 T2V A14B fp8 + Lightning LoRAs (example)",
+  "notes": "Example of the VIDEO_WORKFLOW_PATH (SFW) manifest; the 18+ graph lives in a second manifest of the same format at VIDEO_WORKFLOW_PATH_ADULT, and neither is ever used for the other's requests. Stock Wan 2.2 T2V A14B fp8 experts with the lightx2v Wan2.2-Lightning 250928 LoRAs: 8-step schedule split over three KSamplerAdvanced nodes (steps 0-2 high-noise base at cfg 3.5, 2-4 high-noise + Lightning, 4-8 low-noise + Lightning), then RIFE x2 frame interpolation, so 81 frames come out as a 5 s clip at 32 fps. 'workflow' may be the graph inline (as here) or the name of a graph file next to the manifest. Each param writes its value to every [node, input] in 'paths'. frames must be 4n+1 and sizes multiples of 16. output_node is the SaveVideo node the worker downloads.",
+  "workflow": {
+    "1": {
+      "class_type": "UNETLoader",
+      "inputs": {
+        "unet_name": "wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors",
+        "weight_dtype": "default"
+      }
+    },
+    "2": {
+      "class_type": "UNETLoader",
+      "inputs": {
+        "unet_name": "wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors",
+        "weight_dtype": "default"
+      }
+    },
+    "3": {
+      "class_type": "CLIPLoader",
+      "inputs": {
+        "clip_name": "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+        "type": "wan",
+        "device": "default"
+      }
+    },
+    "4": {
+      "class_type": "VAELoader",
+      "inputs": {
+        "vae_name": "wan_2.1_vae.safetensors"
+      }
+    },
+    "5": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "3",
+          0
+        ],
+        "text": ""
+      }
+    },
+    "6": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": [
+          "3",
+          0
+        ],
+        "text": ""
+      }
+    },
+    "7": {
+      "class_type": "EmptyHunyuanLatentVideo",
+      "inputs": {
+        "width": 1280,
+        "height": 720,
+        "length": 81,
+        "batch_size": 1
+      }
+    },
+    "10": {
+      "class_type": "LoraLoaderModelOnly",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "lora_name": "wan2.2_t2v_lightning_250928_high_noise.safetensors",
+        "strength_model": 1.0
+      }
+    },
+    "11": {
+      "class_type": "LoraLoaderModelOnly",
+      "inputs": {
+        "model": [
+          "2",
+          0
+        ],
+        "lora_name": "wan2.2_t2v_lightning_250928_low_noise.safetensors",
+        "strength_model": 1.0
+      }
+    },
+    "12": {
+      "class_type": "ModelSamplingSD3",
+      "inputs": {
+        "model": [
+          "1",
+          0
+        ],
+        "shift": 5.0
+      }
+    },
+    "13": {
+      "class_type": "ModelSamplingSD3",
+      "inputs": {
+        "model": [
+          "10",
+          0
+        ],
+        "shift": 5.0
+      }
+    },
+    "14": {
+      "class_type": "ModelSamplingSD3",
+      "inputs": {
+        "model": [
+          "11",
+          0
+        ],
+        "shift": 5.0
+      }
+    },
+    "20": {
+      "class_type": "KSamplerAdvanced",
+      "inputs": {
+        "model": [
+          "12",
+          0
+        ],
+        "positive": [
+          "5",
+          0
+        ],
+        "negative": [
+          "6",
+          0
+        ],
+        "latent_image": [
+          "7",
+          0
+        ],
+        "add_noise": "enable",
+        "noise_seed": 42,
+        "steps": 8,
+        "cfg": 3.5,
+        "sampler_name": "euler",
+        "scheduler": "simple",
+        "start_at_step": 0,
+        "end_at_step": 2,
+        "return_with_leftover_noise": "enable"
+      }
+    },
+    "21": {
+      "class_type": "KSamplerAdvanced",
+      "inputs": {
+        "model": [
+          "13",
+          0
+        ],
+        "positive": [
+          "5",
+          0
+        ],
+        "negative": [
+          "6",
+          0
+        ],
+        "latent_image": [
+          "20",
+          0
+        ],
+        "add_noise": "disable",
+        "noise_seed": 42,
+        "steps": 8,
+        "cfg": 1.0,
+        "sampler_name": "euler",
+        "scheduler": "simple",
+        "start_at_step": 2,
+        "end_at_step": 4,
+        "return_with_leftover_noise": "enable"
+      }
+    },
+    "22": {
+      "class_type": "KSamplerAdvanced",
+      "inputs": {
+        "model": [
+          "14",
+          0
+        ],
+        "positive": [
+          "5",
+          0
+        ],
+        "negative": [
+          "6",
+          0
+        ],
+        "latent_image": [
+          "21",
+          0
+        ],
+        "add_noise": "disable",
+        "noise_seed": 42,
+        "steps": 8,
+        "cfg": 1.0,
+        "sampler_name": "euler",
+        "scheduler": "simple",
+        "start_at_step": 4,
+        "end_at_step": 10000,
+        "return_with_leftover_noise": "disable"
+      }
+    },
+    "25": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "22",
+          0
+        ],
+        "vae": [
+          "4",
+          0
+        ]
+      }
+    },
+    "26": {
+      "class_type": "FrameInterpolationModelLoader",
+      "inputs": {
+        "model_name": "rife_v4.26.safetensors"
+      }
+    },
+    "27": {
+      "class_type": "FrameInterpolate",
+      "inputs": {
+        "interp_model": [
+          "26",
+          0
+        ],
+        "images": [
+          "25",
+          0
+        ],
+        "multiplier": 2
+      }
+    },
+    "30": {
+      "class_type": "CreateVideo",
+      "inputs": {
+        "images": [
+          "27",
+          0
+        ],
+        "fps": 32
+      }
+    },
+    "31": {
+      "class_type": "SaveVideo",
+      "inputs": {
+        "video": [
+          "30",
+          0
+        ],
+        "filename_prefix": "c0mpute/clip",
+        "format": "mp4",
+        "format.codec": "h264"
+      }
+    }
+  },
+  "params": {
+    "prompt": {
+      "type": "text",
+      "paths": [
+        [
+          "5",
+          "text"
+        ]
+      ]
+    },
+    "negative": {
+      "type": "text",
+      "paths": [
+        [
+          "6",
+          "text"
+        ]
+      ],
+      "default": "色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走"
+    },
+    "width": {
+      "type": "int",
+      "paths": [
+        [
+          "7",
+          "width"
+        ]
+      ],
+      "default": 1280
+    },
+    "height": {
+      "type": "int",
+      "paths": [
+        [
+          "7",
+          "height"
+        ]
+      ],
+      "default": 720
+    },
+    "frames": {
+      "type": "int",
+      "paths": [
+        [
+          "7",
+          "length"
+        ]
+      ],
+      "default": 81,
+      "min": 17,
+      "max": 121
+    },
+    "seed": {
+      "type": "seed",
+      "paths": [
+        [
+          "20",
+          "noise_seed"
+        ],
+        [
+          "21",
+          "noise_seed"
+        ],
+        [
+          "22",
+          "noise_seed"
+        ]
+      ]
+    }
+  },
+  "sizes": [
+    [
+      1280,
+      720
+    ],
+    [
+      720,
+      1280
+    ],
+    [
+      960,
+      960
+    ]
+  ],
+  "fps": 32,
+  "output_node": "31"
+}
