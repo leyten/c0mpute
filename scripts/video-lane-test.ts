@@ -6,7 +6,8 @@
  *   - no worker online, Studio (or its 18+ side) unconfigured, or an overlong
  *     prompt: refused up front, nothing charged;
  *   - SFW requests get the SFW graph and adult requests the 18+ graph, never the
- *     other, and a user negative prompt is ignored;
+ *     other, a user negative prompt is ignored, and the output file is named
+ *     after the job;
  *   - dispatch, progress relay (unknown stages dropped), the clip delivered and
  *     re-deliverable until it expires;
  *   - completed job + worker earning recorded with tier 'video';
@@ -173,6 +174,7 @@ async function main() {
     && wf?.['7']?.inputs?.height === 1280 && wf?.['7']?.inputs?.length === 81 && wf?.['22']?.inputs?.noise_seed === 1234,
     'graph built from the manifest: prompt, size, 81 frames, seed on the samplers');
   check(!wf?.['40'], 'an SFW job gets the SFW graph (no 18+ marker node)');
+  check(wf?.['31']?.inputs?.filename_prefix === `c0mpute/clip_${j1}`, 'the output node is named after the job, so ComfyUI never serves a cached, deleted file');
   check(wf?.['6']?.inputs?.text === EXAMPLE_NEGATIVE, 'the user negative_prompt is ignored; the manifest negative is used');
   let p = await poll(j1);
   check(p.status === 200 && 'data' in p && p.data.status === 'rendering', 'status poll: rendering');

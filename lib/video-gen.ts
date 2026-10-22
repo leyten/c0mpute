@@ -82,7 +82,7 @@ function loadManifest(adult: boolean): { manifest: VideoManifest; graph: Graph }
 
 /** The graph for one clip from the SFW or the 18+ manifest, or null when that
  *  side of Studio is not configured. */
-export function buildVideoWorkflow(p: { prompt: string; adult: boolean; width?: number; height?: number; seed?: number }): BuiltVideoWorkflow | null {
+export function buildVideoWorkflow(p: { jobId: string; prompt: string; adult: boolean; width?: number; height?: number; seed?: number }): BuiltVideoWorkflow | null {
   const loaded = loadManifest(p.adult);
   if (!loaded) return null;
   const { manifest, graph } = loaded;
@@ -111,6 +111,17 @@ export function buildVideoWorkflow(p: { prompt: string; adult: boolean; width?: 
       }
       inputs[input] = value;
     }
+  }
+  // The job id goes into the output node's filename_prefix. ComfyUI caches an
+  // unchanged node, so a repeat of an identical graph would skip SaveVideo and
+  // point at a file the worker already deleted; a fresh input forces it to run.
+  if (manifest.output_node) {
+    const out = workflow[manifest.output_node]?.inputs;
+    if (!out) {
+      console.error(`[video-gen] manifest output_node ${manifest.output_node} is not in the graph`);
+      return null;
+    }
+    out.filename_prefix = `${String(out.filename_prefix || 'video')}_${p.jobId}`;
   }
   return { workflow, outputNode: manifest.output_node, seed, width, height, frames };
 }

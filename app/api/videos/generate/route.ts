@@ -77,10 +77,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: safety.reason }, { status: 400 });
   }
 
-  // Built before anything is charged, so an unconfigured Studio costs nothing.
-  // An adult request only ever gets the 18+ graph and an SFW one only the SFW
-  // graph: neither falls back to the other.
-  const built = buildVideoWorkflow({ prompt, adult, width: body.width, height: body.height, seed: body.seed });
+  // The job id is ours (see the submit below), minted here because the graph
+  // carries it. Built before anything is charged, so an unconfigured Studio
+  // costs nothing. An adult request only ever gets the 18+ graph and an SFW
+  // one only the SFW graph: neither falls back to the other.
+  const jobId = randomUUID();
+  const built = buildVideoWorkflow({ jobId, prompt, adult, width: body.width, height: body.height, seed: body.seed });
   if (!built) {
     return adult
       ? NextResponse.json({ error: '18+ Studio is unavailable right now.', code: 'STUDIO_ADULT_UNAVAILABLE' }, { status: 503 })
@@ -137,7 +139,6 @@ export async function POST(req: NextRequest) {
   // The job id is ours, with a 10s accept deadline the orchestrator enforces.
   // The submit call waits 15s, so if no ack arrives the job can no longer be
   // accepted by the time we refund below.
-  const jobId = randomUUID();
   try {
     recordVideoCharge({ jobId, privyId, lane: subsidyKind ?? 'credits', chargeDay: grantDraw?.day ?? allowanceDay, credits: VIDEO_CREDITS });
   } catch (err) {
