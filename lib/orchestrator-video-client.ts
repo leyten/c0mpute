@@ -32,11 +32,11 @@ function internalCall<T>(event: 'video:submit' | 'video:status', payload: unknow
 }
 
 /** Queue a charged render. Once this resolves the orchestrator owns the
- *  refund; if it throws, the job was never accepted and the caller refunds. */
-export async function submitVideoJob(job: VideoSubmit): Promise<string> {
+ *  refund; if it throws, the job was not accepted (refused, or no ack within
+ *  15s, past job.acceptBy) and the caller refunds. */
+export async function submitVideoJob(job: VideoSubmit): Promise<void> {
   const res = await internalCall<{ jobId: string } | { error: string; code?: string }>('video:submit', job);
   if ('error' in res) throw new VideoJobError(res.error, res.code);
-  return res.jobId;
 }
 
 export function getVideoJobStatus(jobId: string, privyUserId: string): Promise<VideoJobStatus> {

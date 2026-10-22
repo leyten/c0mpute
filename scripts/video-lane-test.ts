@@ -11,7 +11,8 @@
  *   - completed job + worker earning recorded with tier 'video';
  *   - every failure path (worker error, bad/oversized clip, timeout, worker gone)
  *     refunds exactly once, and a late result after a failure is ignored;
- *   - an adult job never reaches a worker that did not opt in.
+ *   - an adult job never reaches a worker that did not opt in;
+ *   - a submit that reaches the orchestrator after its accept deadline is refused.
  *
  * The DB is cwd/data/c0mpute.db, so this runs from a fresh temp dir and never
  * touches a real one.
@@ -94,6 +95,13 @@ async function main() {
     if (res.headers.get('content-type') === 'video/mp4') return { status: res.status, video: Buffer.from(await res.arrayBuffer()) } as const;
     return { status: res.status, data: await res.json() } as const;
   };
+  const internalSubmit = async (payload: Record<string, unknown>) => {
+    const s = ioc(url, { auth: { token: process.env.INTERNAL_API_SECRET }, transports: ['websocket'], reconnection: false });
+    await new Promise<void>((r) => s.on('connect', () => r()));
+    const res = await new Promise<{ jobId?: string; error?: string; code?: string }>((r) => s.emit('video:submit', payload, r));
+    s.disconnect();
+    return res;
+  };
   const connectWorker = async (privyId: string, adult: boolean): Promise<FakeWorker> => {
     const token = db.createWorkerToken(privyId);
     const sock = ioc(url, { auth: { token }, transports: ['websocket'], reconnection: false });
@@ -163,6 +171,11 @@ async function main() {
   const hist = db.getWorkerJobHistory('did:privy:worker-sfw');
   check(hist.length === 1 && hist[0].tier === 'video' && hist[0].id === j1, "completed job recorded with tier 'video'");
   check(balance() === b0 - VIDEO_CREDITS, 'a delivered clip stays charged');
+
+  // ── accept deadline: the route waits longer than it, so a late submit is never accepted ──
+  const late = await internalSubmit({ jobId: 'late-job', acceptBy: Date.now() - 1, workflow: { '1': {} }, privyUserId: USER, adult: false, creditsCharged: VIDEO_CREDITS });
+  p = await poll('late-job');
+  check(late.code === 'SUBMIT_EXPIRED' && p.status === 404 && sfw.jobs.length === 1, 'a submit past its accept deadline is refused and creates no job');
 
   // ── adult routing: an adult job waits for an opted-in worker ──
   const adultW = await connectWorker('did:privy:worker-adult', true);

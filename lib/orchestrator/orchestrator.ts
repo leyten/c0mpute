@@ -1785,8 +1785,19 @@ export class Orchestrator {
           callback({ error: 'Video jobs are internal-only.' });
           return;
         }
-        if (!data?.workflow || typeof data.workflow !== 'object' || typeof data.privyUserId !== 'string' || !data.privyUserId) {
-          callback({ error: 'workflow and privyUserId required' });
+        if (!data?.workflow || typeof data.workflow !== 'object' || typeof data.privyUserId !== 'string' || !data.privyUserId
+          || typeof data.jobId !== 'string' || !data.jobId || data.jobId.length > 64) {
+          callback({ error: 'jobId, workflow and privyUserId required' });
+          return;
+        }
+        // Past its deadline the route may already have refunded and told the
+        // user it failed, so accepting now would render a clip nobody paid for.
+        if (!(Date.now() <= Number(data.acceptBy))) {
+          callback({ error: 'Submit arrived after its deadline.', code: 'SUBMIT_EXPIRED' });
+          return;
+        }
+        if (this.videoJobs.has(data.jobId)) {
+          callback({ error: 'Duplicate jobId.', code: 'DUPLICATE' });
           return;
         }
         const adult = data.adult === true;
@@ -1796,7 +1807,7 @@ export class Orchestrator {
           callback({ error: 'No video worker online.', code: 'NO_VIDEO_WORKER' });
           return;
         }
-        const jobId = uuidv4();
+        const jobId = data.jobId;
         const job: VideoJob = {
           id: jobId,
           workflow: data.workflow,

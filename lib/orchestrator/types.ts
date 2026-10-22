@@ -299,6 +299,11 @@ export const VIDEO_STAGES = ['loading', 'sampling', 'decoding', 'interpolating',
 export type VideoStage = (typeof VIDEO_STAGES)[number];
 
 export interface VideoSubmit {
+  // Minted by the web route, with the epoch ms after which the orchestrator
+  // must refuse the submit. The route's own wait outlasts the deadline, so by
+  // the time it gives up and refunds, a late submit can no longer be accepted.
+  jobId: string;
+  acceptBy: number;
   workflow: Record<string, unknown>;
   outputNode?: string;
   // Adult jobs go only to video workers that opted in (capabilities.adult).

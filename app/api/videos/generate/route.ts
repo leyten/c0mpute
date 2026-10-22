@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { randomUUID } from 'crypto';
 import { spendCredits, refundCredits, getTodayFreeSubsidyUsd, getThisHourFreeSubsidyUsd } from '@/lib/db';
 import { drawStakerAllowance, refundStakerAllowance } from '@/lib/staker-allowance';
 import { drawDailyGrant, refundDailyGrant } from '@/lib/plan-state';
@@ -103,10 +104,16 @@ export async function POST(req: NextRequest) {
       ? 'allowance' as const
       : undefined;
 
+  // The job id is ours, with a 10s accept deadline the orchestrator enforces.
+  // The submit call waits 15s, so if no ack arrives the job can no longer be
+  // accepted by the time we refund below.
+  const jobId = randomUUID();
   try {
     // subsidized: no revenue was collected, so the payout must not book any
     // (see the same note in the image route).
-    const jobId = await submitVideoJob({
+    await submitVideoJob({
+      jobId,
+      acceptBy: Date.now() + 10_000,
       workflow: built.workflow,
       outputNode: built.outputNode,
       adult,
@@ -128,7 +135,8 @@ export async function POST(req: NextRequest) {
       credits_charged: VIDEO_CREDITS,
     });
   } catch (err) {
-    // Never accepted, so the refund is still ours to make.
+    // Refused, or no ack before the deadline: never accepted, so the refund is
+    // still ours to make.
     if (grantDraw) refundDailyGrant(privyId, grantDraw.source, VIDEO_CREDITS, grantDraw.day);
     else if (allowanceDay) refundStakerAllowance(privyId, VIDEO_CREDITS, allowanceDay);
     else refundCredits(privyId, VIDEO_CREDITS, 'Video generation failed');
