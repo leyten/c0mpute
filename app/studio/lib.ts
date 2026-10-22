@@ -151,6 +151,26 @@ export interface JobState extends PendingJob {
   pct: number;
   stage?: VideoStage;
   error?: string;
+  // The poll got a 401: the session lapsed, the render did not. It stays
+  // resumable and picks up again once a poll gets through.
+  authLost?: boolean;
+}
+
+// ── the composer draft, kept across the login redirect (sessionStorage) ─────
+const DRAFT_KEY = 'c0mpute_studio_draft';
+export interface Draft { prompt: string; aspect: AspectId; adult: boolean; seed: string }
+export function saveDraft(d: Draft) {
+  try { sessionStorage.setItem(DRAFT_KEY, JSON.stringify(d)); } catch {}
+}
+/** The saved draft, once: reading it clears it. */
+export function takeDraft(): Draft | null {
+  try {
+    const d = JSON.parse(sessionStorage.getItem(DRAFT_KEY) || 'null') as Draft | null;
+    sessionStorage.removeItem(DRAFT_KEY);
+    return d && typeof d.prompt === 'string' ? d : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Honest progress. Queued: no percentage, only the time spent waiting.

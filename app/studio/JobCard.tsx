@@ -6,12 +6,13 @@ import { POLL_MS, PENDING_MAX_MS, fmtClock, fmtRemaining, progressOf, type JobSt
 
 // A render in progress, or one that failed, at the top of the canvas. Same
 // shape as the clip it will become.
-export function JobCard({ job, now, expectedMs, onRetry, onDismiss }: {
+export function JobCard({ job, now, expectedMs, onRetry, onDismiss, onLogin }: {
   job: JobState;
   now: number;
   expectedMs: number;
   onRetry: () => void;
   onDismiss: () => void;
+  onLogin: () => void;
 }) {
   const ar = job.width / job.height;
   const failed = job.status === 'failed';
@@ -37,6 +38,15 @@ export function JobCard({ job, now, expectedMs, onRetry, onDismiss }: {
                   <button type="button" onClick={onDismiss} className="pixel-sans cursor-pointer border border-fg/20 px-3 py-1.5 text-[12px] text-fg-70 hover:border-fg/45 hover:text-fg">Dismiss</button>
                 </div>
               </div>
+            </>
+          ) : job.authLost ? (
+            <>
+              <p className="st-eyebrow">Signed out</p>
+              <div>
+                <p className="pixel-sans text-[13px] leading-snug text-fg-80">Log in again to see this render. It keeps going meanwhile.</p>
+                <p className="pixel-sans mt-2 line-clamp-2 text-[12px] leading-snug text-fg-45">{job.prompt}</p>
+              </div>
+              <button type="button" onClick={onLogin} className="pixel-sans self-start cursor-pointer bg-fg px-3 py-1.5 text-[12px] text-on-fg hover:opacity-90">Log in</button>
             </>
           ) : (
             <>
@@ -73,16 +83,17 @@ export function JobCard({ job, now, expectedMs, onRetry, onDismiss }: {
 // one), because the final answer is the whole MP4. A download that dies
 // mid-body (res.blob() throws) lands in the catch and simply polls again: the
 // server keeps the clip for an hour after it finishes.
-export function JobRunner({ job, getAccessToken, onProgress, onDone, onFail }: {
+export function JobRunner({ job, getAccessToken, onProgress, onDone, onFail, onAuthLost }: {
   job: JobState;
   getAccessToken: () => Promise<string | null>;
   onProgress: (jobId: string, status: 'queued' | 'rendering', pct: number, stage?: VideoStage) => void;
   onDone: (jobId: string, blob: Blob) => void;
   onFail: (jobId: string, error: string) => void;
+  onAuthLost: (jobId: string) => void;
 }) {
   // Handlers change every render; the poll loop must not restart for that.
-  const handlers = useRef({ getAccessToken, onProgress, onDone, onFail });
-  useEffect(() => { handlers.current = { getAccessToken, onProgress, onDone, onFail }; });
+  const handlers = useRef({ getAccessToken, onProgress, onDone, onFail, onAuthLost });
+  useEffect(() => { handlers.current = { getAccessToken, onProgress, onDone, onFail, onAuthLost }; });
 
   const { jobId, startedAt } = job;
   useEffect(() => {
@@ -99,18 +110,32 @@ export function JobRunner({ job, getAccessToken, onProgress, onDone, onFail }: {
           Promise.resolve().then(() => h.getAccessToken()).catch(() => null),
           new Promise<null>((r) => setTimeout(() => r(null), 4000)),
         ]);
-        const res = await fetch(`/api/videos/${jobId}`, { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' });
-        if (res.ok && res.headers.get('content-type')?.startsWith('video/')) {
-          const blob = await res.blob();
-          handlers.current.onDone(jobId, blob);
-          return;
+        // A stalled connection must not freeze the card: 15s for an answer,
+        // and two minutes for the clip itself to come down.
+        const ctrl = new AbortController();
+        let deadline = setTimeout(() => ctrl.abort(), 15_000);
+        try {
+          const res = await fetch(`/api/videos/${jobId}`, { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store', signal: ctrl.signal });
+          clearTimeout(deadline);
+          if (res.status === 401) {
+            handlers.current.onAuthLost(jobId);
+          } else if (res.ok && res.headers.get('content-type')?.startsWith('video/')) {
+            deadline = setTimeout(() => ctrl.abort(), 120_000);
+            const blob = await res.blob();
+            handlers.current.onDone(jobId, blob);
+            return;
+          } else {
+            deadline = setTimeout(() => ctrl.abort(), 15_000);
+            const data = await res.json();
+            if (data.status === 'failed' || data.status === 'gone') { handlers.current.onFail(jobId, data.error || 'Video generation failed.'); return; }
+            if (!stopped && (data.status === 'queued' || data.status === 'rendering')) {
+              handlers.current.onProgress(jobId, data.status, Number(data.pct) || 0, data.stage);
+            }
+          }
+        } finally {
+          clearTimeout(deadline);
         }
-        const data = await res.json();
-        if (data.status === 'failed' || data.status === 'gone') { handlers.current.onFail(jobId, data.error || 'Video generation failed.'); return; }
-        if (!stopped && (data.status === 'queued' || data.status === 'rendering')) {
-          handlers.current.onProgress(jobId, data.status, Number(data.pct) || 0, data.stage);
-        }
-        // Anything else (the network briefly unreachable, a token refresh) just polls again.
+        // Anything else (the network briefly unreachable, a timeout) just polls again.
       } catch {}
       if (!stopped) timer = setTimeout(poll, POLL_MS);
     };

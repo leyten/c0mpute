@@ -13,7 +13,7 @@ import { Viewer } from './Viewer';
 import { IconBell, IconX } from './icons';
 import {
   ASPECTS, MAX_ACTIVE, NSFW_ACK_KEY, SUGGESTED_PROMPTS, VIDEO_CREDITS,
-  aspectIdFor, expectedRenderMs, idbAll, idbDelete, idbPut, progressOf, readPending, recordRenderMs, removePending, updatePending, writePending,
+  aspectIdFor, expectedRenderMs, idbAll, saveDraft, takeDraft, idbDelete, idbPut, progressOf, readPending, recordRenderMs, removePending, updatePending, writePending,
   type AspectId, type JobState, type PendingJob, type SavedVideo, type ShownVideo,
 } from './lib';
 
@@ -91,6 +91,14 @@ export default function StudioPage() {
       setNotifySupported(supported);
       setNotify(supported && Notification.permission === 'granted' && localStorage.getItem(NOTIFY_KEY) === '1');
     } catch {}
+    // A draft saved on the way out to log in comes back as it was.
+    const draft = takeDraft();
+    if (draft) {
+      setPrompt(draft.prompt);
+      if (ASPECTS.some((x) => x.id === draft.aspect)) setAspect(draft.aspect);
+      if (draft.adult && localStorage.getItem(NSFW_ACK_KEY) === '1') setAdult(true);
+      setSeed(draft.seed || '');
+    }
     setExpectedMs(expectedRenderMs());
     setNow(Date.now());
     baseTitle.current = document.title;
@@ -139,7 +147,7 @@ export default function StudioPage() {
 
   const submit = async (s: Submission) => {
     setError(null);
-    if (!isAuthenticated) { login(); return; }
+    if (!isAuthenticated) { loginKeepingDraft(s); return; }
     setSubmitting(true);
     try {
       const token = await getAccessToken();
@@ -174,6 +182,15 @@ export default function StudioPage() {
     }
   };
 
+  // Logging in is a full navigation, so what would have been submitted is
+  // saved first and restored when the user comes back.
+  const loginKeepingDraft = (s?: Submission) => {
+    saveDraft(s
+      ? { prompt: s.prompt, aspect: aspectIdFor(s.width, s.height), adult: s.adult, seed: s.seedPinned && s.seed ? String(s.seed) : '' }
+      : { prompt, aspect, adult, seed });
+    login();
+  };
+
   const generate = () => {
     const a = ASPECTS.find((x) => x.id === aspect) ?? ASPECTS[0];
     const pinned = seed.trim() ? Number(seed) : undefined;
@@ -186,7 +203,10 @@ export default function StudioPage() {
     // kept with the pending job so a reload does not count queue time again.
     const renderStartedAt = prev?.renderStartedAt ?? (status === 'rendering' ? Date.now() : undefined);
     if (renderStartedAt && !prev?.renderStartedAt) updatePending(jobId, { renderStartedAt });
-    setJobs((js) => js.map((j) => (j.jobId === jobId ? { ...j, status, pct, stage, renderStartedAt } : j)));
+    setJobs((js) => js.map((j) => (j.jobId === jobId ? { ...j, status, pct, stage, renderStartedAt, authLost: false } : j)));
+  }, []);
+  const onAuthLost = useCallback((jobId: string) => {
+    setJobs((js) => js.map((j) => (j.jobId === jobId ? { ...j, authLost: true } : j)));
   }, []);
 
   // The clip is saved to IndexedDB first, so it is kept even if the page is
@@ -353,7 +373,7 @@ export default function StudioPage() {
           {jobs.length > 0 && (
             <div className="st-rows mb-2">
               {jobs.map((j) => (
-                <JobCard key={j.jobId} job={j} now={now} expectedMs={expectedMs} onRetry={() => retry(j)} onDismiss={() => dismiss(j.jobId)} />
+                <JobCard key={j.jobId} job={j} now={now} expectedMs={expectedMs} onRetry={() => retry(j)} onDismiss={() => dismiss(j.jobId)} onLogin={() => loginKeepingDraft()} />
               ))}
             </div>
           )}
@@ -387,7 +407,7 @@ export default function StudioPage() {
       </div>
 
       {active.map((j) => (
-        <JobRunner key={j.jobId} job={j} getAccessToken={getAccessToken} onProgress={onProgress} onDone={onDone} onFail={onFail} />
+        <JobRunner key={j.jobId} job={j} getAccessToken={getAccessToken} onProgress={onProgress} onDone={onDone} onFail={onFail} onAuthLost={onAuthLost} />
       ))}
 
       {viewerIndex >= 0 && (
