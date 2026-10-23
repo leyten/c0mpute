@@ -20,38 +20,124 @@
 
 const NSFW_CLASSIFIER_URL = (process.env.NSFW_CLASSIFIER_URL || 'http://127.0.0.1:8189').replace(/\/$/, '');
 
+// Minor terms, matched as whole words with an optional plural, so "kidney",
+// "babydoll" and "minority" no longer trip them. Covers common English, booru
+// tags (underscores become spaces in normalize) and the basic nl/fr/de/es/it/pt words.
 const MINOR_TERMS = [
-  'child', 'children', 'kid', 'kids', 'toddler', 'infant', 'baby', 'babies',
-  'minor', 'minors', 'preteen', 'pre-teen', 'pre teen', 'tween',
-  'underage', 'under-age', 'under age', 'juvenile', 'adolescent',
-  'schoolgirl', 'schoolboy', 'school girl', 'school boy', 'grade schooler',
-  'elementary', 'middle school', 'kindergarten', 'loli', 'lolita', 'shota',
+  'child', 'children', 'childlike', 'child-like', 'kid', 'kiddo', 'kidz', 'kiddie', 'kiddy',
+  'toddler', 'infant', 'newborn', 'baby', 'babies', 'youngster',
+  'minor', 'preteen', 'pre-teen', 'pre teen', 'tween', 'tweenie',
+  'teen', 'teenie', 'teeny', 'teenage', 'teenaged', 'teenager', 'young teen', 'barely legal', 'jailbait',
+  'underage', 'underaged', 'under-age', 'under-aged', 'under age', 'juvenile', 'adolescent',
+  'pubescent', 'prepubescent', 'puberty', 'young-looking', 'young looking', 'childish', 'undeveloped', 'youth',
+  'schoolgirl', 'schoolboy', 'school girl', 'school boy', 'schoolkid', 'grade schooler', 'jk', 'joshikousei',
+  'elementary', 'primary school', 'grade school', 'secondary school',
+  'middle school', 'middleschool', 'middle schooler', 'junior high', 'juniorhigh',
+  'high school', 'highschool', 'high schooler',
+  'kindergarten', 'loli', 'lolita', 'shota',
   'little girl', 'little boy', 'young girl', 'young boy', 'small girl',
   'small boy', 'baby girl', 'baby boy',
+  'meisje', 'tiener', 'kindje', 'kinderen', 'kleuter', 'enfant', 'fillette', 'adolescente',
+  'madchen', 'jugendliche', 'menor', 'ragazzina', 'bambina', 'bambino', 'menina', 'ninya', 'ninyo',
 ];
 
-// Age numbers below 18 expressed as "<n> year old" / "<n>yo" / "age <n>".
-const UNDERAGE_AGE = /\b(?:age[d]?\s*)?(?:0?[0-9]|1[0-7])\s*(?:y\/?o|yo|years?\s*old|year-old|yr?s?\s*old)\b/i;
+// Adult phrases that contain a minor word; removed before the minor check.
+const ADULT_PHRASES =
+  /\bbaby[\s-]*(?:oil|blue|pink|doll|dolls|bump|powder|face|hair|breath)\b|\bchild[\s-]*bearing\b|\bkid[\s-]*gloves?\b|\bminor[\s-]+(?:freckles?|scars?|flaws?|details?|league|key|blemish(?:es)?|imperfections?|changes?)\b/g;
 
-const SEXUAL_TERMS = [
-  'nude', 'naked', 'nsfw', 'sex', 'sexual', 'sexy', 'porn', 'pornographic',
-  'erotic', 'explicit', 'hentai', 'nipple', 'breasts', 'boobs', 'genital',
-  'genitalia', 'penis', 'vagina', 'pussy', 'cock', 'cum', 'orgasm',
-  'masturbat', 'intercourse', 'fellatio', 'blowjob', 'lingerie', 'topless',
-  'bottomless', 'undress', 'cleavage', 'thong', 'bikini', 'fucking', 'fuck',
-  'panties', 'upskirt', 'bdsm', 'fetish', 'provocative', 'seductive',
+const SPELLED_UNDER_18 =
+  'one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen';
+// A number under 18; the lookbehind keeps "twenty-one" adult.
+const N = `(?<!(?:twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)[\\s-]*)(?:0?\\d|1[0-7]|${SPELLED_UNDER_18})`;
+const ND = '(?:0?\\d|1[0-7])';
+
+// Ages and school grades below 18, read from the plain (not deleeted) text.
+const UNDERAGE_PATTERNS = [
+  // "16 year old", "16-year-old", "16yo", "16 y.o.", "15 yrs", "15 years" (not "for 10 years", "10 years ago")
+  `(?<!\\b(?:for|after|past|last|every|about|over|within|in|since|than)\\s+)\\b${N}[\\s-]*(?:y\\.?\\s?[\\/-]?\\s?o\\b|yrs?\\b|years?\\b)(?![\\s-]*(?:ago|later|before|after|together|married|of\\s+(?:marriage|experience|work|service)|anniversary|old\\s+(?:whiske?y|scotch|bourbon|rum|cognac|brandy|wine|cheese|car|house|tree|dog|cat|horse)\\b))`,
+  `\\b${N}[\\s-]*(?:jaar|ans|jahre|anos|anyos|anni|lat|let)\\b`,
+  `\\bage[ds]?\\s*(?:of\\s*)?[:=]?\\s*${N}\\b`,
+  `\\b(?:under|younger\\s+than|below|less\\s+than)\\s*(?:18|eighteen)\\b`,
+  `\\b(?:looks?(?:\\s+like)?|appears?(?:\\s+to\\s+be)?|is|was|who'?s|she'?s|he'?s|canonically)\\s+(?:about\\s+|only\\s+|just\\s+|barely\\s+)?${N}\\b(?![\\s-]*(?:feet|foot|ft|inch|inches|in\\b|cm|m\\b|meters?|kg|lbs?|pounds|%|:|\\/|\\.\\d|x\\b|times|minutes|seconds|hours|o'?clock|pm|am))`,
+  `\\b(?:girl|boy|female|male|student|daughter|son)s?\\s*[,:(-]?\\s*${ND}\\b(?![:\\/\\d]|\\s*(?:men|guys|boys|girls|women|nights?|x|times|and)\\b)`,
+  `[(,]\\s*${ND}\\s*(?=\\)|,|$)`,
+  `\\b(?:[1-9]|1[0-2])(?:st|nd|rd|th)[\\s-]*grade(?:rs?)?\\b`,
+  `\\b(?:first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|eleventh|twelfth)[\\s-]*grade(?:rs?)?\\b`,
+  `\\bgrade\\s*(?:[1-9]|1[0-2])\\b`,
+  `\\bsweet\\s+sixteen\\b`,
+  `\\b(?:naakt|nackt)e?\\s+kind(?:je|eren|er)?\\b`,
 ];
+const UNDERAGE_AGE = new RegExp(UNDERAGE_PATTERNS.join('|'), 'i');
+
+// Sexual terms, matched at the start of a word ("nudes", "masturbating") so
+// "Sussex", "cucumber" and "documentary" no longer count. The few that are
+// also the start of everyday words (cockpit, cumulus, brave) are whole words.
+const SEXUAL_PREFIXES = [
+  'nude', 'nudity', 'nudist', 'naked', 'nsfw', 'sex', 'porn', 'erotic', 'explicit', 'hentai', 'ecchi',
+  'nipple', 'boob', 'genital', 'penis', 'vagina', 'orgasm', 'masturbat', 'intercourse', 'fellatio',
+  'blowjob', 'lingerie', 'topless', 'bottomless', 'undress', 'unclothed', 'cleavage', 'thong', 'bikini',
+  'fuck', 'panties', 'panty', 'upskirt', 'bdsm', 'fetish', 'provocative', 'seductive', 'lewd', 'xxx',
+  'horny', 'slut', 'molest', 'aroused', 'underwear',
+];
+const SEXUAL_WORDS = ['cum', 'cums', 'cumming', 'cumshot', 'cock', 'cocks', 'pussy', 'pussies', 'tits', 'titties',
+  'breast', 'breasts', 'bra', 'bras', 'rape', 'raped', 'rule 34', 'without clothes', 'wearing nothing', 'spread legs'];
+const SEXUAL_RE = new RegExp(
+  `(?<![a-z])(?:${SEXUAL_PREFIXES.join('|')})|(?<![a-z])(?:${SEXUAL_WORDS.map((w) => w.replace(/ /g, '\\s+')).join('|')})(?![a-z])`,
+);
 
 // Terms that are CSAM-coded with no legitimate use — refused outright, even
 // without an accompanying sexual term.
-const HARD_BLOCK_TERMS = ['loli', 'lolita', 'shota', 'shotacon', 'lolicon'];
+const HARD_BLOCK_TERMS = ['loli', 'lolita', 'shota', 'shotacon', 'lolicon', 'cunny', 'toddlercon'];
+
+// Letters from other scripts that look Latin ("tееn" with Cyrillic e).
+const CONFUSABLES: Record<string, string> = {
+  'а': 'a', 'е': 'e', 'о': 'o', 'р': 'p', 'с': 'c', 'у': 'y', 'х': 'x', 'і': 'i', 'ј': 'j', 'ѕ': 's', 'ԁ': 'd', 'ӏ': 'l',
+  'α': 'a', 'ε': 'e', 'ι': 'i', 'κ': 'k', 'ν': 'v', 'ο': 'o', 'ρ': 'p', 'τ': 't', 'υ': 'u', 'χ': 'x', '€': 'e',
+};
+// Common character swaps used to dodge word lists ("l0li", "t33n", "k1d").
+const LEET: Record<string, string> = { '0': 'o', '1': 'i', '3': 'e', '4': 'a', '5': 's', '7': 't', '@': 'a', '$': 's', '!': 'i' };
+
+// Lowercase; fold accents, full-width and circled letters (NFKD); drop invisible
+// format characters (zero-width, soft hyphen); map look-alikes; "_" is a space.
+function normalize(s: string): string {
+  return s
+    .normalize('NFKD')
+    .replace(/n\u0303/gi, 'ny') // ñ: keeps "niña" apart from the name Nina
+    .replace(/[\u0300-\u036f]|\p{Cf}/gu, '')
+    .toLowerCase()
+    .replace(/[\u0370-\u03ff\u0400-\u04ff€]/g, (c) => CONFUSABLES[c] ?? c)
+    .replace(/_/g, ' ');
+}
+
+// The view used for words: leetspeak undone, spaced-out letters joined
+// ("t.e.e.n", "l o l i"), stretched letters shortened ("teeeen").
+function wordView(p: string): string {
+  return p
+    .replace(/[013457@$!]/g, (c) => LEET[c])
+    .replace(/\b[a-z](?:[\s.*_-]+[a-z]\b){2,}/g, (m) => m.replace(/[\s.*_-]+/g, ''))
+    .replace(/([a-z])\1{2,}/g, '$1$1');
+}
 
 function hasAny(haystack: string, needles: string[]): boolean {
   return needles.some((n) => haystack.includes(n));
 }
 
+function hasWord(haystack: string, words: string[]): boolean {
+  return words.some((w) => {
+    const esc = w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/[ -]/g, '[\\s-]+');
+    return new RegExp(`(?<![a-z])${esc}(?:e?s)?(?![a-z])`).test(haystack);
+  });
+}
+
+function mentionsMinor(p: string, words: string): boolean {
+  return hasWord(p.replace(ADULT_PHRASES, ' '), MINOR_TERMS) || hasWord(words.replace(ADULT_PHRASES, ' '), MINOR_TERMS) || UNDERAGE_AGE.test(p);
+}
+
 const CSAM_MESSAGE =
   'This prompt was blocked. Sexual content involving minors is the one thing Compute Network will never generate. This is the only hard limit.';
+
+const MINOR_IN_ADULT_MESSAGE =
+  'This prompt was blocked. With 18+ on, nothing that mentions a minor can be generated: sexual content involving minors is the one thing Compute Network will never generate.';
 
 export interface SafetyResult {
   allowed: boolean;
@@ -64,16 +150,22 @@ export interface PromptSafetyOpts {
   nsfwAllowed?: boolean;
 }
 
-// Prompt-level guard. The CSAM line is enforced regardless of nsfwAllowed.
+// Prompt-level guard. The CSAM line is enforced regardless of nsfwAllowed; with
+// nsfwAllowed on, any mention of a minor is refused.
 export function checkImagePromptSafety(prompt: string, opts: PromptSafetyOpts = {}): SafetyResult {
-  const p = (prompt || '').toLowerCase();
+  const p = normalize(prompt || '');
   if (!p.trim()) return { allowed: false, reason: 'Empty prompt.' };
+  const words = wordView(p);
 
   // Always-block, no-legitimate-use terms.
-  if (hasAny(p, HARD_BLOCK_TERMS)) return { allowed: false, reason: CSAM_MESSAGE };
+  if (hasAny(p, HARD_BLOCK_TERMS) || hasAny(words, HARD_BLOCK_TERMS)) return { allowed: false, reason: CSAM_MESSAGE };
 
-  const sexual = hasAny(p, SEXUAL_TERMS);
-  const minor = hasAny(p, MINOR_TERMS) || UNDERAGE_AGE.test(p);
+  const minor = mentionsMinor(p, words);
+  // 18+ mode can make anything explicit, and no word list catches every sexual
+  // word, so any mention of a minor is refused outright there.
+  if (minor && opts.nsfwAllowed) return { allowed: false, reason: MINOR_IN_ADULT_MESSAGE };
+
+  const sexual = SEXUAL_RE.test(p) || SEXUAL_RE.test(words);
 
   // Hard line: minor + sexual is always refused.
   if (sexual && minor) return { allowed: false, reason: CSAM_MESSAGE };
