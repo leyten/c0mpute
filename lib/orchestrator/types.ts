@@ -6,6 +6,7 @@ export interface WorkerCapabilities {
   vision?: boolean;
   tools?: boolean;
   image?: boolean; // runs ComfyUI image generation (type 'image' workers)
+  adult?: boolean; // video worker opted in to adult (18+) jobs
 }
 
 // Worker types
@@ -13,7 +14,7 @@ export interface WorkerInfo {
   id: string;
   socketId: string;
   model: string;
-  type: 'browser' | 'native' | 'image';
+  type: 'browser' | 'native' | 'image' | 'video';
   capabilities: WorkerCapabilities;
   status: 'idle' | 'busy';
   connectedAt: Date;
@@ -249,6 +250,10 @@ export interface ServerToClientEvents {
   // Orchestrator -> submitter (internal web): the result or failure.
   'image:done': (data: { jobId: string; image: string; seed?: number; width?: number; height?: number }) => void;
   'image:error': (data: { jobId: string; error: string; code?: string }) => void;
+  // Video generation. Orchestrator -> worker: a job to run (`outputNode` is the
+  // graph's SaveVideo node) or a cancel.
+  'video:job': (data: { jobId: string; workflow: Record<string, unknown>; outputNode?: string }) => void;
+  'video:cancel': (data: { jobId: string }) => void;
 }
 
 export interface ClientToServerEvents {
@@ -256,7 +261,7 @@ export interface ClientToServerEvents {
   // arrive. Ignored from any other submitter: only the bridge can speak for a
   // reader it holds the HTTP response open for.
   'job:submit': (data: { messages?: ChatMessage[]; model?: string; authToken?: string; think?: boolean; privyUserId?: string; tools?: ToolDefinition[]; freeOnly?: boolean; stream?: boolean }, callback: (response: { jobId: string; freeRemaining?: number } | { error: string; code?: string }) => void) => void;
-  'worker:register': (data: { model: string; authToken?: string; tokPerSec?: number; type?: 'browser' | 'native' | 'image'; capabilities?: WorkerCapabilities; numCtx?: number }, callback: (response: { workerId: string } | { error: string }) => void) => void;
+  'worker:register': (data: { model: string; authToken?: string; tokPerSec?: number; type?: 'browser' | 'native' | 'image' | 'video'; capabilities?: WorkerCapabilities; numCtx?: number }, callback: (response: { workerId: string } | { error: string }) => void) => void;
   'worker:unregister': () => void;
   'job:token': (data: { jobId: string; token: string }) => void;
   // `doneReason` is the engine's finish reason ('stop' | 'length' | ...). NO
@@ -277,12 +282,61 @@ export interface ClientToServerEvents {
   // Image worker -> orchestrator: result or failure.
   'image:result': (data: { jobId: string; image: string }) => void;
   'image:failed': (data: { jobId: string; error: string }) => void;
+  // Video generation. Internal web -> orchestrator: submit a render the web
+  // route has already charged and recorded in video_charges (from here on the
+  // orchestrator drives the refund), then poll it. A render outlives any HTTP
+  // request, so nothing waits on it.
+  'video:submit': (data: VideoSubmit, callback: (response: { jobId: string } | { error: string; code?: string }) => void) => void;
+  'video:status': (data: { jobId: string; privyUserId: string }, callback: (response: VideoJobStatus) => void) => void;
+  // Pre-flight before charging: would a submit for this user be accepted now?
+  // The submit re-checks, so this only spares a charge-and-refund.
+  'video:admit': (data: { privyUserId: string; adult: boolean }, callback: (response: VideoAdmission) => void) => void;
+  // Video worker -> orchestrator: progress, then result or failure.
+  'video:progress': (data: { jobId: string; pct?: number; stage?: string }) => void;
+  'video:result': (data: { jobId: string; video: string }) => void;
+  'video:failed': (data: { jobId: string; error: string }) => void;
 }
+
+/** Render stages a video worker may report. Anything else is dropped, so a
+ *  worker never gets to put its own words on a user's screen. */
+export const VIDEO_STAGES = ['loading', 'sampling', 'decoding', 'interpolating', 'encoding'] as const;
+export type VideoStage = (typeof VIDEO_STAGES)[number];
+
+export interface VideoSubmit {
+  // Minted by the web route, with the epoch ms after which the orchestrator
+  // must refuse the submit. The route's own wait outlasts the deadline, so by
+  // the time it gives up and refunds, a late submit can no longer be accepted.
+  jobId: string;
+  acceptBy: number;
+  workflow: Record<string, unknown>;
+  outputNode?: string;
+  // Adult jobs go only to video workers that opted in (capabilities.adult).
+  adult: boolean;
+  privyUserId: string;
+  seed?: number;
+  width?: number;
+  height?: number;
+  creditsCharged: number;
+  subsidized?: boolean;
+  subsidyKind?: SubsidyKind;
+}
+
+export type VideoAdmission = { ok: true } | { error: string; code: 'NO_VIDEO_WORKER' | 'TOO_MANY_VIDEOS' | 'STUDIO_BUSY' };
+
+/** What a status poll sees. `done` carries the MP4 as base64, on every poll
+ *  until the clip expires; after that the job is `gone`. */
+export type VideoJobStatus =
+  | { status: 'queued' | 'rendering'; pct: number; stage?: VideoStage }
+  | { status: 'done'; video: string; seed?: number; width?: number; height?: number }
+  | { status: 'failed'; error: string; code?: string }
+  | { status: 'gone' };
 
 export interface NetworkStats {
   workersOnline: number;
   browserWorkers: number;
   nativeWorkers: number;
+  /** Studio video workers; counted apart so they never show as browser workers. */
+  videoWorkers?: number;
   /** Native worker counts broken down by the model string they run. */
   nativeByModel?: Record<string, number>;
   /** decentralized-swarm model ids with at least one READY ring serving them (the /models
@@ -361,7 +415,7 @@ export function selectionWeight(tokPerSec: number): number {
  * have not reloaded onto the new build yet. `dolphin` predates both.
  */
 export function workerServesModel(
-  worker: { type: 'browser' | 'native' | 'image'; model: string },
+  worker: { type: 'browser' | 'native' | 'image' | 'video'; model: string },
   requestedModelId?: string,
 ): boolean {
   if (getModelTier(requestedModelId) === 'max') {

@@ -101,3 +101,21 @@ export const IMAGE_MODEL_FILES: { subdir: string; file: string; url: string }[] 
     url: 'https://huggingface.co/Comfy-Org/Lumina_Image_2.0_Repackaged/resolve/main/split_files/vae/ae.safetensors',
   },
 ];
+
+// ─────────────────────────────────────────────────────────────────────────
+// Video generation mode (Studio). Like image mode, a dumb ComfyUI driver: the
+// orchestrator sends the whole Wan text-to-video graph. Opt-in by flag only
+// (--mode video); model setup is not automated yet, so the box must already
+// have ComfyUI and the video models installed.
+// ─────────────────────────────────────────────────────────────────────────
+
+/** Model name a video worker advertises to the orchestrator. */
+export const VIDEO_MODEL_NAME = 'c0mpute-video';
+
+/** Per-render timeout (ms). Under the orchestrator's 15 min, so our own
+ *  failure (and the user's refund) lands before its timeout does. */
+export const VIDEO_GEN_TIMEOUT_MS = Number(process.env.VIDEO_TIMEOUT_MS || 840_000);
+
+/** Largest clip we send, in base64 chars. The orchestrator's socket closes on
+ *  anything over 16MB, so a bigger clip is reported as a failure instead. */
+export const MAX_VIDEO_B64_CHARS = 15 * 1024 * 1024;

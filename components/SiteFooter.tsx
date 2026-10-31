@@ -32,6 +32,7 @@ export default function SiteFooter() {
             <div className="flex flex-col gap-2">
               <a href="/chat" className="pixel-sans text-fg-60 hover:text-fg transition-colors text-sm">Chat</a>
               <a href="/create" className="pixel-sans text-fg-60 hover:text-fg transition-colors text-sm">Create</a>
+              <a href="/studio" className="pixel-sans text-fg-60 hover:text-fg transition-colors text-sm">Studio</a>
               <a href="/earn" className="pixel-sans text-fg-60 hover:text-fg transition-colors text-sm">Earn</a>
               <a href={`${brand.urls.docs}/api`} target="_blank" rel="noopener noreferrer" className="pixel-sans text-fg-60 hover:text-fg transition-colors text-sm">API</a>
             </div>
