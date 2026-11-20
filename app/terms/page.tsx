@@ -4,18 +4,17 @@ import { pageMetadata } from '@/lib/seo';
 export const generateMetadata = () =>
   pageMetadata({
     title: 'Terms',
-    description: 'The agreement between you and Compute Network Inc.',
+    description: 'The agreement between you and Compute Network.',
     path: '/terms',
     legacy: 'Terms of Service',
   });
 
 export default function Terms() {
   return (
-    <LegalPage title="Terms of Service" updated="10 AUGUST 2026">
+    <LegalPage title="Terms of Service" updated="20 NOVEMBER 2026">
       <p>
         These terms govern your use of the website, API, and network operated by{' '}
-        <strong>Compute Network Inc.</strong>, a Delaware corporation (&ldquo;Compute Network&rdquo;,
-        &ldquo;we&rdquo;). By creating an account, sending a request, or contributing compute, you agree to them.
+        <strong>Compute Network</strong> (&ldquo;we&rdquo;). By creating an account, sending a request, or contributing compute, you agree to them.
       </p>
 
       <h2>1. Two ways to use the network</h2>
@@ -63,7 +62,7 @@ export default function Terms() {
       <p>Nothing in these terms limits liability that cannot lawfully be limited.</p>
 
       <h2>11. Indemnity</h2>
-      <p>You agree to indemnify Compute Network Inc. against claims, losses and reasonable legal costs arising from your use of the service in breach of these terms or the Acceptable Use Policy.</p>
+      <p>You agree to indemnify Compute Network against claims, losses and reasonable legal costs arising from your use of the service in breach of these terms or the Acceptable Use Policy.</p>
 
       <h2>12. Governing law</h2>
       <p>These terms are governed by the laws of the State of Delaware, United States, without regard to its conflict of laws rules. The state and federal courts located in Delaware have exclusive jurisdiction, and you and we consent to that jurisdiction.</p>
@@ -73,7 +72,7 @@ export default function Terms() {
 
       <h2>14. Contact</h2>
       <p>
-        Compute Network Inc.<br />
+        Compute Network<br />
         <a href="mailto:legal@compute.tech">legal@compute.tech</a>
       </p>
     </LegalPage>

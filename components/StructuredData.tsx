@@ -23,8 +23,7 @@ export default function StructuredData({ brand }: { brand: Brand }) {
     {
       '@type': 'Organization',
       '@id': `${origin}/#organization`,
-      name: 'Compute Network Inc.',
-      alternateName: brand.name,
+      name: brand.name,
       url: origin,
       logo: `${origin}${brand.social?.ogImage ?? ''}`,
       description: brand.description,
