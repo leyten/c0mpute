@@ -30,6 +30,15 @@ export type PaidPlanId = 'pro' | 'max';
 export const PLAN_PERIOD_DAYS = 30;
 export const PLAN_PERIOD_MS = PLAN_PERIOD_DAYS * 86_400_000;
 
+/**
+ * Whether plans and credit top-ups can still be bought.
+ *
+ * Closed on 2026-11-20. Nothing that was already paid for is affected: running
+ * plans see out their period, credit balances stay spendable, and a deposit
+ * that still arrives is credited rather than left stranded.
+ */
+export const SALES_OPEN = false;
+
 /** How many months one purchase may buy. N months is N x the price, one payment. */
 export const PLAN_MONTH_CHOICES = [1, 3, 12] as const;
 

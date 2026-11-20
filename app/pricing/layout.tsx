@@ -1,4 +1,6 @@
+import { redirect } from 'next/navigation';
 import { pageMetadata } from '@/lib/seo';
+import { SALES_OPEN } from '@/lib/plans';
 import { PLANS } from './plans';
 
 // The page below is a client component and so cannot export metadata itself.
@@ -18,5 +20,8 @@ export const generateMetadata = () =>
   });
 
 export default function PricingLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+  // A price list for something that can no longer be bought is worse than no
+  // page. Old links and search results land on the homepage instead.
+  if (!SALES_OPEN) redirect('/');
   return children;
 }

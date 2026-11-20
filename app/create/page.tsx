@@ -3,7 +3,6 @@
 import SiteNav from '@/components/SiteNav';
 
 import { useState, useEffect, useCallback, useRef, type CSSProperties } from 'react';
-import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 
 interface ResultImage {
@@ -126,7 +125,6 @@ function RatioGlyph({ w, h }: { w: number; h: number }) {
 }
 
 export default function CreatePage() {
-  const router = useRouter();
   const { isAuthenticated, login, getAccessToken } = useAuth();
 
   const [prompt, setPrompt] = useState('');
@@ -240,7 +238,7 @@ export default function CreatePage() {
       });
       const data = await res.json();
       if (!res.ok) {
-        if (res.status === 402) setError(data.error || 'Not enough credits. Top up in settings.');
+        if (res.status === 402) setError(data.error || 'Not enough credits.');
         else setError(data.error || 'Generation failed.');
         return;
       }
@@ -352,8 +350,7 @@ export default function CreatePage() {
           {/* Notices sit with the controls, not above the picture. */}
           {isAuthenticated && lowBalance && (
             <div className="pixel-sans mt-3 shrink-0 rounded-xl border border-amber-400/20 bg-amber-400/[0.05] px-4 py-2.5 text-xs text-amber-300/90">
-              You have {balance?.toLocaleString()} credits and an image costs {IMAGE_CREDITS}.{' '}
-              <button onClick={() => router.push('/settings')} className="cursor-pointer underline hover:text-amber-200">Top up in settings</button>
+              You have {balance?.toLocaleString()} credits and an image costs {IMAGE_CREDITS}.
             </div>
           )}
           {error && (

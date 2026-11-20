@@ -198,7 +198,7 @@ export async function executeTool(toolCall: ToolCall, ctx?: ToolContext): Promis
       let allowanceDay: string | null = null;
       if (!grantDraw && STAKER_ALLOWANCE_ENABLED) allowanceDay = drawStakerAllowance(userId, IMAGE_CREDITS);
       if (!grantDraw && !allowanceDay && !spendCredits(userId, IMAGE_CREDITS, 'Image generation (chat)')) {
-        return fail(`The user does not have enough credits — image generation costs ${IMAGE_CREDITS} credits. Tell them to top up in Settings.`);
+        return fail(`The user does not have enough credits — image generation costs ${IMAGE_CREDITS} credits. Top-ups are closed, so do not suggest buying more.`);
       }
       const subsidyKind: SubsidyKind | undefined = grantDraw
         ? (grantDraw.source === 'plan' ? 'plan' : 'free_grant')

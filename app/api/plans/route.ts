@@ -11,7 +11,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyPrivyToken } from '@/lib/privy-server';
 import { openPlanIntent, closePlanIntent, getPlanIntent, resolvePlanState } from '@/lib/plan-state';
-import { isPlanId } from '@/lib/plans';
+import { isPlanId, SALES_OPEN } from '@/lib/plans';
 import { getOrCreateDepositWallet } from '@/lib/db';
 
 // The client sends one request per click. A short per-user window is enough to
@@ -37,6 +37,11 @@ export async function POST(req: NextRequest) {
   }
 
   if (body.action === 'buy') {
+    // Refused here as well as hidden in settings: an intent is what turns the
+    // next deposit into a plan, so none may be opened once sales are closed.
+    if (!SALES_OPEN) {
+      return NextResponse.json({ error: 'Plans are no longer sold.' }, { status: 410 });
+    }
     // Only buying is throttled. Cancelling has to stay available the instant
     // after a misclick, and it can only ever close something.
     const now = Date.now();

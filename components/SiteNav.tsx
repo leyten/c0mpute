@@ -11,13 +11,14 @@ import { useAuth } from '@/hooks/useAuth';
 import { LogoMark } from '@/components/Logo';
 import { useBrand } from '@/components/BrandProvider';
 import ThemeToggle from '@/components/ThemeToggle';
+import { SALES_OPEN } from '@/lib/plans';
 
 const EXPO = 'cubic-bezier(0.19, 1, 0.22, 1)';
 
 const TABS = [
   { href: '/chat', label: 'Chat' },
   { href: '/create', label: 'Create' },
-  { href: '/pricing', label: 'Pricing' },
+  ...(SALES_OPEN ? [{ href: '/pricing', label: 'Pricing' }] : []),
   { href: '/earn', label: 'Earn' },
 ];
 
@@ -463,13 +464,15 @@ export default function SiteNav({
               >
                 Create
               </a>
-              <a
-                href="/pricing"
-                className="cursor-pointer pixel-sans text-fg-70 hover:text-fg transition-colors text-sm tracking-wide"
-                onClick={() => setMenuOpen(false)}
-              >
-                Pricing
-              </a>
+              {SALES_OPEN && (
+                <a
+                  href="/pricing"
+                  className="cursor-pointer pixel-sans text-fg-70 hover:text-fg transition-colors text-sm tracking-wide"
+                  onClick={() => setMenuOpen(false)}
+                >
+                  Pricing
+                </a>
+              )}
               <a
                 href="/earn"
                 className="cursor-pointer pixel-sans text-fg-70 hover:text-fg transition-colors text-sm tracking-wide"

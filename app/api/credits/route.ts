@@ -4,7 +4,7 @@ import { getCreditBalance, getOrCreateDepositWallet, getCreditTransactions, getF
 import { getStakerAllowanceStatus } from '@/lib/staker-allowance';
 import { resolvePlanState, dailyGrantFor, getPlanIntent } from '@/lib/plan-state';
 import { getAllowanceUsed } from '@/lib/allowance';
-import { PLAN_SPECS, PAID_PLAN_IDS, PLAN_MONTH_CHOICES, planMonthlyUsd } from '@/lib/plans';
+import { PLAN_SPECS, PAID_PLAN_IDS, PLAN_MONTH_CHOICES, SALES_OPEN, planMonthlyUsd } from '@/lib/plans';
 import { CREDITS_PER_USD, CREDITS_PER_DOLLAR_PURCHASED } from '@/lib/token-price';
 import {
   FREE_PROMPT_LIMIT,
@@ -134,6 +134,9 @@ export async function GET(req: NextRequest) {
       // so the picker has to be built from this and not from a second list.
       planMonths: PLAN_MONTH_CHOICES,
       freeDailyCredits: PLAN_SPECS.free.dailyCredits,
+      // False once plans and top-ups stop being sold. The settings page hides
+      // every way to pay on it; /api/plans refuses a purchase regardless.
+      salesOpen: SALES_OPEN,
     },
   });
 }
