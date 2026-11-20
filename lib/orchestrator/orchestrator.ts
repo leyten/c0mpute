@@ -533,7 +533,7 @@ export function pickNextDispatch<
 const FREE_NO_CAPACITY_MESSAGE =
   'No free capacity on the network right now. Your free prompt was not used. Try again in a bit.';
 const FREE_NO_CAPACITY_MESSAGE_ANON =
-  'No free capacity on the network right now. Your free prompt was not used. Try again in a bit, or sign in and top up to keep going.';
+  'No free capacity on the network right now. Your free prompt was not used. Try again in a bit, or sign in to keep going.';
 
 export class Orchestrator {
   private io: Server<ClientToServerEvents, ServerToClientEvents>;
@@ -1365,7 +1365,7 @@ export class Orchestrator {
             if (grant.reason === 'ip') {
               callback({ error: 'Your network has hit its daily free-prompt limit. Sign in to keep going.', code: 'ANON_CAP_IP' });
             } else {
-              callback({ error: "You've used all your free prompts. Sign in and top up to continue.", code: 'ANON_NO_PROMPTS' });
+              callback({ error: "You've used all your free prompts. Sign in to continue.", code: 'ANON_NO_PROMPTS' });
             }
             return;
           }
@@ -1567,7 +1567,7 @@ export class Orchestrator {
             // Floor, not round: a balance of 0.6 credits used to be reported as
             // "have 1" — telling a user they had enough for the job we had just
             // refused. It reads low or exact, never high.
-            callback({ error: `Insufficient credits. This request reserves up to ${creditCost} credits (unused credits come straight back); you have ${Math.floor(creditBalance.balance)}. Top up with USDC.` });
+            callback({ error: `Insufficient credits. This request reserves up to ${creditCost} credits (unused credits come straight back); you have ${Math.floor(creditBalance.balance)}.` });
             return;
           }
           const spent = spendCredits(privyUserId, creditCost, `${requestedTierForCredits} prompt (reserved)`);

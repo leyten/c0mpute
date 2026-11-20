@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 import { DEMO_MODE } from '@/app/chat/demo';
 import { useBrand } from '@/components/BrandProvider';
+import { SALES_OPEN } from '@/lib/plans';
 
 type Tab = 'account' | 'plans' | 'worker' | 'developer' | 'usage' | 'referrals';
 
@@ -242,7 +243,7 @@ export default function SettingsPage() {
   const [withdrawSuccess, setWithdrawSuccess] = useState<string | null>(null);
 
   // Usage tab state
-  const [credits, setCredits] = useState<{balance: number; totalDeposited?: number; totalSpent?: number; depositWallet?: string; recentTransactions?: {created_at: string; type: string; amount: number; description: string}[]; plan?: PlanPayload; planIntent?: PlanIntentPayload | null; dailyGrant?: GrantPayload; config?: {creditsPerUsd: number; creditsPerDollarPurchased?: number; plans?: PlanOffer[]; planMonths?: number[]; freeDailyCredits?: number}} | null>(null);
+  const [credits, setCredits] = useState<{balance: number; totalDeposited?: number; totalSpent?: number; depositWallet?: string; recentTransactions?: {created_at: string; type: string; amount: number; description: string}[]; plan?: PlanPayload; planIntent?: PlanIntentPayload | null; dailyGrant?: GrantPayload; config?: {creditsPerUsd: number; creditsPerDollarPurchased?: number; plans?: PlanOffer[]; planMonths?: number[]; freeDailyCredits?: number; salesOpen?: boolean}} | null>(null);
   // Plans tab state. One busy flag: every action on this tab moves the same
   // money, so two of them must never be in flight at once.
   const [planBusy, setPlanBusy] = useState(false);
@@ -449,6 +450,7 @@ export default function SettingsPage() {
           { id: 'max', name: 'Max', dailyCredits: 750, monthlyUsd: 30 },
         ],
         planMonths: [1, 3, 12],
+        salesOpen: SALES_OPEN,
       },
     });
   }, [demoView]);
@@ -683,6 +685,7 @@ export default function SettingsPage() {
   // what a credit is worth when spent (config.creditsPerUsd). They differ.
   const CREDITS_PER_DOLLAR = credits?.config?.creditsPerDollarPurchased ?? 500;
   const topUpCredits = Math.round(Math.max(0, parseFloat(topUpUsd) || 0) * CREDITS_PER_DOLLAR);
+  const topUpsOpen = credits?.config?.salesOpen ?? true;
 
   // every hook above has run by now, so bailing here is safe
   if (signedOut) return null;
@@ -868,6 +871,9 @@ export default function SettingsPage() {
                 const freeDaily = credits?.config?.freeDailyCredits ?? 0;
                 const perDollar = credits?.config?.creditsPerDollarPurchased ?? 500;
                 const intent = credits?.planIntent ?? null;
+                /* Plans stopped being sold on 2026-11-20. A running plan still
+                   shows here and sees out its period; every way to pay is hidden. */
+                const salesOpen = credits?.config?.salesOpen ?? true;
                 /* The payment card owns the notices while it is on screen,
                    because its buttons are the ones producing them. */
                 const paying = !!intent && !intent.expired;
@@ -892,7 +898,9 @@ export default function SettingsPage() {
                   <>
                     <Card
                       title="Your plan"
-                      description="Plans are prepaid months bought with USDC. You send the amount to your deposit address and the plan starts when it lands. There is no card and nothing to cancel."
+                      description={salesOpen
+                        ? 'Plans are prepaid months bought with USDC. You send the amount to your deposit address and the plan starts when it lands. There is no card and nothing to cancel.'
+                        : 'Plans are no longer sold. A plan you already have runs until its period ends.'}
                       footer={
                         <p className="pixel-sans text-fg-40 text-[11px]">
                           Daily credits do not carry over. Anything left when the day ends is gone.
@@ -902,7 +910,9 @@ export default function SettingsPage() {
                       {plan?.lapsed && (
                         <div className="mb-4">
                           <Notice tone="info">
-                            Your plan ended and you are back on Free. Buy another month below when you want it back.
+                            {salesOpen
+                              ? 'Your plan ended and you are back on Free. Buy another month below when you want it back.'
+                              : 'Your plan ended and you are back on Free.'}
                           </Notice>
                         </div>
                       )}
@@ -926,14 +936,16 @@ export default function SettingsPage() {
                       )}
                       {!onFree && (
                         <p className="pixel-sans text-fg-50 text-[13px] leading-relaxed mt-2">
-                          {plan!.daysLeft <= 7
+                          {!salesOpen
+                            ? `Your ${plan!.name} month runs until ${new Date(plan!.expiresAt!).toLocaleDateString()} and ends there.`
+                            : plan!.daysLeft <= 7
                             ? `Your ${plan!.name} month ends in ${plan!.daysLeft} day${plan!.daysLeft === 1 ? '' : 's'}. Buy another below to keep it running.`
                             : `Your ${plan!.name} month runs until ${new Date(plan!.expiresAt!).toLocaleDateString()}. It ends there unless you buy another.`}
                         </p>
                       )}
                     </Card>
 
-                    {intent && !intent.expired && (
+                    {salesOpen && intent && !intent.expired && (
                       <Card
                         title="Send your payment"
                         description={`${intent.planName} for ${intent.months} month${intent.months === 1 ? '' : 's'}. The plan starts as soon as the full amount has arrived.`}
@@ -996,7 +1008,7 @@ export default function SettingsPage() {
                       </Card>
                     )}
 
-                    {intent && intent.expired && (
+                    {salesOpen && intent && intent.expired && (
                       <Card
                         title="Purchase expired"
                         description={`Your ${intent.planName} payment window closed before the full amount arrived.`}
@@ -1014,6 +1026,7 @@ export default function SettingsPage() {
                       </Card>
                     )}
 
+                    {salesOpen && (
                     <Card
                       title={onFree ? 'Choose a plan' : 'Change plan'}
                       description={`Paid in USDC on Solana. Free gives you ${freeDaily} credits a day and costs nothing.`}
@@ -1081,6 +1094,7 @@ export default function SettingsPage() {
                       {!paying && planNotice && <div className="mt-4"><Notice tone="info">{planNotice}</Notice></div>}
                       {!paying && planSuccess && <div className="mt-4"><Notice tone="success">{planSuccess}</Notice></div>}
                     </Card>
+                    )}
                   </>
                 );
               })()}
@@ -1345,9 +1359,13 @@ export default function SettingsPage() {
 
                   <Card
                     title="Top up"
-                    description="Deposit USDC on Solana to add credits."
+                    description={topUpsOpen
+                      ? 'Deposit USDC on Solana to add credits.'
+                      : 'Top-ups are closed. Credits you already have stay spendable.'}
                   >
                     <div className="space-y-4">
+                      {topUpsOpen && (
+                      <>
                       <div>
                         <div className="flex items-center gap-2 bg-fg/[0.03] border border-fg/10 rounded-xl p-3 focus-within:border-field-focus transition-colors">
                           <span className="pixel-sans text-fg-50 text-base">$</span>
@@ -1382,7 +1400,14 @@ export default function SettingsPage() {
                           Send only USDC (SPL token) to this address. Other tokens will be lost.
                         </p>
                       </div>
+                      </>
+                      )}
 
+                      {!topUpsOpen && (
+                        <p className="pixel-sans text-fg-50 text-[13px] leading-relaxed">
+                          Sent USDC to your deposit address before this closed? Check for it here and it is added as credits.
+                        </p>
+                      )}
                       <button onClick={checkDeposit} disabled={checkingDeposit} className={`${btnSecondary} w-full py-2.5`}>
                         {checkingDeposit ? 'Checking' : 'Check for deposit'}
                       </button>

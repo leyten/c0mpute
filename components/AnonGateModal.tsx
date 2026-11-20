@@ -5,7 +5,7 @@ import { useBrand } from '@/components/BrandProvider';
 // Popup shown to anonymous (not-logged-in) visitors at the three free-prompt
 // boundaries:
 //   nudge     — they have 1 free prompt left (dismissible, gentle).
-//   empty     — they've used all free prompts; sign in + top up to continue.
+//   empty     — they've used all free prompts; sign in to continue.
 //   softlogin — free prompts are unavailable right now (daily budget reached),
 //               or the homepage is steering them to sign in.
 interface AnonGateModalProps {
@@ -18,14 +18,14 @@ interface AnonGateModalProps {
 const COPY = {
   nudge: {
     title: '1 free prompt left',
-    body: 'Make a free account to keep going. Sign in with X and top up only when you want more.',
+    body: 'Make a free account to keep going. Sign in with X for free credits every day.',
     primary: 'Make an account',
     secondary: 'Use my last one',
   },
   empty: {
     title: "You're out of free prompts",
-    body: 'Sign in with X to create your account and top up to keep chatting. Signing in is free.',
-    primary: 'Sign in & top up',
+    body: 'Sign in with X to create your account and keep chatting. Signing in is free.',
+    primary: 'Sign in with X',
     secondary: 'Maybe later',
   },
   softlogin: {
