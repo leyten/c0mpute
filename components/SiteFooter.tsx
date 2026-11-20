@@ -56,12 +56,11 @@ export default function SiteFooter() {
           </div>
         </div>
 
-        {/* Operating entity + legal links. Reviewers look for the corporation by
-            name, so this is not decorative. New brand only until cutover. */}
+        {/* Copyright line + legal links. New brand only until cutover. */}
         {brand.legalFooter && (
           <div className="mt-10 pt-6 border-t border-fg/10 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div className="pixel-sans text-fg-40 text-xs">
-              &copy; {new Date().getFullYear()} Compute Network Inc.
+              &copy; {new Date().getFullYear()} Compute Network
             </div>
             <div className="flex items-center gap-5">
               <a href="/terms" className="pixel-sans text-fg-40 hover:text-fg transition-colors text-xs">Terms</a>

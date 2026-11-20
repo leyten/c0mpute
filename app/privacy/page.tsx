@@ -4,17 +4,16 @@ import { pageMetadata } from '@/lib/seo';
 export const generateMetadata = () =>
   pageMetadata({
     title: 'Privacy',
-    description: 'What Compute Network Inc. collects, what it does not, and why.',
+    description: 'What Compute Network collects, what it does not, and why.',
     path: '/privacy',
     legacy: 'Privacy Policy',
   });
 
 export default function PrivacyPolicy() {
   return (
-    <LegalPage title="Privacy Policy" updated="10 AUGUST 2026">
+    <LegalPage title="Privacy Policy" updated="20 NOVEMBER 2026">
       <p>
-        This policy describes how <strong>Compute Network Inc.</strong> (&ldquo;Compute Network&rdquo;,
-        &ldquo;we&rdquo;) handles information when you use our website, API, and network. It is written to
+        This policy describes how <strong>Compute Network</strong> (&ldquo;we&rdquo;) handles information when you use our website, API, and network. It is written to
         describe what the software actually does. Where a practice is less private than you might
         assume, we say so rather than leave it out.
       </p>
@@ -71,7 +70,7 @@ export default function PrivacyPolicy() {
 
       <h2>9. Contact</h2>
       <p>
-        Compute Network Inc.<br />
+        Compute Network<br />
         Privacy enquiries: <a href="mailto:privacy@compute.tech">privacy@compute.tech</a>
       </p>
 

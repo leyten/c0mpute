@@ -25,7 +25,7 @@ export default function LegalPage({
           {children}
         </div>
         <p className="pixel-sans text-fg-40 text-xs mt-14 pt-6 border-t border-fg/10">
-          Compute Network Inc. &middot;{' '}
+          Compute Network &middot;{' '}
           <a href="/terms" className="hover:text-fg transition-colors">Terms</a> &middot;{' '}
           <a href="/privacy" className="hover:text-fg transition-colors">Privacy</a> &middot;{' '}
           <a href="/acceptable-use" className="hover:text-fg transition-colors">Acceptable Use</a>
